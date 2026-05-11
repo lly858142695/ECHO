@@ -1,6 +1,6 @@
 import { memo } from 'react';
-import type { CSSProperties } from 'react';
 import { Heart, ListPlus, MoreHorizontal, Music2 } from 'lucide-react';
+import type { LibraryTrack } from '../../../shared/types/library';
 
 export type HifiTagKind = 'flac' | 'lossless' | 'depth' | 'rate' | 'bitrate' | 'bpm' | 'dsf' | 'hires';
 
@@ -9,27 +9,53 @@ export type HifiTag = {
   kind: HifiTagKind;
 };
 
-export type TrackListItem = {
-  id: string;
-  title: string;
-  artist: string;
-  album: string;
-  duration: string;
-  tags: HifiTag[];
-  cover?: {
-    from: string;
-    to: string;
-  };
-};
-
 type TrackRowProps = {
-  track: TrackListItem;
+  track: LibraryTrack;
   isPlaying: boolean;
 };
 
-type CoverStyle = CSSProperties & {
-  '--cover-from'?: string;
-  '--cover-to'?: string;
+const formatDuration = (duration: number): string => {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return '--:--';
+  }
+
+  const totalSeconds = Math.round(duration);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+};
+
+const tagsFromTrack = (track: LibraryTrack): HifiTag[] => {
+  const tags: HifiTag[] = [];
+  const codec = track.codec?.toUpperCase();
+
+  if (codec) {
+    tags.push({
+      label: codec,
+      kind: codec === 'FLAC' ? 'flac' : codec === 'DSF' || codec === 'DFF' ? 'dsf' : 'lossless',
+    });
+  }
+
+  if (track.bitDepth && track.sampleRate) {
+    tags.push({
+      label: `${track.bitDepth}bit / ${track.sampleRate >= 1000 ? `${Math.round(track.sampleRate / 1000)}kHz` : `${track.sampleRate}Hz`}`,
+      kind: 'depth',
+    });
+  } else if (track.sampleRate) {
+    tags.push({
+      label: `${Math.round(track.sampleRate / 1000)}kHz`,
+      kind: 'rate',
+    });
+  }
+
+  if (track.bitrate) {
+    tags.push({
+      label: `${Math.round(track.bitrate / 1000)}kbps`,
+      kind: 'bitrate',
+    });
+  }
+
+  return tags.slice(0, 4);
 };
 
 const tagClassNameByKind: Record<HifiTagKind, string> = {
@@ -45,17 +71,12 @@ const tagClassNameByKind: Record<HifiTagKind, string> = {
 
 export const TrackRow = memo(
   ({ track, isPlaying }: TrackRowProps): JSX.Element => {
-    const coverStyle: CoverStyle | undefined = track.cover
-      ? {
-          '--cover-from': track.cover.from,
-          '--cover-to': track.cover.to,
-        }
-      : undefined;
+    const tags = tagsFromTrack(track);
 
     return (
       <div className="track-row" data-playing={isPlaying} role="listitem">
-        <div className="track-cover" data-empty={!track.cover} style={coverStyle} aria-hidden="true">
-          {track.cover ? <div className="cover-sheen" /> : <Music2 size={20} />}
+        <div className="track-cover" data-empty={!track.coverThumb} aria-hidden="true">
+          {track.coverThumb ? <img alt="" src={track.coverThumb} /> : <Music2 size={20} />}
         </div>
 
         <div className="track-main">
@@ -67,7 +88,7 @@ export const TrackRow = memo(
             {track.artist} - {track.album}
           </div>
           <div className="tag-row" aria-label="音频规格">
-            {track.tags.map((tag) => (
+            {tags.map((tag) => (
               <span className={`hifi-tag ${tagClassNameByKind[tag.kind]}`} key={`${track.id}-${tag.label}`}>
                 {tag.label}
               </span>
@@ -75,7 +96,7 @@ export const TrackRow = memo(
           </div>
         </div>
 
-        <div className="track-duration">{track.duration}</div>
+        <div className="track-duration">{formatDuration(track.duration)}</div>
 
         <div className="track-actions" aria-label={`${track.title} 操作`}>
           <button className="row-action" type="button" aria-label="喜欢" title="喜欢">

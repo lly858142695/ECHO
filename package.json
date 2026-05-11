@@ -9,13 +9,16 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "lint": "eslint .",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "repair:electron": "node scripts/install-electron.cjs"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.13.24",
     "@vitejs/plugin-react": "^5.1.4",
     "electron-vite": "^5.0.0",
     "lucide-react": "^0.468.0",
+    "music-metadata": "^11.12.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
@@ -29,6 +32,7 @@
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "typescript": "^5.3.3",
-    "vite": "^7.3.3"
+    "vite": "^7.3.3",
+    "vitest": "^4.1.6"
   }
 }

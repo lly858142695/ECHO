@@ -13,17 +13,26 @@ Current Phase 0 intentionally does not implement scanning, playback, or SQLite.
 
 ## Phase 1: Library Core
 
-- add library folders
-- background scanning
+- SQLite schema and migrations for folders, tracks, albums, album tracks, artists, covers, and scan jobs
+- local library folders
+- background scan jobs with status, cancellation, progress, and errors
+- incremental scanning by `path + size_bytes + mtime_ms`
 - embedded metadata reading
-- cover thumbnail generation
-- SQLite schema and migrations
-- transaction-backed writes
-- `SongsPage` with pagination or virtualization
+- cover asset structure for thumb, large, and original
+- transaction-backed scan writes
+- album grouping by album title and album artist
+- `SongsPage` with paged API reads and virtualized rows
 - `AlbumsPage` with paged album wall
+- focused tests for migration, scanning, metadata priority, album grouping, pagination, and cover safety
+
+Deferred beyond the minimal Phase 1 loop:
+
 - FTS-backed search
-- scan progress and cancellation
-- focused tests for metadata, cover, and library store behavior
+- real thumbnail generation
+- manual metadata editing
+- sidecar metadata
+- network completion
+- artist detail pages
 
 ## Phase 2: Audio Core
 

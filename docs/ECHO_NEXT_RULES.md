@@ -42,6 +42,12 @@ The renderer must not:
 
 Songs, albums, artists, and search results must be paged or virtualized.
 
+Current Phase 1 list defaults:
+
+- songs: `pageSize = 100`
+- albums: `pageSize = 60`
+- track rows are virtualized with an estimated 70px row height
+
 ## Preload Rules
 
 Preload must:
@@ -72,6 +78,8 @@ Filename guessing must never overwrite embedded `title`, `artist`, or `album`.
 
 Network metadata must never overwrite embedded tags.
 
+Every stored track must preserve per-field source information in `field_sources_json`.
+
 ## Cover Priority
 
 Cover priority is fixed:
@@ -93,6 +101,8 @@ Covers must be stored as:
 
 List views use thumb only. Full covers load on demand.
 
+List APIs must never return `cover_large`, `cover_original`, raw binary cover data, or base64 cover payloads.
+
 ## Long Tasks
 
 All long tasks must be:
@@ -104,6 +114,10 @@ All long tasks must be:
 
 This includes scanning, metadata extraction, cover generation, audio analysis, and future network enrichment.
 
+Local library scans must skip metadata parsing when `path + size_bytes + mtime_ms` is unchanged.
+
 ## Testing Rules
 
 Changes touching metadata, cover, audio, library, encoding, database migration, or file scanning behavior must include focused tests.
+
+Library Core tests should prefer real SQLite and mocked metadata readers over large binary audio fixtures unless a parser integration bug specifically requires real media.

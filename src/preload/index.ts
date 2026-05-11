@@ -7,6 +7,14 @@ const echoApi: EchoApi = {
     getVersion: () => ipcRenderer.invoke(IpcChannels.AppGetVersion),
   },
   library: {
+    addFolder: (path) => ipcRenderer.invoke(IpcChannels.LibraryAddFolder, path),
+    getFolders: () => ipcRenderer.invoke(IpcChannels.LibraryGetFolders),
+    removeFolder: (folderId) => ipcRenderer.invoke(IpcChannels.LibraryRemoveFolder, folderId),
+    scanFolder: (folderId) => ipcRenderer.invoke(IpcChannels.LibraryScanFolder, folderId),
+    getScanStatus: (jobId) => ipcRenderer.invoke(IpcChannels.LibraryGetScanStatus, jobId),
+    cancelScan: (jobId) => ipcRenderer.invoke(IpcChannels.LibraryCancelScan, jobId),
+    getTracks: (query) => ipcRenderer.invoke(IpcChannels.LibraryGetTracks, query),
+    getAlbums: (query) => ipcRenderer.invoke(IpcChannels.LibraryGetAlbums, query),
     getSummary: () => ipcRenderer.invoke(IpcChannels.LibraryGetSummary),
   },
   playback: {

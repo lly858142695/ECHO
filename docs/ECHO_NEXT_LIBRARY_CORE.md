@@ -1,116 +1,151 @@
 # ECHO Next Library Core
 
-The Library Core owns all local music library logic. Renderer UI is a consumer, not a participant.
+Phase 1 implements the smallest local-library loop: folders enter the library, scans discover audio files, metadata is parsed only when needed, SQLite stores the canonical catalog, and renderer list views read paged data.
 
-## Planned Modules
+The renderer is a consumer only. It never scans folders, parses metadata, builds album groups, or receives full cover payloads.
+
+## Modules
 
 `LibraryService`
 
-- public facade for library IPC
-- coordinates scanner, metadata, covers, albums, artists, search, and store
-- exposes `getTracks`, `getAlbums`, `getArtists`, `scan`, and `search`
-
-`LibraryScanner`
-
-- walks user-selected folders
-- emits seed file data: path, size, mtime, extension
-- does not read full covers
-- does not notify renderer directly
-
-`MetadataService`
-
-- reads embedded tags
-- extracts title, artist, album, album artist, track number, disc number, year, duration, codec, sample rate, bit depth, bitrate
-- records `fieldSourcesJson`
-- preserves embedded tags above filename guesses and network data
-
-`CoverService`
-
-- resolves cover source priority
-- generates thumb, large, and original assets
-- caches generated assets
-- keeps full cover loading on demand
-
-`AlbumService`
-
-- generates album IDs and album keys
-- handles album grouping
-- prevents same-name albums by different album artists from merging
-- avoids dumping empty-album tracks into one giant unknown album
-
-`ArtistService`
-
-- manages artist and album artist identities
-- supports basic multi-artist handling
-
-`SearchService`
-
-- uses SQLite FTS or an equivalent indexed approach
-- searches title, artist, and album
-- returns paged results
+- public facade used by IPC
+- owns the default Library Core composition
+- exposes folder, scan, track, album, and summary APIs
 
 `LibraryStore`
 
-- owns SQLite access
-- runs writes in transactions
-- owns migrations and indexes
+- owns all SQLite reads and writes
+- runs migrations
+- performs paged track and album queries
+- tracks scan jobs and incremental fingerprints
+
+`LibraryScanner`
+
+- recursively walks local folders
+- filters supported audio extensions
+- returns path, size, and mtime only
+
+`MetadataService`
+
+- reads embedded metadata with `music-metadata`
+- normalizes title, artist, album, album artist, duration, codec, sample rate, bit depth, bitrate
+- records field sources in `field_sources_json`
+
+`CoverService`
+
+- reserves the `thumb`, `large`, and `original` structure
+- deduplicates embedded covers by hash
+- never returns full cover data from list APIs
+
+`AlbumService`
+
+- owns `album_key` generation
+- groups by normalized `albumArtist + album`
+- prevents same-title albums by different album artists from merging
 
 `ScanJobQueue`
 
-- manages scan jobs
-- supports background work, cancellation, progress, errors, and incremental scans
+- starts background scan jobs
+- supports status, progress, cancellation, and error collection
+- skips unchanged files by path, size, and mtime
 
-## SQLite Tables
+## SQLite Schema
 
 Core tables:
 
-- tracks
-- albums
-- artists
-- album_tracks
-- folders
-- covers
-- scan_jobs
-- playlists
-- playlist_tracks
-- play_history
-- settings
+- `folders`: imported local roots
+- `tracks`: canonical track metadata and incremental file fingerprint
+- `albums`: grouped album records
+- `album_tracks`: album-track relationship
+- `artists`: basic track and album artist index
+- `covers`: reserved cover asset paths for `cover_thumb`, `cover_large`, `cover_original`
+- `scan_jobs`: scan status, progress, cancellation, and errors
 
-## Track Fields
+Required indexes:
 
-`tracks` should include at least:
+- `tracks(path)`
+- `tracks(folder_id)`
+- `tracks(title)`
+- `tracks(artist)`
+- `tracks(album)`
+- `albums(album_key)`
+- `album_tracks(album_id)`
+- `folders(path)`
 
-- id
-- path
-- folder_id
-- size_bytes
-- mtime_ms
-- title
-- artist
-- album
-- album_artist
-- track_no
-- disc_no
-- year
-- genre
-- duration
-- codec
-- sample_rate
-- bit_depth
-- bitrate
-- cover_id
-- metadata_status
-- field_sources_json
-- created_at
-- updated_at
+## Scan Pipeline
 
-## Performance Contract
+1. `library.scanFolder(folderId)` creates a `scan_jobs` row and returns the job.
+2. `ScanJobQueue` runs in the background.
+3. `LibraryScanner` discovers audio files and stats each file.
+4. Existing `tracks.path` rows are compared by `size_bytes + mtime_ms`.
+5. Unchanged files are counted as skipped and metadata parsing is not called.
+6. Changed or new files are parsed by `MetadataService`.
+7. Scan writes run in a SQLite transaction:
+   - cover placeholders/hashes are inserted if needed
+   - tracks are upserted
+   - albums are rebuilt
+   - artists are rebuilt
+   - scan status is finalized
+8. Renderer polls `getScanStatus(jobId)` when it needs progress.
 
-- Do not reparse unchanged files.
-- Metadata work runs in the background.
-- Cover work runs in the background.
-- Batch writes use transactions.
-- List queries are paged.
-- List queries return thumbnails only.
-- Full covers load on demand.
-- React state never receives the full library and all covers at once.
+## Metadata Priority
+
+The fixed priority is:
+
+1. user manual edit
+2. embedded tags
+3. sidecar/info files
+4. folder structure
+5. network completion
+6. filename fallback
+
+Phase 1 implements embedded tags, folder album fallback, and filename fallback. Manual edits, sidecar metadata, and network completion are reserved by `field_sources_json`.
+
+Filename fallback is only used when an embedded field is missing. It must never overwrite embedded `title`, `artist`, or `album`.
+
+## Cover Priority
+
+The fixed priority is:
+
+1. user manual cover
+2. embedded cover
+3. local folder cover
+4. sidecar cover
+5. network cover
+6. generated placeholder
+
+Phase 1 stores the cover record shape and embedded-cover hash, but does not generate real thumbnail files yet. List APIs return `coverThumb` only. They never return `cover_large`, `cover_original`, or base64 image payloads.
+
+## Pagination API
+
+Track and album lists use:
+
+- `page`
+- `pageSize`
+- `search`
+- `sort`
+
+`SongsPage` starts with `pageSize = 100`. `AlbumsPage` starts with `pageSize = 60`.
+
+The response shape is:
+
+- `items`
+- `page`
+- `pageSize`
+- `total`
+- `hasMore`
+
+## Testing Strategy
+
+Phase 1 tests cover:
+
+- migration initialization
+- folder insertion
+- unchanged file skip behavior
+- changed mtime reparse behavior
+- metadata priority
+- album grouping boundaries
+- paginated track queries
+- list API cover safety
+
+Tests use real SQLite and scanner behavior with a mock metadata reader so incremental scan behavior stays deterministic.
