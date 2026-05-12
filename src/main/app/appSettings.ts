@@ -5,6 +5,11 @@ import type { AppSettings } from '../../shared/types/appSettings';
 
 const defaultSettings: AppSettings = {
   hideToTrayOnClose: false,
+  networkMetadataEnabled: false,
+  networkMetadataProviders: ['netease-cloud-music', 'qq-music'],
+  playerVolume: 1,
+  playbackSpeed: 1,
+  playbackSpeedMode: 'nightcore',
 };
 
 let cachedSettings: AppSettings | null = null;
@@ -17,9 +22,32 @@ const normalizeSettings = (value: unknown): AppSettings => {
   }
 
   const settings = value as Partial<AppSettings>;
+  const playerVolume = Number(settings.playerVolume);
+  const playbackSpeed = Number(settings.playbackSpeed);
+  const playbackSpeedMode =
+    settings.playbackSpeedMode === 'daycore' || settings.playbackSpeedMode === 'speed'
+      ? settings.playbackSpeedMode
+      : defaultSettings.playbackSpeedMode;
+  const providers = Array.isArray(settings.networkMetadataProviders)
+    ? settings.networkMetadataProviders.filter(
+        (provider): provider is AppSettings['networkMetadataProviders'][number] =>
+          provider === 'mock' ||
+          provider === 'musicbrainz' ||
+          provider === 'cover-art-archive' ||
+          provider === 'netease-cloud-music' ||
+          provider === 'qq-music',
+      )
+    : defaultSettings.networkMetadataProviders;
 
   return {
     hideToTrayOnClose: settings.hideToTrayOnClose === true,
+    networkMetadataEnabled: settings.networkMetadataEnabled === true,
+    networkMetadataProviders: providers.length ? providers : defaultSettings.networkMetadataProviders,
+    playerVolume: Number.isFinite(playerVolume) ? Math.max(0, Math.min(1, playerVolume)) : defaultSettings.playerVolume,
+    playbackSpeed: Number.isFinite(playbackSpeed)
+      ? Math.max(0.5, Math.min(2, playbackSpeed))
+      : defaultSettings.playbackSpeed,
+    playbackSpeedMode,
   };
 };
 

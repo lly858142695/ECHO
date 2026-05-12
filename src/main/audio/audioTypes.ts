@@ -67,6 +67,7 @@ export type NativeOutputStartOptions = {
   volume?: number;
   startSeconds?: number;
   playbackRate?: number;
+  playbackSpeedMode?: AudioOutputSettings['playbackSpeedMode'];
 };
 
 export type NativeBridgeReadyMessage = Record<string, unknown> & {

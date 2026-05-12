@@ -102,6 +102,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       trackId: track.id,
       probe: createProbeFromTrack(track),
     });
+    void window.echo?.library?.recordTrackPlayback?.(track.id);
     setLastPlayedTrack(track);
     setCurrentTrackId(status.currentTrackId ?? track.id);
     return status;

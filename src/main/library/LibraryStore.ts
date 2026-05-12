@@ -7,6 +7,7 @@ import type {
   CoverResult,
   CoverVariant,
   LibraryAlbum,
+  LibraryArtist,
   LibraryDiagnostics,
   LibraryFolder,
   LibraryPage,
@@ -32,7 +33,7 @@ const pageFromQuery = (query?: LibraryPageQuery): { page: number; pageSize: numb
   page: Math.max(1, Math.floor(Number(query?.page ?? 1))),
   pageSize: Math.min(maxPageSize, Math.max(1, Math.floor(Number(query?.pageSize ?? defaultPageSize)))),
   search: typeof query?.search === 'string' ? query.search.trim() : '',
-  sort: query?.sort ?? 'title',
+  sort: query?.sort ?? 'default',
 });
 
 const likeSearch = (search: string): string => `%${search.replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
@@ -465,6 +466,14 @@ export class LibraryStore {
     this.run('UPDATE tracks SET cover_id = ?, updated_at = ? WHERE id = ?', coverId, timestamp, trackId);
   }
 
+  recordTrackPlayback(trackId: string, timestamp = nowIso()): void {
+    this.run(
+      'UPDATE tracks SET play_count = COALESCE(play_count, 0) + 1, last_played_at = ? WHERE id = ? AND missing = 0',
+      timestamp,
+      trackId,
+    );
+  }
+
   getTrack(trackId: string): LibraryTrack | null {
     const row = this.getRow(
       `SELECT
@@ -479,6 +488,19 @@ export class LibraryStore {
     );
 
     return row ? this.mapTrack(row) : null;
+  }
+
+  getActiveTracks(): LibraryTrack[] {
+    return this.allRows(
+      `SELECT
+        tracks.id, tracks.path, tracks.title, tracks.artist, tracks.album, tracks.album_artist,
+        tracks.track_no, tracks.disc_no, tracks.year, tracks.genre,
+        tracks.duration, tracks.codec, tracks.sample_rate, tracks.bit_depth, tracks.bitrate,
+        tracks.cover_id, tracks.metadata_status, tracks.embedded_metadata_status, tracks.embedded_cover_status,
+        tracks.network_metadata_status, tracks.field_sources_json
+      FROM tracks
+      WHERE tracks.missing = 0`,
+    ).map((row) => this.mapTrack(row));
   }
 
   updateTrackTags(
@@ -540,6 +562,24 @@ export class LibraryStore {
 
   deleteTrack(trackId: string): void {
     this.run('DELETE FROM tracks WHERE id = ?', trackId);
+  }
+
+  deleteTracks(trackIds: string[]): number {
+    let changed = 0;
+
+    for (const trackId of trackIds) {
+      changed += Number(this.run('DELETE FROM tracks WHERE id = ?', trackId).changes ?? 0);
+    }
+
+    return changed;
+  }
+
+  deleteAllTracks(): number {
+    const changed = Number(this.run('DELETE FROM tracks').changes ?? 0);
+    this.run('DELETE FROM album_tracks');
+    this.run('DELETE FROM albums');
+    this.run('DELETE FROM artists');
+    return changed;
   }
 
   refreshArtists(): void {
@@ -778,6 +818,34 @@ export class LibraryStore {
     }
   }
 
+  getArtists(query?: LibraryPageQuery): LibraryPage<LibraryArtist> {
+    const { page, pageSize, search, sort } = pageFromQuery(query);
+    const offset = (page - 1) * pageSize;
+    const whereSql = search ? "WHERE artists.name LIKE ? ESCAPE '\\'" : '';
+    const searchParams = search ? [likeSearch(search)] : [];
+    const orderSql = this.artistOrderSql(sort);
+    const totalRow = this.getRow(`SELECT COUNT(*) AS total FROM artists ${whereSql}`, ...searchParams);
+    const rows = this.allRows(
+      `SELECT id, name, sort_name, role, track_count, album_count
+       FROM artists
+       ${whereSql}
+       ${orderSql}
+       LIMIT ? OFFSET ?`,
+      ...searchParams,
+      pageSize,
+      offset,
+    );
+    const total = Number(totalRow?.total ?? 0);
+
+    return {
+      items: rows.map((row) => this.mapArtist(row)),
+      page,
+      pageSize,
+      total,
+      hasMore: offset + rows.length < total,
+    };
+  }
+
   getAlbumTracks(albumId: string, query?: Pick<LibraryPageQuery, 'page' | 'pageSize'>): LibraryPage<LibraryTrack> {
     const { page, pageSize } = pageFromQuery(query);
     const offset = (page - 1) * pageSize;
@@ -902,6 +970,26 @@ export class LibraryStore {
         return 'ORDER BY tracks.album COLLATE NOCASE, tracks.title COLLATE NOCASE';
       case 'recent':
         return 'ORDER BY tracks.updated_at DESC, tracks.title COLLATE NOCASE';
+      case 'createdAsc':
+        return 'ORDER BY tracks.created_at ASC, tracks.title COLLATE NOCASE';
+      case 'createdDesc':
+        return 'ORDER BY tracks.created_at DESC, tracks.title COLLATE NOCASE';
+      case 'titleDesc':
+        return 'ORDER BY tracks.title COLLATE NOCASE DESC, tracks.artist COLLATE NOCASE';
+      case 'durationAsc':
+        return 'ORDER BY tracks.duration ASC, tracks.title COLLATE NOCASE';
+      case 'durationDesc':
+        return 'ORDER BY tracks.duration DESC, tracks.title COLLATE NOCASE';
+      case 'qualityAsc':
+        return 'ORDER BY COALESCE(tracks.bitrate, 0) ASC, tracks.size_bytes ASC, tracks.title COLLATE NOCASE';
+      case 'qualityDesc':
+        return 'ORDER BY COALESCE(tracks.bitrate, 0) DESC, tracks.size_bytes DESC, tracks.title COLLATE NOCASE';
+      case 'frequent':
+        return 'ORDER BY COALESCE(tracks.play_count, 0) DESC, tracks.last_played_at DESC, tracks.title COLLATE NOCASE';
+      case 'random':
+        return 'ORDER BY RANDOM()';
+      case 'titleAsc':
+      case 'default':
       case 'title':
       default:
         return 'ORDER BY tracks.title COLLATE NOCASE, tracks.artist COLLATE NOCASE';
@@ -913,11 +1001,46 @@ export class LibraryStore {
       case 'artist':
         return 'ORDER BY albums.album_artist COLLATE NOCASE, albums.title COLLATE NOCASE';
       case 'recent':
+      case 'createdDesc':
         return 'ORDER BY albums.updated_at DESC, albums.title COLLATE NOCASE';
+      case 'createdAsc':
+        return 'ORDER BY albums.created_at ASC, albums.title COLLATE NOCASE';
+      case 'titleDesc':
+        return 'ORDER BY albums.title COLLATE NOCASE DESC, albums.album_artist COLLATE NOCASE';
+      case 'durationAsc':
+        return 'ORDER BY albums.duration ASC, albums.title COLLATE NOCASE';
+      case 'durationDesc':
+        return 'ORDER BY albums.duration DESC, albums.title COLLATE NOCASE';
+      case 'random':
+        return 'ORDER BY RANDOM()';
       case 'album':
+      case 'titleAsc':
+      case 'default':
       case 'title':
       default:
         return 'ORDER BY albums.title COLLATE NOCASE, albums.album_artist COLLATE NOCASE';
+    }
+  }
+
+  private artistOrderSql(sort: string): string {
+    switch (sort) {
+      case 'frequent':
+        return 'ORDER BY artists.track_count DESC, artists.album_count DESC, artists.name COLLATE NOCASE';
+      case 'createdDesc':
+      case 'recent':
+        return 'ORDER BY artists.updated_at DESC, artists.name COLLATE NOCASE';
+      case 'createdAsc':
+        return 'ORDER BY artists.created_at ASC, artists.name COLLATE NOCASE';
+      case 'titleDesc':
+        return 'ORDER BY artists.name COLLATE NOCASE DESC';
+      case 'random':
+        return 'ORDER BY RANDOM()';
+      case 'artist':
+      case 'titleAsc':
+      case 'default':
+      case 'title':
+      default:
+        return 'ORDER BY artists.sort_name COLLATE NOCASE, artists.name COLLATE NOCASE';
     }
   }
 
@@ -1009,6 +1132,20 @@ export class LibraryStore {
       embeddedCoverStatus: this.mapEmbeddedStatus(row.embedded_cover_status),
       networkMetadataStatus: this.mapNetworkStatus(row.network_metadata_status),
       fieldSources: parseJsonObject(row.field_sources_json),
+    };
+  }
+
+  private mapArtist(row: DbRow): LibraryArtist {
+    const trackCount = Number(row.track_count ?? 0);
+    const albumCount = Number(row.album_count ?? 0);
+
+    return {
+      id: String(row.id),
+      name: String(row.name),
+      sortName: String(row.sort_name ?? row.name),
+      role: trackCount > 0 && albumCount > 0 ? 'both' : albumCount > 0 ? 'album' : 'track',
+      trackCount,
+      albumCount,
     };
   }
 

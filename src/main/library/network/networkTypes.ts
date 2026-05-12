@@ -1,6 +1,7 @@
 import type { EmbeddedReadinessStatus, FieldSources, NetworkMetadataStatus } from '../libraryTypes';
+import type { LibraryTrack, MissingMetadataReason } from '../../../shared/types/library';
 
-export type NetworkProviderName = 'mock' | 'musicbrainz' | 'cover-art-archive';
+export type NetworkProviderName = 'mock' | 'musicbrainz' | 'cover-art-archive' | 'netease-cloud-music' | 'qq-music';
 
 export type NetworkCompletionSource = NetworkProviderName;
 
@@ -18,6 +19,12 @@ export type NetworkTrackLookup = {
   fieldSources: FieldSources;
   embeddedMetadataStatus: EmbeddedReadinessStatus;
   embeddedCoverStatus: EmbeddedReadinessStatus;
+};
+
+export type NetworkMissingMetadataTarget = NetworkTrackLookup & {
+  track: LibraryTrack;
+  reasons: MissingMetadataReason[];
+  coverSource: string | null;
 };
 
 export type NetworkMetadataCandidateInput = {

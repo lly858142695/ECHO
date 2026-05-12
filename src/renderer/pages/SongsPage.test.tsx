@@ -52,6 +52,9 @@ const makeTrack = (overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
   bitrate: 900000,
   coverId: null,
   coverThumb: null,
+  embeddedMetadataStatus: 'present',
+  embeddedCoverStatus: 'missing',
+  networkMetadataStatus: 'none',
   fieldSources: {},
   ...overrides,
 });
@@ -89,6 +92,9 @@ const installEcho = (tracks: LibraryTrack[] = []) => {
       getScanStatus: vi.fn(),
       cancelScan: vi.fn(),
       getDiagnostics: vi.fn(),
+      recordTrackPlayback: vi.fn(),
+      pruneMissingTracks: vi.fn().mockResolvedValue({ scannedCount: tracks.length, removedCount: 0 }),
+      clearTracks: vi.fn().mockResolvedValue({ scannedCount: tracks.length, removedCount: tracks.length }),
     },
     playback: {
       getStatus: vi.fn().mockResolvedValue({
@@ -165,5 +171,29 @@ describe('SongsPage', () => {
       }),
     );
     await waitFor(() => expect(screen.getByTestId('current-track-id').textContent).toBe('track-1'));
+  });
+
+  it('scans missing tracks from the toolbar', async () => {
+    const track = makeTrack();
+    installEcho([track]);
+
+    await renderSongsPage();
+    fireEvent.click(screen.getByRole('button', { name: '扫描失效歌曲' }));
+
+    await waitFor(() => expect(window.echo.library.pruneMissingTracks).toHaveBeenCalledTimes(1));
+    await screen.findByText('已扫描 1 首，没有发现失效歌曲。');
+  });
+
+  it('confirms before clearing the song list', async () => {
+    const track = makeTrack();
+    installEcho([track]);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    await renderSongsPage();
+    await screen.findByText('Song One');
+    fireEvent.click(screen.getByRole('button', { name: '清空列表' }));
+
+    await waitFor(() => expect(window.confirm).toHaveBeenCalledWith('清空歌曲列表？\n这会从列表移除 1 首歌曲，不会删除本地音乐文件。'));
+    await waitFor(() => expect(window.echo.library.clearTracks).toHaveBeenCalledTimes(1));
   });
 });

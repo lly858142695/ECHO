@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, Download, FolderPlus, RefreshCw, RotateCw, Search, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Download, FolderPlus, RotateCw, Search, Trash2 } from 'lucide-react';
 import type { EditableTrackTags, LibrarySort, LibraryTrack } from '../../shared/types/library';
 import { TrackContextMenu } from '../components/library/TrackContextMenu';
 import type { TrackMenuAction } from '../components/library/TrackContextMenu';
@@ -8,6 +8,22 @@ import { TrackTagEditorDrawer } from '../components/library/TrackTagEditorDrawer
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 
 const pageSize = 100;
+const sortOptions: Array<{ value: LibrarySort; label: string }> = [
+  { value: 'default', label: '默认排序' },
+  { value: 'createdAsc', label: '创建时间 (正序)' },
+  { value: 'createdDesc', label: '创建时间 (倒序)' },
+  { value: 'titleAsc', label: '歌曲名 (A-Z)' },
+  { value: 'titleDesc', label: '歌曲名 (Z-A)' },
+  { value: 'durationAsc', label: '音乐时间 (短到长)' },
+  { value: 'durationDesc', label: '音乐时间 (长到短)' },
+  { value: 'qualityAsc', label: '歌曲质量/大小 (小到大)' },
+  { value: 'qualityDesc', label: '歌曲质量/大小 (大到小)' },
+  { value: 'frequent', label: '根据常听歌曲排序' },
+  { value: 'random', label: '随机排序' },
+  { value: 'artist', label: '按艺术家' },
+  { value: 'album', label: '按专辑' },
+  { value: 'recent', label: '最近更新' },
+];
 
 type TrackMenuState = {
   track: LibraryTrack;
@@ -21,14 +37,19 @@ export const SongsPage = (): JSX.Element => {
   const [hasMore, setHasMore] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<LibrarySort>('title');
+  const [sort, setSort] = useState<LibrarySort>('default');
   const [isLoading, setIsLoading] = useState(false);
+  const [isScanningMissing, setIsScanningMissing] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isSortOpen, setIsSortOpen] = useState(false);
   const [trackMenu, setTrackMenu] = useState<TrackMenuState | null>(null);
   const [editingTrack, setEditingTrack] = useState<LibraryTrack | null>(null);
   const [tagEditorError, setTagEditorError] = useState<string | null>(null);
   const [isSavingTags, setIsSavingTags] = useState(false);
   const requestIdRef = useRef(0);
+  const sortMenuRef = useRef<HTMLDivElement | null>(null);
   const { currentTrackId, playTrack, setQueue, appendToQueue, playTrackNext, removeFromQueue } = usePlaybackQueue();
 
   useEffect(() => {
@@ -39,12 +60,28 @@ export const SongsPage = (): JSX.Element => {
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
+  useEffect(() => {
+    if (!isSortOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: MouseEvent): void => {
+      if (!sortMenuRef.current?.contains(event.target as Node)) {
+        setIsSortOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [isSortOpen]);
+
   const loadTracks = useCallback(
     async (nextPage: number, mode: 'replace' | 'append') => {
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
       setIsLoading(true);
       setError(null);
+      setStatusMessage(null);
 
       try {
         const library = window.echo?.library;
@@ -109,12 +146,67 @@ export const SongsPage = (): JSX.Element => {
     }
   }, [hasMore, isLoading, loadTracks, page]);
 
-  const handleRefresh = (): void => {
-    void loadTracks(1, 'replace');
-  };
-
   const handleImportFolder = (): void => {
     window.dispatchEvent(new Event('app:navigate:import-folder'));
+  };
+
+  const handleScanMissingTracks = async (): Promise<void> => {
+    const library = window.echo?.library;
+
+    if (!library) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to scan the library.');
+      return;
+    }
+
+    setIsScanningMissing(true);
+    setError(null);
+    setStatusMessage(null);
+
+    try {
+      const result = await library.pruneMissingTracks();
+      await loadTracks(1, 'replace');
+      window.dispatchEvent(new Event('library:changed'));
+      setStatusMessage(
+        result.removedCount > 0
+          ? `已扫描 ${result.scannedCount} 首，移除 ${result.removedCount} 首失效歌曲。`
+          : `已扫描 ${result.scannedCount} 首，没有发现失效歌曲。`,
+      );
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : String(scanError));
+    } finally {
+      setIsScanningMissing(false);
+    }
+  };
+
+  const handleClearTracks = async (): Promise<void> => {
+    const library = window.echo?.library;
+
+    if (!library) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to clear the library list.');
+      return;
+    }
+
+    if (!window.confirm(`清空歌曲列表？\n这会从列表移除 ${total} 首歌曲，不会删除本地音乐文件。`)) {
+      return;
+    }
+
+    setIsClearing(true);
+    setError(null);
+    setStatusMessage(null);
+
+    try {
+      const result = await library.clearTracks();
+      setTracks([]);
+      setPage(1);
+      setTotal(0);
+      setHasMore(false);
+      window.dispatchEvent(new Event('library:changed'));
+      setStatusMessage(`已清空 ${result.removedCount} 首歌曲。`);
+    } catch (clearError) {
+      setError(clearError instanceof Error ? clearError.message : String(clearError));
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   const handlePlayTrack = useCallback(
@@ -247,16 +339,27 @@ export const SongsPage = (): JSX.Element => {
           <button className="tool-button" type="button" aria-label="导入文件夹" title="导入文件夹" onClick={handleImportFolder}>
             <FolderPlus size={17} />
           </button>
-          <button className="tool-button" type="button" aria-label="扫描曲库" title="扫描曲库">
-            <RotateCw size={17} />
+          <button
+            className="tool-button"
+            type="button"
+            aria-label="扫描失效歌曲"
+            title="扫描失效歌曲"
+            onClick={() => void handleScanMissingTracks()}
+            disabled={isScanningMissing}
+          >
+            <RotateCw className={isScanningMissing ? 'spinning-icon' : undefined} size={17} />
           </button>
           <button className="tool-button" type="button" aria-label="下载" title="下载">
             <Download size={17} />
           </button>
-          <button className="tool-button" type="button" aria-label="刷新" title="刷新" onClick={handleRefresh}>
-            <RefreshCw size={17} />
-          </button>
-          <button className="tool-button danger" type="button" aria-label="删除" title="删除">
+          <button
+            className="tool-button danger"
+            type="button"
+            aria-label="清空列表"
+            title="清空列表"
+            onClick={() => void handleClearTracks()}
+            disabled={isClearing || total === 0}
+          >
             <Trash2 size={17} />
           </button>
         </div>
@@ -273,15 +376,38 @@ export const SongsPage = (): JSX.Element => {
           />
         </label>
 
-        <label className="sort-button sort-select">
-          <select value={sort} onChange={(event) => setSort(event.target.value as LibrarySort)}>
-            <option value="title">默认排序</option>
-            <option value="artist">按艺术家</option>
-            <option value="album">按专辑</option>
-            <option value="recent">最近更新</option>
-          </select>
-          <ChevronDown size={15} />
-        </label>
+        <div className="sort-select" ref={sortMenuRef}>
+          <button
+            className="sort-button"
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded={isSortOpen}
+            onClick={() => setIsSortOpen((current) => !current)}
+          >
+            <span>{sortOptions.find((option) => option.value === sort)?.label ?? '默认排序'}</span>
+            <ChevronDown size={15} />
+          </button>
+          {isSortOpen ? (
+            <div className="sort-menu" role="listbox" aria-label="歌曲排序">
+              {sortOptions.map((option) => (
+                <button
+                  key={option.value}
+                  className="sort-option"
+                  type="button"
+                  role="option"
+                  aria-selected={sort === option.value}
+                  onClick={() => {
+                    setSort(option.value);
+                    setIsSortOpen(false);
+                  }}
+                >
+                  <span>{option.label}</span>
+                  {sort === option.value ? <Check size={14} /> : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <TrackList
@@ -293,9 +419,9 @@ export const SongsPage = (): JSX.Element => {
         onPlay={handlePlayTrack}
       />
 
-      {error || isLoading ? (
+      {error || statusMessage || isLoading || isScanningMissing || isClearing ? (
         <div className="list-footer">
-          <span>{error ?? '正在读取曲库...'}</span>
+          <span>{error ?? statusMessage ?? (isScanningMissing ? '正在扫描失效歌曲...' : isClearing ? '正在清空列表...' : '正在读取曲库...')}</span>
         </div>
       ) : null}
 

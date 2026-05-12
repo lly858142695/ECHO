@@ -45,6 +45,9 @@ const track = (id: string, overrides: Partial<LibraryTrack> = {}): LibraryTrack 
   bitrate: 900000,
   coverId: null,
   coverThumb: null,
+  embeddedMetadataStatus: 'present',
+  embeddedCoverStatus: 'missing',
+  networkMetadataStatus: 'none',
   fieldSources: {},
   ...overrides,
 });
@@ -139,7 +142,7 @@ describe('AlbumsPage', () => {
     renderAlbumsPage();
 
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(1));
-    expect(getAlbums).toHaveBeenCalledWith({ page: 1, pageSize: 60, search: '', sort: 'title' });
+    expect(getAlbums).toHaveBeenCalledWith({ page: 1, pageSize: 60, search: '', sort: 'default' });
     expect(getTracks).not.toHaveBeenCalled();
   });
 
@@ -160,7 +163,7 @@ describe('AlbumsPage', () => {
     fireEvent.scroll(wall);
 
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(2));
-    expect(getAlbums).toHaveBeenNthCalledWith(2, { page: 2, pageSize: 60, search: '', sort: 'title' });
+    expect(getAlbums).toHaveBeenNthCalledWith(2, { page: 2, pageSize: 60, search: '', sort: 'default' });
     expect(screen.getByText('Album 1')).toBeTruthy();
     expect(screen.getByText('Album 2')).toBeTruthy();
   });
@@ -179,9 +182,9 @@ describe('AlbumsPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Search albums / artists'), { target: { value: 'search' } });
     await new Promise((resolve) => window.setTimeout(resolve, 275));
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(2));
-    expect(getAlbums).toHaveBeenNthCalledWith(2, { page: 1, pageSize: 60, search: 'search', sort: 'title' });
+    expect(getAlbums).toHaveBeenNthCalledWith(2, { page: 1, pageSize: 60, search: 'search', sort: 'default' });
 
-    fireEvent.change(screen.getByDisplayValue('Title'), { target: { value: 'artist' } });
+    fireEvent.change(screen.getByDisplayValue('Default'), { target: { value: 'artist' } });
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(3));
     expect(getAlbums).toHaveBeenNthCalledWith(3, { page: 1, pageSize: 60, search: 'search', sort: 'artist' });
   });
@@ -199,7 +202,7 @@ describe('AlbumsPage', () => {
     window.dispatchEvent(new Event('library:changed'));
 
     await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(2));
-    expect(getAlbums).toHaveBeenNthCalledWith(2, { page: 1, pageSize: 60, search: '', sort: 'title' });
+    expect(getAlbums).toHaveBeenNthCalledWith(2, { page: 1, pageSize: 60, search: '', sort: 'default' });
   });
 
   it('renders album coverThumb as a lazy image and stops rendering it after error', async () => {
@@ -241,7 +244,7 @@ describe('AlbumsPage', () => {
 
     await screen.findByText('Album 1');
     fireEvent.change(screen.getByPlaceholderText('Search albums / artists'), { target: { value: 'kept search' } });
-    fireEvent.change(screen.getByDisplayValue('Title'), { target: { value: 'artist' } });
+    fireEvent.change(screen.getByDisplayValue('Default'), { target: { value: 'artist' } });
     fireEvent.click(screen.getByText('Album 1'));
 
     await screen.findByLabelText('Album 1 album details');

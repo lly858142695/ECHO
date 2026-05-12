@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Gauge, Import, Music2 } from 'lucide-react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import { Import } from 'lucide-react';
 import type { AudioStatus } from '../../../shared/types/audio';
 import type { PlaybackStatus } from '../../../shared/types/playback';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { PlayerProgress } from './PlayerProgress';
+import { PlayerSpeedControl } from './PlayerSpeedControl';
 import { PlayerStatusChips } from './PlayerStatusChips';
 import { PlayerTransport } from './PlayerTransport';
 import { PlayerVolumeControl } from './PlayerVolumeControl';
@@ -20,6 +21,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const [audioStatus, setAudioStatus] = useState<AudioStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [seekPreviewSeconds, setSeekPreviewSeconds] = useState<number | null>(null);
+  const [openPopover, setOpenPopover] = useState<'volume' | 'speed' | null>(null);
   const handledEndedTrackRef = useRef<string | null>(null);
   const refreshRequestRef = useRef(0);
 
@@ -179,7 +181,14 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     <footer className="player-bar" aria-label="播放控制">
       <div className="player-now">
         <div className="player-cover" data-empty={!currentTrack?.coverThumb} aria-hidden="true">
-          {currentTrack?.coverThumb ? <img alt="" src={currentTrack.coverThumb} /> : <Music2 size={30} />}
+          {currentTrack?.coverThumb ? (
+            <img alt="" src={currentTrack.coverThumb} />
+          ) : (
+            <div className="player-cover-placeholder">
+              <span className="player-cover-disc" />
+              <span className="player-cover-note" />
+            </div>
+          )}
           <div className="cover-sheen" />
         </div>
         <div className="player-track-copy">
@@ -211,10 +220,20 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       </div>
 
       <div className="output-status">
-        <PlayerVolumeControl status={audioStatus} onError={setError} onStatusChange={setAudioStatus} />
-        <button className="icon-button" type="button" aria-label="输出设备" title="输出设备">
-          <Gauge size={17} />
-        </button>
+        <PlayerVolumeControl
+          status={audioStatus}
+          isOpen={openPopover === 'volume'}
+          onError={setError}
+          onOpenChange={(isOpen) => setOpenPopover(isOpen ? 'volume' : null)}
+          onStatusChange={setAudioStatus}
+        />
+        <PlayerSpeedControl
+          status={audioStatus}
+          isOpen={openPopover === 'speed'}
+          onError={setError}
+          onOpenChange={(isOpen) => setOpenPopover(isOpen ? 'speed' : null)}
+          onStatusChange={setAudioStatus}
+        />
         <button className="icon-button" type="button" aria-label="音频控制" title="音频控制" onClick={onOpenAudioSettings}>
           <Import size={17} />
         </button>

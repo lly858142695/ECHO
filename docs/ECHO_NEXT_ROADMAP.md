@@ -36,14 +36,15 @@ Phase 0 intentionally kept scanning, playback, and SQLite out of the shell.
 - `benchmark:library` fake-data pressure script for 3000 and 10000 tracks plus 3000 and 10000 albums
 - sidebar `Import Folder` direct picker plus Settings/fallback folder import UX using `library.chooseFolder()`
 - sidebar `Import File` direct picker for the existing local audio file open path; single-file library ingestion remains deferred
-- focused tests for migration, scanning, metadata priority, cover priority, album grouping, restart persistence, pagination, and scan errors
+- network metadata candidate architecture with readiness states, missing-only merge, provider boundary, and dev diagnostics panel
+- focused tests for migration, scanning, metadata priority, cover priority, network readiness/merge rules, album grouping, restart persistence, pagination, and scan errors
 
 Deferred beyond the minimal Phase 1 loop:
 
 - FTS-backed search
 - manual metadata editing
 - sidecar metadata
-- network completion
+- automatic full-library network completion
 - artist detail pages
 - full file management
 - lyrics, MV, streaming, and downloaders

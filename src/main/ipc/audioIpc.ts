@@ -1,11 +1,12 @@
 import { ipcMain } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
-import type { AudioOutputMode, AudioOutputSettings, AudioStatus } from '../../shared/types/audio';
+import type { AudioOutputMode, AudioOutputSettings, AudioStatus, PlaybackSpeedMode } from '../../shared/types/audio';
 import type { EqSavePresetRequest, EqSetBandFrequencyRequest, EqSetBandGainRequest, EqState } from '../../shared/types/eq';
 import { getAudioSession } from '../audio/AudioSession';
 import { getEqBridge } from '../audio/EqBridge';
 
 const outputModes = new Set<AudioOutputMode>(['shared', 'exclusive', 'asio']);
+const playbackSpeedModes = new Set<PlaybackSpeedMode>(['nightcore', 'daycore', 'speed']);
 
 const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -37,6 +38,14 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
 
   if (typeof input.volume === 'number' && Number.isFinite(input.volume)) {
     output.volume = Math.max(0, Math.min(1, input.volume));
+  }
+
+  if (typeof input.playbackRate === 'number' && Number.isFinite(input.playbackRate)) {
+    output.playbackRate = Math.max(0.5, Math.min(2, input.playbackRate));
+  }
+
+  if (typeof input.playbackSpeedMode === 'string' && playbackSpeedModes.has(input.playbackSpeedMode as PlaybackSpeedMode)) {
+    output.playbackSpeedMode = input.playbackSpeedMode as PlaybackSpeedMode;
   }
 
   return output;

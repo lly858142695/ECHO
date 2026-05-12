@@ -54,12 +54,13 @@ Library Core v0.1 fixes the old ECHO library pain points by making SQLite the so
 Core tables:
 
 - `folders`: `id`, `path`, `enabled`, `last_scan_at`, timestamps
-- `tracks`: path fingerprint, normalized metadata, `genre`, `metadata_status`, `field_sources_json`, `cover_id`, `missing`, timestamps
+- `tracks`: path fingerprint, normalized metadata, `genre`, `metadata_status`, `embedded_metadata_status`, `embedded_cover_status`, `network_metadata_status`, `field_sources_json`, `cover_id`, `missing`, timestamps
 - `albums`: persisted album-wall records with `album_key`, title, artist, year, cover, count, duration
 - `album_tracks`: persisted track order with disc/track numbers
 - `artists`: persisted artist counts
 - `covers`: `source_type`, `thumb_path`, `album_path`, `large_path`, `original_ref`, hash, cache version, and MIME metadata
 - `scan_jobs`: status, phase, discovered/parsed/skipped/cover counts, errors, timestamps
+- `network_metadata_candidates`, `network_metadata_decisions`, `network_cover_candidates`: weak network completion candidates, user/auto decisions, and cover candidates
 
 Important indexes:
 
@@ -83,11 +84,13 @@ Migrations are repeatable and use `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF
 3. `discovering`: `FileScanner` emits `path`, `sizeBytes`, and `mtimeMs`.
 4. `checking_cache`: `LibraryStore` compares each file against persisted `path + size_bytes + mtime_ms`.
 5. Unchanged files are skipped. Metadata and cover workers are not called for them.
-6. `reading_metadata`: changed/new files go through `MetadataReader`.
-7. `extracting_covers`: changed/new files go through `CoverExtractor`.
+6. `reading_metadata`: changed/new files go through `MetadataReader`; embedded metadata readiness becomes `present`, `missing`, or `error`.
+7. `extracting_covers`: changed/new files go through `CoverExtractor`; embedded cover readiness becomes `present`, `missing`, or `error`.
 8. `grouping_albums`: `AlbumService` rebuilds persisted albums from track rows.
 9. `writing_database`: tracks, covers, albums, artists, folders, and scan status are committed through SQLite.
 10. Final phase becomes `finished`, `failed`, or `cancelled`.
+
+Network completion is a separate Phase C. It is optional, manually triggered, non-blocking, and writes provider output to candidate tables before any merge is attempted.
 
 Per-file worker warnings/errors are collected in `scan_jobs.errors_json`; they do not fail the whole scan.
 
@@ -132,19 +135,23 @@ Fixed priority:
 5. network completion
 6. filename fallback
 
-Phase v0.1 implements embedded, folder inference, and filename fallback. Filename guessing only fills missing fields. Embedded `title`, `artist`, and `album` are never overwritten, which prevents valid files from being stuck as Unknown Artist.
+Network completion is weak. It can apply missing-only fields only after embedded metadata is `missing` or `error`, and only when field sources are `unknown`, `filename_fallback`, or `network`. It cannot overwrite `manual`, `embedded`, `sidecar`, or `folder_structure`.
+
+Filename guessing only fills fields that remain local fallbacks. Embedded `title`, `artist`, and `album` are never overwritten, which prevents valid files from being stuck as Unknown Artist.
 
 Every stored track writes `field_sources_json` for title, artist, album, albumArtist, trackNo, discNo, year, genre, duration, codec, sampleRate, bitDepth, and bitrate.
 
 ## Cover Priority
 
-Phase v0.2 priority:
+Priority:
 
-1. embedded cover
-2. same-folder `cover`, `folder`, or `front` image
-3. generated default cover
+1. manual cover
+2. embedded cover
+3. same-folder `cover`, `folder`, or `front` image
+4. network cover
+5. generated default cover
 
-Network covers are intentionally excluded so local artwork cannot be overwritten by an incorrect match.
+Network cover lookup is allowed only when local cover source is `default` and embedded cover readiness is `missing` or `error`. Network URLs are never sent to Renderer; accepted network covers must enter the cover cache pipeline and be stored in `covers`.
 
 Cover layers:
 
@@ -230,7 +237,7 @@ window.echo.playback.playLocalFile({
 });
 ```
 
-`SongsPage` updates only `currentTrackId` from the returned playback status. It does not subscribe to playback progress, so position polling cannot rerender the song list. The current `usePlaybackQueue` queue is only the visible/loaded SongsPage window; the full-library queue belongs in a later LibraryService or queue service, not in Phase 1.2.
+`SongsPage` updates only `currentTrackId` from the returned playback status. It does not subscribe to playback progress, so position polling cannot rerender the song list. The current `PlaybackQueueProvider` / `usePlaybackQueue` queue is only the already loaded tracks window, such as the visible SongsPage page or loaded album tracks. It is not a complete library playback queue; the full-library queue belongs in a later LibraryService or queue service, not in Phase 1.2.
 
 `PlayerBar` owns lightweight 500 ms polling of `playback.getStatus()` and `audio.getStatus()` until push IPC exists. It displays current file, track id, state, position/duration, codec, `fileSampleRate`, `actualDeviceSampleRate`, `outputMode`, and `sampleRateMismatch`. TODO: replace polling with `playback:onStatus` and `audio:onStatus` IPC push events, throttle high-frequency position updates, and keep those updates out of SongsPage.
 

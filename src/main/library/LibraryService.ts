@@ -7,9 +7,11 @@ import { AlbumService } from './AlbumService';
 import { LibraryStore } from './LibraryStore';
 import { inflateMetadataResult } from './MetadataService';
 import { ScanJobQueue } from './ScanJobQueue';
+import { NetworkMetadataService, type NetworkCandidateList, type NetworkRepairResult } from './network/NetworkMetadataService';
 import type { MetadataService } from './MetadataService';
 import type {
   LibraryAlbum,
+  LibraryArtist,
   LibraryDiagnostics,
   EditableTrackTags,
   LibraryFolder,
@@ -18,9 +20,12 @@ import type {
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
+  LibraryCleanupResult,
   LibraryTrackTagUpdateRequest,
   CoverVariant,
 } from './libraryTypes';
+import type { MissingMetadataScanResult, NetworkApplyResult } from '../../shared/types/library';
+import type { AppSettings } from '../../shared/types/appSettings';
 import type { CoverExtractor } from './workers/CoverExtractor';
 import type { FileScanner } from './workers/FileScanner';
 import type { MetadataReader } from './workers/MetadataReader';
@@ -46,6 +51,7 @@ export class LibraryService {
     private readonly closeDatabase: () => void,
     private readonly databasePath: string | null = null,
     private readonly coverCacheDir: string | null = null,
+    private readonly networkMetadataService: NetworkMetadataService | null = null,
   ) {}
 
   addFolder(folderPath: string): LibraryFolder {
@@ -93,6 +99,10 @@ export class LibraryService {
     return this.store.getAlbums(query);
   }
 
+  getArtists(query?: LibraryPageQuery): LibraryPage<LibraryArtist> {
+    return this.store.getArtists(query);
+  }
+
   getAlbumTracks(albumId: string, query?: Pick<LibraryPageQuery, 'page' | 'pageSize'>): LibraryPage<LibraryTrack> {
     return this.store.getAlbumTracks(albumId, query);
   }
@@ -116,6 +126,10 @@ export class LibraryService {
 
   getTrack(trackId: string): LibraryTrack | null {
     return this.store.getTrack(trackId);
+  }
+
+  recordTrackPlayback(trackId: string): void {
+    this.store.recordTrackPlayback(trackId);
   }
 
   async updateTrackTags(request: LibraryTrackTagUpdateRequest): Promise<LibraryTrack> {
@@ -168,12 +182,89 @@ export class LibraryService {
     });
   }
 
+  async repairMissingMetadata(trackId: string, providerNames?: AppSettings['networkMetadataProviders']): Promise<NetworkRepairResult> {
+    if (!this.networkMetadataService) {
+      throw new Error('Network metadata service is unavailable');
+    }
+
+    return this.networkMetadataService.repairMissingMetadata(trackId, providerNames);
+  }
+
+  async scanMissingMetadata(limit: number, providerNames?: AppSettings['networkMetadataProviders']): Promise<MissingMetadataScanResult> {
+    if (!this.networkMetadataService) {
+      throw new Error('Network metadata service is unavailable');
+    }
+
+    return this.networkMetadataService.scanMissingMetadata(limit, providerNames);
+  }
+
+  showNetworkCandidates(trackId: string): NetworkCandidateList {
+    if (!this.networkMetadataService) {
+      throw new Error('Network metadata service is unavailable');
+    }
+
+    return this.networkMetadataService.showCandidates(trackId);
+  }
+
+  applyNetworkMissingOnly(candidateId: string): NetworkApplyResult {
+    if (!this.networkMetadataService) {
+      throw new Error('Network metadata service is unavailable');
+    }
+
+    return this.networkMetadataService.applyMissingOnly(candidateId);
+  }
+
+  applyNetworkSelected(candidateId: string): NetworkApplyResult {
+    if (!this.networkMetadataService) {
+      throw new Error('Network metadata service is unavailable');
+    }
+
+    return this.networkMetadataService.applySelected(candidateId);
+  }
+
+  rejectNetworkCandidate(candidateId: string): NetworkApplyResult {
+    if (!this.networkMetadataService) {
+      throw new Error('Network metadata service is unavailable');
+    }
+
+    return this.networkMetadataService.reject(candidateId);
+  }
+
   deleteTrack(trackId: string): void {
     this.store.transaction(() => {
       this.store.deleteTrack(trackId);
       this.store.refreshAlbums(this.albumService);
       this.store.refreshArtists();
     });
+  }
+
+  pruneMissingTracks(): LibraryCleanupResult {
+    const tracks = this.store.getActiveTracks();
+    const missingTrackIds = tracks.filter((track) => !existsSync(track.path)).map((track) => track.id);
+
+    const removedCount = this.store.transaction(() => {
+      const changed = this.store.deleteTracks(missingTrackIds);
+      if (changed > 0) {
+        this.store.refreshAlbums(this.albumService);
+        this.store.refreshArtists();
+      }
+      return changed;
+    });
+
+    return {
+      scannedCount: tracks.length,
+      removedCount,
+    };
+  }
+
+  clearTracks(): LibraryCleanupResult {
+    const scannedCount = this.store.getTracks({ pageSize: 1 }).total;
+    const removedCount = this.store.transaction(() => this.store.deleteAllTracks());
+
+    return {
+      scannedCount,
+      removedCount,
+    };
   }
 
   async waitForScan(jobId: string): Promise<void> {
@@ -216,7 +307,9 @@ export const createLibraryService = (
     coverConcurrency: dependencies.coverConcurrency,
   });
 
-  return new LibraryService(store, scanJobQueue, albumService, () => database.close(), databasePath, coverCacheDir);
+  const networkMetadataService = new NetworkMetadataService(database);
+
+  return new LibraryService(store, scanJobQueue, albumService, () => database.close(), databasePath, coverCacheDir, networkMetadataService);
 };
 
 let defaultLibraryService: LibraryService | null = null;

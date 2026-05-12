@@ -2,10 +2,27 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { clipboard, dialog, ipcMain, nativeImage, shell } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { EditableTrackTags, LibraryPageQuery, LibrarySort, LibraryTrackTagUpdateRequest } from '../../shared/types/library';
+import { getAppSettings } from '../app/appSettings';
 import { getLibraryService } from '../library/LibraryService';
 import { SongCardRenderer } from '../library/SongCardRenderer';
 
-const sortValues = new Set<LibrarySort>(['title', 'artist', 'album', 'recent']);
+const sortValues = new Set<LibrarySort>([
+  'default',
+  'createdAsc',
+  'createdDesc',
+  'titleAsc',
+  'titleDesc',
+  'durationAsc',
+  'durationDesc',
+  'qualityAsc',
+  'qualityDesc',
+  'frequent',
+  'random',
+  'title',
+  'artist',
+  'album',
+  'recent',
+]);
 const songCardRenderer = new SongCardRenderer();
 
 const requireText = (value: unknown, name: string): string => {
@@ -50,6 +67,11 @@ const optionalNumber = (value: unknown): number | null => {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const optionalLimit = (value: unknown, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(1, Math.min(500, Math.floor(parsed))) : fallback;
 };
 
 const normalizeTagUpdateRequest = (value: unknown): LibraryTrackTagUpdateRequest => {
@@ -138,6 +160,9 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryGetAlbums, (_event, query: unknown) =>
     getLibraryService().getAlbums(normalizeQuery(query)),
   );
+  ipcMain.handle(IpcChannels.LibraryGetArtists, (_event, query: unknown) =>
+    getLibraryService().getArtists(normalizeQuery(query)),
+  );
   ipcMain.handle(IpcChannels.LibraryGetAlbumTracks, (_event, albumId: unknown, query: unknown) =>
     getLibraryService().getAlbumTracks(requireText(albumId, 'albumId'), normalizeQuery(query)),
   );
@@ -145,6 +170,9 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryGetDiagnostics, () => getLibraryService().getDiagnostics());
   ipcMain.handle(IpcChannels.LibraryUpdateTrackTags, (_event, request: unknown) =>
     getLibraryService().updateTrackTags(normalizeTagUpdateRequest(request)),
+  );
+  ipcMain.handle(IpcChannels.LibraryRecordTrackPlayback, (_event, trackId: unknown) =>
+    getLibraryService().recordTrackPlayback(requireText(trackId, 'trackId')),
   );
   ipcMain.handle(IpcChannels.LibraryOpenTrackInFolder, (_event, trackId: unknown): void => {
     shell.showItemInFolder(getExistingTrack(trackId).path);
@@ -197,4 +225,38 @@ export const registerLibraryIpc = (): void => {
 
     getLibraryService().deleteTrack(track.id);
   });
+  ipcMain.handle(IpcChannels.LibraryPruneMissingTracks, () => getLibraryService().pruneMissingTracks());
+  ipcMain.handle(IpcChannels.LibraryClearTracks, () => getLibraryService().clearTracks());
+  ipcMain.handle(IpcChannels.LibraryNetworkRepairMissingMetadata, (_event, trackId: unknown) =>
+    {
+      const settings = getAppSettings();
+      if (!settings.networkMetadataEnabled) {
+        throw new Error('Network metadata completion is disabled in Settings');
+      }
+
+      return getLibraryService().repairMissingMetadata(requireText(trackId, 'trackId'), settings.networkMetadataProviders);
+    },
+  );
+  ipcMain.handle(IpcChannels.LibraryNetworkScanMissingMetadata, (_event, limit: unknown) =>
+    {
+      const settings = getAppSettings();
+      if (!settings.networkMetadataEnabled) {
+        throw new Error('Network metadata completion is disabled in Settings');
+      }
+
+      return getLibraryService().scanMissingMetadata(optionalLimit(limit, 25), settings.networkMetadataProviders);
+    },
+  );
+  ipcMain.handle(IpcChannels.LibraryNetworkShowCandidates, (_event, trackId: unknown) =>
+    getLibraryService().showNetworkCandidates(requireText(trackId, 'trackId')),
+  );
+  ipcMain.handle(IpcChannels.LibraryNetworkApplyMissingOnly, (_event, candidateId: unknown) =>
+    getLibraryService().applyNetworkMissingOnly(requireText(candidateId, 'candidateId')),
+  );
+  ipcMain.handle(IpcChannels.LibraryNetworkApplySelected, (_event, candidateId: unknown) =>
+    getLibraryService().applyNetworkSelected(requireText(candidateId, 'candidateId')),
+  );
+  ipcMain.handle(IpcChannels.LibraryNetworkRejectCandidate, (_event, candidateId: unknown) =>
+    getLibraryService().rejectNetworkCandidate(requireText(candidateId, 'candidateId')),
+  );
 };

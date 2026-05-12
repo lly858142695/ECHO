@@ -105,6 +105,8 @@ Filename guessing must never overwrite embedded `title`, `artist`, or `album`.
 
 Network metadata must never overwrite embedded tags.
 
+Network metadata must not write fields while `embedded_metadata_status` is `pending` or `reading`. It may apply only missing-only fields after embedded metadata is `missing` or `error`, and only when the current field source is `unknown`, `filename_fallback`, or `network`.
+
 Every stored track must preserve per-field source information in `field_sources_json`.
 
 Phase 1 must persist at least:
@@ -135,7 +137,7 @@ Long-term cover priority is fixed:
 
 Network covers must never overwrite manual, embedded, or local covers.
 
-Phase 1 implements embedded cover, same-folder `cover/folder/front` images, and generated default cover only. Network cover lookup is forbidden in Phase 1.
+Network cover lookup is manual and weak. It must not write covers while `embedded_cover_status` is `pending` or `reading`, and it may apply only when the current cover source is `default`.
 
 Current TS+sharp v0.2 covers must be stored as:
 
@@ -162,6 +164,8 @@ All long tasks must be:
 - error-collecting
 
 This includes scanning, metadata extraction, cover generation, audio analysis, and future network enrichment.
+
+Network enrichment must not run automatically at app startup, must not issue requests for every scanned track, must use provider timeouts, must keep concurrency at 2 or below, and provider failure must not affect local library rows.
 
 Local library scans must skip metadata parsing when `path + size_bytes + mtime_ms` is unchanged.
 

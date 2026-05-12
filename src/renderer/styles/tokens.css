@@ -20,9 +20,10 @@
   --color-surface-strong: rgba(255, 255, 255, 0.94);
   --color-border: rgba(28, 45, 69, 0.1);
   --color-border-strong: rgba(37, 62, 92, 0.16);
-  --color-text: #172235;
-  --color-muted: #536276;
-  --color-subtle: #8793a4;
+  --color-text: hsl(214 30% 28%);
+  --color-muted: hsl(214 18% 48%);
+  --color-subtle: hsl(214 14% 62%);
+  --echo-heading-text: hsl(214 30% 25%);
   --color-accent: #2f6da8;
   --color-accent-soft: #edf6ff;
   --color-accent-strong: #245a94;

@@ -19,6 +19,7 @@ import type {
   NativeOutputStartOptions,
   SampleRatePlan,
 } from './audioTypes';
+import type { PlaybackSpeedMode } from '../../shared/types/audio';
 
 type DecoderPipelineLike = Pick<DecoderPipeline, 'probeLocalFile' | 'decodeLocalFile'>;
 type DeviceServiceLike = Pick<DeviceService, 'listDevices'>;
@@ -58,6 +59,15 @@ const normalizePositiveInteger = (value: unknown): number | null => {
 
 const normalizeOutputMode = (value: unknown): AudioOutputMode => {
   return value === 'exclusive' || value === 'asio' ? value : 'shared';
+};
+
+const normalizePlaybackRate = (value: unknown): number => {
+  const rate = Number(value);
+  return Number.isFinite(rate) ? Math.max(0.5, Math.min(2, rate)) : 1;
+};
+
+const normalizePlaybackSpeedMode = (value: unknown): PlaybackSpeedMode => {
+  return value === 'daycore' || value === 'speed' ? value : 'nightcore';
 };
 
 const hasExplicitDeviceSelection = (settings: AudioOutputSettings): boolean => {
@@ -118,6 +128,8 @@ const defaultStatus = (nativeHostAvailable: boolean): AudioStatus => ({
   outputBackend: null,
   outputMode: 'shared',
   volume: 1,
+  playbackRate: 1,
+  playbackSpeedMode: 'nightcore',
   currentFilePath: null,
   currentTrackId: null,
   durationSeconds: 0,
@@ -183,6 +195,66 @@ class PcmVolumeTransform extends Transform {
   }
 }
 
+class PcmPlaybackRateTransform extends Transform {
+  private readonly frameBytes: number;
+  private readonly playbackRate: number;
+  private remainder: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  private frameCursor = 0;
+
+  constructor(channels: number, playbackRate: number) {
+    super();
+    this.frameBytes = Math.max(1, Math.round(channels)) * 4;
+    this.playbackRate = normalizePlaybackRate(playbackRate);
+  }
+
+  override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null, data?: Buffer) => void): void {
+    if (Math.abs(this.playbackRate - 1) < 1e-6) {
+      callback(null, chunk);
+      return;
+    }
+
+    const input = this.remainder.length > 0 ? Buffer.concat([this.remainder, chunk]) : chunk;
+    const completeBytes = input.length - (input.length % this.frameBytes);
+    const frameCount = completeBytes / this.frameBytes;
+
+    if (frameCount <= 0) {
+      this.remainder = input;
+      callback();
+      return;
+    }
+
+    const estimatedFrames = Math.max(1, Math.ceil((frameCount - Math.floor(this.frameCursor)) / this.playbackRate) + 2);
+    const output = Buffer.allocUnsafe(estimatedFrames * this.frameBytes);
+    let outputFrames = 0;
+
+    while (Math.floor(this.frameCursor) < frameCount) {
+      const sourceFrame = Math.floor(this.frameCursor);
+      input.copy(
+        output,
+        outputFrames * this.frameBytes,
+        sourceFrame * this.frameBytes,
+        (sourceFrame + 1) * this.frameBytes,
+      );
+      outputFrames += 1;
+      this.frameCursor += this.playbackRate;
+    }
+
+    const consumedFrames = Math.min(frameCount, Math.floor(this.frameCursor));
+    this.frameCursor -= consumedFrames;
+    this.remainder =
+      consumedFrames * this.frameBytes < input.length
+        ? Buffer.from(input.subarray(consumedFrames * this.frameBytes))
+        : Buffer.alloc(0);
+
+    callback(null, output.subarray(0, outputFrames * this.frameBytes));
+  }
+
+  override _flush(callback: (error?: Error | null, data?: Buffer) => void): void {
+    this.remainder = Buffer.alloc(0);
+    callback();
+  }
+}
+
 export class AudioSession extends EventEmitter {
   private readonly decoder: DecoderPipelineLike;
   private readonly deviceService: DeviceServiceLike;
@@ -190,10 +262,12 @@ export class AudioSession extends EventEmitter {
   private readonly isNativeHostAvailable: () => boolean;
   private readonly logger: (message: string) => void;
   private readonly clock = new PlaybackClock();
-  private outputSettings: Required<Pick<AudioOutputSettings, 'outputMode' | 'volume'>> &
-    Omit<AudioOutputSettings, 'outputMode' | 'volume'> = {
+  private outputSettings: Required<Pick<AudioOutputSettings, 'outputMode' | 'volume' | 'playbackRate' | 'playbackSpeedMode'>> &
+    Omit<AudioOutputSettings, 'outputMode' | 'volume' | 'playbackRate' | 'playbackSpeedMode'> = {
     outputMode: 'shared',
     volume: 1,
+    playbackRate: 1,
+    playbackSpeedMode: 'nightcore',
   };
   private state: AudioPlaybackState = 'idle';
   private hostStatus: AudioStatus['host'] = isNativeOutputBridgeAvailable() ? 'not-initialized' : 'unavailable';
@@ -239,6 +313,8 @@ export class AudioSession extends EventEmitter {
       ...settings,
       outputMode: normalizeOutputMode(settings.outputMode ?? this.outputSettings.outputMode),
       volume: Math.max(0, Math.min(1, Number(settings.volume ?? this.outputSettings.volume) || 0)),
+      playbackRate: normalizePlaybackRate(settings.playbackRate ?? this.outputSettings.playbackRate),
+      playbackSpeedMode: normalizePlaybackSpeedMode(settings.playbackSpeedMode ?? this.outputSettings.playbackSpeedMode),
     };
 
     if (this.currentOutputSettings) {
@@ -312,6 +388,9 @@ export class AudioSession extends EventEmitter {
       ...this.outputSettings,
       ...request.output,
       outputMode: normalizeOutputMode(request.output?.outputMode ?? this.outputSettings.outputMode),
+      volume: Math.max(0, Math.min(1, Number(request.output?.volume ?? this.outputSettings.volume) || 0)),
+      playbackRate: normalizePlaybackRate(request.output?.playbackRate ?? this.outputSettings.playbackRate),
+      playbackSpeedMode: normalizePlaybackSpeedMode(request.output?.playbackSpeedMode ?? this.outputSettings.playbackSpeedMode),
     };
     this.currentDevice = createDeviceFromOutputSettings(this.currentOutputSettings);
     this.logger(
@@ -369,7 +448,7 @@ export class AudioSession extends EventEmitter {
         const startSeconds = this.pausedPositionSeconds ?? this.clock.getPositionSeconds();
         this.runToken = token;
         this.pausedPositionSeconds = null;
-        this.bridge.resetOutputClock?.(startSeconds, 1);
+        this.bridge.resetOutputClock?.(startSeconds, this.currentOutputSettings.playbackRate ?? 1);
         this.attachBridgeEvents(this.bridge, token);
         this.clock.reset(startSeconds, this.currentPlan.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate);
 
@@ -455,7 +534,7 @@ export class AudioSession extends EventEmitter {
     if (this.state === 'paused') {
       const sampleRate = this.currentPlan?.actualDeviceSampleRate ?? this.currentPlan?.requestedOutputSampleRate ?? null;
       this.pausedPositionSeconds = safePositionSeconds;
-      this.bridge?.resetOutputClock?.(safePositionSeconds, 1);
+      this.bridge?.resetOutputClock?.(safePositionSeconds, this.currentOutputSettings.playbackRate ?? 1);
       this.clock.reset(safePositionSeconds, sampleRate);
       this.emitStatus();
       return this.getStatus();
@@ -465,7 +544,7 @@ export class AudioSession extends EventEmitter {
       const token = this.runToken + 1;
       this.runToken = token;
       this.stopDecoderRun();
-      this.bridge.resetOutputClock?.(safePositionSeconds, 1);
+      this.bridge.resetOutputClock?.(safePositionSeconds, this.currentOutputSettings.playbackRate ?? 1);
       this.attachBridgeEvents(this.bridge, token);
       this.clock.reset(safePositionSeconds, this.currentPlan.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate);
 
@@ -516,6 +595,8 @@ export class AudioSession extends EventEmitter {
       outputBackend: this.currentOutputBackend,
       outputMode: plan?.outputMode ?? this.outputSettings.outputMode,
       volume: this.outputSettings.volume,
+      playbackRate: this.outputSettings.playbackRate,
+      playbackSpeedMode: this.outputSettings.playbackSpeedMode,
       currentFilePath: this.currentFilePath,
       currentTrackId: this.currentTrackId,
       durationSeconds: this.currentProbe?.durationSeconds ?? 0,
@@ -789,7 +870,8 @@ export class AudioSession extends EventEmitter {
           exclusive: outputMode === 'exclusive',
           volume: this.currentOutputSettings.volume,
           startSeconds,
-          playbackRate: 1,
+          playbackRate: this.currentOutputSettings.playbackRate,
+          playbackSpeedMode: this.currentOutputSettings.playbackSpeedMode,
         });
 
         return { bridge, plan: this.currentPlan, ready };
@@ -848,9 +930,13 @@ export class AudioSession extends EventEmitter {
 
   private startDecoderRun(run: DecoderRun, writable: Writable, token: number): void {
     const gainTransform = new PcmVolumeTransform(this.currentOutputSettings?.volume ?? this.outputSettings.volume);
+    const speedTransform = new PcmPlaybackRateTransform(
+      this.currentProbe?.channels ?? 2,
+      this.currentOutputSettings?.playbackRate ?? this.outputSettings.playbackRate,
+    );
     this.decoderRun = run;
     this.gainTransform = gainTransform;
-    run.stream.pipe(gainTransform).pipe(writable, { end: false });
+    run.stream.pipe(gainTransform).pipe(speedTransform).pipe(writable, { end: false });
     run.done.catch((error: unknown) => {
       if (this.runToken === token) {
         this.handleError(error instanceof Error ? error : new Error(String(error)));

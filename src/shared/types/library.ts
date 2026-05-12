@@ -7,6 +7,11 @@ export type LibrarySummary = {
   lastScanAt: string | null;
 };
 
+export type LibraryCleanupResult = {
+  scannedCount: number;
+  removedCount: number;
+};
+
 export type LibraryDiagnostics = {
   foldersCount: number;
   tracksCount: number;
@@ -73,7 +78,22 @@ export type LibraryScanStatus = {
   finishedAt: string | null;
 };
 
-export type LibrarySort = 'title' | 'artist' | 'album' | 'recent';
+export type LibrarySort =
+  | 'default'
+  | 'createdAsc'
+  | 'createdDesc'
+  | 'titleAsc'
+  | 'titleDesc'
+  | 'durationAsc'
+  | 'durationDesc'
+  | 'qualityAsc'
+  | 'qualityDesc'
+  | 'frequent'
+  | 'random'
+  | 'title'
+  | 'artist'
+  | 'album'
+  | 'recent';
 
 export type LibraryPageQuery = {
   page?: number;
@@ -102,9 +122,9 @@ export type LibraryTrack = {
   // Small list thumbnail: echo-cover://thumb/* resolves to thumb.webp (96x96).
   coverThumb: string | null;
   metadataStatus?: string;
-  embeddedMetadataStatus: 'pending' | 'reading' | 'present' | 'missing' | 'error';
-  embeddedCoverStatus: 'pending' | 'reading' | 'present' | 'missing' | 'error';
-  networkMetadataStatus: 'none' | 'pending' | 'candidate_found' | 'applied_missing_only' | 'rejected' | 'error';
+  embeddedMetadataStatus?: 'pending' | 'reading' | 'present' | 'missing' | 'error';
+  embeddedCoverStatus?: 'pending' | 'reading' | 'present' | 'missing' | 'error';
+  networkMetadataStatus?: 'none' | 'pending' | 'candidate_found' | 'applied_missing_only' | 'rejected' | 'error';
   fieldSources: Record<string, string>;
 };
 
@@ -137,10 +157,85 @@ export type LibraryAlbum = {
   coverThumb: string | null;
 };
 
+export type LibraryArtist = {
+  id: string;
+  name: string;
+  sortName: string;
+  role: 'track' | 'album' | 'both';
+  trackCount: number;
+  albumCount: number;
+};
+
 export type LibraryPage<T> = {
   items: T[];
   page: number;
   pageSize: number;
   total: number;
   hasMore: boolean;
+};
+
+export type NetworkMetadataCandidate = {
+  id: string;
+  trackId: string;
+  albumId: string | null;
+  provider: string;
+  providerItemId: string;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  albumArtist: string | null;
+  year: number | null;
+  genre: string | null;
+  duration: number | null;
+  trackNo: number | null;
+  discNo: number | null;
+  coverUrl: string | null;
+  score: number;
+  createdAt: string;
+};
+
+export type NetworkCoverCandidate = {
+  id: string;
+  trackId: string | null;
+  albumId: string | null;
+  provider: string;
+  coverUrl: string;
+  width: number | null;
+  height: number | null;
+  mimeType: string | null;
+  score: number;
+  cachedThumbPath: string | null;
+  cachedLargePath: string | null;
+  createdAt: string;
+};
+
+export type NetworkCandidateList = {
+  metadata: NetworkMetadataCandidate[];
+  covers: NetworkCoverCandidate[];
+};
+
+export type NetworkApplyResult = {
+  status: 'none' | 'pending' | 'candidate_found' | 'applied_missing_only' | 'rejected' | 'error';
+  appliedFields: Record<string, string | number | null>;
+  reason?: string;
+};
+
+export type NetworkRepairResult = NetworkCandidateList & {
+  applied: NetworkApplyResult[];
+  errors: string[];
+};
+
+export type MissingMetadataReason = 'missing_cover' | 'unknown_artist' | 'filename_fallback' | 'unknown_field';
+
+export type MissingMetadataScanItem = {
+  track: LibraryTrack;
+  reasons: MissingMetadataReason[];
+  candidates: NetworkCandidateList;
+};
+
+export type MissingMetadataScanResult = {
+  items: MissingMetadataScanItem[];
+  scannedCount: number;
+  candidateCount: number;
+  errors: string[];
 };

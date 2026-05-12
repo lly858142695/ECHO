@@ -22,6 +22,9 @@ const track = (index: number): LibraryTrack => ({
   bitrate: 900000,
   coverId: null,
   coverThumb: null,
+  embeddedMetadataStatus: 'present',
+  embeddedCoverStatus: 'missing',
+  networkMetadataStatus: 'none',
   fieldSources: {},
 });
 

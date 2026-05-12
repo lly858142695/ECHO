@@ -1,10 +1,11 @@
 import { dialog, ipcMain } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
-import type { AudioOutputMode, AudioOutputSettings } from '../../shared/types/audio';
+import type { AudioOutputMode, AudioOutputSettings, PlaybackSpeedMode } from '../../shared/types/audio';
 import type { PlaybackProbeHint, PlaybackStartRequest, PlaybackStatus } from '../../shared/types/playback';
 import { getAudioSession } from '../audio/AudioSession';
 
 const outputModes = new Set<AudioOutputMode>(['shared', 'exclusive', 'asio']);
+const playbackSpeedModes = new Set<PlaybackSpeedMode>(['nightcore', 'daycore', 'speed']);
 
 const requireText = (value: unknown, name: string): string => {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -57,6 +58,14 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings | undefine
 
   if (typeof input.volume === 'number' && Number.isFinite(input.volume)) {
     output.volume = Math.max(0, Math.min(1, input.volume));
+  }
+
+  if (typeof input.playbackRate === 'number' && Number.isFinite(input.playbackRate)) {
+    output.playbackRate = Math.max(0.5, Math.min(2, input.playbackRate));
+  }
+
+  if (typeof input.playbackSpeedMode === 'string' && playbackSpeedModes.has(input.playbackSpeedMode as PlaybackSpeedMode)) {
+    output.playbackSpeedMode = input.playbackSpeedMode as PlaybackSpeedMode;
   }
 
   return output;

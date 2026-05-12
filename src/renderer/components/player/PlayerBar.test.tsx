@@ -26,6 +26,9 @@ const makeTrack = (index: number, overrides: Partial<LibraryTrack> = {}): Librar
   bitrate: 900000,
   coverId: null,
   coverThumb: null,
+  embeddedMetadataStatus: 'present',
+  embeddedCoverStatus: 'missing',
+  networkMetadataStatus: 'none',
   fieldSources: {},
   ...overrides,
 });
@@ -39,6 +42,8 @@ const audioStatus = (track: LibraryTrack): AudioStatus => ({
   outputBackend: 'wasapi-shared',
   outputMode: 'shared',
   volume: 1,
+  playbackRate: 1,
+  playbackSpeedMode: 'nightcore',
   currentFilePath: track.path,
   currentTrackId: track.id,
   durationSeconds: track.duration,
@@ -270,5 +275,78 @@ describe('PlayerBar', () => {
 
     await waitFor(() => expect(screen.getByText('Song 2')).toBeTruthy());
     expect(screen.queryByText('Song 1')).toBeNull();
+  });
+
+  it('keeps volume and playback speed popovers mutually exclusive', async () => {
+    const track = makeTrack(1);
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 4000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(audioStatus(track)),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      eq: {
+        getState: vi.fn().mockResolvedValue(eqState()),
+        setEnabled: vi.fn().mockResolvedValue(eqState()),
+        setBandGain: vi.fn().mockResolvedValue(eqState()),
+        setPreamp: vi.fn().mockResolvedValue(eqState()),
+        setPreset: vi.fn().mockResolvedValue(eqState()),
+        reset: vi.fn().mockResolvedValue(eqState()),
+        listPresets: vi.fn().mockResolvedValue([]),
+        savePreset: vi.fn(),
+        deletePreset: vi.fn().mockResolvedValue([]),
+      },
+      library: {
+        getTracks: vi.fn(),
+        getAlbums: vi.fn(),
+        getAlbumTracks: vi.fn(),
+        getSummary: vi.fn(),
+        chooseFolder: vi.fn(),
+        addFolder: vi.fn(),
+        getFolders: vi.fn(),
+        removeFolder: vi.fn(),
+        scanFolder: vi.fn(),
+        getScanStatus: vi.fn(),
+        cancelScan: vi.fn(),
+        getDiagnostics: vi.fn(),
+      },
+      app: {
+        getVersion: vi.fn(),
+        minimize: vi.fn(),
+        toggleMaximize: vi.fn(),
+        close: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Volume' }).parentElement!);
+    expect(screen.getByText('100%')).toBeTruthy();
+
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '播放速度' }).parentElement!);
+    expect(screen.getByText('1.00x')).toBeTruthy();
+    expect(screen.queryByText('100%')).toBeNull();
   });
 });

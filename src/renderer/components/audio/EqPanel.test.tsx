@@ -35,6 +35,8 @@ const audioStatus: AudioStatus = {
   outputBackend: 'wasapi-exclusive',
   outputMode: 'exclusive',
   volume: 1,
+  playbackRate: 1,
+  playbackSpeedMode: 'nightcore',
   currentFilePath: null,
   currentTrackId: null,
   durationSeconds: 0,

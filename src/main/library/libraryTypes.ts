@@ -1,5 +1,6 @@
 import type {
   LibraryAlbum,
+  LibraryArtist,
   LibraryDiagnostics,
   EditableTrackTags,
   LibraryFolder,
@@ -8,11 +9,13 @@ import type {
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
+  LibraryCleanupResult,
   LibraryTrackTagUpdateRequest,
 } from '../../shared/types/library';
 
 export type {
   LibraryAlbum,
+  LibraryArtist,
   LibraryDiagnostics,
   EditableTrackTags,
   LibraryFolder,
@@ -21,6 +24,7 @@ export type {
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
+  LibraryCleanupResult,
   LibraryTrackTagUpdateRequest,
 };
 

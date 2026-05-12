@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -11,6 +11,73 @@ const targetDir = join(projectRoot, 'electron-app', 'build');
 const targetExe = join(targetDir, process.platform === 'win32' ? 'echo-audio-host.exe' : 'echo-audio-host');
 const config = process.env.ECHO_AUDIO_HOST_CONFIG || 'Release';
 const enableAsio = process.env.ECHO_ENABLE_ASIO ?? (process.platform === 'win32' ? 'ON' : 'OFF');
+const pngSignature = '89504e470d0a1a0a';
+
+const walkFiles = (directory, predicate, files = []) => {
+  if (!existsSync(directory)) {
+    return files;
+  }
+
+  for (const name of readdirSync(directory)) {
+    const filePath = join(directory, name);
+    const stats = statSync(filePath);
+
+    if (stats.isDirectory()) {
+      walkFiles(filePath, predicate, files);
+    } else if (predicate(filePath)) {
+      files.push(filePath);
+    }
+  }
+
+  return files;
+};
+
+const stripPngIccpProfile = (filePath) => {
+  const data = readFileSync(filePath);
+
+  if (data.length < 8 || data.toString('hex', 0, 8) !== pngSignature) {
+    return false;
+  }
+
+  const chunks = [data.subarray(0, 8)];
+  let offset = 8;
+  let stripped = false;
+
+  while (offset + 12 <= data.length) {
+    const length = data.readUInt32BE(offset);
+    const nextOffset = offset + 12 + length;
+
+    if (nextOffset > data.length) {
+      return false;
+    }
+
+    const type = data.toString('ascii', offset + 4, offset + 8);
+
+    if (type === 'iCCP') {
+      stripped = true;
+    } else {
+      chunks.push(data.subarray(offset, nextOffset));
+    }
+
+    offset = nextOffset;
+  }
+
+  if (stripped) {
+    writeFileSync(filePath, Buffer.concat(chunks));
+  }
+
+  return stripped;
+};
+
+const stripJuceExamplePngProfiles = () => {
+  const juceDir = join(buildDir, '_deps', 'juce-src');
+  const pngFiles = walkFiles(juceDir, (filePath) => filePath.toLocaleLowerCase().endsWith('.png'));
+  const strippedCount = pngFiles.filter(stripPngIccpProfile).length;
+
+  if (strippedCount > 0) {
+    console.log(`[build:audio-host] Stripped invalid PNG iCCP profiles from ${strippedCount} JUCE example asset(s).`);
+  }
+};
 
 const patchJuceWasapiExclusiveProbe = () => {
   if (process.platform !== 'win32') {
@@ -110,6 +177,7 @@ try {
     `-DECHO_ENABLE_ASIO=${enableAsio}`,
   ]);
   patchJuceWasapiExclusiveProbe();
+  stripJuceExamplePngProfiles();
   run('cmake', ['--build', buildDir, '--config', config, '--parallel']);
 
   const builtHost = findBuiltHost();

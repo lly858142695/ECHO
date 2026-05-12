@@ -94,6 +94,7 @@ const installLibraryService = () => {
     getSummary: vi.fn(),
     getDiagnostics: vi.fn(),
     updateTrackTags: vi.fn(),
+    recordTrackPlayback: vi.fn(),
     deleteTrack: vi.fn(),
   };
 

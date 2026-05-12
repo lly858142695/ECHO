@@ -1,17 +1,31 @@
 export type AppearancePreferences = {
   mainFontFamily: string;
+  mainFontFilePath: string | null;
   chineseFontFamily: string;
+  chineseFontFilePath: string | null;
   baseFontSize: number;
   lineHeight: number;
+  textDepth: number;
+};
+
+export type AppearanceFontSlot = 'main' | 'chinese';
+
+export type AppearanceFontFile = {
+  path: string;
+  family: string;
+  dataUrl: string;
 };
 
 const storageKey = 'echo-next:appearance-preferences';
 
 export const defaultAppearancePreferences: AppearancePreferences = {
   mainFontFamily: 'Outfit',
+  mainFontFilePath: null,
   chineseFontFamily: 'Microsoft YaHei',
+  chineseFontFilePath: null,
   baseFontSize: 14,
   lineHeight: 1.35,
+  textDepth: 62,
 };
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
@@ -25,11 +39,23 @@ const normalizeFontName = (value: unknown, fallback: string): string => {
   return normalized || fallback;
 };
 
+const normalizeFontPath = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.replace(/[\r\n]/g, '').trim();
+  return normalized || null;
+};
+
 const normalizePreferences = (value: Partial<AppearancePreferences>): AppearancePreferences => ({
   mainFontFamily: normalizeFontName(value.mainFontFamily, defaultAppearancePreferences.mainFontFamily),
+  mainFontFilePath: normalizeFontPath(value.mainFontFilePath),
   chineseFontFamily: normalizeFontName(value.chineseFontFamily, defaultAppearancePreferences.chineseFontFamily),
+  chineseFontFilePath: normalizeFontPath(value.chineseFontFilePath),
   baseFontSize: clamp(Number(value.baseFontSize) || defaultAppearancePreferences.baseFontSize, 12, 18),
   lineHeight: clamp(Number(value.lineHeight) || defaultAppearancePreferences.lineHeight, 1.1, 1.8),
+  textDepth: clamp(Number(value.textDepth) || defaultAppearancePreferences.textDepth, 35, 100),
 });
 
 const serializeFontList = (value: string): string => {
@@ -63,6 +89,9 @@ export const writeAppearancePreferences = (preferences: AppearancePreferences): 
 export const applyAppearancePreferences = (preferences: AppearancePreferences): void => {
   const normalized = normalizePreferences(preferences);
   const root = document.documentElement;
+  const textLightness = clamp(54 - normalized.textDepth * 0.42, 12, 40);
+  const mutedLightness = clamp(textLightness + 20, 38, 62);
+  const subtleLightness = clamp(textLightness + 34, 52, 74);
   const fontStack = [
     serializeFontList(normalized.mainFontFamily),
     serializeFontList(normalized.chineseFontFamily),
@@ -80,6 +109,27 @@ export const applyAppearancePreferences = (preferences: AppearancePreferences): 
   root.style.setProperty('--echo-font-family', fontStack);
   root.style.setProperty('--echo-base-font-size', `${normalized.baseFontSize}px`);
   root.style.setProperty('--echo-ui-line-height', normalized.lineHeight.toFixed(2));
+  root.style.setProperty('--color-text', `hsl(214 30% ${textLightness.toFixed(1)}%)`);
+  root.style.setProperty('--color-muted', `hsl(214 18% ${mutedLightness.toFixed(1)}%)`);
+  root.style.setProperty('--color-subtle', `hsl(214 14% ${subtleLightness.toFixed(1)}%)`);
+  root.style.setProperty('--echo-heading-text', `hsl(214 30% ${Math.max(textLightness - 3, 12).toFixed(1)}%)`);
+};
+
+const loadedFontFaces = new Map<AppearanceFontSlot, FontFace>();
+
+export const registerAppearanceFontFile = async (slot: AppearanceFontSlot, fontFile: AppearanceFontFile): Promise<string> => {
+  const family = normalizeFontName(fontFile.family, slot === 'main' ? defaultAppearancePreferences.mainFontFamily : defaultAppearancePreferences.chineseFontFamily);
+  const fontFace = new FontFace(family, `url("${fontFile.dataUrl}")`);
+  const loadedFontFace = await fontFace.load();
+  const previousFontFace = loadedFontFaces.get(slot);
+
+  if (previousFontFace) {
+    document.fonts.delete(previousFontFace);
+  }
+
+  document.fonts.add(loadedFontFace);
+  loadedFontFaces.set(slot, loadedFontFace);
+  return family;
 };
 
 export const updateAppearancePreferences = (preferences: AppearancePreferences): AppearancePreferences => {

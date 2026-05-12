@@ -165,7 +165,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
 
         <div className="album-detail-console">
           <div className="album-detail-copy">
-            <span className="album-detail-kicker">Album console</span>
+            <span className="album-detail-kicker">Album</span>
             <h1>{album.title}</h1>
             <p>{album.albumArtist}</p>
 
@@ -211,7 +211,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
       <section className="album-detail-track-console" aria-label={`${album.title} track console`}>
         <header className="album-track-heading">
           <div>
-            <span>Track deck</span>
+            <span>Tracks</span>
             <h2>{album.title}</h2>
           </div>
           <small>{formatSummary ?? 'Signal appears after the first track loads'}</small>

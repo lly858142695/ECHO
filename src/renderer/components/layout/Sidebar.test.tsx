@@ -72,7 +72,7 @@ describe('Sidebar direct import actions', () => {
 
     renderSidebar({ onRouteChange, onImportFolder, onImportFile });
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Import Folder' })[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Import Folder' }));
 
     await waitFor(() => expect(onImportFolder).toHaveBeenCalledTimes(1));
     expect(onImportFile).not.toHaveBeenCalled();

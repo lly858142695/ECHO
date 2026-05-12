@@ -76,6 +76,8 @@ const metadataWithCover = (data?: Uint8Array): MetadataResult => ({
         mimeType: 'image/png',
       }
     : undefined,
+  embeddedMetadataStatus: 'present',
+  embeddedCoverStatus: data ? 'present' : 'missing',
   warnings: [],
   errors: [],
   status: 'ok',

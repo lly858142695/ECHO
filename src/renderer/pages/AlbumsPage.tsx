@@ -11,7 +11,7 @@ export const AlbumsPage = (): JSX.Element => {
   const [total, setTotal] = useState(0);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<LibrarySort>('title');
+  const [sort, setSort] = useState<LibrarySort>('default');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null);
@@ -176,9 +176,16 @@ export const AlbumsPage = (): JSX.Element => {
 
         <label className="sort-button sort-select">
           <select value={sort} onChange={(event) => setSort(event.target.value as LibrarySort)}>
-            <option value="title">Title</option>
+            <option value="default">Default</option>
+            <option value="titleAsc">Title A-Z</option>
+            <option value="titleDesc">Title Z-A</option>
             <option value="artist">Artist</option>
+            <option value="createdAsc">Created Oldest</option>
+            <option value="createdDesc">Created Newest</option>
+            <option value="durationAsc">Duration Shortest</option>
+            <option value="durationDesc">Duration Longest</option>
             <option value="recent">Recent</option>
+            <option value="random">Random</option>
           </select>
           <ChevronDown size={15} />
         </label>

@@ -513,3 +513,24 @@
     flex-wrap: wrap;
   }
 }
+
+.eq-panel,
+.eq-enable-pill,
+.eq-icon-action,
+.eq-preset-selector select,
+.eq-preset-tools input,
+.eq-preset-tools button,
+.eq-soft-button,
+.eq-band-name {
+  color: var(--color-text);
+}
+
+.eq-title-block h2 {
+  color: var(--echo-heading-text);
+}
+
+.eq-title-block p,
+.eq-status-line,
+.eq-band-value {
+  color: var(--color-muted);
+}

@@ -109,6 +109,8 @@ const metadataResult = (overrides: Partial<ParsedTrackMetadata> = {}, extras: Pa
     },
     fieldSources: metadata.fieldSources,
     embeddedCover: metadata.embeddedCover,
+    embeddedMetadataStatus: metadata.embeddedMetadataStatus ?? 'present',
+    embeddedCoverStatus: metadata.embeddedCoverStatus ?? (metadata.embeddedCover ? 'present' : 'missing'),
     warnings: [],
     errors: [],
     status: 'ok',
@@ -313,7 +315,7 @@ describe('Library Core', () => {
     const reopened = createDatabase(databasePath);
     const migrationRows = reopened.prepare<unknown[], { id: number }>('SELECT id FROM schema_migrations ORDER BY id').all();
 
-    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3, 4]);
+    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3, 4, 5, 6]);
     reopened.close();
   });
 
@@ -469,6 +471,34 @@ describe('Library Core', () => {
     const secondScan = await harness.scanFolder();
 
     expect(secondScan.removedTracks).toBe(1);
+    expect(harness.service.getTracks({ pageSize: 10 }).total).toBe(0);
+    harness.cleanup();
+  });
+
+  it('prunes missing tracks without a full folder scan', async () => {
+    const harness = createHarness();
+    const filePath = writeAudioFile(harness.folder, 'Artist - Missing Later.flac');
+    harness.addFolder();
+
+    await harness.scanFolder();
+    rmSync(filePath);
+    const result = harness.service.pruneMissingTracks();
+
+    expect(result).toEqual({ scannedCount: 1, removedCount: 1 });
+    expect(harness.service.getTracks({ pageSize: 10 }).total).toBe(0);
+    harness.cleanup();
+  });
+
+  it('clears the visible library list without deleting local files', async () => {
+    const harness = createHarness();
+    const filePath = writeAudioFile(harness.folder, 'Artist - Keep File.flac');
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const result = harness.service.clearTracks();
+
+    expect(result).toEqual({ scannedCount: 1, removedCount: 1 });
+    expect(existsSync(filePath)).toBe(true);
     expect(harness.service.getTracks({ pageSize: 10 }).total).toBe(0);
     harness.cleanup();
   });

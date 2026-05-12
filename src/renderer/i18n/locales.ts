@@ -1,4 +1,4 @@
-export type Locale = 'zh-CN' | 'zh-TW' | 'ja-JP' | 'en-US';
+﻿export type Locale = 'zh-CN' | 'zh-TW' | 'ja-JP' | 'en-US';
 
 export const localeOptions: Array<{ locale: Locale; label: string }> = [
   { locale: 'zh-CN', label: '简体中文' },
@@ -80,6 +80,8 @@ export type TranslationKey =
   | 'settings.appearance.reset.action'
   | 'settings.appearance.reset.description'
   | 'settings.appearance.reset.title'
+  | 'settings.appearance.textDepth.description'
+  | 'settings.appearance.textDepth.title'
   | 'settings.appearance.theme.dark'
   | 'settings.appearance.theme.description'
   | 'settings.appearance.theme.followSystem'
@@ -101,6 +103,36 @@ export type TranslationKey =
   | 'settings.integrations.discord.title'
   | 'settings.integrations.mobile.description'
   | 'settings.integrations.mobile.title'
+  | 'settings.library.network.description'
+  | 'settings.library.network.title'
+  | 'settings.library.networkSources.description'
+  | 'settings.library.networkSources.title'
+  | 'settings.library.networkPanel.applyMissingOnly'
+  | 'settings.library.networkPanel.applySelected'
+  | 'settings.library.networkPanel.appliedCount'
+  | 'settings.library.networkPanel.artistField'
+  | 'settings.library.networkPanel.artistSource'
+  | 'settings.library.networkPanel.candidates'
+  | 'settings.library.networkPanel.cover'
+  | 'settings.library.networkPanel.embeddedCover'
+  | 'settings.library.networkPanel.embeddedMetadata'
+  | 'settings.library.networkPanel.kicker'
+  | 'settings.library.networkPanel.localCover'
+  | 'settings.library.networkPanel.missingCover'
+  | 'settings.library.networkPanel.noCandidates'
+  | 'settings.library.networkPanel.providerErrors'
+  | 'settings.library.networkPanel.reject'
+  | 'settings.library.networkPanel.repairMissing'
+  | 'settings.library.networkPanel.repairThisTrack'
+  | 'settings.library.networkPanel.scanMissing'
+  | 'settings.library.networkPanel.scanDone'
+  | 'settings.library.networkPanel.showCandidates'
+  | 'settings.library.networkPanel.title'
+  | 'settings.library.networkPanel.titleField'
+  | 'settings.library.networkPanel.trackId'
+  | 'settings.library.networkPanel.trackNotFound'
+  | 'settings.library.networkPanel.unknownArtist'
+  | 'settings.library.networkPanel.untitled'
   | 'settings.nav.about.description'
   | 'settings.nav.about.label'
   | 'settings.nav.appearance.description'
@@ -128,6 +160,8 @@ export type TranslationKey =
   | 'settings.playback.outputDevice.title'
   | 'settings.playback.outputMode.description'
   | 'settings.playback.outputMode.title'
+  | 'settings.playback.speedMode.description'
+  | 'settings.playback.speedMode.title'
   | 'settings.playback.wireless.description'
   | 'settings.playback.wireless.title'
   | 'settings.remote.library.description'
@@ -206,8 +240,10 @@ const zhCN: TranslationMap = {
   'settings.appearance.lineHeight.description': '调整界面文字的默认行距，让列表和说明文本更疏朗或更紧凑。',
   'settings.appearance.lineHeight.title': '界面行距',
   'settings.appearance.reset.action': '恢复默认',
-  'settings.appearance.reset.description': '恢复 Outfit、默认中文字体、字号与行距。',
+  'settings.appearance.reset.description': '恢复 Outfit、默认中文字体、字号、行距与文字深浅。',
   'settings.appearance.reset.title': '外观默认值',
+  'settings.appearance.textDepth.description': '调整界面文字颜色深浅；数值越低越浅。',
+  'settings.appearance.textDepth.title': '文字颜色深浅',
   'settings.appearance.theme.dark': '深色',
   'settings.appearance.theme.description': '先保持浅色玻璃界面，后续再接入持久化主题设置。',
   'settings.appearance.theme.followSystem': '跟随系统',
@@ -229,6 +265,36 @@ const zhCN: TranslationMap = {
   'settings.integrations.discord.title': 'Discord 状态',
   'settings.integrations.mobile.description': '未来外部设备能力会走受控 IPC，不让 Renderer 直连系统资源。',
   'settings.integrations.mobile.title': '手机遥控',
+  'settings.library.network.description': '手动弱补全；本地内嵌元数据始终优先。',
+  'settings.library.network.title': '网络元数据补全',
+  'settings.library.networkSources.description': '选择手动修复和缺失扫描使用的补全源。',
+  'settings.library.networkSources.title': '网络补全来源',
+  'settings.library.networkPanel.applyMissingOnly': '仅补缺失项',
+  'settings.library.networkPanel.applySelected': '应用所选',
+  'settings.library.networkPanel.appliedCount': '已自动补全数量',
+  'settings.library.networkPanel.artistField': '歌手',
+  'settings.library.networkPanel.artistSource': '歌手来源',
+  'settings.library.networkPanel.candidates': '候选',
+  'settings.library.networkPanel.cover': '封面',
+  'settings.library.networkPanel.embeddedCover': '内嵌封面',
+  'settings.library.networkPanel.embeddedMetadata': '内嵌元数据',
+  'settings.library.networkPanel.kicker': '手动修复',
+  'settings.library.networkPanel.localCover': '本地',
+  'settings.library.networkPanel.missingCover': '缺失/默认',
+  'settings.library.networkPanel.noCandidates': '暂无网络候选。',
+  'settings.library.networkPanel.providerErrors': '来源错误',
+  'settings.library.networkPanel.reject': '拒绝',
+  'settings.library.networkPanel.repairMissing': '修复当前曲目',
+  'settings.library.networkPanel.repairThisTrack': '补全此曲',
+  'settings.library.networkPanel.scanMissing': '扫描缺少元数据',
+  'settings.library.networkPanel.scanDone': '已扫描缺失曲目',
+  'settings.library.networkPanel.showCandidates': '显示候选',
+  'settings.library.networkPanel.title': '缺失元数据修复',
+  'settings.library.networkPanel.titleField': '标题',
+  'settings.library.networkPanel.trackId': '曲目 ID',
+  'settings.library.networkPanel.trackNotFound': '找不到该曲目。请先播放一首歌，或输入曲目 ID。',
+  'settings.library.networkPanel.unknownArtist': '未知歌手',
+  'settings.library.networkPanel.untitled': '未命名',
   'settings.nav.about.description': '版本、更新与开发工具',
   'settings.nav.about.label': '关于 / 高级',
   'settings.nav.appearance.description': '主题、字体、背景',
@@ -256,6 +322,8 @@ const zhCN: TranslationMap = {
   'settings.playback.outputDevice.title': '输出设备',
   'settings.playback.outputMode.description': 'Shared 适合日常使用，Exclusive / ASIO 用于采样率验收和后续 bit-perfect 路径。',
   'settings.playback.outputMode.title': '输出模式',
+  'settings.playback.speedMode.description': '选择播放器底部速度滑条使用的变速方式。',
+  'settings.playback.speedMode.title': '变速模式',
   'settings.playback.wireless.description': '后续 HiFi 引擎阶段再接入；当前阶段不迁移 gapless / automix / 流媒体。',
   'settings.playback.wireless.title': '无线播放',
   'settings.remote.library.description': '本阶段禁止网盘 / 远程 / 流媒体，只保留设置分组占位。',
@@ -295,6 +363,8 @@ const zhTW: TranslationMap = {
   'settings.general.backup.export': '匯出設定',
   'settings.general.backup.import': '匯入設定',
   'settings.playback.outputMode.title': '輸出模式',
+  'settings.playback.speedMode.description': '選擇播放器底部速度滑桿使用的變速方式。',
+  'settings.playback.speedMode.title': '變速模式',
   'settings.playback.outputDevice.title': '輸出裝置',
   'settings.playback.outputDevice.empty': '沒有可用裝置',
   'settings.playback.wireless.title': '無線播放',
@@ -399,6 +469,8 @@ const jaJP: TranslationMap = {
   'settings.general.backup.export': '設定を書き出す',
   'settings.general.backup.import': '設定を読み込む',
   'settings.playback.outputMode.title': '出力モード',
+  'settings.playback.speedMode.description': '下部プレイヤーの速度スライダーで使う変速方式を選びます。',
+  'settings.playback.speedMode.title': '変速モード',
   'settings.playback.outputMode.description': 'Shared は日常利用向け、Exclusive / ASIO はサンプルレート検証と今後の bit-perfect 経路向けです。',
   'settings.playback.outputDevice.title': '出力デバイス',
   'settings.playback.outputDevice.description': 'echo-audio-host から取得したデバイス一覧です。デバイスがない場合は既定出力を維持します。',
@@ -515,6 +587,8 @@ const enUS: TranslationMap = {
   'settings.general.backup.export': 'Export Settings',
   'settings.general.backup.import': 'Import Settings',
   'settings.playback.outputMode.title': 'Output Mode',
+  'settings.playback.speedMode.description': 'Choose the mode used by the speed slider in the player bar.',
+  'settings.playback.speedMode.title': 'Speed Mode',
   'settings.playback.outputMode.description': 'Shared is for everyday listening. Exclusive / ASIO are for sample-rate validation and future bit-perfect paths.',
   'settings.playback.outputDevice.title': 'Output Device',
   'settings.playback.outputDevice.description': 'Device list from echo-audio-host. When no device is available, default output is kept.',
@@ -529,6 +603,36 @@ const enUS: TranslationMap = {
   'settings.integrations.discord.description': 'Phase 1 does not connect integration services yet; this setting keeps the slot reserved.',
   'settings.integrations.mobile.title': 'Mobile Remote',
   'settings.integrations.mobile.description': 'Future external-device features will go through controlled IPC instead of direct Renderer system access.',
+  'settings.library.network.description': 'Manual weak completion only; local embedded metadata always keeps priority.',
+  'settings.library.network.title': 'Network Metadata Completion',
+  'settings.library.networkSources.description': 'Choose providers used by manual repair and missing-metadata scans.',
+  'settings.library.networkSources.title': 'Network Completion Sources',
+  'settings.library.networkPanel.applyMissingOnly': 'Apply missing only',
+  'settings.library.networkPanel.applySelected': 'Apply selected',
+  'settings.library.networkPanel.appliedCount': 'Auto-applied count',
+  'settings.library.networkPanel.artistField': 'Artist',
+  'settings.library.networkPanel.artistSource': 'Artist source',
+  'settings.library.networkPanel.candidates': 'Candidates',
+  'settings.library.networkPanel.cover': 'Cover',
+  'settings.library.networkPanel.embeddedCover': 'Embedded cover',
+  'settings.library.networkPanel.embeddedMetadata': 'Embedded metadata',
+  'settings.library.networkPanel.kicker': 'Manual repair',
+  'settings.library.networkPanel.localCover': 'Local',
+  'settings.library.networkPanel.missingCover': 'Missing/default',
+  'settings.library.networkPanel.noCandidates': 'No network candidate yet.',
+  'settings.library.networkPanel.providerErrors': 'Provider errors',
+  'settings.library.networkPanel.reject': 'Reject',
+  'settings.library.networkPanel.repairMissing': 'Repair current track',
+  'settings.library.networkPanel.repairThisTrack': 'Repair this track',
+  'settings.library.networkPanel.scanMissing': 'Scan Missing Metadata',
+  'settings.library.networkPanel.scanDone': 'Scanned missing tracks',
+  'settings.library.networkPanel.showCandidates': 'Show Candidates',
+  'settings.library.networkPanel.title': 'Missing Metadata Repair',
+  'settings.library.networkPanel.titleField': 'Title',
+  'settings.library.networkPanel.trackId': 'Track id',
+  'settings.library.networkPanel.trackNotFound': 'Track not found. Play a track first, or enter a track ID.',
+  'settings.library.networkPanel.unknownArtist': 'Unknown Artist',
+  'settings.library.networkPanel.untitled': 'Untitled',
   'settings.remote.library.title': 'Remote Music Library',
   'settings.remote.library.description': 'Cloud / remote / streaming sources are blocked in this phase; only the settings group remains.',
   'settings.appearance.theme.title': 'Theme',
@@ -550,8 +654,10 @@ const enUS: TranslationMap = {
   'settings.appearance.lineHeight.description': 'Adjust default UI text spacing for denser or airier reading.',
   'settings.appearance.lineHeight.title': 'Interface Line Height',
   'settings.appearance.reset.action': 'Reset',
-  'settings.appearance.reset.description': 'Restore Outfit, the default Chinese font, base size, and line height.',
+  'settings.appearance.reset.description': 'Restore Outfit, the default Chinese font, base size, line height, and text depth.',
   'settings.appearance.reset.title': 'Appearance Defaults',
+  'settings.appearance.textDepth.description': 'Adjust interface text darkness. Lower values make text lighter.',
+  'settings.appearance.textDepth.title': 'Text Depth',
   'settings.devices.title': 'Device List',
   'settings.devices.empty': 'echo-audio-host has not returned output devices yet.',
   'settings.about.devMode.title': 'Developer Mode',

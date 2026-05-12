@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import {
   Check,
   Download,
+  FolderOpen,
   Globe2,
   Headphones,
   Info,
@@ -16,20 +17,37 @@ import {
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { AudioDeviceInfo, AudioOutputMode, AudioOutputSettings, AudioStatus } from '../../shared/types/audio';
+import type { AudioDeviceInfo, AudioOutputMode, AudioOutputSettings, AudioStatus, PlaybackSpeedMode } from '../../shared/types/audio';
+import type { AppSettings } from '../../shared/types/appSettings';
 import { EqPanel } from '../components/audio/EqPanel';
 import { LibraryDiagnosticsPanel } from '../components/library/LibraryDiagnosticsPanel';
 import { LibraryFoldersPanel } from '../components/library/LibraryFoldersPanel';
+import { NetworkMetadataPanel } from '../components/library/NetworkMetadataPanel';
 import { useI18n } from '../i18n/I18nProvider';
 import type { TranslationKey } from '../i18n/locales';
 import {
   defaultAppearancePreferences,
   readAppearancePreferences,
+  registerAppearanceFontFile,
   updateAppearancePreferences,
   type AppearancePreferences,
 } from '../preferences/appearancePreferences';
 
 const isDevBuild = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+
+const playbackSpeedModes: Array<{ mode: PlaybackSpeedMode; label: string }> = [
+  { mode: 'nightcore', label: 'Nightcore' },
+  { mode: 'daycore', label: 'Daycore' },
+  { mode: 'speed', label: '普通变速' },
+];
+
+const networkProviderLabels: Record<AppSettings['networkMetadataProviders'][number], string> = {
+  'netease-cloud-music': '网易云音乐',
+  'qq-music': 'QQ 音乐',
+  musicbrainz: 'MusicBrainz',
+  'cover-art-archive': 'Cover Art Archive',
+  mock: 'Mock',
+};
 
 type SettingsNavKey = 'general' | 'playback' | 'integrations' | 'remote' | 'eq' | 'appearance' | 'library' | 'about' | 'danger';
 
@@ -197,6 +215,7 @@ const FontPickerModal = ({
   currentFont,
   fonts,
   onClose,
+  onChooseFile,
   onSelect,
   query,
   setQuery,
@@ -205,6 +224,7 @@ const FontPickerModal = ({
   currentFont: string;
   fonts: string[];
   onClose: () => void;
+  onChooseFile: () => void;
   onSelect: (fontFamily: string) => void;
   query: string;
   setQuery: (query: string) => void;
@@ -226,6 +246,10 @@ const FontPickerModal = ({
           <Search size={15} aria-hidden="true" />
           <input value={query} onChange={(event) => setQuery(event.target.value)} autoFocus />
         </label>
+        <button className="settings-font-file-button" type="button" onClick={onChooseFile}>
+          <FolderOpen size={15} aria-hidden="true" />
+          从资源管理器选择
+        </button>
         <div className="settings-font-list">
           {filteredFonts.map((font) => (
             <button
@@ -254,6 +278,7 @@ export const SettingsPage = (): JSX.Element => {
   const [outputMode, setOutputMode] = useState<AudioOutputMode>('shared');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [appearancePreferences, setAppearancePreferences] = useState<AppearancePreferences>(() => readAppearancePreferences());
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [fontFamilies, setFontFamilies] = useState<string[]>(fallbackFontFamilies);
   const [fontPickerTarget, setFontPickerTarget] = useState<FontPickerTarget | null>(null);
   const [fontPickerQuery, setFontPickerQuery] = useState('');
@@ -296,6 +321,7 @@ export const SettingsPage = (): JSX.Element => {
   useEffect(() => {
     void refreshStatus();
     void refreshDevices();
+    void window.echo.app.getSettings().then(setAppSettings).catch(() => undefined);
     const timer = window.setInterval(() => {
       void refreshStatus();
     }, 1000);
@@ -387,6 +413,29 @@ export const SettingsPage = (): JSX.Element => {
     handleAppearanceChange(defaultAppearancePreferences);
   };
 
+  const patchAppSettings = (patch: Partial<AppSettings>): void => {
+    void window.echo.app.setSettings(patch).then(setAppSettings).catch((settingsError) => {
+      setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
+    });
+  };
+
+  const toggleNetworkProvider = (provider: AppSettings['networkMetadataProviders'][number]): void => {
+    const current = appSettings?.networkMetadataProviders ?? ['mock'];
+    const next = current.includes(provider) ? current.filter((item) => item !== provider) : [...current, provider];
+    patchAppSettings({ networkMetadataProviders: next.length ? next : ['mock'] });
+  };
+
+  const handlePlaybackSpeedModeChange = (playbackSpeedMode: PlaybackSpeedMode): void => {
+    const playbackSpeed = appSettings?.playbackSpeed ?? status?.playbackRate ?? 1;
+    patchAppSettings({ playbackSpeedMode });
+    void window.echo.audio
+      .setOutput({ playbackRate: playbackSpeed, playbackSpeedMode })
+      .then(setStatus)
+      .catch((speedError) => {
+        setError(speedError instanceof Error ? speedError.message : String(speedError));
+      });
+  };
+
   const handleFontPickerOpen = (target: FontPickerTarget): void => {
     setFontPickerTarget(target);
     setFontPickerQuery('');
@@ -394,14 +443,46 @@ export const SettingsPage = (): JSX.Element => {
 
   const handleFontSelect = (fontFamily: string): void => {
     if (fontPickerTarget === 'main') {
-      handleAppearanceChange({ ...appearancePreferences, mainFontFamily: fontFamily });
+      handleAppearanceChange({ ...appearancePreferences, mainFontFamily: fontFamily, mainFontFilePath: null });
     }
 
     if (fontPickerTarget === 'chinese') {
-      handleAppearanceChange({ ...appearancePreferences, chineseFontFamily: fontFamily });
+      handleAppearanceChange({ ...appearancePreferences, chineseFontFamily: fontFamily, chineseFontFilePath: null });
     }
 
     setFontPickerTarget(null);
+  };
+
+  const handleFontFileChoose = async (): Promise<void> => {
+    const target = fontPickerTarget;
+
+    if (!target) {
+      return;
+    }
+
+    try {
+      const fontFile = await window.echo.app.chooseFontFile();
+
+      if (!fontFile) {
+        return;
+      }
+
+      const fontFamily = await registerAppearanceFontFile(target, fontFile);
+      setFontFamilies((current) => Array.from(new Set([...current, fontFamily])).sort((a, b) => a.localeCompare(b)));
+
+      if (target === 'main') {
+        handleAppearanceChange({ ...appearancePreferences, mainFontFamily: fontFamily, mainFontFilePath: fontFile.path });
+      }
+
+      if (target === 'chinese') {
+        handleAppearanceChange({ ...appearancePreferences, chineseFontFamily: fontFamily, chineseFontFilePath: fontFile.path });
+      }
+
+      setFontPickerTarget(null);
+      setError(null);
+    } catch (fontError) {
+      setError(fontError instanceof Error ? fontError.message : String(fontError));
+    }
   };
 
   const activeNavItems = visibleNavItems.length ? visibleNavItems : settingsNavItems;
@@ -500,6 +581,19 @@ export const SettingsPage = (): JSX.Element => {
                   </select>
                 </label>
               </SettingRow>
+              <SettingRow title={t('settings.playback.speedMode.title')} description={t('settings.playback.speedMode.description')}>
+                <div className="settings-chip-row">
+                  {playbackSpeedModes.map((item) => (
+                    <ChipButton
+                      active={(appSettings?.playbackSpeedMode ?? status?.playbackSpeedMode ?? 'nightcore') === item.mode}
+                      key={item.mode}
+                      onClick={() => handlePlaybackSpeedModeChange(item.mode)}
+                    >
+                      {item.label}
+                    </ChipButton>
+                  ))}
+                </div>
+              </SettingRow>
               <SettingRow title={t('settings.playback.wireless.title')} description={t('settings.playback.wireless.description')}>
                 <ToggleButton />
               </SettingRow>
@@ -589,6 +683,16 @@ export const SettingsPage = (): JSX.Element => {
                   onChange={(lineHeight) => handleAppearanceChange({ ...appearancePreferences, lineHeight })}
                 />
               </SettingRow>
+              <SettingRow title={t('settings.appearance.textDepth.title')} description={t('settings.appearance.textDepth.description')}>
+                <NumberRangeField
+                  min={35}
+                  max={100}
+                  step={1}
+                  suffix="%"
+                  value={appearancePreferences.textDepth}
+                  onChange={(textDepth) => handleAppearanceChange({ ...appearancePreferences, textDepth })}
+                />
+              </SettingRow>
               <SettingRow title={t('settings.appearance.reset.title')} description={t('settings.appearance.reset.description')}>
                 <button className="settings-action-button" type="button" onClick={handleAppearanceReset}>
                   {t('settings.appearance.reset.action')}
@@ -598,6 +702,30 @@ export const SettingsPage = (): JSX.Element => {
 
             <SettingSection activeKey={activeSection} icon={Download} id="library" title={t('settings.nav.library.label')}>
               <LibraryFoldersPanel />
+              <SettingRow title={t('settings.library.network.title')} description={t('settings.library.network.description')}>
+                <button
+                  className={`toggle-btn ${appSettings?.networkMetadataEnabled ? 'active' : ''}`}
+                  type="button"
+                  aria-pressed={appSettings?.networkMetadataEnabled ?? false}
+                  onClick={() => patchAppSettings({ networkMetadataEnabled: !(appSettings?.networkMetadataEnabled ?? false) })}
+                >
+                  <span />
+                </button>
+              </SettingRow>
+              <SettingRow title={t('settings.library.networkSources.title')} description={t('settings.library.networkSources.description')}>
+                <div className="settings-chip-row">
+                  {(['netease-cloud-music', 'qq-music', 'musicbrainz', 'cover-art-archive', 'mock'] as AppSettings['networkMetadataProviders']).map((provider) => (
+                    <ChipButton
+                      active={(appSettings?.networkMetadataProviders ?? ['mock']).includes(provider)}
+                      key={provider}
+                      onClick={() => toggleNetworkProvider(provider)}
+                    >
+                      {networkProviderLabels[provider]}
+                    </ChipButton>
+                  ))}
+                </div>
+              </SettingRow>
+              <NetworkMetadataPanel />
               {isDevBuild ? <LibraryDiagnosticsPanel /> : null}
             </SettingSection>
 
@@ -657,6 +785,7 @@ export const SettingsPage = (): JSX.Element => {
           currentFont={activeFontValue}
           fonts={fontFamilies}
           onClose={() => setFontPickerTarget(null)}
+          onChooseFile={() => void handleFontFileChoose()}
           onSelect={handleFontSelect}
           query={fontPickerQuery}
           setQuery={setFontPickerQuery}

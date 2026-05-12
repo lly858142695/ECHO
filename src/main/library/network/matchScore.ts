@@ -56,9 +56,15 @@ const dice = (left: string, right: string): number => {
 const bestTextScore = (candidate: string | null | undefined, ...locals: Array<string | null | undefined>): number =>
   Math.max(0, ...locals.map((local) => dice(candidate ?? '', local ?? '')));
 
+const isUnknownArtist = (value: string | null | undefined): boolean => {
+  const normalized = normalize(value);
+  return !normalized || normalized === 'unknown artist' || normalized === 'unknown';
+};
+
 export const matchScore = (local: MatchScoreInput, candidate: MatchScoreInput): number => {
   const title = bestTextScore(candidate.title, local.title, local.filename);
-  const artist = bestTextScore(candidate.artist, local.artist, local.albumArtist);
+  const localArtistUnknown = isUnknownArtist(local.artist) && isUnknownArtist(local.albumArtist);
+  const artist = localArtistUnknown ? 0.75 : bestTextScore(candidate.artist, local.artist, local.albumArtist);
   const album = bestTextScore(candidate.album, local.album, local.folder);
   const albumArtist = bestTextScore(candidate.albumArtist, local.albumArtist, local.artist);
   const localDuration = Number(local.duration ?? 0);
@@ -69,7 +75,7 @@ export const matchScore = (local: MatchScoreInput, candidate: MatchScoreInput): 
   const trackNo = local.trackNo && candidate.trackNo ? (local.trackNo === candidate.trackNo ? 1 : 0.25) : 0.5;
   const year = local.year && candidate.year ? (local.year === candidate.year ? 1 : Math.abs(local.year - candidate.year) <= 1 ? 0.7 : 0.25) : 0.5;
 
-  if (title < 0.55 || artist < 0.5) {
+  if (title < 0.55 || (!localArtistUnknown && artist < 0.5)) {
     return Math.min(0.74, 0.45 * title + 0.35 * artist + 0.2 * album);
   }
 

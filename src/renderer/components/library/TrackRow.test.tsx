@@ -22,6 +22,9 @@ const track = (overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
   bitrate: 900000,
   coverId: null,
   coverThumb: null,
+  embeddedMetadataStatus: 'present',
+  embeddedCoverStatus: 'missing',
+  networkMetadataStatus: 'none',
   fieldSources: {},
   ...overrides,
 });

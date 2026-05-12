@@ -6,8 +6,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "predev": "npm run rebuild:native && npm run build:audio-host",
     "dev": "electron-vite dev",
+    "dev:full": "npm run rebuild:native && npm run build:audio-host && electron-vite dev",
     "build:audio-host": "node scripts/build-audio-host.mjs",
     "smoke:audio-host": "node scripts/smoke-audio-host.mjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",

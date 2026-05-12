@@ -3,16 +3,28 @@ import type { AppSettings } from '../shared/types/appSettings';
 import type { EqPreset, EqSavePresetRequest, EqSetBandFrequencyRequest, EqSetBandGainRequest, EqState } from '../shared/types/eq';
 import type {
   LibraryAlbum,
+  LibraryArtist,
   LibraryDiagnostics,
   LibraryTrackTagUpdateRequest,
   LibraryFolder,
   LibraryPage,
   LibraryPageQuery,
+  LibraryCleanupResult,
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
+  NetworkApplyResult,
+  NetworkCandidateList,
+  MissingMetadataScanResult,
+  NetworkRepairResult,
 } from '../shared/types/library';
 import type { PlaybackStartRequest, PlaybackStatus } from '../shared/types/playback';
+
+export type FontFileAsset = {
+  path: string;
+  family: string;
+  dataUrl: string;
+};
 
 export type EchoApi = {
   app: {
@@ -22,6 +34,8 @@ export type EchoApi = {
     close: () => Promise<void>;
     getSettings: () => Promise<AppSettings>;
     setSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>;
+    chooseFontFile: () => Promise<FontFileAsset | null>;
+    loadFontFile: (path: string) => Promise<FontFileAsset>;
   };
   library: {
     chooseFolder: () => Promise<string | null>;
@@ -33,6 +47,7 @@ export type EchoApi = {
     cancelScan: (jobId: string) => Promise<LibraryScanStatus>;
     getTracks: (query?: LibraryPageQuery) => Promise<LibraryPage<LibraryTrack>>;
     getAlbums: (query?: LibraryPageQuery) => Promise<LibraryPage<LibraryAlbum>>;
+    getArtists: (query?: LibraryPageQuery) => Promise<LibraryPage<LibraryArtist>>;
     getAlbumTracks: (
       albumId: string,
       query?: Pick<LibraryPageQuery, 'page' | 'pageSize'>,
@@ -40,6 +55,7 @@ export type EchoApi = {
     getSummary: () => Promise<LibrarySummary>;
     getDiagnostics: () => Promise<LibraryDiagnostics>;
     updateTrackTags: (request: LibraryTrackTagUpdateRequest) => Promise<LibraryTrack>;
+    recordTrackPlayback: (trackId: string) => Promise<void>;
     openTrackInFolder: (trackId: string) => Promise<void>;
     openTrackWithSystem: (trackId: string) => Promise<void>;
     copyTrackPath: (trackId: string) => Promise<void>;
@@ -47,6 +63,14 @@ export type EchoApi = {
     copyTrackCover: (trackId: string) => Promise<boolean>;
     saveTrackCover: (trackId: string) => Promise<string | null>;
     deleteTrackFile: (trackId: string) => Promise<void>;
+    pruneMissingTracks: () => Promise<LibraryCleanupResult>;
+    clearTracks: () => Promise<LibraryCleanupResult>;
+    repairMissingMetadata: (trackId: string) => Promise<NetworkRepairResult>;
+    scanMissingMetadata: (limit?: number) => Promise<MissingMetadataScanResult>;
+    showNetworkCandidates: (trackId: string) => Promise<NetworkCandidateList>;
+    applyNetworkMissingOnly: (candidateId: string) => Promise<NetworkApplyResult>;
+    applyNetworkSelected: (candidateId: string) => Promise<NetworkApplyResult>;
+    rejectNetworkCandidate: (candidateId: string) => Promise<NetworkApplyResult>;
   };
   playback: {
     getStatus: () => Promise<PlaybackStatus>;

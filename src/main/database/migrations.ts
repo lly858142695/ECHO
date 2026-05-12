@@ -151,6 +151,13 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 6,
+    apply: (database) => {
+      addColumnIfMissing(database, 'tracks', 'play_count', 'play_count INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(database, 'tracks', 'last_played_at', 'last_played_at TEXT');
+    },
+  },
 ];
 
 export const runMigrations = (database: EchoDatabase): void => {

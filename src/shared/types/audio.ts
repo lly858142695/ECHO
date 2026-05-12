@@ -2,6 +2,8 @@ export type AudioOutputMode = 'shared' | 'exclusive' | 'asio';
 
 export type AudioPlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'stopped' | 'ended' | 'error';
 
+export type PlaybackSpeedMode = 'nightcore' | 'daycore' | 'speed';
+
 export type AudioDeviceInfo = {
   id: string;
   index: number;
@@ -18,6 +20,8 @@ export type AudioOutputSettings = {
   deviceName?: string;
   requestedOutputSampleRate?: number;
   volume?: number;
+  playbackRate?: number;
+  playbackSpeedMode?: PlaybackSpeedMode;
 };
 
 export type AudioStatus = {
@@ -29,6 +33,8 @@ export type AudioStatus = {
   outputBackend: string | null;
   outputMode: AudioOutputMode;
   volume: number;
+  playbackRate: number;
+  playbackSpeedMode: PlaybackSpeedMode;
   currentFilePath: string | null;
   currentTrackId: string | null;
   durationSeconds: number;

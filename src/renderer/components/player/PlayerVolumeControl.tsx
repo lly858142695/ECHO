@@ -8,14 +8,21 @@ type PlayerVolumeControlProps = {
   status: AudioStatus | null;
   onStatusChange: (status: AudioStatus) => void;
   onError: (message: string) => void;
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
 };
 
 const volumeFromStatus = (status: AudioStatus | null): number => {
   return Math.max(0, Math.min(1, status?.volume ?? 1));
 };
 
-export const PlayerVolumeControl = ({ status, onStatusChange, onError }: PlayerVolumeControlProps): JSX.Element => {
-  const [isOpen, setIsOpen] = useState(false);
+export const PlayerVolumeControl = ({
+  status,
+  onStatusChange,
+  onError,
+  isOpen,
+  onOpenChange,
+}: PlayerVolumeControlProps): JSX.Element => {
   const [volume, setVolume] = useState(volumeFromStatus(status));
   const rootRef = useRef<HTMLDivElement | null>(null);
   const pendingCommitRef = useRef<number | null>(null);
@@ -24,6 +31,35 @@ export const PlayerVolumeControl = ({ status, onStatusChange, onError }: PlayerV
   useEffect(() => {
     setVolume(volumeFromStatus(status));
   }, [status]);
+
+  useEffect(() => {
+    const getSettings = window.echo?.app?.getSettings;
+    const audio = window.echo?.audio;
+
+    if (typeof getSettings !== 'function' || !audio) {
+      return;
+    }
+
+    let isCancelled = false;
+    void getSettings()
+      .then(async (settings) => {
+        if (isCancelled) {
+          return;
+        }
+
+        const safeVolume = Math.max(0, Math.min(1, settings.playerVolume));
+        setVolume(safeVolume);
+        const nextStatus = await audio.setOutput({ volume: safeVolume });
+        if (!isCancelled) {
+          onStatusChange(nextStatus);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [onStatusChange]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -35,12 +71,12 @@ export const PlayerVolumeControl = ({ status, onStatusChange, onError }: PlayerV
         return;
       }
 
-      setIsOpen(false);
+      onOpenChange(false);
     };
 
     window.addEventListener('pointerdown', handlePointerDown, true);
     return () => window.removeEventListener('pointerdown', handlePointerDown, true);
-  }, [isOpen]);
+  }, [isOpen, onOpenChange]);
 
   const commitVolume = useCallback(
     async (nextVolume: number): Promise<void> => {
@@ -56,6 +92,10 @@ export const PlayerVolumeControl = ({ status, onStatusChange, onError }: PlayerV
 
       try {
         const nextStatus = await audio.setOutput({ volume: safeVolume });
+        const setSettings = window.echo?.app?.setSettings;
+        if (typeof setSettings === 'function') {
+          void setSettings({ playerVolume: safeVolume }).catch(() => undefined);
+        }
         if (pendingCommitRef.current === safeVolume) {
           onStatusChange(nextStatus);
         }
@@ -68,20 +108,20 @@ export const PlayerVolumeControl = ({ status, onStatusChange, onError }: PlayerV
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>): void => {
     event.preventDefault();
-    setIsOpen(true);
+    onOpenChange(true);
     const direction = event.deltaY > 0 ? -1 : 1;
     void commitVolume(volume + direction * 0.03);
   };
 
   return (
-    <div className="volume-control" ref={rootRef} onMouseEnter={() => setIsOpen(true)} onWheel={handleWheel}>
+    <div className="volume-control" ref={rootRef} onMouseEnter={() => onOpenChange(true)} onWheel={handleWheel}>
       <button
         className="icon-button"
         type="button"
         aria-label="Volume"
         title="Volume"
-        onClick={() => setIsOpen(true)}
-        onFocus={() => setIsOpen(true)}
+        onClick={() => onOpenChange(true)}
+        onFocus={() => onOpenChange(true)}
       >
         <Icon size={18} />
       </button>

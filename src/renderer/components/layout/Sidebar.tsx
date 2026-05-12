@@ -1,4 +1,3 @@
-import { FolderPlus } from 'lucide-react';
 import type { AppRoute, AppRouteId } from '../../app/routes';
 import { useI18n } from '../../i18n/I18nProvider';
 
@@ -46,13 +45,6 @@ export const Sidebar = ({
       </nav>
 
       <div className="sidebar-spacer" />
-
-      <div className="sidebar-meta">
-        <button className="sidebar-folder" type="button" onClick={onImportFolder} title={t('route.importFolder.label')} aria-label={t('route.importFolder.label')}>
-          <FolderPlus size={16} />
-          <span>{t('route.importFolder.label')}</span>
-        </button>
-      </div>
 
       <nav className="nav-list utility-nav" aria-label={t('app.navigation.utility')}>
         {utilityRoutes.map((route) => {

@@ -118,6 +118,8 @@ const audioStatus = (overrides: Partial<AudioStatus> = {}): AudioStatus => ({
   outputBackend: null,
   outputMode: 'shared',
   volume: 1,
+  playbackRate: 1,
+  playbackSpeedMode: 'nightcore',
   currentFilePath: null,
   currentTrackId: null,
   durationSeconds: 0,
