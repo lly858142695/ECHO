@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('TrackRow', () => {
-  it('renders the old ECHO-style row with cover, copy, hifi tags, duration, and actions', () => {
+  it('renders the polished row with cover, copy, hifi tags, duration, and actions', () => {
     render(<TrackRow isPlaying={false} track={track()} />);
 
     expect(screen.getByText('Afraid')).toBeTruthy();
@@ -50,6 +50,24 @@ describe('TrackRow', () => {
 
     expect(screen.getByRole('listitem').getAttribute('data-playing')).toBe('true');
     expect(screen.getByText('Afraid')).toBeTruthy();
+    expect(screen.getByText('播放中')).toBeTruthy();
+  });
+
+  it('renders coverThumb as a lazy async image and falls back after load error', () => {
+    const coverThumb = 'echo-cover://thumb/cover-1';
+    const { container, rerender } = render(<TrackRow isPlaying={false} track={track({ coverThumb })} />);
+    const img = container.querySelector('.track-cover img') as HTMLImageElement | null;
+
+    expect(img?.getAttribute('src')).toBe(coverThumb);
+    expect(img?.getAttribute('loading')).toBe('lazy');
+    expect(img?.getAttribute('decoding')).toBe('async');
+    expect(img?.draggable).toBe(false);
+
+    fireEvent.error(img!);
+    expect(container.querySelector('.track-cover img')).toBeNull();
+
+    rerender(<TrackRow isPlaying={false} track={track({ coverThumb })} />);
+    expect(container.querySelector('.track-cover img')).toBeNull();
   });
 
   it('calls onPlay from click and double click without action button bubbling', () => {
@@ -66,5 +84,12 @@ describe('TrackRow', () => {
     onPlay.mockClear();
     fireEvent.click(screen.getByRole('button', { name: '喜欢 Afraid' }));
     expect(onPlay).not.toHaveBeenCalled();
+  });
+
+  it('marks clickable rows without adding a cover play affordance', () => {
+    const { container } = render(<TrackRow isPlaying={false} track={track()} onPlay={vi.fn()} />);
+
+    expect(screen.getByRole('listitem').getAttribute('data-clickable')).toBe('true');
+    expect(container.querySelector('.track-cover-play')).toBeNull();
   });
 });

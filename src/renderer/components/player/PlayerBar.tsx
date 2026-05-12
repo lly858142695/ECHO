@@ -1,50 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ChangeEvent, SyntheticEvent } from 'react';
-import {
-  ChevronUp,
-  Gauge,
-  Heart,
-  ListMusic,
-  Mic2,
-  MoreHorizontal,
-  Pause,
-  Play,
-  Repeat2,
-  Shuffle,
-  SkipBack,
-  SkipForward,
-  SlidersHorizontal,
-  Volume2,
-} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronUp, Gauge, MoreHorizontal, Music2, SlidersHorizontal } from 'lucide-react';
 import type { AudioStatus } from '../../../shared/types/audio';
 import type { PlaybackStatus } from '../../../shared/types/playback';
+import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
+import { PlayerProgress } from './PlayerProgress';
+import { PlayerStatusChips } from './PlayerStatusChips';
+import { PlayerTransport } from './PlayerTransport';
+import { PlayerVolumeControl } from './PlayerVolumeControl';
+import { basename } from './playerFormat';
 
-const formatTime = (seconds: number): string => {
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    return '0:00';
-  }
-
-  const totalSeconds = Math.floor(seconds);
-  const minutes = Math.floor(totalSeconds / 60);
-  const remainingSeconds = totalSeconds % 60;
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+type PlayerBarProps = {
+  onOpenAudioSettings?: () => void;
 };
 
-const formatRate = (value: number | null): string => (value ? `${Math.round(value)} Hz` : 'n/a');
-
-const basename = (filePath: string | null): string => {
-  if (!filePath) {
-    return 'No local file';
-  }
-
-  return filePath.split(/[\\/]/).pop() || filePath;
-};
-
-export const PlayerBar = (): JSX.Element => {
+export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element => {
+  const queue = usePlaybackQueue();
+  const setQueueCurrentTrackId = queue.setCurrentTrackId;
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null);
   const [audioStatus, setAudioStatus] = useState<AudioStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [seekPreviewSeconds, setSeekPreviewSeconds] = useState<number | null>(null);
+  const handledEndedTrackRef = useRef<string | null>(null);
+  const refreshRequestRef = useRef(0);
 
   const refreshStatus = useCallback(async (): Promise<void> => {
     const echo = window.echo;
@@ -55,72 +32,82 @@ export const PlayerBar = (): JSX.Element => {
     }
 
     try {
+      const requestId = refreshRequestRef.current + 1;
+      refreshRequestRef.current = requestId;
       const [nextPlaybackStatus, nextAudioStatus] = await Promise.all([
         echo.playback.getStatus(),
         echo.audio.getStatus(),
       ]);
+
+      if (refreshRequestRef.current !== requestId) {
+        return;
+      }
+
       setPlaybackStatus(nextPlaybackStatus);
       setAudioStatus(nextAudioStatus);
+      setQueueCurrentTrackId(nextPlaybackStatus.currentTrackId ?? nextAudioStatus.currentTrackId);
       setError(nextAudioStatus.error);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
     }
-  }, []);
+  }, [setQueueCurrentTrackId]);
 
   useEffect(() => {
     void refreshStatus();
-    // TODO: replace polling with playback/audio status push IPC after Phase 1.1.
     const timer = window.setInterval(() => {
       void refreshStatus();
-    }, 1000);
+    }, 500);
 
     return () => window.clearInterval(timer);
   }, [refreshStatus]);
 
-  const isPlaying = audioStatus?.state === 'playing' || playbackStatus?.state === 'playing';
-  const filePath = audioStatus?.currentFilePath ?? playbackStatus?.filePath ?? null;
-  const trackId = audioStatus?.currentTrackId ?? playbackStatus?.currentTrackId ?? null;
+  const state = audioStatus?.state ?? playbackStatus?.state ?? 'idle';
+  const isPlaying = state === 'playing';
+  const statusTrackId = playbackStatus?.currentTrackId ?? audioStatus?.currentTrackId ?? null;
+  const trackId = queue.currentTrackId ?? statusTrackId;
+  const currentTrack = queue.tracks.find((track) => track.id === trackId) ?? null;
+  const filePath = currentTrack?.path ?? audioStatus?.currentFilePath ?? playbackStatus?.filePath ?? null;
   const positionSeconds = audioStatus?.positionSeconds ?? (playbackStatus?.positionMs ?? 0) / 1000;
   const durationSeconds = audioStatus?.durationSeconds ?? (playbackStatus?.durationMs ?? 0) / 1000;
   const displayedPositionSeconds = seekPreviewSeconds ?? positionSeconds;
-  const boundedDisplayedPositionSeconds =
-    durationSeconds > 0 ? Math.min(durationSeconds, Math.max(0, displayedPositionSeconds)) : 0;
-  const progressPercent =
-    durationSeconds > 0 ? Math.min(100, Math.max(0, (boundedDisplayedPositionSeconds / durationSeconds) * 100)) : 0;
-  const state = audioStatus?.state ?? playbackStatus?.state ?? 'idle';
-  const outputRows = useMemo(
-    () => [
-      ['state', state],
-      ['codec', audioStatus?.codec ?? 'n/a'],
-      ['fileSampleRate', formatRate(audioStatus?.fileSampleRate ?? null)],
-      ['actualDeviceSampleRate', formatRate(audioStatus?.actualDeviceSampleRate ?? null)],
-      ['outputMode', audioStatus?.outputMode ?? 'shared'],
-      ['backend', audioStatus?.outputBackend ?? 'n/a'],
-      ['deviceType', audioStatus?.outputDeviceType ?? 'n/a'],
-      ['sampleRateMismatch', audioStatus?.sampleRateMismatch ? 'warning' : 'ok'],
-    ],
-    [audioStatus, state],
+  const title = currentTrack?.title ?? basename(filePath);
+  const artist = currentTrack?.artist || currentTrack?.albumArtist || (filePath ? 'Local file' : 'Ready');
+
+  const runPlaybackAction = useCallback(
+    async (action: () => Promise<PlaybackStatus | null>): Promise<void> => {
+      try {
+        refreshRequestRef.current += 1;
+        const status = await action();
+        if (status) {
+          setPlaybackStatus(status);
+          setQueueCurrentTrackId(status.currentTrackId);
+        }
+        await refreshStatus();
+      } catch (actionError) {
+        setError(actionError instanceof Error ? actionError.message : String(actionError));
+      }
+    },
+    [refreshStatus, setQueueCurrentTrackId],
   );
 
   const handlePlayPause = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
 
     if (!playback) {
+      setError('Desktop bridge unavailable');
       return;
     }
 
-    try {
-      if (isPlaying) {
-        setPlaybackStatus(await playback.pause());
-      } else {
-        setPlaybackStatus(await playback.play());
-      }
+    await runPlaybackAction(() => (isPlaying ? playback.pause() : playback.play()));
+  }, [isPlaying, runPlaybackAction]);
 
-      await refreshStatus();
-    } catch (playError) {
-      setError(playError instanceof Error ? playError.message : String(playError));
-    }
-  }, [isPlaying, refreshStatus]);
+  const handlePrevious = useCallback((): void => {
+    void runPlaybackAction(queue.playPrevious);
+  }, [queue.playPrevious, runPlaybackAction]);
+
+  const handleNext = useCallback((): void => {
+    void runPlaybackAction(queue.playNext);
+  }, [queue.playNext, runPlaybackAction]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -130,8 +117,7 @@ export const PlayerBar = (): JSX.Element => {
 
       const target = event.target as HTMLElement | null;
       const tagName = target?.tagName;
-      const isTextInput =
-        tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || tagName === 'BUTTON';
+      const isTextInput = tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
 
       if (target?.isContentEditable || isTextInput) {
         return;
@@ -144,6 +130,21 @@ export const PlayerBar = (): JSX.Element => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handlePlayPause]);
+
+  useEffect(() => {
+    if (state !== 'ended' || !trackId || handledEndedTrackRef.current === trackId) {
+      return;
+    }
+
+    handledEndedTrackRef.current = trackId;
+    void runPlaybackAction(queue.playNext);
+  }, [queue.playNext, runPlaybackAction, state, trackId]);
+
+  useEffect(() => {
+    if (state === 'playing') {
+      handledEndedTrackRef.current = null;
+    }
+  }, [state, trackId]);
 
   const commitSeek = useCallback(
     async (nextPositionSeconds: number): Promise<void> => {
@@ -169,106 +170,53 @@ export const PlayerBar = (): JSX.Element => {
     [durationSeconds, refreshStatus],
   );
 
-  const handleSeekChange = useCallback((event: ChangeEvent<HTMLInputElement>): void => {
-    setSeekPreviewSeconds(Number(event.currentTarget.value));
-  }, []);
-
-  const handleSeekCommit = useCallback(
-    (event: SyntheticEvent<HTMLInputElement>): void => {
-      void commitSeek(Number(event.currentTarget.value));
-    },
-    [commitSeek],
-  );
-
   return (
-    <footer className="player-bar" aria-label="Playback controls">
+    <footer className="player-bar" aria-label="播放控制">
       <div className="player-now">
-        <div className="player-cover" aria-hidden="true">
+        <div className="player-cover" data-empty={!currentTrack?.coverThumb} aria-hidden="true">
+          {currentTrack?.coverThumb ? <img alt="" src={currentTrack.coverThumb} /> : <Music2 size={30} />}
           <div className="cover-sheen" />
         </div>
         <div className="player-track-copy">
-          <strong>{basename(filePath)}</strong>
-          <span>{trackId ? `track id: ${trackId}` : 'track id: n/a'}</span>
-          <div className="tag-row player-tags" aria-label="Audio status">
-            {outputRows.map(([label, value]) => (
-              <span className={`hifi-tag ${label === 'sampleRateMismatch' && value === 'warning' ? 'tag-hires' : 'tag-depth'}`} key={label}>
-                {label}: {value}
-              </span>
-            ))}
-          </div>
+          <strong>{title}</strong>
+          <span>{artist}</span>
+          <PlayerStatusChips status={audioStatus} state={state} track={currentTrack} />
         </div>
       </div>
 
       <div className="player-center">
-        <div className="transport">
-          <button className="icon-button" type="button" aria-label="Queue" title="Queue">
-            <ListMusic size={17} />
-          </button>
-          <button className="icon-button" type="button" aria-label="Shuffle" title="Shuffle">
-            <Shuffle size={17} />
-          </button>
-          <button className="icon-button" type="button" aria-label="Previous" title="Previous">
-            <SkipBack size={18} />
-          </button>
-          <button className="play-button" type="button" aria-label={isPlaying ? 'Pause' : 'Play'} title={isPlaying ? 'Pause' : 'Play'} onClick={() => void handlePlayPause()}>
-            {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
-          </button>
-          <button className="icon-button" type="button" aria-label="Next" title="Next">
-            <SkipForward size={18} />
-          </button>
-          <button className="icon-button is-soft-active" type="button" aria-label="Repeat" title="Repeat">
-            <Repeat2 size={17} />
-          </button>
-          <button className="icon-button" type="button" aria-label="Lyrics" title="Lyrics">
-            <Mic2 size={17} />
-          </button>
-          <button className="icon-button" type="button" aria-label="Like" title="Like">
-            <Heart size={17} />
-          </button>
-        </div>
-
-        <div className="progress-row" aria-label="Playback position">
-          <span>{formatTime(boundedDisplayedPositionSeconds)}</span>
-          <div className="progress-track">
-            <div className="progress-fill" style={{ width: `${progressPercent}%` }} />
-            <div className="progress-thumb" style={{ left: `${progressPercent}%` }} />
-            <input
-              aria-label="Seek position"
-              className="progress-slider"
-              disabled={!filePath || durationSeconds <= 0}
-              max={Math.max(0, durationSeconds)}
-              min={0}
-              onBlur={handleSeekCommit}
-              onChange={handleSeekChange}
-              onKeyUp={handleSeekCommit}
-              onPointerUp={handleSeekCommit}
-              step={0.1}
-              type="range"
-              value={boundedDisplayedPositionSeconds}
-            />
-          </div>
-          <span>{formatTime(durationSeconds)}</span>
-        </div>
+        <PlayerTransport
+          canGoNext={queue.canGoNext}
+          canGoPrevious={queue.canGoPrevious}
+          isPlaying={isPlaying}
+          isShuffleEnabled={queue.isShuffleEnabled}
+          onNext={handleNext}
+          onPlayPause={() => void handlePlayPause()}
+          onPrevious={handlePrevious}
+          onToggleShuffle={queue.toggleShuffle}
+        />
+        <PlayerProgress
+          disabled={!filePath}
+          durationSeconds={durationSeconds}
+          positionSeconds={displayedPositionSeconds}
+          onCommit={(nextPositionSeconds) => void commitSeek(nextPositionSeconds)}
+          onPreview={setSeekPreviewSeconds}
+        />
         {error ? <span className="player-error">{error}</span> : null}
       </div>
 
       <div className="output-status">
-        <span className={audioStatus?.sampleRateMismatch ? 'output-warning' : undefined}>
-          {audioStatus?.sampleRateMismatch ? 'sample-rate mismatch' : audioStatus?.outputMode ?? 'shared'}
-        </span>
-        <button className="icon-button" type="button" aria-label="Volume" title="Volume">
-          <Volume2 size={18} />
-        </button>
-        <button className="icon-button" type="button" aria-label="Output device" title="Output device">
+        <PlayerVolumeControl status={audioStatus} onError={setError} onStatusChange={setAudioStatus} />
+        <button className="icon-button" type="button" aria-label="输出设备" title="输出设备">
           <Gauge size={17} />
         </button>
-        <button className="icon-button" type="button" aria-label="Audio controls" title="Audio controls">
+        <button className="icon-button" type="button" aria-label="音频控制" title="音频控制" onClick={onOpenAudioSettings}>
           <SlidersHorizontal size={17} />
         </button>
-        <button className="icon-button" type="button" aria-label="More" title="More">
+        <button className="icon-button" type="button" aria-label="更多" title="更多">
           <MoreHorizontal size={18} />
         </button>
-        <button className="icon-button" type="button" aria-label="Expand player" title="Expand player">
+        <button className="icon-button" type="button" aria-label="展开播放器" title="展开播放器">
           <ChevronUp size={18} />
         </button>
       </div>

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { Transform } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { DeviceService } from './DeviceService';
 import { DecoderPipeline } from './DecoderPipeline';
@@ -25,6 +26,7 @@ type OutputBridgeLike = {
   start: (options: NativeOutputStartOptions) => Promise<NativeBridgeReadyResult>;
   stop: () => void;
   getPositionSeconds: () => number;
+  resetOutputClock?: (startSeconds?: number, playbackRate?: number) => void;
   on: (event: 'position' | 'ended' | 'error', listener: (...args: unknown[]) => void) => OutputBridgeLike;
 };
 
@@ -114,6 +116,7 @@ const defaultStatus = (nativeHostAvailable: boolean): AudioStatus => ({
   outputDeviceType: null,
   outputBackend: null,
   outputMode: 'shared',
+  volume: 1,
   currentFilePath: null,
   currentTrackId: null,
   durationSeconds: 0,
@@ -121,6 +124,7 @@ const defaultStatus = (nativeHostAvailable: boolean): AudioStatus => ({
   channels: null,
   codec: null,
   bitDepth: null,
+  bitrate: null,
   fileSampleRate: null,
   decoderOutputSampleRate: null,
   requestedOutputSampleRate: null,
@@ -132,6 +136,45 @@ const defaultStatus = (nativeHostAvailable: boolean): AudioStatus => ({
   warnings: [],
   error: null,
 });
+
+class PcmVolumeTransform extends Transform {
+  private gain: number;
+  private remainder = Buffer.alloc(0);
+
+  constructor(volume: number) {
+    super();
+    this.gain = Math.max(0, Math.min(1, volume));
+  }
+
+  setVolume(volume: number): void {
+    this.gain = Math.max(0, Math.min(1, volume));
+  }
+
+  override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null, data?: Buffer) => void): void {
+    if (this.gain === 1) {
+      callback(null, chunk);
+      return;
+    }
+
+    const input = this.remainder.length > 0 ? Buffer.concat([this.remainder, chunk]) : chunk;
+    const output = Buffer.from(input);
+    const sampleBytes = 4;
+    const completeSampleBytes = output.length - (output.length % sampleBytes);
+    this.remainder = completeSampleBytes < output.length ? Buffer.from(output.subarray(completeSampleBytes)) : Buffer.alloc(0);
+
+    for (let offset = 0; offset < completeSampleBytes; offset += sampleBytes) {
+      output.writeFloatLE(output.readFloatLE(offset) * this.gain, offset);
+    }
+
+    callback(null, output.subarray(0, completeSampleBytes));
+  }
+
+  override _flush(callback: (error?: Error | null, data?: Buffer) => void): void {
+    const tail = this.remainder;
+    this.remainder = Buffer.alloc(0);
+    callback(null, tail);
+  }
+}
 
 export class AudioSession extends EventEmitter {
   private readonly decoder: DecoderPipelineLike;
@@ -158,6 +201,7 @@ export class AudioSession extends EventEmitter {
   private currentOutputDeviceName: string | null = null;
   private bridge: OutputBridgeLike | null = null;
   private decoderRun: DecoderRun | null = null;
+  private gainTransform: PcmVolumeTransform | null = null;
   private errorMessage: string | null = null;
   private pausedPositionSeconds: number | null = null;
   private runToken = 0;
@@ -178,6 +222,7 @@ export class AudioSession extends EventEmitter {
   }
 
   async setOutput(settings: AudioOutputSettings): Promise<AudioStatus> {
+    const previousOutputSettings = this.currentOutputSettings ? { ...this.currentOutputSettings } : null;
     this.updatePositionFromOutput();
     this.outputSettings = {
       ...this.outputSettings,
@@ -195,7 +240,24 @@ export class AudioSession extends EventEmitter {
 
     this.currentDevice = createDeviceFromOutputSettings(this.currentOutputSettings ?? this.outputSettings);
 
+    const outputOnlyChangesVolume =
+      previousOutputSettings !== null &&
+      Object.keys(settings).every((key) => key === 'volume') &&
+      this.currentOutputSettings !== null;
+
+    if (outputOnlyChangesVolume) {
+      this.gainTransform?.setVolume(this.outputSettings.volume);
+      this.emitStatus();
+      return this.getStatus();
+    }
+
     if (this.state === 'paused') {
+      this.stopResources();
+      this.currentPlan = null;
+      this.currentOutputBackend = null;
+      this.currentOutputDeviceType = null;
+      this.currentOutputDeviceName = null;
+      this.hostStatus = this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
       this.emitStatus();
       return this.getStatus();
     }
@@ -269,19 +331,13 @@ export class AudioSession extends EventEmitter {
         channels: probe.channels,
         decoderOutputSampleRate: activePlan.decoderOutputSampleRate,
       });
-      this.decoderRun = run;
 
       const writable = bridge.writable;
       if (!writable) {
         throw new Error('native output bridge did not expose a writable PCM stream');
       }
 
-      run.stream.pipe(writable);
-      run.done.catch((error: unknown) => {
-        if (this.runToken === token) {
-          this.handleError(error instanceof Error ? error : new Error(String(error)));
-        }
-      });
+      this.startDecoderRun(run, writable, token);
 
       this.state = 'playing';
       this.hostStatus = 'ready';
@@ -298,6 +354,28 @@ export class AudioSession extends EventEmitter {
 
   async play(): Promise<AudioStatus> {
     if (this.state === 'paused' && this.currentFilePath && this.currentOutputSettings) {
+      if (this.bridge?.writable && this.currentProbe && this.currentPlan) {
+        const token = this.runToken + 1;
+        const startSeconds = this.pausedPositionSeconds ?? this.clock.getPositionSeconds();
+        this.runToken = token;
+        this.pausedPositionSeconds = null;
+        this.bridge.resetOutputClock?.(startSeconds, 1);
+        this.attachBridgeEvents(this.bridge, token);
+        this.clock.reset(startSeconds, this.currentPlan.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate);
+
+        const run = this.decoder.decodeLocalFile({
+          filePath: this.currentFilePath,
+          startSeconds,
+          channels: this.currentProbe.channels,
+          decoderOutputSampleRate: this.currentPlan.decoderOutputSampleRate,
+        });
+        this.startDecoderRun(run, this.bridge.writable, token);
+        this.state = 'playing';
+        this.hostStatus = 'ready';
+        this.emitStatus();
+        return this.getStatus();
+      }
+
       return this.playLocalFile({
         filePath: this.currentFilePath,
         trackId: this.currentTrackId ?? undefined,
@@ -310,16 +388,22 @@ export class AudioSession extends EventEmitter {
   }
 
   pause(): AudioStatus {
-    if (this.state === 'playing') {
-      this.updatePositionFromOutput();
-      const positionSeconds = this.clock.getPositionSeconds();
+    if (this.state === 'playing' || this.state === 'loading') {
+      if (this.state === 'playing') {
+        this.updatePositionFromOutput();
+      }
+      const positionSeconds = this.state === 'playing' ? this.clock.getPositionSeconds() : this.pausedPositionSeconds ?? 0;
       const sampleRate = this.currentPlan?.actualDeviceSampleRate ?? this.currentPlan?.requestedOutputSampleRate ?? null;
       this.runToken += 1;
-      this.stopResources();
+      if (this.state === 'loading') {
+        this.stopResources();
+      } else {
+        this.stopDecoderRun();
+      }
       this.pausedPositionSeconds = positionSeconds;
       this.clock.reset(positionSeconds, sampleRate);
       this.state = 'paused';
-      this.hostStatus = this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
+      this.hostStatus = this.bridge ? 'ready' : this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
       this.emitStatus();
     }
 
@@ -361,7 +445,27 @@ export class AudioSession extends EventEmitter {
     if (this.state === 'paused') {
       const sampleRate = this.currentPlan?.actualDeviceSampleRate ?? this.currentPlan?.requestedOutputSampleRate ?? null;
       this.pausedPositionSeconds = safePositionSeconds;
+      this.bridge?.resetOutputClock?.(safePositionSeconds, 1);
       this.clock.reset(safePositionSeconds, sampleRate);
+      this.emitStatus();
+      return this.getStatus();
+    }
+
+    if (this.state === 'playing' && this.bridge?.writable && this.currentProbe && this.currentPlan) {
+      const token = this.runToken + 1;
+      this.runToken = token;
+      this.stopDecoderRun();
+      this.bridge.resetOutputClock?.(safePositionSeconds, 1);
+      this.attachBridgeEvents(this.bridge, token);
+      this.clock.reset(safePositionSeconds, this.currentPlan.actualDeviceSampleRate ?? this.currentPlan.requestedOutputSampleRate);
+
+      const run = this.decoder.decodeLocalFile({
+        filePath: this.currentFilePath,
+        startSeconds: safePositionSeconds,
+        channels: this.currentProbe.channels,
+        decoderOutputSampleRate: this.currentPlan.decoderOutputSampleRate,
+      });
+      this.startDecoderRun(run, this.bridge.writable, token);
       this.emitStatus();
       return this.getStatus();
     }
@@ -389,6 +493,7 @@ export class AudioSession extends EventEmitter {
       outputDeviceType: this.currentOutputDeviceType,
       outputBackend: this.currentOutputBackend,
       outputMode: plan?.outputMode ?? this.outputSettings.outputMode,
+      volume: this.outputSettings.volume,
       currentFilePath: this.currentFilePath,
       currentTrackId: this.currentTrackId,
       durationSeconds: this.currentProbe?.durationSeconds ?? 0,
@@ -396,6 +501,7 @@ export class AudioSession extends EventEmitter {
       channels: this.currentProbe?.channels ?? null,
       codec: this.currentProbe?.codec ?? null,
       bitDepth: this.currentProbe?.bitDepth ?? null,
+      bitrate: this.currentProbe?.bitrate ?? null,
       fileSampleRate: plan?.fileSampleRate ?? null,
       decoderOutputSampleRate: plan?.decoderOutputSampleRate ?? null,
       requestedOutputSampleRate: plan?.requestedOutputSampleRate ?? null,
@@ -681,7 +787,7 @@ export class AudioSession extends EventEmitter {
   }
 
   private updatePositionFromOutput(): void {
-    if (this.bridge?.getPositionSeconds) {
+    if (this.state !== 'paused' && this.bridge?.getPositionSeconds) {
       const positionSeconds = this.bridge.getPositionSeconds();
       const plan = this.currentPlan;
       const sampleRate = plan?.actualDeviceSampleRate ?? plan?.requestedOutputSampleRate ?? null;
@@ -689,7 +795,19 @@ export class AudioSession extends EventEmitter {
     }
   }
 
-  private stopResources(): void {
+  private startDecoderRun(run: DecoderRun, writable: Writable, token: number): void {
+    const gainTransform = new PcmVolumeTransform(this.currentOutputSettings?.volume ?? this.outputSettings.volume);
+    this.decoderRun = run;
+    this.gainTransform = gainTransform;
+    run.stream.pipe(gainTransform).pipe(writable, { end: false });
+    run.done.catch((error: unknown) => {
+      if (this.runToken === token) {
+        this.handleError(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  private stopDecoderRun(): void {
     if (this.decoderRun) {
       try {
         this.decoderRun.stream.unpipe();
@@ -699,6 +817,19 @@ export class AudioSession extends EventEmitter {
       this.decoderRun.stop();
       this.decoderRun = null;
     }
+
+    if (this.gainTransform) {
+      try {
+        this.gainTransform.destroy();
+      } catch {
+        // Best-effort resource cleanup.
+      }
+      this.gainTransform = null;
+    }
+  }
+
+  private stopResources(): void {
+    this.stopDecoderRun();
 
     if (this.bridge) {
       this.bridge.stop();

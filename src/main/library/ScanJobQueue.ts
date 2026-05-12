@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import type { AlbumService } from './AlbumService';
 import type { LibraryStore } from './LibraryStore';
 import type {
@@ -8,6 +9,7 @@ import type {
   MetadataResult,
   ScannedAudioFile,
   ScannedFile,
+  StoredTrackCoverState,
 } from './libraryTypes';
 import type { CoverExtractor } from './workers/CoverExtractor';
 import type { FileScanner } from './workers/FileScanner';
@@ -23,6 +25,12 @@ type ParsedScanItem = {
 type ChangedFile = {
   file: ScannedAudioFile;
   existingTrackId: string | null;
+};
+
+type CoverRepairItem = {
+  file: ScannedAudioFile;
+  state: StoredTrackCoverState;
+  cover: CoverResult | null;
 };
 
 type ScanJobQueueOptions = {
@@ -121,18 +129,36 @@ export class ScanJobQueue {
       });
 
       const changedFiles: ChangedFile[] = [];
+      const coverRepairItems: CoverRepairItem[] = [];
 
       for (const file of files) {
         this.throwIfCancelled(jobId);
 
-        const existing = this.store.findTrackFingerprint(file.path);
+        const existing = this.store.findTrackCoverState(file.path);
 
         if (existing && existing.sizeBytes === file.sizeBytes && existing.mtimeMs === file.mtimeMs) {
-          processedFiles += 1;
-          skippedFiles += 1;
-          this.store.updateScanJob(jobId, {
-            processedFiles,
-            skippedFiles,
+          if (this.hasCompleteCoverCache(existing)) {
+            processedFiles += 1;
+            skippedFiles += 1;
+            this.store.updateScanJob(jobId, {
+              processedFiles,
+              skippedFiles,
+            });
+            continue;
+          }
+
+          if (this.canRepairCoverCache(existing)) {
+            coverRepairItems.push({
+              file,
+              state: existing,
+              cover: null,
+            });
+            continue;
+          }
+
+          changedFiles.push({
+            file,
+            existingTrackId: existing.id,
           });
           continue;
         }
@@ -186,6 +212,43 @@ export class ScanJobQueue {
       });
 
       const coverTimestamp = new Date().toISOString();
+
+      await this.processWithConcurrency(coverRepairItems, this.coverConcurrency, async (item) => {
+        this.throwIfCancelled(jobId);
+
+        try {
+          if (!this.coverExtractor.repairCachedCover) {
+            throw new Error('cover extractor does not support cached cover repair');
+          }
+
+          const cover = await this.coverExtractor.repairCachedCover({
+            cacheRoot: this.coverCacheDir,
+            source: item.state.coverSource!,
+            sourceHash: item.state.sourceHash!,
+            mimeType: item.state.mimeType,
+            originalRef: item.state.originalRef!,
+            thumbPath: item.state.thumbPath,
+            albumPath: item.state.albumPath,
+            largePath: item.state.largePath,
+            now: coverTimestamp,
+          });
+          this.collectWorkerMessages(errors, item.file.path, 'cover', cover.warnings, cover.errors);
+          item.cover = cover;
+          coverCount += 1;
+        } catch (error) {
+          errors.push(`${item.file.path}: cover: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
+        processedFiles += 1;
+        this.store.updateScanJob(jobId, {
+          phase: 'extracting_covers',
+          processedFiles,
+          skippedFiles,
+          coverCount,
+          errors,
+        });
+      });
+
       await this.processWithConcurrency(parsedItems, this.coverConcurrency, async (item) => {
         this.throwIfCancelled(jobId);
 
@@ -221,6 +284,17 @@ export class ScanJobQueue {
           files.map((file) => file.path),
           timestamp,
         );
+
+        for (const item of coverRepairItems) {
+          if (item.cover) {
+            const repairedCoverId = this.store.upsertCover(item.cover, timestamp);
+
+            if (repairedCoverId && repairedCoverId !== item.state.coverId) {
+              this.store.updateTrackCover(item.state.id, repairedCoverId, timestamp);
+              updatedTracks += 1;
+            }
+          }
+        }
 
         for (const item of parsedItems) {
           const coverId = item.cover ? this.store.upsertCover(item.cover, timestamp) : null;
@@ -364,6 +438,28 @@ export class ScanJobQueue {
     for (const error of workerErrors) {
       errors.push(`${filePath}: ${workerName}: ${error}`);
     }
+  }
+
+  private hasCompleteCoverCache(state: StoredTrackCoverState): boolean {
+    return Boolean(
+      state.coverId &&
+        state.thumbPath &&
+        state.albumPath &&
+        state.largePath &&
+        existsSync(state.thumbPath) &&
+        existsSync(state.albumPath) &&
+        existsSync(state.largePath),
+    );
+  }
+
+  private canRepairCoverCache(state: StoredTrackCoverState): boolean {
+    return Boolean(
+      state.coverId &&
+        state.coverSource &&
+        state.sourceHash &&
+        state.originalRef &&
+        existsSync(state.originalRef),
+    );
   }
 
   private async processWithConcurrency<T>(

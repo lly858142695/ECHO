@@ -6,12 +6,15 @@ import type { LibraryPage, LibraryTrack } from '../../shared/types/library';
 vi.mock('../components/library/TrackList', () => ({
   TrackList: ({
     tracks,
+    currentTrackId,
     onPlay,
   }: {
     tracks: LibraryTrack[];
+    currentTrackId: string | null;
     onPlay?: (track: LibraryTrack) => void;
   }) => (
     <div>
+      <span data-testid="current-track-id">{currentTrackId ?? 'none'}</span>
       {tracks.map((track) => (
         <button key={track.id} type="button" onClick={() => onPlay?.(track)}>
           {track.title}
@@ -23,7 +26,12 @@ vi.mock('../components/library/TrackList', () => ({
 
 const renderSongsPage = async (): Promise<void> => {
   const { SongsPage } = await import('./SongsPage');
-  render(<SongsPage />);
+  const { PlaybackQueueProvider } = await import('../stores/PlaybackQueueProvider');
+  render(
+    <PlaybackQueueProvider>
+      <SongsPage />
+    </PlaybackQueueProvider>,
+  );
 };
 
 const makeTrack = (overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
@@ -57,13 +65,15 @@ const makePage = (items: LibraryTrack[]): LibraryPage<LibraryTrack> => ({
 });
 
 const installEcho = (tracks: LibraryTrack[] = []) => {
-  const playLocalFile = vi.fn().mockResolvedValue({
-    state: 'playing',
-    currentTrackId: tracks[0]?.id ?? null,
-    positionMs: 0,
-    durationMs: 180000,
-    filePath: tracks[0]?.path ?? null,
-  });
+  const playLocalFile = vi.fn().mockImplementation(({ filePath, trackId }: { filePath: string; trackId?: string }) =>
+    Promise.resolve({
+      state: 'playing',
+      currentTrackId: trackId ?? tracks[0]?.id ?? null,
+      positionMs: 0,
+      durationMs: 180000,
+      filePath,
+    }),
+  );
 
   window.echo = {
     library: {
@@ -129,13 +139,15 @@ describe('SongsPage', () => {
     window.removeEventListener('app:navigate:import-folder', navigate);
   });
 
-  it('plays a local file from TrackRow', async () => {
+  it('plays a local file from TrackRow and exposes queue currentTrackId to TrackList', async () => {
     const track = makeTrack();
     const { playLocalFile } = installEcho([track]);
 
     await renderSongsPage();
 
     await screen.findByText('Song One');
+    expect(screen.getByTestId('current-track-id').textContent).toBe('none');
+
     fireEvent.click(screen.getByRole('button', { name: 'Song One' }));
 
     await waitFor(() =>
@@ -152,5 +164,6 @@ describe('SongsPage', () => {
         },
       }),
     );
+    await waitFor(() => expect(screen.getByTestId('current-track-id').textContent).toBe('track-1'));
   });
 });

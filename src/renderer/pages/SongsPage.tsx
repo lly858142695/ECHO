@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import type { LibrarySort, LibraryTrack } from '../../shared/types/library';
 import { TrackList } from '../components/library/TrackList';
+import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 
 const pageSize = 100;
 
@@ -23,8 +24,8 @@ export const SongsPage = (): JSX.Element => {
   const [sort, setSort] = useState<LibrarySort>('title');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
   const requestIdRef = useRef(0);
+  const { currentTrackId, playTrack, setQueue } = usePlaybackQueue();
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -86,16 +87,8 @@ export const SongsPage = (): JSX.Element => {
   }, [loadTracks]);
 
   useEffect(() => {
-    const playback = window.echo?.playback;
-
-    if (!playback) {
-      return;
-    }
-
-    void playback.getStatus().then((status) => {
-      setCurrentTrackId(status.currentTrackId);
-    }).catch(() => undefined);
-  }, []);
+    setQueue(tracks);
+  }, [setQueue, tracks]);
 
   useEffect(() => {
     const handleLibraryChanged = (): void => {
@@ -120,47 +113,38 @@ export const SongsPage = (): JSX.Element => {
     window.dispatchEvent(new Event('app:navigate:import-folder'));
   };
 
-  const handlePlayTrack = useCallback(async (track: LibraryTrack): Promise<void> => {
-    const playback = window.echo?.playback;
+  const handlePlayTrack = useCallback(
+    async (track: LibraryTrack): Promise<void> => {
+      const playback = window.echo?.playback;
 
-    if (!playback) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to play local files.');
-      return;
-    }
+      if (!playback) {
+        setError('Desktop bridge unavailable. Open ECHO Next in Electron to play local files.');
+        return;
+      }
 
-    try {
-      setError(null);
-      const status = await playback.playLocalFile({
-        filePath: track.path,
-        trackId: track.id,
-        probe: {
-          durationSeconds: track.duration,
-          fileSampleRate: track.sampleRate,
-          channels: 2,
-          codec: track.codec,
-          bitDepth: track.bitDepth,
-          bitrate: track.bitrate,
-        },
-      });
-      setCurrentTrackId(status.currentTrackId ?? track.id);
-    } catch (playError) {
-      setError(playError instanceof Error ? playError.message : String(playError));
-    }
-  }, []);
+      try {
+        setError(null);
+        await playTrack(track);
+      } catch (playError) {
+        setError(playError instanceof Error ? playError.message : String(playError));
+      }
+    },
+    [playTrack],
+  );
 
   return (
     <div className="songs-page">
       <header className="songs-header">
         <div className="songs-title-group">
-          <h1>我的曲目</h1>
+          <h1>我的歌曲</h1>
           <span>{total} tracks</span>
         </div>
 
-        <div className="songs-tools" aria-label="曲目工具">
+        <div className="songs-tools" aria-label="歌曲工具">
           <button className="tool-button" type="button" aria-label="导入文件夹" title="导入文件夹" onClick={handleImportFolder}>
             <FolderPlus size={17} />
           </button>
-          <button className="tool-button" type="button" aria-label="扫描" title="扫描">
+          <button className="tool-button" type="button" aria-label="扫描曲库" title="扫描曲库">
             <RotateCw size={17} />
           </button>
           <button className="tool-button" type="button" aria-label="下载" title="下载">
@@ -180,7 +164,7 @@ export const SongsPage = (): JSX.Element => {
           <Search size={18} aria-hidden="true" />
           <input
             type="search"
-            placeholder="搜索曲目 / 艺术家 / 专辑"
+            placeholder="搜索歌曲 / 艺术家 / 专辑"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
           />
@@ -197,7 +181,13 @@ export const SongsPage = (): JSX.Element => {
         </label>
       </div>
 
-      <TrackList tracks={tracks} currentTrackId={currentTrackId} canLoadMore={hasMore && !isLoading} onEndReached={handleLoadMore} onPlay={handlePlayTrack} />
+      <TrackList
+        tracks={tracks}
+        currentTrackId={currentTrackId}
+        canLoadMore={hasMore && !isLoading}
+        onEndReached={handleLoadMore}
+        onPlay={handlePlayTrack}
+      />
 
       {error || isLoading ? (
         <div className="list-footer">

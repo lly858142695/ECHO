@@ -9,27 +9,24 @@ afterEach(() => {
 });
 
 describe('AppTitleBar', () => {
-  it('uses direct import actions instead of navigation for import buttons', () => {
+  it('uses a direct import action instead of navigation for the import file button', () => {
     const onRouteChange = vi.fn();
-    const onImportFolder = vi.fn();
     const onImportFile = vi.fn();
 
     render(
       <AppTitleBar
         activeRouteId="songs"
         onRouteChange={onRouteChange}
-        onImportFolder={onImportFolder}
         onImportFile={onImportFile}
+        onOpenAudioSettings={vi.fn()}
         onMinimize={vi.fn()}
         onToggleMaximize={vi.fn()}
         onClose={vi.fn()}
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Import Folder' }));
     fireEvent.click(screen.getByRole('button', { name: 'Import File' }));
 
-    expect(onImportFolder).toHaveBeenCalledTimes(1);
     expect(onImportFile).toHaveBeenCalledTimes(1);
     expect(onRouteChange).not.toHaveBeenCalled();
   });
@@ -41,8 +38,8 @@ describe('AppTitleBar', () => {
       <AppTitleBar
         activeRouteId="songs"
         onRouteChange={onRouteChange}
-        onImportFolder={vi.fn()}
         onImportFile={vi.fn()}
+        onOpenAudioSettings={vi.fn()}
         onMinimize={vi.fn()}
         onToggleMaximize={vi.fn()}
         onClose={vi.fn()}
@@ -56,6 +53,29 @@ describe('AppTitleBar', () => {
     expect(onRouteChange).toHaveBeenNthCalledWith(2, 'settings');
   });
 
+  it('opens the audio drawer from the audio settings button', () => {
+    const onRouteChange = vi.fn();
+    const onOpenAudioSettings = vi.fn();
+
+    render(
+      <AppTitleBar
+        activeRouteId="songs"
+        onRouteChange={onRouteChange}
+        onImportFile={vi.fn()}
+        onOpenAudioSettings={onOpenAudioSettings}
+        onMinimize={vi.fn()}
+        onToggleMaximize={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Audio Settings' }));
+
+    expect(onOpenAudioSettings).toHaveBeenCalledTimes(1);
+    expect(onRouteChange).not.toHaveBeenCalled();
+  });
+
+
   it('wires window control buttons to provided handlers', () => {
     const onMinimize = vi.fn();
     const onToggleMaximize = vi.fn();
@@ -65,8 +85,8 @@ describe('AppTitleBar', () => {
       <AppTitleBar
         activeRouteId="songs"
         onRouteChange={vi.fn()}
-        onImportFolder={vi.fn()}
         onImportFile={vi.fn()}
+        onOpenAudioSettings={vi.fn()}
         onMinimize={onMinimize}
         onToggleMaximize={onToggleMaximize}
         onClose={onClose}

@@ -1,7 +1,16 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
-import type { CoverExtractOptions, CoverResult, EmbeddedCoverData, MetadataResult, ParsedTrackMetadata } from '../libraryTypes';
+import sharp from 'sharp';
+import {
+  COVER_CACHE_VERSION,
+  type CoverCacheRepairOptions,
+  type CoverExtractOptions,
+  type CoverResult,
+  type EmbeddedCoverData,
+  type MetadataResult,
+  type ParsedTrackMetadata,
+} from '../libraryTypes';
 import type { CoverExtractor } from './CoverExtractor';
 
 type CoverCandidate = {
@@ -13,15 +22,29 @@ type CoverCandidate = {
   errors: string[];
 };
 
+type CacheMeta = {
+  version: number;
+  sourceHash: string;
+  source: CoverResult['source'];
+  mimeType: string | null;
+};
+
 const sidecarNames = ['cover', 'folder', 'front'];
 const sidecarExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
 
-const defaultCoverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+export const defaultCoverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
 <rect width="512" height="512" fill="#20242b"/>
 <circle cx="256" cy="256" r="132" fill="#2f3944"/>
 <circle cx="256" cy="256" r="46" fill="#8fb7ff"/>
 <path d="M256 92a164 164 0 1 1 0 328 164 164 0 0 1 0-328zm0 22a142 142 0 1 0 0 284 142 142 0 0 0 0-284z" fill="#f3f6fb" opacity=".18"/>
 </svg>`;
+
+const defaultCoverBytes = new TextEncoder().encode(defaultCoverSvg);
+export const defaultCoverSourceHash = createHash('sha256').update(defaultCoverBytes).digest('hex');
+
+const toBuffer = (data: Uint8Array): Buffer => (Buffer.isBuffer(data) ? data : Buffer.from(data));
+
+const hashBytes = (data: Uint8Array): string => createHash('sha256').update(data).digest('hex');
 
 const extensionToMimeType = (extension: string): string | null => {
   switch (extension.toLocaleLowerCase()) {
@@ -52,27 +75,132 @@ export class TsCoverExtractor implements CoverExtractor {
     mkdirSync(options.cacheRoot, { recursive: true });
 
     const candidate = this.resolveCoverCandidate(filePath, options.metadata);
-    const sourceHash = createHash('sha256').update(candidate.data).digest('hex');
+    return this.writeCandidateCache(options.cacheRoot, candidate);
+  }
+
+  async repairCachedCover(options: CoverCacheRepairOptions): Promise<CoverResult> {
+    mkdirSync(options.cacheRoot, { recursive: true });
+
+    if (options.source === 'default' || options.mimeType === 'image/svg+xml') {
+      return this.writeDefaultCache(options.cacheRoot);
+    }
+
+    try {
+      const data = readFileSync(options.originalRef);
+      const actualHash = hashBytes(data);
+      const warnings =
+        actualHash === options.sourceHash ? [] : [`original_ref hash mismatch: expected ${options.sourceHash}, got ${actualHash}`];
+
+      return this.writeCandidateCache(options.cacheRoot, {
+        source: options.source,
+        data,
+        mimeType: options.mimeType ?? extensionToMimeType(extname(options.originalRef)),
+        originalPath: options.originalRef,
+        warnings,
+        errors: [],
+      }, options.sourceHash);
+    } catch (error) {
+      return this.writeDefaultCache(options.cacheRoot, [], [
+        `${options.originalRef}: ${error instanceof Error ? error.message : String(error)}`,
+      ]);
+    }
+  }
+
+  private async writeCandidateCache(
+    cacheRoot: string,
+    candidate: CoverCandidate,
+    forcedSourceHash?: string,
+  ): Promise<CoverResult> {
+    const sourceHash = forcedSourceHash ?? hashBytes(candidate.data);
+
+    if (candidate.source === 'default' || candidate.mimeType === 'image/svg+xml') {
+      return this.writeDefaultCache(cacheRoot, candidate.warnings, candidate.errors);
+    }
+
     const extension = this.extensionForMimeType(candidate.mimeType, candidate.originalPath);
-    const coverDirectory = join(options.cacheRoot, sourceHash.slice(0, 2), sourceHash);
-    const thumbPath = join(coverDirectory, `thumb${extension}`);
-    const largePath = join(coverDirectory, `large${extension}`);
+    const coverDirectory = join(cacheRoot, sourceHash.slice(0, 2), sourceHash);
+    const thumbPath = join(coverDirectory, 'thumb.webp');
+    const albumPath = join(coverDirectory, 'album.webp');
+    const largePath = join(coverDirectory, 'large.webp');
     const originalRef = join(coverDirectory, `original${extension}`);
+    const metaPath = join(coverDirectory, 'meta.json');
+    const meta = this.readMeta(metaPath);
+    const shouldRebuildAll = !this.isCurrentMeta(meta, sourceHash);
+    const missingThumb = shouldRebuildAll || !existsSync(thumbPath);
+    const missingAlbum = shouldRebuildAll || !existsSync(albumPath);
+    const missingLarge = shouldRebuildAll || !existsSync(largePath);
 
     mkdirSync(coverDirectory, { recursive: true });
-    this.writeIfMissing(thumbPath, candidate.data);
-    this.writeIfMissing(largePath, candidate.data);
     this.writeIfMissing(originalRef, candidate.data);
 
+    try {
+      if (missingThumb) {
+        await this.writeThumb(candidate.data, thumbPath);
+      }
+
+      if (missingAlbum) {
+        await this.writeAlbum(candidate.data, albumPath);
+      }
+
+      if (missingLarge) {
+        await this.writeLarge(candidate.data, largePath);
+      }
+
+      if (shouldRebuildAll || !existsSync(metaPath)) {
+        this.writeMeta(metaPath, {
+          version: COVER_CACHE_VERSION,
+          sourceHash,
+          source: candidate.source,
+          mimeType: candidate.mimeType,
+        });
+      }
+
+      return {
+        source: candidate.source,
+        thumbPath,
+        albumPath,
+        largePath,
+        originalRef,
+        sourceHash,
+        mimeType: candidate.mimeType,
+        warnings: candidate.warnings,
+        errors: candidate.errors,
+      };
+    } catch (error) {
+      return this.writeDefaultCache(cacheRoot, candidate.warnings, [
+        ...candidate.errors,
+        `sharp: ${error instanceof Error ? error.message : String(error)}`,
+      ]);
+    }
+  }
+
+  private writeDefaultCache(cacheRoot: string, warnings: string[] = [], errors: string[] = []): CoverResult {
+    const coverDirectory = join(cacheRoot, defaultCoverSourceHash.slice(0, 2), defaultCoverSourceHash);
+    const defaultPath = join(coverDirectory, 'default.svg');
+    const metaPath = join(coverDirectory, 'meta.json');
+
+    mkdirSync(coverDirectory, { recursive: true });
+    this.writeIfMissing(defaultPath, defaultCoverBytes);
+
+    if (!this.isCurrentMeta(this.readMeta(metaPath), defaultCoverSourceHash)) {
+      this.writeMeta(metaPath, {
+        version: COVER_CACHE_VERSION,
+        sourceHash: defaultCoverSourceHash,
+        source: 'default',
+        mimeType: 'image/svg+xml',
+      });
+    }
+
     return {
-      source: candidate.source,
-      thumbPath,
-      largePath,
-      originalRef,
-      sourceHash,
-      mimeType: candidate.mimeType,
-      warnings: candidate.warnings,
-      errors: candidate.errors,
+      source: 'default',
+      thumbPath: defaultPath,
+      albumPath: defaultPath,
+      largePath: defaultPath,
+      originalRef: defaultPath,
+      sourceHash: defaultCoverSourceHash,
+      mimeType: 'image/svg+xml',
+      warnings,
+      errors,
     };
   }
 
@@ -97,7 +225,7 @@ export class TsCoverExtractor implements CoverExtractor {
 
     return {
       source: 'default',
-      data: new TextEncoder().encode(defaultCoverSvg),
+      data: defaultCoverBytes,
       mimeType: 'image/svg+xml',
       originalPath: null,
       warnings: [],
@@ -128,7 +256,7 @@ export class TsCoverExtractor implements CoverExtractor {
         } catch (error) {
           return {
             source: 'default',
-            data: new TextEncoder().encode(defaultCoverSvg),
+            data: defaultCoverBytes,
             mimeType: 'image/svg+xml',
             originalPath: null,
             warnings: [],
@@ -141,11 +269,61 @@ export class TsCoverExtractor implements CoverExtractor {
     return null;
   }
 
+  private async writeThumb(data: Uint8Array, filePath: string): Promise<void> {
+    await sharp(toBuffer(data))
+      .rotate()
+      .resize(96, 96, { fit: 'cover', position: 'centre' })
+      .webp({ quality: 75, effort: 4 })
+      .toFile(filePath);
+  }
+
+  private async writeAlbum(data: Uint8Array, filePath: string): Promise<void> {
+    await sharp(toBuffer(data))
+      .rotate()
+      .resize(320, 320, { fit: 'cover', position: 'centre' })
+      .webp({ quality: 82, effort: 4 })
+      .toFile(filePath);
+  }
+
+  private async writeLarge(data: Uint8Array, filePath: string): Promise<void> {
+    await sharp(toBuffer(data))
+      .rotate()
+      .resize(768, 768, { fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 82, effort: 4 })
+      .toFile(filePath);
+  }
+
+  private readMeta(filePath: string): CacheMeta | null {
+    if (!existsSync(filePath)) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Partial<CacheMeta>;
+      return {
+        version: Number(parsed.version),
+        sourceHash: typeof parsed.sourceHash === 'string' ? parsed.sourceHash : '',
+        source: parsed.source === 'embedded' || parsed.source === 'folder' || parsed.source === 'default' ? parsed.source : 'default',
+        mimeType: typeof parsed.mimeType === 'string' ? parsed.mimeType : null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private writeMeta(filePath: string, meta: CacheMeta): void {
+    writeFileSync(filePath, `${JSON.stringify(meta, null, 2)}\n`);
+  }
+
+  private isCurrentMeta(meta: CacheMeta | null, sourceHash: string): boolean {
+    return Boolean(meta && meta.version === COVER_CACHE_VERSION && meta.sourceHash === sourceHash);
+  }
+
   private extensionForMimeType(mimeType: string | null, originalPath: string | null): string {
     if (originalPath) {
       const extension = extname(originalPath);
       if (extension) {
-        return extension;
+        return extension.toLocaleLowerCase();
       }
     }
 

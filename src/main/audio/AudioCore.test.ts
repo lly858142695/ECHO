@@ -118,6 +118,10 @@ class FakeBridge extends EventEmitter {
   getPositionSeconds(): number {
     return this.positionSeconds;
   }
+
+  resetOutputClock(startSeconds = 0): void {
+    this.positionSeconds = startSeconds;
+  }
 }
 
 class StartupFailingBridge extends EventEmitter {
@@ -372,7 +376,7 @@ describe('Audio Core sample-rate regression guard', () => {
     });
   });
 
-  it('pause stops the active native host and preserves the current position', async () => {
+  it('pause preserves the active native host and current position', async () => {
     const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
 
     await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
@@ -381,7 +385,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     expect(status.state).toBe('paused');
     expect(status.positionSeconds).toBe(12.5);
-    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
   });
 
   it('play resumes a paused file from the paused position', async () => {
@@ -393,8 +397,8 @@ describe('Audio Core sample-rate regression guard', () => {
     const status = await session.play();
 
     expect(status.state).toBe('playing');
-    expect(bridges).toHaveLength(2);
-    expect(bridges[1].startOptions?.startSeconds).toBe(18.25);
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
   });
 
   it('seek while paused moves the stored position without starting playback', async () => {
@@ -410,8 +414,40 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges).toHaveLength(1);
 
     await session.play();
-    expect(bridges).toHaveLength(2);
-    expect(bridges[1].startOptions?.startSeconds).toBe(33);
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(session.getStatus().positionSeconds).toBe(33);
+  });
+
+  it('seek while playing reuses the active output host', async () => {
+    const { bridges, decoder, session } = createSessionHarness([probe('song.flac', 44100)]);
+
+    await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
+    bridges[0].positionSeconds = 12;
+    const status = await session.seek(42);
+
+    expect(status.state).toBe('playing');
+    expect(status.positionSeconds).toBe(42);
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({
+      filePath: 'song.flac',
+      startSeconds: 42,
+    });
+  });
+
+  it('changing volume while playing updates status without restarting output', async () => {
+    const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
+
+    await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
+    bridges[0].positionSeconds = 21.75;
+    const status = await session.setOutput({ volume: 0.35 });
+
+    expect(status.state).toBe('playing');
+    expect(status.volume).toBe(0.35);
+    expect(status.positionSeconds).toBe(21.75);
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
   });
 
   it('switching output while playing restarts the current file on the new device', async () => {

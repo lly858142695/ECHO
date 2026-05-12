@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PlayerBar } from '../components/player/PlayerBar';
+import { AudioSettingsDrawer } from '../components/player/AudioSettingsDrawer';
 import { Sidebar } from '../components/layout/Sidebar';
 import { AppTitleBar } from '../components/layout/AppTitleBar';
 import type { AppRoute, AppRouteId } from './routes';
+import type { AudioStatus } from '../../shared/types/audio';
 
 type AppLayoutProps = {
   routes: AppRoute[];
@@ -12,6 +14,8 @@ type AppLayoutProps = {
 export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [activeRouteId, setActiveRouteId] = useState<AppRouteId>('songs');
   const [chromeNotice, setChromeNotice] = useState<string | null>(null);
+  const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
+  const [audioDrawerStatus, setAudioDrawerStatus] = useState<AudioStatus | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const activeRoute = useMemo(
@@ -152,8 +156,8 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       <AppTitleBar
         activeRouteId={activeRouteId}
         onRouteChange={setActiveRouteId}
-        onImportFolder={() => void handleImportFolder()}
         onImportFile={() => void handleImportFile()}
+        onOpenAudioSettings={() => setIsAudioDrawerOpen(true)}
         onMinimize={() => void handleWindowAction('minimize')}
         onToggleMaximize={() => void handleWindowAction('toggleMaximize')}
         onClose={() => void handleWindowAction('close')}
@@ -196,7 +200,14 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         </div>
       ) : null}
 
-      <PlayerBar />
+      <AudioSettingsDrawer
+        isOpen={isAudioDrawerOpen}
+        status={audioDrawerStatus}
+        onClose={() => setIsAudioDrawerOpen(false)}
+        onStatusChange={setAudioDrawerStatus}
+      />
+
+      <PlayerBar onOpenAudioSettings={() => setIsAudioDrawerOpen(true)} />
     </div>
   );
 };

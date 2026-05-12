@@ -1,0 +1,150 @@
+// @vitest-environment jsdom
+import { useEffect } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { AudioStatus } from '../../../shared/types/audio';
+import type { LibraryTrack } from '../../../shared/types/library';
+import { PlaybackQueueProvider, usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
+import { PlayerBar } from './PlayerBar';
+
+const makeTrack = (index: number, overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
+  id: `track-${index}`,
+  path: `D:\\Music\\song-${index}.flac`,
+  title: `Song ${index}`,
+  artist: `Artist ${index}`,
+  album: 'Album',
+  albumArtist: 'Album Artist',
+  trackNo: index,
+  discNo: 1,
+  year: 2026,
+  genre: null,
+  duration: 180 + index,
+  codec: 'flac',
+  sampleRate: 44100,
+  bitDepth: 16,
+  bitrate: 900000,
+  coverId: null,
+  coverThumb: null,
+  fieldSources: {},
+  ...overrides,
+});
+
+const audioStatus = (track: LibraryTrack): AudioStatus => ({
+  host: 'ready',
+  state: 'playing',
+  outputDeviceId: null,
+  outputDeviceName: null,
+  outputDeviceType: null,
+  outputBackend: 'wasapi-shared',
+  outputMode: 'shared',
+  volume: 1,
+  currentFilePath: track.path,
+  currentTrackId: track.id,
+  durationSeconds: track.duration,
+  positionSeconds: 4,
+  channels: 2,
+  codec: track.codec,
+  bitDepth: track.bitDepth,
+  bitrate: track.bitrate,
+  fileSampleRate: track.sampleRate,
+  decoderOutputSampleRate: track.sampleRate,
+  requestedOutputSampleRate: track.sampleRate,
+  actualDeviceSampleRate: track.sampleRate,
+  sharedDeviceSampleRate: track.sampleRate,
+  resampling: false,
+  bitPerfectCandidate: false,
+  sampleRateMismatch: false,
+  warnings: [],
+  error: null,
+});
+
+const QueueSeed = ({ tracks }: { tracks: LibraryTrack[] }): JSX.Element => {
+  const { setCurrentTrackId, setQueue } = usePlaybackQueue();
+
+  useEffect(() => {
+    setQueue(tracks);
+    setCurrentTrackId(tracks[0]?.id ?? null);
+  }, [setCurrentTrackId, setQueue, tracks]);
+
+  return <PlayerBar />;
+};
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe('PlayerBar', () => {
+  it('keeps the newly queued next track visible when audio status still reports the previous track', async () => {
+    const firstTrack = makeTrack(1);
+    const secondTrack = makeTrack(2);
+    let playbackTrack = firstTrack;
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockImplementation(() =>
+          Promise.resolve({
+            state: 'playing',
+            currentTrackId: playbackTrack.id,
+            positionMs: 4000,
+            durationMs: playbackTrack.duration * 1000,
+            filePath: playbackTrack.path,
+          }),
+        ),
+        playLocalFile: vi.fn().mockImplementation(({ filePath, trackId }: { filePath: string; trackId?: string }) => {
+          playbackTrack = trackId === secondTrack.id ? secondTrack : firstTrack;
+
+          return Promise.resolve({
+            state: 'playing',
+            currentTrackId: trackId ?? playbackTrack.id,
+            positionMs: 0,
+            durationMs: playbackTrack.duration * 1000,
+            filePath,
+          });
+        }),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(audioStatus(firstTrack)),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getTracks: vi.fn(),
+        getAlbums: vi.fn(),
+        getAlbumTracks: vi.fn(),
+        getSummary: vi.fn(),
+        chooseFolder: vi.fn(),
+        addFolder: vi.fn(),
+        getFolders: vi.fn(),
+        removeFolder: vi.fn(),
+        scanFolder: vi.fn(),
+        getScanStatus: vi.fn(),
+        cancelScan: vi.fn(),
+        getDiagnostics: vi.fn(),
+      },
+      app: {
+        getVersion: vi.fn(),
+        minimize: vi.fn(),
+        toggleMaximize: vi.fn(),
+        close: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[firstTrack, secondTrack]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    fireEvent.click(screen.getByRole('button', { name: '下一首' }));
+
+    await waitFor(() => expect(screen.getByText('Song 2')).toBeTruthy());
+    expect(screen.queryByText('Song 1')).toBeNull();
+  });
+});

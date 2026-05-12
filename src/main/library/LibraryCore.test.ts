@@ -1,11 +1,19 @@
-import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDatabase } from '../database/createDatabase';
 import { MetadataService } from './MetadataService';
 import { createLibraryService } from './LibraryService';
-import type { CoverExtractOptions, CoverResult, MetadataResult, ParsedTrackMetadata, ScannedAudioFile, ScannedFile } from './libraryTypes';
+import type {
+  CoverCacheRepairOptions,
+  CoverExtractOptions,
+  CoverResult,
+  MetadataResult,
+  ParsedTrackMetadata,
+  ScannedAudioFile,
+  ScannedFile,
+} from './libraryTypes';
 import type { CoverExtractor } from './workers/CoverExtractor';
 import type { FileScanner } from './workers/FileScanner';
 import type { MetadataReader } from './workers/MetadataReader';
@@ -26,6 +34,12 @@ const writeAudioFile = (folder: string, name: string, mtime = new Date('2024-01-
   utimesSync(filePath, mtime, mtime);
   return filePath;
 };
+
+const validCoverPng = (): Uint8Array =>
+  Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
+    'base64',
+  );
 
 const baseMetadata = (overrides: Partial<ParsedTrackMetadata> = {}): ParsedTrackMetadata => ({
   title: 'Embedded Title',
@@ -115,21 +129,69 @@ class FakeMetadataReader implements MetadataReader {
 
 class FakeCoverExtractor implements CoverExtractor {
   readonly calls: string[] = [];
+  readonly repairCalls: string[] = [];
 
   constructor(private readonly result?: Partial<CoverResult>) {}
 
   async extract(filePath: string, options: CoverExtractOptions): Promise<CoverResult> {
     this.calls.push(filePath);
+    const sourceHash = this.result?.sourceHash ?? `fake-${this.calls.length}`;
+    const coverRoot = join(options.cacheRoot, sourceHash.slice(0, 2), sourceHash);
+    mkdirSync(coverRoot, { recursive: true });
+    const thumbPath = this.result?.thumbPath ?? join(coverRoot, 'thumb.webp');
+    const albumPath = this.result?.albumPath ?? join(coverRoot, 'album.webp');
+    const largePath = this.result?.largePath ?? join(coverRoot, 'large.webp');
+    const originalRef = this.result?.originalRef ?? join(coverRoot, 'original.svg');
+
+    writeFileSync(thumbPath, 'thumb');
+    writeFileSync(albumPath, 'album');
+    writeFileSync(largePath, 'large');
+    writeFileSync(originalRef, 'original');
+
     return {
       source: 'default',
-      thumbPath: join(options.cacheRoot, 'fake-thumb.svg'),
-      largePath: join(options.cacheRoot, 'fake-large.svg'),
-      originalRef: join(options.cacheRoot, 'fake-original.svg'),
-      sourceHash: `fake-${this.calls.length}`,
+      thumbPath,
+      albumPath,
+      largePath,
+      originalRef,
+      sourceHash,
       mimeType: 'image/svg+xml',
       warnings: [],
       errors: [],
       ...this.result,
+    };
+  }
+
+  async repairCachedCover(options: CoverCacheRepairOptions): Promise<CoverResult> {
+    this.repairCalls.push(options.sourceHash);
+    const coverRoot = join(options.cacheRoot, options.sourceHash.slice(0, 2), options.sourceHash);
+    mkdirSync(coverRoot, { recursive: true });
+    const thumbPath = options.thumbPath ?? join(coverRoot, 'thumb.webp');
+    const albumPath = options.albumPath ?? join(coverRoot, 'album.webp');
+    const largePath = options.largePath ?? join(coverRoot, 'large.webp');
+
+    if (!existsSync(thumbPath)) {
+      writeFileSync(thumbPath, 'thumb');
+    }
+
+    if (!existsSync(albumPath)) {
+      writeFileSync(albumPath, 'album');
+    }
+
+    if (!existsSync(largePath)) {
+      writeFileSync(largePath, 'large');
+    }
+
+    return {
+      source: options.source,
+      thumbPath,
+      albumPath,
+      largePath,
+      originalRef: options.originalRef,
+      sourceHash: options.sourceHash,
+      mimeType: options.mimeType,
+      warnings: [],
+      errors: [],
     };
   }
 }
@@ -148,7 +210,7 @@ class FakeFileScanner implements FileScanner {
   }
 }
 
-const createHarness = () => {
+const createHarness = (overrides: { coverExtractor?: CoverExtractor; metadataReader?: MetadataReader; fileScanner?: FileScanner } = {}) => {
   const root = makeTempRoot();
   const folder = join(root, 'music');
   mkdirSync(folder, { recursive: true });
@@ -158,6 +220,7 @@ const createHarness = () => {
   const service = createLibraryService(databasePath, {
     metadataService,
     coverCacheDir,
+    ...overrides,
   });
   let cleanedUp = false;
   const cleanup = () => {
@@ -171,7 +234,11 @@ const createHarness = () => {
     } catch {
       // Some tests intentionally close and reopen the service to simulate app restart.
     }
-    rmSync(root, { recursive: true, force: true });
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+    } catch {
+      // SQLite and image codecs can release Windows handles a tick after test assertions finish.
+    }
   };
 
   cleanupCallbacks.push(cleanup);
@@ -205,7 +272,7 @@ afterEach(() => {
 
   for (const root of tempRoots.splice(0)) {
     try {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     } catch {
       // SQLite WAL handles can linger briefly after an assertion failure on Windows.
     }
@@ -240,7 +307,7 @@ describe('Library Core', () => {
     const reopened = createDatabase(databasePath);
     const migrationRows = reopened.prepare<unknown[], { id: number }>('SELECT id FROM schema_migrations ORDER BY id').all();
 
-    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3]);
+    expect(migrationRows.map((row) => Number(row.id))).toEqual([1, 2, 3, 4]);
     reopened.close();
   });
 
@@ -289,6 +356,85 @@ describe('Library Core', () => {
 
     expect(harness.metadataService.calls).toHaveLength(1);
     expect(secondScan.skippedFiles).toBe(1);
+    harness.cleanup();
+  });
+
+  it('path + size + mtime unchanged with complete cover cache skips cover work', async () => {
+    const coverExtractor = new FakeCoverExtractor();
+    const harness = createHarness({ coverExtractor });
+    writeAudioFile(harness.folder, 'Artist - Cached Cover.flac');
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const secondScan = await harness.scanFolder();
+
+    expect(harness.metadataService.calls).toHaveLength(1);
+    expect(coverExtractor.calls).toHaveLength(1);
+    expect(coverExtractor.repairCalls).toHaveLength(0);
+    expect(secondScan.skippedFiles).toBe(1);
+    harness.cleanup();
+  });
+
+  it('unchanged track with missing cover_id backfills cover by rereading metadata', async () => {
+    const coverExtractor = new FakeCoverExtractor();
+    const harness = createHarness({ coverExtractor });
+    writeAudioFile(harness.folder, 'Artist - Missing Cover Id.flac');
+    harness.addFolder();
+
+    await harness.scanFolder();
+    harness.service.close();
+    const database = createDatabase(harness.databasePath);
+    database.prepare('UPDATE tracks SET cover_id = NULL').run();
+    database.close();
+
+    const restarted = createLibraryService(harness.databasePath, {
+      metadataService: harness.metadataService,
+      coverExtractor,
+      coverCacheDir: harness.coverCacheDir,
+    });
+    const [libraryFolder] = restarted.getFolders();
+    const job = restarted.scanFolder(libraryFolder.id);
+    await restarted.waitForScan(job.id);
+    const track = restarted.getTracks({ pageSize: 1 }).items[0];
+
+    expect(harness.metadataService.calls).toHaveLength(2);
+    expect(coverExtractor.calls).toHaveLength(2);
+    expect(track.coverId).toBeTruthy();
+    restarted.close();
+    harness.cleanup();
+  });
+
+  it('unchanged track with missing derivative repairs from original_ref without rereading metadata', async () => {
+    const coverExtractor = new FakeCoverExtractor();
+    const harness = createHarness({ coverExtractor });
+    writeAudioFile(harness.folder, 'Artist - Missing Album Derivative.flac');
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const track = harness.service.getTracks({ pageSize: 1 }).items[0];
+    harness.service.close();
+    const database = createDatabase(harness.databasePath);
+    const cover = database
+      .prepare<[string | null], { album_path: string }>('SELECT album_path FROM covers WHERE id = ?')
+      .get(track.coverId);
+    database.close();
+    expect(cover?.album_path).toBeTruthy();
+    unlinkSync(cover!.album_path);
+
+    const restarted = createLibraryService(harness.databasePath, {
+      metadataService: harness.metadataService,
+      coverExtractor,
+      coverCacheDir: harness.coverCacheDir,
+    });
+    const [libraryFolder] = restarted.getFolders();
+    const job = restarted.scanFolder(libraryFolder.id);
+    await restarted.waitForScan(job.id);
+
+    expect(harness.metadataService.calls).toHaveLength(1);
+    expect(coverExtractor.calls).toHaveLength(1);
+    expect(coverExtractor.repairCalls).toHaveLength(1);
+    expect(existsSync(cover!.album_path)).toBe(true);
+    restarted.close();
     harness.cleanup();
   });
 
@@ -494,7 +640,7 @@ describe('Library Core', () => {
       filePath,
       baseMetadata({
         embeddedCover: {
-          data: new Uint8Array([1, 2, 3, 4]),
+          data: validCoverPng(),
           mimeType: 'image/png',
         },
       }),
@@ -503,11 +649,20 @@ describe('Library Core', () => {
 
     await harness.scanFolder();
     const [track] = harness.service.getTracks({ pageSize: 1 }).items;
+    const [album] = harness.service.getAlbums({ pageSize: 1 }).items;
+    const serializedTrack = JSON.stringify(track);
+    const serializedAlbum = JSON.stringify(album);
 
     expect(track).toHaveProperty('coverThumb');
+    expect(track.coverThumb).toContain('echo-cover://thumb/');
+    expect(album.coverThumb).toContain('echo-cover://album/');
     expect(track).not.toHaveProperty('coverLarge');
     expect(track).not.toHaveProperty('coverOriginal');
-    expect(JSON.stringify(track)).not.toContain('base64');
+    expect(serializedTrack).not.toContain('file://');
+    expect(serializedAlbum).not.toContain('file://');
+    expect(serializedTrack).not.toContain('cover-cache');
+    expect(serializedAlbum).not.toContain('cover-cache');
+    expect(serializedTrack).not.toContain('base64');
     harness.cleanup();
   });
 
@@ -536,18 +691,19 @@ describe('Library Core', () => {
   });
 
   it('embedded cover wins over folder/default cover', async () => {
-    const harness = createHarness();
+    const embeddedCover = validCoverPng();
+    const harness = createHarness({
+      metadataReader: new FakeMetadataReader(
+        metadataResult({
+          embeddedCover: {
+            data: embeddedCover,
+            mimeType: 'image/png',
+          },
+        }),
+      ),
+    });
     const filePath = writeAudioFile(harness.folder, 'Cover Priority.flac');
     writeFileSync(join(harness.folder, 'cover.jpg'), new Uint8Array([9, 9, 9]));
-    harness.metadataService.overrides.set(
-      filePath,
-      baseMetadata({
-        embeddedCover: {
-          data: new Uint8Array([1, 2, 3, 4]),
-          mimeType: 'image/png',
-        },
-      }),
-    );
     harness.addFolder();
 
     await harness.scanFolder();
@@ -560,7 +716,7 @@ describe('Library Core', () => {
 
     expect(cover?.source_type).toBe('embedded');
     expect(typeof cover?.thumb_path).toBe('string');
-    expect(track.coverThumb).toContain('file://');
+    expect(track.coverThumb).toContain('echo-cover://thumb/');
     database.close();
     harness.cleanup();
   });

@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
 import { Heart, ListPlus, MoreHorizontal, Music2 } from 'lucide-react';
 import type { LibraryTrack } from '../../../shared/types/library';
@@ -74,6 +74,8 @@ const tagClassNameByKind: Record<HifiTagKind, string> = {
 export const TrackRow = memo(
   ({ track, isPlaying, onPlay }: TrackRowProps): JSX.Element => {
     const tags = tagsFromTrack(track);
+    const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
+    const shouldShowCover = Boolean(track.coverThumb && track.coverThumb !== failedCoverUrl);
     const handlePlay = useCallback((): void => {
       onPlay?.(track);
     }, [onPlay, track]);
@@ -89,6 +91,20 @@ export const TrackRow = memo(
     const stopActionPropagation = useCallback((event: MouseEvent): void => {
       event.stopPropagation();
     }, []);
+    const handleCoverError = useCallback((): void => {
+      if (!track.coverThumb) {
+        return;
+      }
+
+      if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
+        console.warn('Failed to load track cover', {
+          url: track.coverThumb,
+          trackId: track.id,
+        });
+      }
+
+      setFailedCoverUrl(track.coverThumb);
+    }, [track.coverThumb, track.id]);
 
     return (
       <div
@@ -101,14 +117,19 @@ export const TrackRow = memo(
         onDoubleClick={handlePlay}
         onKeyDown={handleKeyDown}
       >
-        <div className="track-cover" data-empty={!track.coverThumb} aria-hidden="true">
-          {track.coverThumb ? <img alt="" src={track.coverThumb} /> : <Music2 size={22} />}
+        <div className="track-cover" data-empty={!shouldShowCover} aria-hidden="true">
+          {shouldShowCover ? (
+            <img alt="" decoding="async" draggable={false} loading="lazy" src={track.coverThumb!} onError={handleCoverError} />
+          ) : (
+            <Music2 size={22} />
+          )}
         </div>
 
         <div className="track-main">
           <div className="track-title-row">
             {isPlaying ? <span className="playing-dot" aria-hidden="true" /> : null}
             <strong className="track-title">{track.title}</strong>
+            {isPlaying ? <span className="playing-pill">播放中</span> : null}
           </div>
           <div className="track-subtitle">
             {track.artist} - {track.album}

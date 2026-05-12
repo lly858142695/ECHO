@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { basename, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type { EchoDatabase } from '../database/createDatabase';
 import type { AlbumService } from './AlbumService';
 import type {
+  CoverSource,
   CoverResult,
+  CoverVariant,
   LibraryAlbum,
   LibraryDiagnostics,
   LibraryFolder,
@@ -14,9 +15,11 @@ import type {
   LibrarySummary,
   LibraryTrack,
   ScanJobUpdate,
+  StoredTrackCoverState,
   StoredTrackFingerprint,
   TrackWrite,
 } from './libraryTypes';
+import { COVER_CACHE_VERSION as currentCoverCacheVersion } from './libraryTypes';
 
 type DbRow = Record<string, unknown>;
 
@@ -62,6 +65,18 @@ const parseErrors = (value: unknown): string[] => {
 
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value.length > 0 ? value : null);
 const numberOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+const coverSourceOrNull = (value: unknown): CoverSource | null =>
+  value === 'embedded' || value === 'folder' || value === 'default' ? value : null;
+const coverSourceRank: Record<CoverSource, number> = {
+  default: 0,
+  folder: 1,
+  embedded: 2,
+};
+
+const preferredCoverSource = (current: unknown, next: CoverSource): CoverSource => {
+  const currentSource = coverSourceOrNull(current);
+  return currentSource && coverSourceRank[currentSource] > coverSourceRank[next] ? currentSource : next;
+};
 
 export class LibraryStore {
   private lastTracksQueryMs: number | null = null;
@@ -254,6 +269,37 @@ export class LibraryStore {
     };
   }
 
+  findTrackCoverState(filePath: string): StoredTrackCoverState | null {
+    const row = this.getRow(
+      `SELECT
+        tracks.id, tracks.size_bytes, tracks.mtime_ms, tracks.cover_id,
+        covers.source_type, covers.source_hash, covers.mime_type,
+        covers.thumb_path, covers.album_path, covers.large_path, covers.original_ref
+      FROM tracks
+      LEFT JOIN covers ON covers.id = tracks.cover_id
+      WHERE tracks.path = ? AND tracks.missing = 0`,
+      resolve(filePath),
+    );
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: String(row.id),
+      sizeBytes: Number(row.size_bytes),
+      mtimeMs: Number(row.mtime_ms),
+      coverId: textOrNull(row.cover_id),
+      coverSource: coverSourceOrNull(row.source_type),
+      sourceHash: textOrNull(row.source_hash),
+      mimeType: textOrNull(row.mime_type),
+      thumbPath: textOrNull(row.thumb_path),
+      albumPath: textOrNull(row.album_path),
+      largePath: textOrNull(row.large_path),
+      originalRef: textOrNull(row.original_ref),
+    };
+  }
+
   markTracksMissingFromFolder(folderId: string, discoveredPaths: string[], timestamp = nowIso()): number {
     const normalizedPaths = new Set(discoveredPaths.map((filePath) => resolve(filePath)));
     const existingRows = this.allRows('SELECT id, path FROM tracks WHERE folder_id = ? AND missing = 0', folderId);
@@ -274,7 +320,10 @@ export class LibraryStore {
   }
 
   upsertCover(result: CoverResult, now = nowIso()): string | null {
-    const existing = this.getRow('SELECT id FROM covers WHERE source_hash = ?', result.sourceHash);
+    const existing = this.getRow('SELECT id, source_type FROM covers WHERE source_hash = ?', result.sourceHash);
+    const warningsJson = JSON.stringify(result.warnings);
+    const errorsJson = JSON.stringify(result.errors);
+    const source = preferredCoverSource(existing?.source_type, result.source);
 
     if (textOrNull(existing?.id)) {
       this.run(
@@ -282,18 +331,26 @@ export class LibraryStore {
           source_type = ?,
           mime_type = ?,
           thumb_path = ?,
+          album_path = ?,
           large_path = ?,
           original_ref = ?,
+          cache_version = ?,
+          warnings_json = ?,
+          errors_json = ?,
           cover_thumb = ?,
           cover_large = ?,
           cover_original = ?,
           updated_at = ?
         WHERE id = ?`,
-        result.source,
+        source,
         result.mimeType,
         result.thumbPath,
+        result.albumPath,
         result.largePath,
         result.originalRef,
+        currentCoverCacheVersion,
+        warningsJson,
+        errorsJson,
         result.thumbPath,
         result.largePath,
         result.originalRef,
@@ -307,17 +364,22 @@ export class LibraryStore {
     this.run(
       `INSERT INTO covers (
         id, source_type, source_hash, mime_type,
-        thumb_path, large_path, original_ref,
+        thumb_path, album_path, large_path, original_ref,
+        cache_version, warnings_json, errors_json,
         cover_thumb, cover_large, cover_original,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
-      result.source,
+      source,
       result.sourceHash,
       result.mimeType,
       result.thumbPath,
+      result.albumPath,
       result.largePath,
       result.originalRef,
+      currentCoverCacheVersion,
+      warningsJson,
+      errorsJson,
       result.thumbPath,
       result.largePath,
       result.originalRef,
@@ -388,6 +450,10 @@ export class LibraryStore {
     );
 
     return existing ? 'updated' : 'added';
+  }
+
+  updateTrackCover(trackId: string, coverId: string | null, timestamp = nowIso()): void {
+    this.run('UPDATE tracks SET cover_id = ?, updated_at = ? WHERE id = ?', coverId, timestamp, trackId);
   }
 
   refreshArtists(): void {
@@ -566,10 +632,8 @@ export class LibraryStore {
         tracks.id, tracks.path, tracks.title, tracks.artist, tracks.album, tracks.album_artist,
         tracks.track_no, tracks.disc_no, tracks.year, tracks.genre,
         tracks.duration, tracks.codec, tracks.sample_rate, tracks.bit_depth, tracks.bitrate,
-        tracks.cover_id, tracks.metadata_status, tracks.field_sources_json,
-        COALESCE(covers.thumb_path, covers.cover_thumb) AS cover_thumb
+        tracks.cover_id, tracks.metadata_status, tracks.field_sources_json
       FROM tracks
-      LEFT JOIN covers ON covers.id = tracks.cover_id
       ${whereSql}
       ${orderSql}
       LIMIT ? OFFSET ?`,
@@ -603,9 +667,8 @@ export class LibraryStore {
     const rows = this.allRows(
       `SELECT
         albums.id, albums.album_key, albums.title, albums.album_artist, albums.year, albums.track_count,
-        albums.duration, albums.cover_id, COALESCE(covers.thumb_path, covers.cover_thumb) AS cover_thumb
+        albums.duration, albums.cover_id
       FROM albums
-      LEFT JOIN covers ON covers.id = albums.cover_id
       ${whereSql}
       ${orderSql}
       LIMIT ? OFFSET ?`,
@@ -637,11 +700,9 @@ export class LibraryStore {
         tracks.id, tracks.path, tracks.title, tracks.artist, tracks.album, tracks.album_artist,
         tracks.track_no, tracks.disc_no, tracks.year, tracks.genre,
         tracks.duration, tracks.codec, tracks.sample_rate, tracks.bit_depth, tracks.bitrate,
-        tracks.cover_id, tracks.metadata_status, tracks.field_sources_json,
-        COALESCE(covers.thumb_path, covers.cover_thumb) AS cover_thumb
+        tracks.cover_id, tracks.metadata_status, tracks.field_sources_json
       FROM album_tracks
       INNER JOIN tracks ON tracks.id = album_tracks.track_id
-      LEFT JOIN covers ON covers.id = tracks.cover_id
       WHERE album_tracks.album_id = ? AND tracks.missing = 0
       ORDER BY album_tracks.position ASC
       LIMIT ? OFFSET ?`,
@@ -831,7 +892,7 @@ export class LibraryStore {
       bitDepth: numberOrNull(row.bit_depth),
       bitrate: numberOrNull(row.bitrate),
       coverId: textOrNull(row.cover_id),
-      coverThumb: this.toFileUrl(row.cover_thumb),
+      coverThumb: this.toCoverUrl(row.cover_id, 'thumb'),
       metadataStatus: textOrNull(row.metadata_status) ?? 'ok',
       fieldSources: parseJsonObject(row.field_sources_json),
     };
@@ -847,16 +908,67 @@ export class LibraryStore {
       trackCount: Number(row.track_count ?? 0),
       duration: Number(row.duration ?? 0),
       coverId: textOrNull(row.cover_id),
-      coverThumb: this.toFileUrl(row.cover_thumb),
+      coverThumb: this.toCoverUrl(row.cover_id, 'album'),
     };
   }
 
-  private toFileUrl(value: unknown): string | null {
-    if (typeof value !== 'string' || !value) {
+  resolveCoverAsset(coverId: string, variant: CoverVariant): { filePath: string; mimeType: string | null } | null {
+    const row = this.getRow(
+      `SELECT mime_type, thumb_path, album_path, large_path, original_ref
+       FROM covers
+       WHERE id = ?`,
+      coverId,
+    );
+
+    if (!row) {
       return null;
     }
 
-    return pathToFileURL(value).toString();
+    const thumbPath = textOrNull(row.thumb_path);
+    const albumPath = textOrNull(row.album_path);
+    const largePath = textOrNull(row.large_path);
+    const candidates =
+      variant === 'thumb'
+        ? [thumbPath, albumPath, largePath]
+        : variant === 'album'
+          ? [albumPath, thumbPath, largePath]
+          : [largePath, albumPath, thumbPath];
+    const filePath = candidates.find((candidate): candidate is string => Boolean(candidate)) ?? null;
+
+    return filePath
+      ? {
+          filePath,
+          mimeType: this.mimeTypeForCoverPath(filePath, textOrNull(row.mime_type)),
+        }
+      : null;
+  }
+
+  private toCoverUrl(value: unknown, variant: CoverVariant): string | null {
+    const coverId = textOrNull(value);
+
+    return coverId ? `echo-cover://${variant}/${encodeURIComponent(coverId)}` : null;
+  }
+
+  private mimeTypeForCoverPath(filePath: string, fallback: string | null): string | null {
+    const lowerPath = filePath.toLocaleLowerCase();
+
+    if (lowerPath.endsWith('.webp')) {
+      return 'image/webp';
+    }
+
+    if (lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg')) {
+      return 'image/jpeg';
+    }
+
+    if (lowerPath.endsWith('.png')) {
+      return 'image/png';
+    }
+
+    if (lowerPath.endsWith('.svg')) {
+      return 'image/svg+xml';
+    }
+
+    return fallback;
   }
 
   private getRow(sql: string, ...params: unknown[]): DbRow | null {

@@ -16,6 +16,7 @@ import type {
   LibraryScanStatus,
   LibrarySummary,
   LibraryTrack,
+  CoverVariant,
 } from './libraryTypes';
 import type { CoverExtractor } from './workers/CoverExtractor';
 import type { FileScanner } from './workers/FileScanner';
@@ -103,6 +104,10 @@ export class LibraryService {
       coverCachePath: this.coverCacheDir,
       coverCacheSizeBytes: this.coverCacheDir ? directorySize(this.coverCacheDir) : null,
     });
+  }
+
+  resolveCoverAsset(coverId: string, variant: CoverVariant): { filePath: string; mimeType: string | null } | null {
+    return this.store.resolveCoverAsset(coverId, variant);
   }
 
   async waitForScan(jobId: string): Promise<void> {

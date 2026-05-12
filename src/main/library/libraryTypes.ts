@@ -91,10 +91,12 @@ export type TrackWrite = ParsedTrackMetadata &
   };
 
 export type CoverSource = 'embedded' | 'folder' | 'default';
+export const COVER_CACHE_VERSION = 1;
 
 export type CoverResult = {
   source: CoverSource;
   thumbPath: string;
+  albumPath: string;
   largePath: string;
   originalRef: string;
   sourceHash: string;
@@ -103,10 +105,35 @@ export type CoverResult = {
   errors: string[];
 };
 
+export type CoverVariant = 'thumb' | 'album' | 'large';
+
 export type CoverExtractOptions = {
   cacheRoot: string;
   metadata?: MetadataResult | ParsedTrackMetadata;
   now?: string;
+};
+
+export type CoverCacheRepairOptions = {
+  cacheRoot: string;
+  source: CoverSource;
+  sourceHash: string;
+  mimeType: string | null;
+  originalRef: string;
+  thumbPath?: string | null;
+  albumPath?: string | null;
+  largePath?: string | null;
+  now?: string;
+};
+
+export type StoredTrackCoverState = StoredTrackFingerprint & {
+  coverId: string | null;
+  coverSource: CoverSource | null;
+  sourceHash: string | null;
+  mimeType: string | null;
+  thumbPath: string | null;
+  albumPath: string | null;
+  largePath: string | null;
+  originalRef: string | null;
 };
 
 export type ScanOptions = {

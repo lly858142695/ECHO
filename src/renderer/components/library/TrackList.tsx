@@ -35,10 +35,10 @@ export const TrackList = memo(({ tracks, currentTrackId, canLoadMore = false, on
   };
 
   return (
-    <section className="track-list-shell" aria-label="曲目列表">
+    <section className="track-list-shell" aria-label="歌曲列表">
       <div className="track-list" ref={scrollParentRef} role="list" data-virtualized="true" data-estimated-row-height="76" onScroll={handleScroll}>
         {tracks.length === 0 ? (
-          <div className="track-empty-state">没有可显示的曲目。导入音乐文件夹后这里会显示曲库列表。</div>
+          <div className="track-empty-state">没有可显示的歌曲。导入音乐文件夹后，这里会显示曲库列表。</div>
         ) : (
           <div className="track-virtual-spacer" style={{ height: rowVirtualizer.getTotalSize() }}>
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {

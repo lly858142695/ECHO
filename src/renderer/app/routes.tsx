@@ -12,7 +12,6 @@ import {
   ListMusic,
   Mic2,
   Music2,
-  Radio,
   Settings,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -31,7 +30,6 @@ export type AppRouteId =
   | 'artists'
   | 'folders'
   | 'remote'
-  | 'streaming'
   | 'queue'
   | 'history'
   | 'playlists'
@@ -105,14 +103,6 @@ export const appRoutes: AppRoute[] = [
     icon: Cloud,
     placement: 'main',
     element: <PlaceholderPage icon={Cloud} title="Cloud / Remote" description="Remote mounting and sync sources stay here." />,
-  },
-  {
-    id: 'streaming',
-    label: 'Streaming',
-    description: 'Streaming providers.',
-    icon: Radio,
-    placement: 'main',
-    element: <PlaceholderPage icon={Radio} title="Streaming" description="Streaming service hooks will be grouped here." />,
   },
   {
     id: 'queue',

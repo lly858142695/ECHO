@@ -1,7 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import type { EchoDatabase } from '../database/createDatabase';
-import type { CoverResult, ParsedTrackMetadata } from './libraryTypes';
+import { COVER_CACHE_VERSION } from './libraryTypes';
+import type { CoverResult, CoverSource, ParsedTrackMetadata } from './libraryTypes';
 import { TsCoverExtractor } from './workers/TsCoverExtractor';
+
+const coverSourceRank: Record<CoverSource, number> = {
+  default: 0,
+  folder: 1,
+  embedded: 2,
+};
+
+const coverSourceOrNull = (value: unknown): CoverSource | null =>
+  value === 'embedded' || value === 'folder' || value === 'default' ? value : null;
+
+const preferredCoverSource = (current: unknown, next: CoverSource): CoverSource => {
+  const currentSource = coverSourceOrNull(current);
+  return currentSource && coverSourceRank[currentSource] > coverSourceRank[next] ? currentSource : next;
+};
 
 export class CoverService {
   private readonly extractor = new TsCoverExtractor();
@@ -22,9 +37,44 @@ export class CoverService {
   }
 
   private upsertCover(result: CoverResult, now: string): string | null {
-    const existing = this.database.prepare<unknown[], { id: string }>('SELECT id FROM covers WHERE source_hash = ?').get(result.sourceHash);
+    const existing = this.database.prepare<unknown[], { id: string; source_type: string }>('SELECT id, source_type FROM covers WHERE source_hash = ?').get(result.sourceHash);
+    const source = preferredCoverSource(existing?.source_type, result.source);
 
     if (existing?.id) {
+      this.database
+        .prepare(
+          `UPDATE covers SET
+            source_type = ?,
+            mime_type = ?,
+            thumb_path = ?,
+            album_path = ?,
+            large_path = ?,
+            original_ref = ?,
+            cache_version = ?,
+            warnings_json = ?,
+            errors_json = ?,
+            cover_thumb = ?,
+            cover_large = ?,
+            cover_original = ?,
+            updated_at = ?
+          WHERE id = ?`,
+        )
+        .run(
+          source,
+          result.mimeType,
+          result.thumbPath,
+          result.albumPath,
+          result.largePath,
+          result.originalRef,
+          COVER_CACHE_VERSION,
+          JSON.stringify(result.warnings),
+          JSON.stringify(result.errors),
+          result.thumbPath,
+          result.largePath,
+          result.originalRef,
+          now,
+          existing.id,
+        );
       return existing.id;
     }
 
@@ -33,19 +83,24 @@ export class CoverService {
       .prepare(
         `INSERT INTO covers (
           id, source_type, source_hash, mime_type,
-          thumb_path, large_path, original_ref,
+          thumb_path, album_path, large_path, original_ref,
+          cache_version, warnings_json, errors_json,
           cover_thumb, cover_large, cover_original,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
-        result.source,
+        source,
         result.sourceHash,
         result.mimeType,
         result.thumbPath,
+        result.albumPath,
         result.largePath,
         result.originalRef,
+        COVER_CACHE_VERSION,
+        JSON.stringify(result.warnings),
+        JSON.stringify(result.errors),
         result.thumbPath,
         result.largePath,
         result.originalRef,

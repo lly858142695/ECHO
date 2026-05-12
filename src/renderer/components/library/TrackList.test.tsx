@@ -30,11 +30,11 @@ afterEach(() => {
 });
 
 describe('TrackList', () => {
-  it('renders the old ECHO-style empty list without a table header', () => {
+  it('renders the polished empty list without a table header', () => {
     render(<TrackList currentTrackId={null} tracks={[]} />);
 
     expect(screen.getByRole('list').getAttribute('data-estimated-row-height')).toBe('76');
-    expect(screen.getByText(/没有可显示的曲目/)).toBeTruthy();
+    expect(screen.getByText(/没有可显示的歌曲/)).toBeTruthy();
     expect(screen.queryByText('专辑艺术家')).toBeNull();
     expect(screen.queryByText('发行年份')).toBeNull();
   });
@@ -45,6 +45,6 @@ describe('TrackList', () => {
     render(<TrackList currentTrackId="track-3" tracks={tracks} />);
 
     expect(screen.getByRole('list').getAttribute('data-virtualized')).toBe('true');
-    expect(screen.queryByText(/没有可显示的曲目/)).toBeNull();
+    expect(screen.queryByText(/没有可显示的歌曲/)).toBeNull();
   });
 });

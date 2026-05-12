@@ -61,6 +61,7 @@ export const migrations: Migration[] = [
       addColumnIfMissing(database, 'artists', 'album_count', 'album_count INTEGER NOT NULL DEFAULT 0');
 
       addColumnIfMissing(database, 'covers', 'thumb_path', 'thumb_path TEXT');
+      addColumnIfMissing(database, 'covers', 'album_path', 'album_path TEXT');
       addColumnIfMissing(database, 'covers', 'large_path', 'large_path TEXT');
       addColumnIfMissing(database, 'covers', 'original_ref', 'original_ref TEXT');
 
@@ -73,6 +74,15 @@ export const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_album_tracks_track_id ON album_tracks(track_id);
         CREATE INDEX IF NOT EXISTS idx_covers_id ON covers(id);
       `);
+    },
+  },
+  {
+    id: 4,
+    apply: (database) => {
+      addColumnIfMissing(database, 'covers', 'album_path', 'album_path TEXT');
+      addColumnIfMissing(database, 'covers', 'cache_version', 'cache_version INTEGER');
+      addColumnIfMissing(database, 'covers', 'warnings_json', "warnings_json TEXT NOT NULL DEFAULT '[]'");
+      addColumnIfMissing(database, 'covers', 'errors_json', "errors_json TEXT NOT NULL DEFAULT '[]'");
     },
   },
 ];

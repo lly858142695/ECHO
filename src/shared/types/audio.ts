@@ -28,6 +28,7 @@ export type AudioStatus = {
   outputDeviceType: string | null;
   outputBackend: string | null;
   outputMode: AudioOutputMode;
+  volume: number;
   currentFilePath: string | null;
   currentTrackId: string | null;
   durationSeconds: number;
@@ -35,6 +36,7 @@ export type AudioStatus = {
   channels: number | null;
   codec: string | null;
   bitDepth: number | null;
+  bitrate: number | null;
   fileSampleRate: number | null;
   decoderOutputSampleRate: number | null;
   requestedOutputSampleRate: number | null;

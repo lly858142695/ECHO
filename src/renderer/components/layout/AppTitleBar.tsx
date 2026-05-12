@@ -1,11 +1,9 @@
 import {
   Disc3,
   FileAudio,
-  FolderPlus,
   Headphones,
   Library,
   Minus,
-  Radio,
   Settings,
   Square,
   X,
@@ -15,8 +13,8 @@ import type { AppRouteId } from '../../app/routes';
 type AppTitleBarProps = {
   activeRouteId: AppRouteId;
   onRouteChange: (routeId: AppRouteId) => void;
-  onImportFolder: () => void;
   onImportFile: () => void;
+  onOpenAudioSettings: () => void;
   onMinimize: () => void;
   onToggleMaximize: () => void;
   onClose: () => void;
@@ -33,8 +31,8 @@ type TitleBarAction = {
 export const AppTitleBar = ({
   activeRouteId,
   onRouteChange,
-  onImportFolder,
   onImportFile,
+  onOpenAudioSettings,
   onMinimize,
   onToggleMaximize,
   onClose,
@@ -55,12 +53,6 @@ export const AppTitleBar = ({
       onClick: () => onRouteChange('albums'),
     },
     {
-      id: 'import-folder',
-      label: 'Import Folder',
-      icon: FolderPlus,
-      onClick: onImportFolder,
-    },
-    {
       id: 'import-file',
       label: 'Import File',
       icon: FileAudio,
@@ -70,15 +62,7 @@ export const AppTitleBar = ({
       id: 'audio-settings',
       label: 'Audio Settings',
       icon: Headphones,
-      active: activeRouteId === 'audio-settings',
-      onClick: () => onRouteChange('audio-settings'),
-    },
-    {
-      id: 'streaming',
-      label: 'Streaming',
-      icon: Radio,
-      active: activeRouteId === 'streaming',
-      onClick: () => onRouteChange('streaming'),
+      onClick: onOpenAudioSettings,
     },
     {
       id: 'settings',

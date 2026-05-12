@@ -692,7 +692,7 @@ void stdinReader(PcmRingAudioSource& source, int channels)
     _setmode(_fileno(stdin), _O_BINARY);
 #endif
 
-    constexpr size_t chunkBytes = 64 * 1024;
+    constexpr size_t chunkBytes = 16 * 1024;
     const size_t frameBytes = static_cast<size_t>(channels) * sizeof(float);
     std::vector<char> chunk(chunkBytes);
     std::vector<char> pending;
@@ -729,8 +729,8 @@ int waitForInitialPcm(PcmRingAudioSource& source, int sampleRate, bool preferPre
     if (! preferPrebuffer)
         return 0;
 
-    const int targetFrames = std::max(1, std::min(sampleRate / 20, 8192));
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1200);
+    const int targetFrames = std::max(1, std::min(sampleRate / 50, 4096));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
 
     while (std::chrono::steady_clock::now() < deadline)
     {
@@ -901,7 +901,7 @@ int runHost(const Options& options)
 
     PcmRingAudioSource source(
         options.channels,
-        std::max(actualSampleRate * 8, 4096),
+        std::max(actualSampleRate / 5, 4096),
         options.volume);
     juce::AudioSourcePlayer player;
     player.setSource(&source);
