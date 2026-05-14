@@ -1,0 +1,178 @@
+import { useSyncExternalStore } from 'react';
+import type { AudioStatus } from '../../shared/types/audio';
+import type { PlaybackStatus } from '../../shared/types/playback';
+
+type PlaybackStatusSnapshot = {
+  audioStatus: AudioStatus | null;
+  playbackStatus: PlaybackStatus | null;
+  error: string | null;
+  version: number;
+};
+
+const idlePollingStates = new Set(['paused', 'stopped', 'idle', 'error']);
+const activePollingIntervalMs = 500;
+const idlePollingIntervalMs = 2000;
+
+let snapshot: PlaybackStatusSnapshot = {
+  audioStatus: null,
+  playbackStatus: null,
+  error: null,
+  version: 0,
+};
+
+const listeners = new Set<() => void>();
+
+let pollTimer: number | null = null;
+let unsubscribeAudioStatus: (() => void) | undefined;
+let refreshRequestId = 0;
+
+const getSnapshot = (): PlaybackStatusSnapshot => snapshot;
+
+const emitChange = (): void => {
+  snapshot = { ...snapshot, version: snapshot.version + 1 };
+  for (const listener of listeners) {
+    listener();
+  }
+};
+
+export const setPlaybackStatusSnapshot = (patch: Partial<Omit<PlaybackStatusSnapshot, 'version'>>): PlaybackStatusSnapshot => {
+  if (Object.prototype.hasOwnProperty.call(patch, 'playbackStatus')) {
+    refreshRequestId += 1;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'audioStatus')) {
+    snapshot.audioStatus = patch.audioStatus ?? null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'playbackStatus')) {
+    snapshot.playbackStatus = patch.playbackStatus ?? null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'error')) {
+    snapshot.error = patch.error ?? null;
+  }
+
+  emitChange();
+  schedulePolling();
+  return snapshot;
+};
+
+export const refreshPlaybackStatus = async (): Promise<PlaybackStatusSnapshot> => {
+  const echo = window.echo;
+
+  if (!echo) {
+    return setPlaybackStatusSnapshot({ error: 'Desktop bridge unavailable' });
+  }
+
+  const requestId = refreshRequestId + 1;
+  refreshRequestId = requestId;
+
+  try {
+    const [playbackStatus, audioStatus] = await Promise.all([
+      echo.playback.getStatus(),
+      echo.audio.getStatus(),
+    ]);
+
+    if (refreshRequestId !== requestId) {
+      return snapshot;
+    }
+
+    return setPlaybackStatusSnapshot({
+      audioStatus,
+      playbackStatus,
+      error: audioStatus.error,
+    });
+  } catch (error) {
+    if (refreshRequestId !== requestId) {
+      return snapshot;
+    }
+
+    return setPlaybackStatusSnapshot({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+const clearPolling = (): void => {
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+};
+
+function getPollingIntervalMs(): number {
+  const state = snapshot.playbackStatus?.state ?? snapshot.audioStatus?.state ?? 'idle';
+  return document.visibilityState === 'hidden' || idlePollingStates.has(state) ? idlePollingIntervalMs : activePollingIntervalMs;
+}
+
+function shouldPollStatus(): boolean {
+  const state = snapshot.playbackStatus?.state ?? snapshot.audioStatus?.state ?? 'idle';
+  return document.visibilityState === 'hidden' || idlePollingStates.has(state) || !unsubscribeAudioStatus;
+}
+
+function schedulePolling(): void {
+  if (listeners.size === 0) {
+    return;
+  }
+
+  clearPolling();
+  if (!shouldPollStatus()) {
+    return;
+  }
+
+  pollTimer = window.setInterval(() => {
+    void refreshPlaybackStatus();
+  }, getPollingIntervalMs());
+}
+
+const handleVisibilityChange = (): void => {
+  schedulePolling();
+  if (document.visibilityState !== 'hidden') {
+    void refreshPlaybackStatus();
+  }
+};
+
+const ensureStarted = (): void => {
+  if (listeners.size !== 1) {
+    return;
+  }
+
+  unsubscribeAudioStatus = window.echo?.audio?.onStatus?.((audioStatus) => {
+    refreshRequestId += 1;
+    setPlaybackStatusSnapshot({ audioStatus, error: audioStatus.error });
+  });
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  void refreshPlaybackStatus();
+  schedulePolling();
+};
+
+const stopIfUnused = (): void => {
+  if (listeners.size > 0) {
+    return;
+  }
+
+  clearPolling();
+  unsubscribeAudioStatus?.();
+  unsubscribeAudioStatus = undefined;
+  snapshot = {
+    audioStatus: null,
+    playbackStatus: null,
+    error: null,
+    version: snapshot.version + 1,
+  };
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
+};
+
+const subscribe = (listener: () => void): (() => void) => {
+  listeners.add(listener);
+  ensureStarted();
+
+  return () => {
+    listeners.delete(listener);
+    stopIfUnused();
+  };
+};
+
+export const useSharedPlaybackStatus = (): PlaybackStatusSnapshot => {
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+};

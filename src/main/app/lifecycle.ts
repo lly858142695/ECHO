@@ -12,8 +12,12 @@ import { savePlaybackMemoryNow } from '../ipc/playbackIpc';
 import { dispatchLocalAudioFilesOpened, parseLocalAudioFileArguments } from './localFileOpen';
 import { initializeAutoUpdater } from './autoUpdater';
 import { getAppSettings } from './appSettings';
+import { disposeBackgroundPlaybackShortcuts, initializeBackgroundPlaybackShortcuts } from './backgroundPlaybackShortcuts';
 
 export const registerAppLifecycle = (): void => {
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
+
   const hasSingleInstanceLock = app.requestSingleInstanceLock();
   if (!hasSingleInstanceLock) {
     app.quit();
@@ -43,6 +47,7 @@ export const registerAppLifecycle = (): void => {
     void initializeDiscordPresenceIntegration();
     initializeLastFmIntegration();
     createMainWindow();
+    initializeBackgroundPlaybackShortcuts();
     initializeAutoUpdater(getAppSettings().autoUpdateEnabled !== false);
     dispatchLocalAudioFilesOpened(parseLocalAudioFileArguments(process.argv));
 
@@ -58,6 +63,7 @@ export const registerAppLifecycle = (): void => {
     disposeLastFmIntegration();
     disposeDiscordPresenceIntegration();
     disposeSmtcIntegration();
+    disposeBackgroundPlaybackShortcuts();
     getCrashReportService().closeSession();
     requestAppQuit();
   });

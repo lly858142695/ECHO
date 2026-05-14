@@ -9,6 +9,7 @@ import type {
   ImportPathClassification,
   LibraryAlbum,
   LibraryAlbumDetail,
+  LibraryAlbumTagUpdateRequest,
   LibraryArtist,
   LibraryCacheClearResult,
   LibraryCleanupResult,
@@ -185,6 +186,7 @@ export type EchoApi = {
     chooseTrackCover: () => Promise<TrackCoverSelection | null>;
     loadEmbeddedTrackTags: (trackId: string) => Promise<EmbeddedTrackTagsLoadResult>;
     updateTrackTags: (request: LibraryTrackTagUpdateRequest) => Promise<LibraryTrack>;
+    updateAlbumTags: (request: LibraryAlbumTagUpdateRequest) => Promise<LibraryAlbum>;
     recordTrackPlayback: (trackId: string) => Promise<void>;
     getPlaybackHistory: (query?: PlaybackHistoryQuery) => Promise<LibraryPage<PlaybackHistoryEntry>>;
     getPlaybackHistorySummary: () => Promise<PlaybackHistorySummary>;
@@ -200,6 +202,10 @@ export type EchoApi = {
     copyTrackCover: (trackId: string) => Promise<boolean>;
     saveTrackCover: (trackId: string) => Promise<string | null>;
     deleteTrackFile: (trackId: string) => Promise<void>;
+    copyAlbumInfo: (albumId: string) => Promise<void>;
+    copyAlbumCover: (albumId: string) => Promise<boolean>;
+    saveAlbumCover: (albumId: string) => Promise<string | null>;
+    deleteAlbumFiles: (albumId: string) => Promise<void>;
     pruneMissingTracks: () => Promise<LibraryCleanupResult>;
     clearTracks: () => Promise<LibraryCleanupResult>;
     clearCache: () => Promise<LibraryCacheClearResult>;
@@ -260,11 +266,13 @@ export type EchoApi = {
     getMv: (request: { provider: StreamingProviderName; providerTrackId: string }) => Promise<StreamingMvResult>;
     getProviders: () => Promise<StreamingProviderDescriptor[]>;
     importPlaylistFromUrl: (url: string) => Promise<StreamingPlaylistImportResult>;
+    refreshNeteaseDailyRecommend: () => Promise<StreamingPlaylistImportResult>;
   };
   lyrics: {
     getForTrack: (trackId: string) => Promise<TrackLyrics | null>;
     searchCandidates: (trackId: string, searchText?: string) => Promise<LyricsSearchCandidate[]>;
     applyCandidate: (trackId: string, candidateId: string) => Promise<TrackLyrics>;
+    applyCustomLrc?: (trackId: string, lrcText: string, fileName?: string) => Promise<TrackLyrics>;
     rejectCandidate: (candidateId: string) => Promise<void>;
     setOffset: (trackId: string, offsetMs: number) => Promise<TrackLyrics | null>;
     clearCache: (trackId: string) => Promise<void>;

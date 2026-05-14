@@ -63,6 +63,7 @@ const settings: AppSettings = {
     constantPower: true,
   },
   playerVolume: 1,
+  backgroundSpacePauseEnabled: false,
   playbackFollowCurrentTrack: false,
   playbackSpeed: 1,
   playbackSpeedMode: 'nightcore',
@@ -89,6 +90,9 @@ const chooseLyricsWallpaperMock = vi.fn();
 const chooseAppWallpaperMock = vi.fn();
 const getDownloadSettingsMock = vi.fn();
 const chooseDownloadOutputDirectoryMock = vi.fn();
+const audioGetStatusMock = vi.fn();
+const audioListDevicesMock = vi.fn();
+const audioSetOutputMock = vi.fn();
 
 const downloadSettings: DownloadSettings = {
   audioStrategy: 'best_available',
@@ -118,9 +122,9 @@ vi.mock('../utils/echoBridge', () => ({
     setSettings: setSettingsMock,
   }),
   getAudioBridge: () => ({
-    getStatus: vi.fn().mockResolvedValue(null),
-    listDevices: vi.fn().mockResolvedValue([]),
-    setOutput: vi.fn().mockResolvedValue(null),
+    getStatus: audioGetStatusMock,
+    listDevices: audioListDevicesMock,
+    setOutput: audioSetOutputMock,
   }),
   getAccountsBridge: () => ({
     getStatuses: vi.fn().mockResolvedValue([]),
@@ -186,8 +190,12 @@ vi.mock('../components/settings/RemoteSourcesPanel', () => ({
 }));
 
 beforeEach(() => {
+  vi.clearAllMocks();
   getDownloadSettingsMock.mockResolvedValue(downloadSettings);
   chooseDownloadOutputDirectoryMock.mockResolvedValue({ ...downloadSettings, outputDirectory: 'E:\\Music Downloads' });
+  audioGetStatusMock.mockResolvedValue(null);
+  audioListDevicesMock.mockResolvedValue([]);
+  audioSetOutputMock.mockResolvedValue(null);
   window.echo = {
     app: {
       getSettings: getSettingsMock,
@@ -324,6 +332,41 @@ describe('SettingsPage', () => {
     fireEvent.click(within(row).getByRole('button'));
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ playbackFollowCurrentTrack: true }));
+  });
+
+  it('does not start audio device/status work when first entering Settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    expect(audioGetStatusMock).not.toHaveBeenCalled();
+    expect(audioListDevicesMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
+
+    await waitFor(() => expect(audioGetStatusMock).toHaveBeenCalled());
+    await waitFor(() => expect(audioListDevicesMock).toHaveBeenCalled());
+  });
+
+  it('saves the background space pause setting from Settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockResolvedValue({ ...settings, backgroundSpacePauseEnabled: true });
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
+    const row = screen.getByText('后台空格暂停').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button'));
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ backgroundSpacePauseEnabled: true }));
   });
 
   it('shows app wallpaper controls only after choosing a custom wallpaper', async () => {

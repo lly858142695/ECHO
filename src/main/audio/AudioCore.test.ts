@@ -188,7 +188,7 @@ class FakeBridge extends EventEmitter {
       outputMode: options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared',
       deviceIndex: Number.isInteger(Number(options.deviceIndex)) ? Number(options.deviceIndex) : null,
       deviceName: options.deviceName ?? null,
-      requestedOutputSampleRate: options.requestedOutputSampleRate,
+      requestedOutputSampleRate: options.asio || options.exclusive ? null : options.requestedOutputSampleRate,
       channels: options.channels,
       asio: options.asio === true,
       exclusive: options.exclusive === true,
@@ -199,7 +199,7 @@ class FakeBridge extends EventEmitter {
       outputMode: this.startOptions?.asio ? 'asio' : this.startOptions?.exclusive ? 'exclusive' : 'shared',
       deviceIndex: Number.isInteger(Number(this.startOptions?.deviceIndex)) ? Number(this.startOptions?.deviceIndex) : null,
       deviceName: this.startOptions?.deviceName ?? null,
-      requestedOutputSampleRate: this.startOptions?.requestedOutputSampleRate,
+      requestedOutputSampleRate: this.startOptions?.asio || this.startOptions?.exclusive ? null : this.startOptions?.requestedOutputSampleRate,
       channels: this.startOptions?.channels,
       asio: this.startOptions?.asio === true,
       exclusive: this.startOptions?.exclusive === true,
@@ -469,6 +469,16 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(stopped.audioLevels?.clipCount).toBe(0);
   });
 
+  it('stop closes resident exclusive output', async () => {
+    const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
+
+    await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'exclusive' } });
+    const status = session.stop();
+
+    expect(status.state).toBe('stopped');
+    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+  });
+
   it('96k file + exclusive requests 96000', async () => {
     const { bridges, session } = createSessionHarness([probe('96.flac', 96000)]);
 
@@ -481,24 +491,42 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges[0].startOptions?.requestedOutputSampleRate).toBe(96000);
   });
 
-  it('switching 48k to 44.1k exclusive stops the old bridge and starts 44100', async () => {
-    const { bridges, session } = createSessionHarness([probe('48.flac', 48000), probe('441.flac', 44100)]);
+  it('switching 48k to 44.1k exclusive keeps the resident bridge and resamples to the open device rate', async () => {
+    const { bridges, decoder, session } = createSessionHarness([probe('48.flac', 48000), probe('441.flac', 44100)]);
 
     await session.playLocalFile({ filePath: '48.flac', output: { outputMode: 'exclusive' } });
-    await session.playLocalFile({ filePath: '441.flac', output: { outputMode: 'exclusive' } });
+    const status = await session.playLocalFile({ filePath: '441.flac', output: { outputMode: 'exclusive' } });
 
-    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
-    expect(bridges[1].startOptions?.requestedOutputSampleRate).toBe(44100);
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(bridges[0].sessionBegins).toBe(2);
+    expect(status.requestedOutputSampleRate).toBe(48000);
+    expect(status.actualDeviceSampleRate).toBe(48000);
+    expect(status.decoderOutputSampleRate).toBe(48000);
+    expect(status.resampling).toBe(true);
+    expect(status.bitPerfectCandidate).toBe(false);
+    expect(status.warnings).toContain('resident_output_resampling_to_device_rate');
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({
+      filePath: '441.flac',
+      decoderOutputSampleRate: 48000,
+    });
   });
 
-  it('switching 44.1k to 96k exclusive stops the old bridge and starts 96000', async () => {
-    const { bridges, session } = createSessionHarness([probe('441.flac', 44100), probe('96.flac', 96000)]);
+  it('switching 44.1k to 96k exclusive keeps the resident bridge and resamples to 44100', async () => {
+    const { bridges, decoder, session } = createSessionHarness([probe('441.flac', 44100), probe('96.flac', 96000)]);
 
     await session.playLocalFile({ filePath: '441.flac', output: { outputMode: 'exclusive' } });
-    await session.playLocalFile({ filePath: '96.flac', output: { outputMode: 'exclusive' } });
+    const status = await session.playLocalFile({ filePath: '96.flac', output: { outputMode: 'exclusive' } });
 
-    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
-    expect(bridges[1].startOptions?.requestedOutputSampleRate).toBe(96000);
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(status.requestedOutputSampleRate).toBe(44100);
+    expect(status.decoderOutputSampleRate).toBe(44100);
+    expect(status.warnings).toContain('resident_output_resampling_to_device_rate');
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({
+      filePath: '96.flac',
+      decoderOutputSampleRate: 44100,
+    });
   });
 
   it('reuses the native bridge for consecutive tracks with the same output plan', async () => {
@@ -513,15 +541,14 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(decoder.decodeRequests.map((request) => request.filePath)).toEqual(['first.flac', 'second.flac']);
   });
 
-  it('does not reuse exclusive output across sample-rate changes', async () => {
+  it('reuses exclusive output across sample-rate changes', async () => {
     const { bridges, session } = createSessionHarness([probe('48.flac', 48000), probe('441.flac', 44100)]);
 
     await session.playLocalFile({ filePath: '48.flac', output: { outputMode: 'exclusive' } });
     await session.playLocalFile({ filePath: '441.flac', output: { outputMode: 'exclusive' } });
 
-    expect(bridges).toHaveLength(2);
-    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
-    expect(bridges[1].startOptions?.requestedOutputSampleRate).toBe(44100);
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
   });
 
   it('shared mode keeps file and actual device rates separate and reports resampling', async () => {
@@ -569,13 +596,16 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.requestedOutputSampleRate).toBe(48000);
     expect(status.decoderOutputSampleRate).toBe(48000);
     expect(status.sharedDeviceSampleRate).toBe(48000);
-    expect(status.latencyProfile).toBe('lowLatency');
+    expect(status.latencyProfile).toBe('balanced');
     expect(bridges[0].startOptions?.deviceIndex).toBeUndefined();
     expect(bridges[0].startOptions?.deviceName).toBeUndefined();
     expect(bridges[0].startOptions).toMatchObject({
       requestedOutputSampleRate: 48000,
-      bufferSizeFrames: 256,
-      latencyProfile: 'lowLatency',
+      bufferSizeFrames: 2048,
+      fifoCapacityMs: 420,
+      startupPrebufferMs: 120,
+      startupPrebufferTimeoutMs: 450,
+      latencyProfile: 'balanced',
     });
     expect(decoder.decodeRequests[0].decoderOutputSampleRate).toBe(48000);
   });
@@ -930,26 +960,73 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges[0].sessionBegins).toBe(2);
   });
 
-  it('uses the adaptive low-latency 256-frame native buffer for exclusive and ASIO by default', async () => {
-    const { bridges, session } = createSessionHarness([probe('exclusive.flac', 44100), probe('asio.flac', 44100)]);
+  it('reuses ASIO output across sample-rate changes and decodes to the resident device rate', async () => {
+    const { bridges, decoder, session } = createSessionHarness([probe('first-asio.flac', 48000), probe('second-asio.flac', 44100)]);
+
+    await session.playLocalFile({
+      filePath: 'first-asio.flac',
+      output: { outputMode: 'asio', bufferSizeFrames: 128 },
+    });
+    const status = await session.playLocalFile({
+      filePath: 'second-asio.flac',
+      output: { outputMode: 'asio', bufferSizeFrames: 128 },
+    });
+
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(bridges[0].sessionBegins).toBe(2);
+    expect(status.requestedOutputSampleRate).toBe(48000);
+    expect(status.decoderOutputSampleRate).toBe(48000);
+    expect(status.resampling).toBe(true);
+    expect(status.warnings).toContain('resident_output_resampling_to_device_rate');
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({
+      filePath: 'second-asio.flac',
+      decoderOutputSampleRate: 48000,
+    });
+  });
+
+  it('uses balanced native buffering for WASAPI exclusive by default', async () => {
+    const { bridges, session } = createSessionHarness([probe('exclusive.flac', 44100)]);
 
     await session.playLocalFile({
       filePath: 'exclusive.flac',
       output: { outputMode: 'exclusive' },
     });
+
+    const startOptions = bridges[0].startOptions;
+    expect(startOptions).toMatchObject({
+      exclusive: true,
+      bufferSizeFrames: 2048,
+      latencyProfile: 'balanced',
+    });
+    expect(startOptions?.startupPrebufferMs).toBeUndefined();
+    expect(startOptions?.startupPrebufferTimeoutMs).toBeUndefined();
+  });
+
+  it('ignores low-latency requests for WASAPI exclusive output', async () => {
+    const { bridges, session } = createSessionHarness([probe('exclusive.flac', 44100)]);
+
+    await session.playLocalFile({
+      filePath: 'exclusive.flac',
+      output: { outputMode: 'exclusive', latencyProfile: 'lowLatency' },
+    });
+
+    expect(bridges[0].startOptions).toMatchObject({
+      exclusive: true,
+      bufferSizeFrames: 2048,
+      latencyProfile: 'balanced',
+    });
+  });
+
+  it('uses the adaptive low-latency 256-frame native buffer for ASIO by default', async () => {
+    const { bridges, session } = createSessionHarness([probe('asio.flac', 44100)]);
+
     await session.playLocalFile({
       filePath: 'asio.flac',
       output: { outputMode: 'asio' },
     });
 
     expect(bridges[0].startOptions).toMatchObject({
-      exclusive: true,
-      bufferSizeFrames: 256,
-      startupPrebufferMs: 0,
-      startupPrebufferTimeoutMs: 0,
-      latencyProfile: 'lowLatency',
-    });
-    expect(bridges[1].startOptions).toMatchObject({
       asio: true,
       bufferSizeFrames: 256,
       startupPrebufferMs: 0,
@@ -1098,6 +1175,24 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(decoder.decodeRequests.at(-1)).toMatchObject({ startSeconds: 18.25 });
   });
 
+  it('pause keeps resident exclusive output open and play resumes through the same host', async () => {
+    const { bridges, decoder, session } = createSessionHarness([probe('song.flac', 44100)]);
+
+    await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'exclusive' } });
+    bridges[0].positionSeconds = 14.5;
+    const pausedStatus = session.pause();
+    const resumedStatus = await session.play();
+
+    expect(pausedStatus.state).toBe('paused');
+    expect(pausedStatus.host).toBe('ready');
+    expect(resumedStatus.state).toBe('playing');
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(bridges[0].sessionBegins).toBe(2);
+    expect(bridges[0].sessionEnds).toBeGreaterThanOrEqual(1);
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({ startSeconds: 14.5 });
+  });
+
   it('does not resume from a paused prewarm bridge before its actual sample rate is ready', async () => {
     const decoder = new FakeDecoder(new Map([['song.flac', probe('song.flac', 192000)]]));
     const initialBridge = new FakeBridge(48000);
@@ -1208,6 +1303,31 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(decoder.probeRequests).toEqual(['song.flac']);
   });
 
+  it('switching exclusive devices stops the resident bridge and opens the new device', async () => {
+    const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
+
+    await session.playLocalFile({
+      filePath: 'song.flac',
+      output: { outputMode: 'exclusive', deviceIndex: 0, deviceName: 'TEAC USB AUDIO DEVICE' },
+    });
+    bridges[0].positionSeconds = 12.25;
+    const status = await session.setOutput({
+      outputMode: 'exclusive',
+      deviceIndex: 1,
+      deviceName: 'RME ADI-2 DAC',
+    });
+
+    expect(status.state).toBe('playing');
+    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(bridges).toHaveLength(2);
+    expect(bridges[1].startOptions).toMatchObject({
+      exclusive: true,
+      deviceIndex: 1,
+      deviceName: 'RME ADI-2 DAC',
+      startSeconds: 12.25,
+    });
+  });
+
   it('switching output while paused updates the resume target without starting playback', async () => {
     const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
 
@@ -1267,7 +1387,7 @@ describe('AudioSession playback watchdog', () => {
 
       expect(statuses).toHaveLength(1);
 
-      vi.advanceTimersByTime(249);
+      vi.advanceTimersByTime(999);
       bridges[0].emit('position', 1440, {
         positionFrames: 1440,
         bufferedFrames: 4800,
@@ -1396,17 +1516,17 @@ describe('AudioSession playback watchdog', () => {
     expect(bridges).toHaveLength(2);
   });
 
-  it('starts shared output immediately with the low-latency profile', async () => {
+  it('starts shared output with the balanced anti-stutter profile by default', async () => {
     const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
 
     await session.playLocalFile({ filePath: 'song.flac', output: { outputMode: 'shared' } });
 
     expect(bridges[0].startOptions).toMatchObject({
-      bufferSizeFrames: 256,
-      fifoCapacityMs: 80,
-      startupPrebufferMs: 0,
-      startupPrebufferTimeoutMs: 0,
-      latencyProfile: 'lowLatency',
+      bufferSizeFrames: 2048,
+      fifoCapacityMs: 420,
+      startupPrebufferMs: 120,
+      startupPrebufferTimeoutMs: 450,
+      latencyProfile: 'balanced',
     });
   });
 
@@ -1433,25 +1553,22 @@ describe('AudioSession playback watchdog', () => {
     expect(bridges[0].stop).toHaveBeenCalledTimes(1);
     expect(bridges).toHaveLength(2);
     expect(bridges[1].startOptions).toMatchObject({
-      bufferSizeFrames: 512,
-      fifoCapacityMs: 160,
-      startupPrebufferMs: 0,
+      bufferSizeFrames: 4096,
+      fifoCapacityMs: 750,
+      startupPrebufferMs: 180,
     });
     expect(session.getStatus().sharedStabilityTier).toBe('recovery');
     expect(session.getStatus().warnings).toContain('shared_output_underrun_detected');
     expect(session.getStatus().warnings).toContain('shared_stability_recovered:1');
-    expect(session.getStatus().warnings).toContain('native_output_buffer_recovered:512 frames');
+    expect(session.getStatus().warnings).toContain('native_output_buffer_recovered:4096 frames');
   });
 
-  it.each([
-    ['exclusive' as const, { exclusive: true, asio: false }],
-    ['asio' as const, { exclusive: false, asio: true }],
-  ])('upgrades %s output after repeated native underruns', async (outputMode, expectedBridgeMode) => {
-    const { bridges, session } = createSessionHarness([probe(`${outputMode}.flac`, 48000)], [], [], {
+  it('falls back from unstable exclusive output to shared after repeated native underruns', async () => {
+    const { bridges, session } = createSessionHarness([probe('exclusive.flac', 48000)], [], [], {
       disableWatchdogTimer: true,
     });
 
-    await session.playLocalFile({ filePath: `${outputMode}.flac`, trackId: `track-${outputMode}`, output: { outputMode } });
+    await session.playLocalFile({ filePath: 'exclusive.flac', trackId: 'track-exclusive', output: { outputMode: 'exclusive' } });
     bridges[0].emit('position', 48000, {
       positionFrames: 48000,
       bufferedFrames: 0,
@@ -1469,11 +1586,44 @@ describe('AudioSession playback watchdog', () => {
     expect(bridges[0].stop).toHaveBeenCalledTimes(1);
     expect(bridges).toHaveLength(2);
     expect(bridges[1].startOptions).toMatchObject({
-      ...expectedBridgeMode,
+      exclusive: false,
+      asio: false,
+    });
+    expect(bridges[1].startOptions?.startSeconds).toBeCloseTo(48512 / 48000);
+    expect(session.getStatus().outputMode).toBe('shared');
+    expect(session.getStatus().warnings).toContain('exclusive_output_unstable');
+    expect(session.getStatus().warnings).toContain('exclusive_output_fell_back_to_shared');
+  });
+
+  it('upgrades ASIO output after repeated native underruns', async () => {
+    const { bridges, session } = createSessionHarness([probe('asio.flac', 48000)], [], [], {
+      disableWatchdogTimer: true,
+    });
+
+    await session.playLocalFile({ filePath: 'asio.flac', trackId: 'track-asio', output: { outputMode: 'asio' } });
+    bridges[0].emit('position', 48000, {
+      positionFrames: 48000,
+      bufferedFrames: 0,
+      underrunCallbacks: 0,
+      underrunFrames: 0,
+    });
+    bridges[0].emit('position', 48512, {
+      positionFrames: 48512,
+      bufferedFrames: 0,
+      underrunCallbacks: 3,
+      underrunFrames: 512,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
+    expect(bridges).toHaveLength(2);
+    expect(bridges[1].startOptions).toMatchObject({
+      asio: true,
+      exclusive: false,
       bufferSizeFrames: 1024,
       latencyProfile: 'lowLatency',
     });
-    expect(session.getStatus().outputMode).toBe(outputMode);
+    expect(session.getStatus().outputMode).toBe('asio');
     expect(session.getStatus().warnings).toContain('native_output_underrun_detected');
     expect(session.getStatus().warnings).toContain('native_output_stability_recovered:1');
     expect(session.getStatus().warnings).toContain('native_output_buffer_recovered:1024 frames');
@@ -1748,6 +1898,86 @@ describe('NativeOutputBridge host arguments', () => {
     expect(framed.readUInt32LE(24)).toBe(sessionId);
     expect(framed.readUInt32LE(28)).toBe(8);
     expect(framed.readUInt8(45)).toBe(3);
+  });
+
+  it('treats framed native pos as per-session position when reusing a resident host', async () => {
+    const stdoutRef = new PassThrough();
+    const fakeSpawn = (): ChildProcessWithoutNullStreams => {
+      const stdin = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout: stdoutRef,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stdoutRef.write('{"ready":true,"sampleRate":48000}\n');
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      logger: noopLogger,
+    });
+
+    await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+    });
+
+    bridge.beginSession({ startSeconds: 0 });
+    stdoutRef.write('{"pos":48000}\n');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bridge.getPositionSeconds()).toBeGreaterThanOrEqual(1);
+    expect(bridge.getPositionSeconds()).toBeLessThan(1.1);
+
+    bridge.beginSession({ startSeconds: 0 });
+    stdoutRef.write('{"pos":24000}\n');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bridge.getPositionSeconds()).toBeGreaterThanOrEqual(0.5);
+    expect(bridge.getPositionSeconds()).toBeLessThan(0.6);
+    bridge.stop();
+  });
+
+  it('adds seek start time to per-session framed native pos', async () => {
+    const stdoutRef = new PassThrough();
+    const fakeSpawn = (): ChildProcessWithoutNullStreams => {
+      const stdin = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout: stdoutRef,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stdoutRef.write('{"ready":true,"sampleRate":48000}\n');
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      logger: noopLogger,
+    });
+
+    await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+    });
+
+    bridge.beginSession({ startSeconds: 12 });
+    stdoutRef.write('{"pos":24000}\n');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bridge.getPositionSeconds()).toBeGreaterThanOrEqual(12.5);
+    expect(bridge.getPositionSeconds()).toBeLessThan(12.6);
+    bridge.stop();
   });
 
   it('spawns echo-audio-host with -asio and without -exclusive for ASIO output', async () => {

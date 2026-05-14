@@ -152,7 +152,7 @@ export class StreamingCacheStore {
         track.albumId,
         track.albumArtist,
         track.duration,
-        track.coverUrl,
+        track.coverThumb ?? track.coverUrl,
         null,
         JSON.stringify(track.qualities),
         track.playable ? 1 : 0,
@@ -215,7 +215,10 @@ export class StreamingCacheStore {
       .run(cacheKey, provider, kind, JSON.stringify(sanitizeForCache(payload)), expiresAt, timestamp, timestamp);
   }
 
-  upsertImportedPlaylist(playlist: StreamingPlaylistDetail): LibraryPlaylist {
+  upsertImportedPlaylist(
+    playlist: StreamingPlaylistDetail,
+    options: { kind?: LibraryPlaylist['kind']; addedFrom?: string | null } = {},
+  ): LibraryPlaylist {
     const timestamp = nowIso();
     const existing = this.database
       .prepare<[StreamingProviderName, string], DbRow>(
@@ -223,6 +226,8 @@ export class StreamingCacheStore {
       )
       .get(playlist.provider, playlist.providerPlaylistId);
     const playlistId = existing ? String(existing.id) : randomUUID();
+    const playlistKind = options.kind ?? 'synced';
+    const playlistCoverUrl = playlist.coverThumb ?? playlist.coverUrl ?? playlist.tracks.find((track) => track.coverThumb || track.coverUrl)?.coverThumb ?? playlist.tracks.find((track) => track.coverThumb || track.coverUrl)?.coverUrl ?? null;
 
     this.database
       .prepare(
@@ -244,11 +249,11 @@ export class StreamingCacheStore {
         playlistId,
         playlist.title.trim() || 'Streaming Playlist',
         textOrNull(playlist.description),
-        'synced',
+        playlistKind,
         playlist.provider,
         playlist.providerPlaylistId,
         null,
-        playlist.coverThumb ?? playlist.coverUrl,
+        playlistCoverUrl,
         'manual',
         Number(existing?.item_count ?? 0),
         textOrNull(existing?.created_at) ?? timestamp,
@@ -339,10 +344,10 @@ export class StreamingCacheStore {
 
   importStreamingPlaylistPage(
     playlist: StreamingPlaylistDetail,
-    options: { reset: boolean; startPosition: number },
+    options: { reset: boolean; startPosition: number; kind?: LibraryPlaylist['kind']; addedFrom?: string | null },
   ): { playlist: LibraryPlaylist; nextPosition: number } {
     return this.database.transaction(() => {
-      const savedPlaylist = this.upsertImportedPlaylist(playlist);
+      const savedPlaylist = this.upsertImportedPlaylist(playlist, options);
       if (options.reset) {
         this.replacePlaylistItems(savedPlaylist.id);
       }
@@ -350,6 +355,7 @@ export class StreamingCacheStore {
       this.upsertTracks(playlist.tracks);
       const nextPosition = this.appendStreamingPlaylistTracks(savedPlaylist.id, playlist.tracks, {
         startPosition: options.startPosition,
+        addedFrom: options.addedFrom,
       });
       return { playlist: this.refreshPlaylistItemCount(savedPlaylist.id), nextPosition };
     })();

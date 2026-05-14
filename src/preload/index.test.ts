@@ -168,6 +168,7 @@ describe('preload SMTC API', () => {
     await exposedApi!.lyrics.getForTrack('track-1');
     await exposedApi!.lyrics.searchCandidates('track-1');
     await exposedApi!.lyrics.applyCandidate('track-1', 'candidate-1');
+    await exposedApi!.lyrics.applyCustomLrc?.('track-1', '[00:01.00]Line', 'custom.lrc');
     await exposedApi!.lyrics.rejectCandidate('candidate-1');
     await exposedApi!.lyrics.setOffset('track-1', 500);
     await exposedApi!.lyrics.clearCache('track-1');
@@ -175,6 +176,7 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsGetForTrack, 'track-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsSearchCandidates, 'track-1', undefined);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsApplyCandidate, 'track-1', 'candidate-1');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsApplyCustomLrc, 'track-1', '[00:01.00]Line', 'custom.lrc');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsRejectCandidate, 'candidate-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsSetOffset, 'track-1', 500);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsClearCache, 'track-1');

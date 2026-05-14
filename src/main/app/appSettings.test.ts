@@ -22,6 +22,7 @@ describe('app settings normalization', () => {
     expect(settings.coverCacheDir).toBeNull();
     expect(settings.appearanceTheme).toBe('light');
     expect(settings.albumMergeStrategy).toBe('standard');
+    expect(settings.chineseCrossScriptSearchEnabled).toBe(true);
     expect(settings.artistWallAlbumArtwork).toBe(false);
     expect(settings.appCustomWallpaperPath).toBeNull();
     expect(settings.appWallpaperScalePercent).toBe(100);
@@ -30,6 +31,7 @@ describe('app settings normalization', () => {
     expect(settings.appWallpaperUiOpacityPercent).toBe(100);
     expect(settings.appWallpaperUnifiedOpacityEnabled).toBe(false);
     expect(settings.scanPerformanceMode).toBe('balanced');
+    expect(settings.backgroundSpacePauseEnabled).toBe(false);
     expect(settings.playbackFollowCurrentTrack).toBe(false);
     expect(settings.hideToTrayOnClose).toBe(true);
     expect(settings.networkMetadataProviders).toEqual(['qq-music']);
@@ -45,6 +47,7 @@ describe('app settings normalization', () => {
     expect(settings.lyricsOffsetControlsEnabled).toBe(false);
     expect(settings.lyricsEnabled).toBe(true);
     expect(settings.lyricsHeaderHidden).toBe(false);
+    expect(settings.lyricsMvAutoShowTrackInfoDisabled).toBe(true);
     expect(settings.lyricsEmptyStateHidden).toBe(true);
     expect(settings.lyricsPlayerBarDrawerEnabled).toBe(false);
     expect(settings.lyricsRomanizationEnabled).toBe(true);
@@ -73,7 +76,7 @@ describe('app settings normalization', () => {
     expect(settings.mvImmersiveBackgroundBrightnessPercent).toBe(100);
     expect(settings.mvImmersiveBackgroundOverlayOpacityPercent).toBe(0);
     expect(settings.mvLyricsReadabilityEnhanced).toBe(false);
-    expect(settings.mvMaxQuality).toBe('1080p');
+    expect(settings.mvMaxQuality).toBe('max');
     expect(settings.mvAllow60fps).toBe(true);
   });
 
@@ -104,6 +107,15 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).albumMergeStrategy).toBe('standard');
     expect(normalizeSettings({ albumMergeStrategy: 'sameTitleAndCover' }).albumMergeStrategy).toBe('sameTitleAndCover');
     expect(normalizeSettings({ albumMergeStrategy: 'loose' as never }).albumMergeStrategy).toBe('standard');
+  });
+
+  it('keeps Chinese cross-script search enabled unless explicitly disabled', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).chineseCrossScriptSearchEnabled).toBe(true);
+    expect(normalizeSettings({ chineseCrossScriptSearchEnabled: true }).chineseCrossScriptSearchEnabled).toBe(true);
+    expect(normalizeSettings({ chineseCrossScriptSearchEnabled: false }).chineseCrossScriptSearchEnabled).toBe(false);
+    expect(normalizeSettings({ chineseCrossScriptSearchEnabled: 'no' as never }).chineseCrossScriptSearchEnabled).toBe(true);
   });
 
   it('normalizes artist wall album artwork setting as disabled by default', async () => {
@@ -210,7 +222,15 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ playbackFollowCurrentTrack: 'yes' as never }).playbackFollowCurrentTrack).toBe(false);
   });
 
-  it('migrates remembered audio output to low latency unless Stable was explicit', async () => {
+  it('normalizes the background space pause setting as opt-in', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).backgroundSpacePauseEnabled).toBe(false);
+    expect(normalizeSettings({ backgroundSpacePauseEnabled: true }).backgroundSpacePauseEnabled).toBe(true);
+    expect(normalizeSettings({ backgroundSpacePauseEnabled: 'yes' as never }).backgroundSpacePauseEnabled).toBe(false);
+  });
+
+  it('preserves valid remembered audio output latency profiles', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
     expect(
@@ -220,7 +240,7 @@ describe('app settings normalization', () => {
     ).toMatchObject({
       enabled: true,
       outputMode: 'asio',
-      latencyProfile: 'lowLatency',
+      latencyProfile: 'balanced',
     });
     expect(
       normalizeSettings({
@@ -271,6 +291,7 @@ describe('app settings normalization', () => {
         lyricsOffsetControlsEnabled: true,
         lyricsEnabled: false,
         lyricsHeaderHidden: true,
+        lyricsMvAutoShowTrackInfoDisabled: false,
         lyricsEmptyStateHidden: false,
         lyricsPlayerBarDrawerEnabled: true,
         lyricsRomanizationEnabled: false,
@@ -302,6 +323,7 @@ describe('app settings normalization', () => {
       lyricsOffsetControlsEnabled: true,
       lyricsEnabled: false,
       lyricsHeaderHidden: true,
+      lyricsMvAutoShowTrackInfoDisabled: false,
       lyricsEmptyStateHidden: false,
       lyricsPlayerBarDrawerEnabled: true,
       lyricsRomanizationEnabled: false,
@@ -317,6 +339,7 @@ describe('app settings normalization', () => {
       lyricsCoverBrightnessPercent: 40,
       lyricsBackgroundScalePercent: 180,
     });
+
 
     expect(
       normalizeSettings({
@@ -400,6 +423,7 @@ describe('app settings normalization', () => {
         mvImmersiveBackgroundBrightnessPercent: 118,
         mvImmersiveBackgroundOverlayOpacityPercent: 42,
         mvLyricsReadabilityEnhanced: true,
+        mvReplayAudioOnChange: false,
         mvMaxQuality: 'max',
         mvAllow60fps: false,
       }),
@@ -417,14 +441,15 @@ describe('app settings normalization', () => {
       mvImmersiveBackgroundBrightnessPercent: 118,
       mvImmersiveBackgroundOverlayOpacityPercent: 42,
       mvLyricsReadabilityEnhanced: true,
+      mvReplayAudioOnChange: false,
       mvMaxQuality: 'max',
       mvAllow60fps: false,
     });
 
     expect(
       normalizeSettings({
+        mvAutoApplyThreshold: 0.1,
         mvMaxQuality: '8k' as never,
-        mvAutoApplyThreshold: 2,
         mvImmersiveBackgroundScalePercent: 999,
         mvImmersiveBackgroundOffsetXPercent: -10,
         mvImmersiveBackgroundOffsetYPercent: 140,
@@ -435,7 +460,7 @@ describe('app settings normalization', () => {
       }),
     ).toMatchObject({
       mvAutoSearch: true,
-      mvAutoApplyThreshold: 1,
+      mvAutoApplyThreshold: 0.3,
       mvImmersiveBackground: true,
       mvImmersiveBackgroundScalePercent: 220,
       mvImmersiveBackgroundOffsetXPercent: 0,
@@ -444,8 +469,13 @@ describe('app settings normalization', () => {
       mvImmersiveBackgroundBrightnessPercent: 60,
       mvImmersiveBackgroundOverlayOpacityPercent: 0,
       mvLyricsReadabilityEnhanced: false,
-      mvMaxQuality: '1080p',
+      mvReplayAudioOnChange: true,
+      mvMaxQuality: 'max',
       mvAllow60fps: true,
+    });
+
+    expect(normalizeSettings({ mvAutoApplyThreshold: 2 })).toMatchObject({
+      mvAutoApplyThreshold: 1,
     });
   });
 });

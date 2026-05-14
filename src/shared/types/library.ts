@@ -447,6 +447,21 @@ export type LibraryTrackTagUpdateRequest = {
   coverMimeType?: string | null;
 };
 
+export type EditableAlbumTags = {
+  album: string;
+  albumArtist: string;
+  year: number | null;
+  genre: string | null;
+};
+
+export type LibraryAlbumTagUpdateRequest = {
+  albumId: string;
+  tags: EditableAlbumTags;
+  coverPath?: string | null;
+  coverUrl?: string | null;
+  coverMimeType?: string | null;
+};
+
 export type NetworkTagProvider = 'netease-cloud-music' | 'qq-music' | 'musicbrainz' | 'cover-art-archive' | 'mock';
 
 export type NetworkTagCandidate = {

@@ -469,4 +469,24 @@ describe('LyricsService', () => {
     expect(lyrics.kind).toBe('synced');
     expect(lyrics.lines[0].text).toBe('Applied');
   });
+
+  it('applies custom LRC text as manual cached lyrics', async () => {
+    const { service } = createHarness();
+
+    const lyrics = await service.applyCustomLrc(
+      'track-1',
+      '[00:01.00]Custom first\n[00:02.50]Custom second',
+      'custom.lrc',
+    );
+    const cached = await service.getLyricsForTrack('track-1');
+
+    expect(lyrics.provider).toBe('manual');
+    expect(lyrics.kind).toBe('synced');
+    expect(lyrics.lines).toEqual([
+      { timeMs: 1000, text: 'Custom first' },
+      { timeMs: 2500, text: 'Custom second' },
+    ]);
+    expect(cached?.provider).toBe('manual');
+    expect(cached?.lines[0].text).toBe('Custom first');
+  });
 });

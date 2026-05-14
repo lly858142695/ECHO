@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { isCueFile, isSupportedAudioExtension, SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from './audioExtensions';
+import { isCueFile, isScannableAudioExtension, isSupportedAudioExtension, SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from './audioExtensions';
 
 describe('audio extension constants', () => {
-  it('supports common, hifi, dsd, container, and cue formats', () => {
+  it('supports common, hifi, dsd, container, ncm, and cue formats for direct playback', () => {
     const supported = ['.flac', '.mp3', '.m4a', '.alac', '.opus', '.cue', '.ncm', '.dsf', '.dff', '.ape', '.wv', '.mka', '.mkv', '.mp4', '.tta', '.tak'];
 
     for (const extension of supported) {
       expect(isSupportedAudioExtension(`D:\\Music\\Track${extension}`)).toBe(true);
       expect(isSupportedAudioExtension(`/music/Track${extension.toUpperCase()}`)).toBe(true);
     }
+  });
+
+  it('does not scan cue sheets as standalone library tracks', () => {
+    expect(isSupportedAudioExtension('D:\\Music\\album.cue')).toBe(true);
+    expect(isScannableAudioExtension('D:\\Music\\album.cue')).toBe(false);
+    expect(isScannableAudioExtension('D:\\Music\\track.flac')).toBe(true);
   });
 
   it('does not treat artwork, lyrics, documents, or executables as audio', () => {

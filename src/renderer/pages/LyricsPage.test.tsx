@@ -366,6 +366,7 @@ const mockEcho = (
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -378,6 +379,14 @@ describe("LyricsPage", () => {
     expect(css).toContain('.lyrics-page:has(.lyrics-mv-background) .lyrics-line[data-active="true"] {\n  color: var(--lyrics-color);');
     expect(css).toContain('.lyrics-page:has(.lyrics-mv-background[data-lyrics-readability="true"]) .lyrics-line span');
     expect(css).not.toMatch(/\.lyrics-page:has\(\.lyrics-mv-background\) \.lyrics-line(?:\[data-active="true"\])? \{\s*color: #fff;/);
+  });
+
+  it("keeps MV immersive lyrics on the normal lyrics size scale", () => {
+    const css = readFileSync("src/renderer/styles/lyrics.css", "utf8");
+
+    expect(css).toContain('.lyrics-page:has(.lyrics-mv-background) .lyrics-line span {\n  max-width: min(100%, 1120px);\n  font-size: calc(var(--lyrics-font-size) * 0.9);');
+    expect(css).toContain('.lyrics-page:has(.lyrics-mv-background) .lyrics-line[data-active="true"] span {\n  font-size: calc(var(--lyrics-font-size) * 1.25);');
+    expect(css).not.toMatch(/\.lyrics-page:has\(\.lyrics-mv-background\)[\s\S]*font-size: calc\(var\(--lyrics-font-size\) \* 1\.5\);/);
   });
 
   it("shows current song information when a track is playing", async () => {
@@ -467,6 +476,34 @@ describe("LyricsPage", () => {
         container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
       ).toContain("Second line"),
     );
+  });
+
+  it("keeps active lyrics from jumping backward on a brief same-track stale audio status", async () => {
+    const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
+    const track = makeTrack();
+    const { emitAudioStatus } = mockEcho(track, 10.4);
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+      ).toContain("Second line"),
+    );
+
+    performanceNow.mockReturnValue(250);
+    act(() => {
+      emitAudioStatus(makeAudioStatus(track, 8.9));
+    });
+
+    expect(
+      container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+    ).toContain("Second line");
   });
 
   it("updates active lyrics immediately when playback seek commits from the progress bar", async () => {
@@ -1453,6 +1490,7 @@ describe("LyricsPage", () => {
     window.dispatchEvent(
       new CustomEvent("lyrics:display-settings-changed", {
         detail: {
+          lyricsAutoAcceptScore: 0.3,
           lyricsFontSizePx: 48,
           lyricsLineSpacingPercent: 116,
           lyricsContextOpacityPercent: 70,
@@ -1555,5 +1593,54 @@ describe("LyricsPage", () => {
     expect(
       container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
     ).toContain("Plain second");
+  });
+
+  it("applies a custom LRC file dropped on the lyrics page", async () => {
+    const track = makeTrack();
+    mockEcho(track);
+    const customLyrics = makeTrackLyrics({
+      provider: "manual",
+      providerLyricsId: "custom-lrc",
+      lines: [{ timeMs: 1000, text: "Dropped custom line" }],
+      syncedText: "[00:01.00]Dropped custom line",
+      plainText: "Dropped custom line",
+    });
+    window.echo.lyrics = {
+      getForTrack: vi.fn().mockResolvedValue(makeTrackLyrics({ lines: [{ timeMs: 0, text: "Current lyrics" }] })),
+      searchCandidates: vi.fn().mockResolvedValue([]),
+      applyCandidate: vi.fn(),
+      applyCustomLrc: vi.fn().mockResolvedValue(customLyrics),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+    };
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    expect(await screen.findByText("Current lyrics")).toBeTruthy();
+    const page = container.querySelector(".lyrics-page") as HTMLElement;
+    const file = new File(["[00:01.00]Dropped custom line"], "custom.lrc", { type: "text/plain" });
+
+    fireEvent.drop(page, {
+      dataTransfer: {
+        files: [file],
+        types: ["Files"],
+      },
+    });
+
+    await waitFor(() =>
+      expect(window.echo.lyrics.applyCustomLrc).toHaveBeenCalledWith(
+        "track-1",
+        "[00:01.00]Dropped custom line",
+        "custom.lrc",
+      ),
+    );
+    expect(await screen.findByText("Dropped custom line")).toBeTruthy();
   });
 });

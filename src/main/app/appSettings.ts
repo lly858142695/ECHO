@@ -61,7 +61,7 @@ export const defaultAppearancePreferences: AppearancePreferences = {
 const defaultRememberedAudioOutput: RememberedAudioOutput = {
   enabled: false,
   outputMode: 'shared',
-  latencyProfile: 'lowLatency',
+  latencyProfile: 'balanced',
 };
 
 export const getLyricsWallpaperDirectory = (): string => join(app.getPath('userData'), 'lyrics-wallpapers');
@@ -93,6 +93,7 @@ export const defaultSettings: AppSettings = {
   rememberedAudioOutput: { ...defaultRememberedAudioOutput },
   hiddenAudioDeviceKeys: [],
   albumMergeStrategy: 'standard',
+  chineseCrossScriptSearchEnabled: true,
   artistWallAlbumArtwork: false,
   autoUpdateEnabled: true,
   coverCacheDir: null,
@@ -121,6 +122,7 @@ export const defaultSettings: AppSettings = {
   lyricsOffsetControlsEnabled: false,
   lyricsEnabled: true,
   lyricsHeaderHidden: false,
+  lyricsMvAutoShowTrackInfoDisabled: true,
   lyricsEmptyStateHidden: true,
   lyricsPlayerBarDrawerEnabled: false,
   lyricsRomanizationEnabled: true,
@@ -151,10 +153,12 @@ export const defaultSettings: AppSettings = {
   mvImmersiveBackgroundOverlayOpacityPercent: 0,
   mvLyricsReadabilityEnhanced: false,
   mvRestartAudioOnLoad: false,
-  mvMaxQuality: '1080p',
+  mvReplayAudioOnChange: true,
+  mvMaxQuality: 'max',
   mvAllow60fps: true,
   channelBalance: defaultChannelBalanceSettings,
   playerVolume: 1,
+  backgroundSpacePauseEnabled: false,
   playbackFollowCurrentTrack: false,
   playbackSpeed: 1,
   playbackSpeedMode: 'nightcore',
@@ -260,7 +264,10 @@ const normalizeRememberedAudioOutput = (value: unknown): RememberedAudioOutput =
 
   const input = value as Partial<RememberedAudioOutput>;
   const outputMode = input.outputMode === 'exclusive' || input.outputMode === 'asio' ? input.outputMode : 'shared';
-  const latencyProfile = input.latencyProfile === 'stable' ? input.latencyProfile : 'lowLatency';
+  const latencyProfile =
+    input.latencyProfile === 'stable' || input.latencyProfile === 'balanced' || input.latencyProfile === 'lowLatency'
+      ? input.latencyProfile
+      : defaultRememberedAudioOutput.latencyProfile;
   const deviceIndex = Number(input.deviceIndex);
   const deviceName = normalizeOptionalText(input.deviceName) ?? undefined;
   const bufferSizeFrames = Number(input.bufferSizeFrames);
@@ -447,6 +454,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     rememberedAudioOutput: normalizeRememberedAudioOutput(settings.rememberedAudioOutput),
     hiddenAudioDeviceKeys: normalizeHiddenAudioDeviceKeys(settings.hiddenAudioDeviceKeys),
     albumMergeStrategy,
+    chineseCrossScriptSearchEnabled: settings.chineseCrossScriptSearchEnabled !== false,
     artistWallAlbumArtwork: settings.artistWallAlbumArtwork === true,
     autoUpdateEnabled: settings.autoUpdateEnabled !== false,
     coverCacheDir: normalizeCoverCacheDir(settings.coverCacheDir),
@@ -498,6 +506,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     lyricsOffsetControlsEnabled: settings.lyricsOffsetControlsEnabled === true,
     lyricsEnabled: settings.lyricsEnabled !== false,
     lyricsHeaderHidden: settings.lyricsHeaderHidden === true,
+    lyricsMvAutoShowTrackInfoDisabled: settings.lyricsMvAutoShowTrackInfoDisabled !== false,
     lyricsEmptyStateHidden: settings.lyricsEmptyStateHidden !== false,
     lyricsPlayerBarDrawerEnabled: settings.lyricsPlayerBarDrawerEnabled === true,
     lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled !== false,
@@ -538,7 +547,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     mvAutoSearch: settings.mvAutoSearch !== false,
     mvAutoPreload: settings.mvAutoPreload !== false,
     mvAutoApplyThreshold: Number.isFinite(mvAutoApplyThreshold)
-      ? clamp(mvAutoApplyThreshold, 0.5, 1)
+      ? clamp(mvAutoApplyThreshold, 0.3, 1)
       : defaultSettings.mvAutoApplyThreshold,
     mvImmersiveBackground: settings.mvImmersiveBackground !== false,
     mvImmersiveBackgroundScalePercent: Number.isFinite(mvImmersiveBackgroundScalePercent)
@@ -561,10 +570,12 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       : defaultSettings.mvImmersiveBackgroundOverlayOpacityPercent,
     mvLyricsReadabilityEnhanced: settings.mvLyricsReadabilityEnhanced === true,
     mvRestartAudioOnLoad: settings.mvRestartAudioOnLoad === true,
+    mvReplayAudioOnChange: settings.mvReplayAudioOnChange !== false,
     mvMaxQuality: normalizeMvMaxQuality(settings.mvMaxQuality),
     mvAllow60fps: settings.mvAllow60fps !== false,
     channelBalance: normalizeChannelBalanceSettings(settings.channelBalance),
     playerVolume: Number.isFinite(playerVolume) ? Math.max(0, Math.min(1, playerVolume)) : defaultSettings.playerVolume,
+    backgroundSpacePauseEnabled: settings.backgroundSpacePauseEnabled === true,
     playbackFollowCurrentTrack: settings.playbackFollowCurrentTrack === true,
     playbackSpeed: Number.isFinite(playbackSpeed)
       ? Math.max(0.5, Math.min(2, playbackSpeed))

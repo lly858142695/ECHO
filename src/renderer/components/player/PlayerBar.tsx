@@ -5,38 +5,88 @@ import type { PlaybackStatus } from '../../../shared/types/playback';
 import { streamingProviderNames, type StreamingProviderName } from '../../../shared/types/streaming';
 import { likedChangedEvent, likedTracksChangedEvent } from '../../hooks/useLikedMedia';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
+import { refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../../stores/playbackStatusStore';
 import { PlayerProgress } from './PlayerProgress';
 import { PlayerSpeedControl } from './PlayerSpeedControl';
 import { PlayerStatusChips } from './PlayerStatusChips';
 import { PlayerTransport } from './PlayerTransport';
 import { PlayerVolumeControl } from './PlayerVolumeControl';
 import { formatAudioHostError } from './audioErrorFormat';
-import { applyMediaSessionSnapshot, bindMediaSessionActions, clearMediaSession } from './mediaSession';
+import { applyMediaSessionSnapshot, clearMediaSession } from './mediaSession';
 import { titleFromPath } from './playerFormat';
 
 type PlayerBarProps = {
   onOpenAudioSettings?: () => void;
 };
 
-const idlePollingStates = new Set(['paused', 'stopped', 'idle', 'error']);
-const activePollingIntervalMs = 500;
-const idlePollingIntervalMs = 2000;
 const progressRenderIntervalMs = 250;
 const bpmAnalysisStatusPollMs = 1500;
 const playbackSeekedEvent = 'playback:seeked';
 const maxInterpolatedStatusGapSeconds = 1.6;
+const maxStaleStatusRegressionSeconds = 2.5;
 const seekAnchorMaxAgeSeconds = 3;
 const isStreamingProviderName = (provider: string | null | undefined): provider is StreamingProviderName =>
   streamingProviderNames.includes(provider as StreamingProviderName);
 
+const deferNonCriticalPlaybackTask = (callback: () => void): (() => void) => {
+  let cancelled = false;
+  let idleId: number | null = null;
+  let timeoutId: number | null = null;
+  const requestIdleCallback = window.requestIdleCallback;
+  const cancelIdleCallback = window.cancelIdleCallback;
+
+  const frameId = window.requestAnimationFrame(() => {
+    if (cancelled) {
+      return;
+    }
+
+    if (typeof requestIdleCallback === 'function') {
+      idleId = requestIdleCallback(() => {
+        if (!cancelled) {
+          callback();
+        }
+      }, { timeout: 800 });
+      return;
+    }
+
+    timeoutId = window.setTimeout(() => {
+      if (!cancelled) {
+        callback();
+      }
+    }, 80);
+  });
+
+  return () => {
+    cancelled = true;
+    window.cancelAnimationFrame(frameId);
+    if (idleId !== null && typeof cancelIdleCallback === 'function') {
+      cancelIdleCallback(idleId);
+    }
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  };
+};
+
 const playerArtworkUrl = (track: { coverId: string | null; coverThumb: string | null } | null): string | null =>
   track?.coverId ? `echo-cover://album/${encodeURIComponent(track.coverId)}` : (track?.coverThumb ?? null);
+
+const isAudioStatusForPlayback = (audioStatus: AudioStatus, playbackStatus: PlaybackStatus | null): boolean => {
+  if (!playbackStatus?.currentTrackId && !playbackStatus?.filePath) {
+    return true;
+  }
+
+  return (
+    Boolean(playbackStatus.currentTrackId && audioStatus.currentTrackId === playbackStatus.currentTrackId) ||
+    Boolean(playbackStatus.filePath && audioStatus.currentFilePath === playbackStatus.filePath)
+  );
+};
 
 const dispatchPlaybackSeeked = (positionSeconds: number, trackId: string | null): void => {
   window.dispatchEvent(new CustomEvent(playbackSeekedEvent, { detail: { positionSeconds, trackId } }));
 };
 
-const isPlaybackShortcutTextTarget = (target: EventTarget | null): boolean => {
+const isTextEditingElement = (target: EventTarget | null): boolean => {
   if (!(target instanceof Element)) {
     return false;
   }
@@ -49,27 +99,37 @@ const isPlaybackShortcutTextTarget = (target: EventTarget | null): boolean => {
   return target instanceof HTMLElement && target.isContentEditable;
 };
 
+const isPlaybackShortcutTextTarget = (event: KeyboardEvent): boolean => {
+  const path = event.composedPath();
+  if (path.some((target) => isTextEditingElement(target))) {
+    return true;
+  }
+
+  return isTextEditingElement(document.activeElement);
+};
+
 export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element => {
   const queue = usePlaybackQueue();
+  const sharedPlaybackStatus = useSharedPlaybackStatus();
   const setQueueCurrentTrackId = queue.setCurrentTrackId;
-  const playQueueTrack = queue.playTrack;
   const appendToQueue = queue.appendToQueue;
   const updateCurrentTrackSnapshot = queue.updateCurrentTrackSnapshot;
+  const updateTrackSnapshot = queue.updateTrackSnapshot;
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null);
   const [audioStatus, setAudioStatus] = useState<AudioStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [seekPreviewSeconds, setSeekPreviewSeconds] = useState<number | null>(null);
   const [openPopover, setOpenPopover] = useState<'volume' | 'speed' | null>(null);
   const [isCurrentTrackLiked, setIsCurrentTrackLiked] = useState(false);
-  const [isWindowVisible, setIsWindowVisible] = useState(() => document.visibilityState !== 'hidden');
   const [smtcEnabled, setSmtcEnabled] = useState(true);
   const handledEndedTrackRef = useRef<string | null>(null);
   const hydratedTrackIdsRef = useRef(new Set<string>());
   const bpmAnalysisJobIdsRef = useRef(new Map<string, string | 'done'>());
   const streamingBpmAnalysisTrackIdsRef = useRef(new Set<string>());
   const mvPreloadTrackRef = useRef<string | null>(null);
-  const refreshRequestRef = useRef(0);
   const seekAnchorRef = useRef<{ positionSeconds: number; trackKey: string | null; updatedAtMs: number } | null>(null);
+  const activeTrackIdRef = useRef<string | null>(null);
+  const lastPlaybackActionStatusRef = useRef<{ state: PlaybackStatus['state']; trackId: string | null; filePath: string | null; updatedAtMs: number } | null>(null);
   const progressClockRef = useRef({
     durationSeconds: 0,
     playbackRate: 1,
@@ -80,45 +140,92 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     updatedAtMs: performance.now(),
   });
 
-  const refreshStatus = useCallback(async (): Promise<void> => {
-    const echo = window.echo;
-
-    if (!echo) {
-      setError('Desktop bridge unavailable');
-      return;
+  const shouldIgnoreAudioStatus = useCallback((nextAudioStatus: AudioStatus): boolean => {
+    const lastAction = lastPlaybackActionStatusRef.current;
+    if (!lastAction) {
+      return false;
     }
 
-    try {
-      const requestId = refreshRequestRef.current + 1;
-      refreshRequestRef.current = requestId;
-      const [nextPlaybackStatus, nextAudioStatus] = await Promise.all([
-        echo.playback.getStatus(),
-        echo.audio.getStatus(),
-      ]);
+    const elapsedMs = performance.now() - lastAction.updatedAtMs;
+    const samePlayback =
+      Boolean(lastAction.trackId && nextAudioStatus.currentTrackId === lastAction.trackId) ||
+      Boolean(lastAction.filePath && nextAudioStatus.currentFilePath === lastAction.filePath);
 
-      if (refreshRequestRef.current !== requestId) {
+    if (elapsedMs < 1200 && !samePlayback && (nextAudioStatus.currentTrackId || nextAudioStatus.currentFilePath)) {
+      return true;
+    }
+
+    if (elapsedMs < 1200 && samePlayback && nextAudioStatus.state !== lastAction.state) {
+      return true;
+    }
+
+    if (nextAudioStatus.state === lastAction.state || elapsedMs >= 1200) {
+      lastPlaybackActionStatusRef.current = null;
+    }
+
+    return false;
+  }, []);
+
+  const applyAudioStatus = useCallback(
+    (nextAudioStatus: AudioStatus): void => {
+      if (shouldIgnoreAudioStatus(nextAudioStatus)) {
         return;
       }
 
-      setPlaybackStatus(nextPlaybackStatus);
       setAudioStatus(nextAudioStatus);
-      const nextTrackId = nextPlaybackStatus.currentTrackId ?? nextAudioStatus.currentTrackId ?? null;
+      if (nextAudioStatus.currentTrackId) {
+        setQueueCurrentTrackId(nextAudioStatus.currentTrackId);
+      }
+      setPlaybackStatus((current) =>
+        current
+          ? {
+              ...current,
+              state: nextAudioStatus.state,
+              currentTrackId: nextAudioStatus.currentTrackId,
+              filePath: nextAudioStatus.currentFilePath,
+              positionMs: Math.round(nextAudioStatus.positionSeconds * 1000),
+              durationMs: Math.round(nextAudioStatus.durationSeconds * 1000),
+            }
+          : current,
+      );
+      setError(formatAudioHostError(nextAudioStatus.error));
+    },
+    [setQueueCurrentTrackId, shouldIgnoreAudioStatus],
+  );
+
+  const applySharedPlaybackStatus = useCallback(
+    (snapshot: { playbackStatus: PlaybackStatus | null; audioStatus: AudioStatus | null; error: string | null }): void => {
+      if (snapshot.playbackStatus) {
+        setPlaybackStatus(snapshot.playbackStatus);
+      }
+
+      const snapshotAudioStatus = snapshot.audioStatus;
+      const shouldApplyAudioStatus = snapshotAudioStatus
+        ? isAudioStatusForPlayback(snapshotAudioStatus, snapshot.playbackStatus)
+        : false;
+      if (snapshotAudioStatus && shouldApplyAudioStatus) {
+        applyAudioStatus(snapshotAudioStatus);
+      }
+
+      const nextTrackId =
+        snapshot.playbackStatus?.currentTrackId ??
+        (snapshotAudioStatus && shouldApplyAudioStatus ? snapshotAudioStatus.currentTrackId : null) ??
+        null;
       if (nextTrackId) {
         setQueueCurrentTrackId(nextTrackId);
       }
-      setError(formatAudioHostError(nextAudioStatus.error));
-    } catch (refreshError) {
-      const message = refreshError instanceof Error ? refreshError.message : String(refreshError);
-      setError(formatAudioHostError(message));
-    }
-  }, [setQueueCurrentTrackId]);
+
+      setError(formatAudioHostError(snapshot.error));
+    },
+    [applyAudioStatus, setQueueCurrentTrackId],
+  );
+
+  const refreshStatus = useCallback(async (): Promise<void> => {
+    applySharedPlaybackStatus(await refreshPlaybackStatus());
+  }, [applySharedPlaybackStatus]);
 
   const state = audioStatus?.state ?? playbackStatus?.state ?? 'idle';
   const isPlaying = state === 'playing';
-  const pollIntervalMs =
-    !isWindowVisible || (idlePollingStates.has(state) && seekPreviewSeconds === null)
-      ? idlePollingIntervalMs
-      : activePollingIntervalMs;
   const statusTrackId = playbackStatus?.currentTrackId ?? audioStatus?.currentTrackId ?? null;
   const trackId = queue.currentTrackId ?? statusTrackId;
   const currentTrack = queue.currentTrack ?? queue.tracks.find((track) => track.id === trackId) ?? null;
@@ -138,6 +245,10 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const streamingTrackQuality = currentTrack?.streamingQuality;
   const streamingTrackBpm = currentTrack?.bpm ?? null;
   const streamingTrackAnalysisStatus = currentTrack?.analysisStatus ?? null;
+
+  useEffect(() => {
+    activeTrackIdRef.current = currentTrack?.id ?? trackId ?? null;
+  }, [currentTrack?.id, trackId]);
 
   const refreshCurrentTrackLiked = useCallback(async (): Promise<void> => {
     if (!trackId || !isLibraryCurrentTrack || !window.echo?.library) {
@@ -196,8 +307,13 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       const sourceCaughtUp = boundedSourcePosition + 0.35 >= estimatedPositionSeconds;
       const sourceJumpedForward = boundedSourcePosition > estimatedPositionSeconds + 0.35;
       const canBridgeSourceLag = elapsedSeconds <= maxInterpolatedStatusGapSeconds;
+      const staleRegressionSeconds = previous.positionSeconds - boundedSourcePosition;
+      const canIgnoreStaleRegression =
+        canBridgeSourceLag && staleRegressionSeconds > 0.35 && staleRegressionSeconds <= maxStaleStatusRegressionSeconds;
 
-      if (canBridgeSourceLag && !sourceJumpedBackward && !sourceCaughtUp && !sourceJumpedForward && estimatedPositionSeconds > boundedSourcePosition) {
+      if (canIgnoreStaleRegression) {
+        nextPositionSeconds = estimatedPositionSeconds;
+      } else if (canBridgeSourceLag && !sourceJumpedBackward && !sourceCaughtUp && !sourceJumpedForward && estimatedPositionSeconds > boundedSourcePosition) {
         nextPositionSeconds = estimatedPositionSeconds;
       }
     }
@@ -263,21 +379,30 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
 
   useEffect(() => {
     const library = window.echo?.library;
+    const existingJobId = currentTrack ? bpmAnalysisJobIdsRef.current.get(currentTrack.id) : undefined;
     const canAnalyzeCurrentTrack =
-      isPlaying &&
       currentTrack &&
       !currentTrack.isTemporary &&
       (currentTrack.mediaType ?? 'local') === 'local' &&
       !currentTrack.bpm &&
       currentTrack.analysisStatus !== 'analyzing' &&
       currentTrack.analysisStatus !== 'complete';
+    const shouldStartAnalysis = isPlaying;
+    const shouldContinueAnalysis = Boolean(existingJobId);
 
-    if (!library?.startBpmAnalysis || !library.getBpmAnalysisStatus || !library.getTrack || !canAnalyzeCurrentTrack) {
+    if (
+      !library?.startBpmAnalysis ||
+      !library.getBpmAnalysisStatus ||
+      !library.getTrack ||
+      !canAnalyzeCurrentTrack ||
+      (!shouldStartAnalysis && !shouldContinueAnalysis)
+    ) {
       return;
     }
 
     let cancelled = false;
     let pollTimer: number | null = null;
+    let cancelDeferredTask: (() => void) | null = null;
 
     const refreshAnalyzedTrack = async (): Promise<void> => {
       const refreshed = await library.getTrack(currentTrack.id);
@@ -285,7 +410,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
         return;
       }
 
-      updateCurrentTrackSnapshot({
+      updateTrackSnapshot(currentTrack.id, {
         bpm: refreshed.bpm,
         bpmConfidence: refreshed.bpmConfidence,
         beatOffsetMs: refreshed.beatOffsetMs,
@@ -317,43 +442,44 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       }, bpmAnalysisStatusPollMs);
     };
 
-    void (async () => {
-      try {
-        const existingJobId = bpmAnalysisJobIdsRef.current.get(currentTrack.id);
-        if (existingJobId === 'done') {
-          return;
-        }
+    if (existingJobId === 'done') {
+      return undefined;
+    }
 
-        if (existingJobId) {
-          pollJob(existingJobId);
-          return;
-        }
+    if (existingJobId) {
+      pollJob(existingJobId);
+    } else {
+      cancelDeferredTask = deferNonCriticalPlaybackTask(() => {
+        void (async () => {
+          try {
+            const job = await library.startBpmAnalysis({ trackIds: [currentTrack.id] });
+            if (cancelled) {
+              return;
+            }
 
-        const job = await library.startBpmAnalysis({ trackIds: [currentTrack.id] });
-        if (cancelled) {
-          return;
-        }
+            if (job.status === 'queued' || job.status === 'running') {
+              bpmAnalysisJobIdsRef.current.set(currentTrack.id, job.id);
+              pollJob(job.id);
+              return;
+            }
 
-        if (job.status === 'queued' || job.status === 'running') {
-          bpmAnalysisJobIdsRef.current.set(currentTrack.id, job.id);
-          pollJob(job.id);
-          return;
-        }
-
-        await refreshAnalyzedTrack();
-        bpmAnalysisJobIdsRef.current.set(currentTrack.id, 'done');
-      } catch {
-        // Disabled analysis or analyzer errors should never interrupt playback.
-      }
-    })();
+            await refreshAnalyzedTrack();
+            bpmAnalysisJobIdsRef.current.set(currentTrack.id, 'done');
+          } catch {
+            // Disabled analysis or analyzer errors should never interrupt playback.
+          }
+        })();
+      });
+    }
 
     return () => {
       cancelled = true;
+      cancelDeferredTask?.();
       if (pollTimer !== null) {
         window.clearTimeout(pollTimer);
       }
     };
-  }, [currentTrack, isPlaying, updateCurrentTrackSnapshot]);
+  }, [currentTrack, isPlaying, updateTrackSnapshot]);
 
   useEffect(() => {
     const streaming = window.echo?.streaming;
@@ -366,7 +492,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       isStreamingProviderName(streamingTrackProvider) &&
       Boolean(streamingTrackProviderTrackId);
 
-    if (!streaming?.analyzeBpm || !canAnalyzeCurrentTrack || !streamingTrackProviderTrackId) {
+    if (!streaming?.analyzeBpm || !canAnalyzeCurrentTrack || !streamingTrackProviderTrackId || !streamingTrackId) {
       return;
     }
 
@@ -382,34 +508,40 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       return;
     }
 
+    const analyzedStreamingTrackId = streamingTrackId;
     streamingBpmAnalysisTrackIdsRef.current.add(analysisKey);
-    let cancelled = false;
+    let started = false;
+    const cancelDeferredTask = deferNonCriticalPlaybackTask(() => {
+      started = true;
+      void streaming
+        .analyzeBpm({
+          provider,
+          providerTrackId,
+          quality,
+        })
+        .then((result) => {
+          if (activeTrackIdRef.current !== analyzedStreamingTrackId) {
+            return;
+          }
 
-    void streaming
-      .analyzeBpm({
-        provider,
-        providerTrackId,
-        quality,
-      })
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-
-        updateCurrentTrackSnapshot({
-          bpm: result.bpm,
-          bpmConfidence: result.confidence,
-          beatOffsetMs: result.beatOffsetMs,
-          analysisStatus: result.status,
-          analysisUpdatedAt: result.updatedAt,
+          updateTrackSnapshot(analyzedStreamingTrackId, {
+            bpm: result.bpm,
+            bpmConfidence: result.confidence,
+            beatOffsetMs: result.beatOffsetMs,
+            analysisStatus: result.status,
+            analysisUpdatedAt: result.updatedAt,
+          });
+        })
+        .catch(() => {
+          streamingBpmAnalysisTrackIdsRef.current.delete(analysisKey);
         });
-      })
-      .catch(() => {
-        streamingBpmAnalysisTrackIdsRef.current.delete(analysisKey);
-      });
+    });
 
     return () => {
-      cancelled = true;
+      cancelDeferredTask();
+      if (!started) {
+        streamingBpmAnalysisTrackIdsRef.current.delete(analysisKey);
+      }
     };
   }, [
     isPlaying,
@@ -420,7 +552,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     streamingTrackProvider,
     streamingTrackProviderTrackId,
     streamingTrackQuality,
-    updateCurrentTrackSnapshot,
+    updateTrackSnapshot,
   ]);
 
   useEffect(() => {
@@ -464,30 +596,33 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
 
     let cancelled = false;
 
-    void (async () => {
-      try {
-        const settings = await mv.getSettings();
-        if (cancelled || settings.enabled === false || !settings.autoPreload) {
-          return;
-        }
+    const cancelDeferredTask = deferNonCriticalPlaybackTask(() => {
+      void (async () => {
+        try {
+          const settings = await mv.getSettings();
+          if (cancelled || settings.enabled === false || !settings.autoPreload) {
+            return;
+          }
 
-        mvPreloadTrackRef.current = trackId;
-        const selected = await mv.getSelected(trackId);
-        if (cancelled || selected) {
-          return;
-        }
+          mvPreloadTrackRef.current = trackId;
+          const selected = await mv.getSelected(trackId);
+          if (cancelled || selected) {
+            return;
+          }
 
-        await mv.searchNetworkCandidates(trackId);
-        if (!cancelled && (await mv.getSelected(trackId))) {
-          window.dispatchEvent(new CustomEvent('mv:changed', { detail: { trackId } }));
+          await mv.searchNetworkCandidates(trackId);
+          if (!cancelled && (await mv.getSelected(trackId))) {
+            window.dispatchEvent(new CustomEvent('mv:changed', { detail: { trackId } }));
+          }
+        } catch {
+          // MV preload should never interrupt audio playback.
         }
-      } catch {
-        // MV preload should never interrupt audio playback.
-      }
-    })();
+      })();
+    });
 
     return () => {
       cancelled = true;
+      cancelDeferredTask();
     };
   }, [isPlaying, trackId]);
 
@@ -523,61 +658,20 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   }, [refreshCurrentTrackLiked]);
 
   useEffect(() => {
-    const unsubscribe = window.echo?.audio?.onStatus?.((nextAudioStatus) => {
-      refreshRequestRef.current += 1;
-      setAudioStatus(nextAudioStatus);
-      if (nextAudioStatus.currentTrackId) {
-        setQueueCurrentTrackId(nextAudioStatus.currentTrackId);
-      }
-      setPlaybackStatus((current) =>
-        current
-          ? {
-              ...current,
-              state: nextAudioStatus.state,
-              currentTrackId: nextAudioStatus.currentTrackId,
-              filePath: nextAudioStatus.currentFilePath,
-              positionMs: Math.round(nextAudioStatus.positionSeconds * 1000),
-              durationMs: Math.round(nextAudioStatus.durationSeconds * 1000),
-            }
-          : current,
-      );
-      setError(formatAudioHostError(nextAudioStatus.error));
-    });
-
-    return () => unsubscribe?.();
-  }, [setQueueCurrentTrackId]);
-
-  useEffect(() => {
-    const handleVisibilityChange = (): void => {
-      const nextVisible = document.visibilityState !== 'hidden';
-      setIsWindowVisible(nextVisible);
-
-      if (nextVisible) {
-        void refreshStatus();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [refreshStatus]);
-
-  useEffect(() => {
-    void refreshStatus();
-    // TODO: Keep this as a lower-frequency fallback once all playback status surfaces use push IPC.
-    // Position updates must be throttled and must not cause SongsPage or TrackList rerenders.
-    const timer = window.setInterval(() => {
-      void refreshStatus();
-    }, pollIntervalMs);
-
-    return () => window.clearInterval(timer);
-  }, [pollIntervalMs, refreshStatus]);
+    applySharedPlaybackStatus(sharedPlaybackStatus);
+  }, [applySharedPlaybackStatus, sharedPlaybackStatus]);
 
   const runPlaybackAction = useCallback(
     async (action: () => Promise<PlaybackStatus | null>): Promise<void> => {
       try {
-        refreshRequestRef.current += 1;
         const status = await action();
         if (status) {
+          lastPlaybackActionStatusRef.current = {
+            state: status.state,
+            trackId: status.currentTrackId,
+            filePath: status.filePath,
+            updatedAtMs: performance.now(),
+          };
           setPlaybackStatus(status);
           setAudioStatus((current) =>
             current
@@ -592,6 +686,8 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
               : current,
           );
           setQueueCurrentTrackId(status.currentTrackId);
+          setPlaybackStatusSnapshot({ playbackStatus: status, error: null });
+          return;
         }
         await refreshStatus();
       } catch (actionError) {
@@ -610,8 +706,11 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       return;
     }
 
-    await runPlaybackAction(() => (isPlaying ? playback.pause() : playback.play()));
-  }, [isPlaying, runPlaybackAction]);
+    await runPlaybackAction(async () => {
+      const latestStatus = await playback.getStatus();
+      return latestStatus.state === 'playing' || latestStatus.state === 'loading' ? playback.pause() : playback.play();
+    });
+  }, [runPlaybackAction]);
 
   const handlePrevious = useCallback((): void => {
     void runPlaybackAction(queue.playPrevious);
@@ -620,58 +719,6 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const handleNext = useCallback((): void => {
     void runPlaybackAction(queue.playNext);
   }, [queue.playNext, runPlaybackAction]);
-
-  const handleSmtcCommand = useCallback(
-    (command: 'play' | 'pause' | 'playPause' | 'previous' | 'next' | 'stop'): void => {
-      const playback = window.echo?.playback;
-
-      if (!playback) {
-        setError('Desktop bridge unavailable');
-        return;
-      }
-
-      if (command === 'playPause') {
-        void handlePlayPause();
-        return;
-      }
-
-      if (command === 'play') {
-        if (!isPlaying) {
-          void runPlaybackAction(() =>
-            (state === 'idle' || state === 'stopped') && currentTrack ? playQueueTrack(currentTrack) : playback.play(),
-          );
-        }
-        return;
-      }
-
-      if (command === 'pause') {
-        if (isPlaying) {
-          void runPlaybackAction(() => playback.pause());
-        }
-        return;
-      }
-
-      if (command === 'previous') {
-        handlePrevious();
-        return;
-      }
-
-      if (command === 'next') {
-        handleNext();
-        return;
-      }
-
-      if (command === 'stop') {
-        void runPlaybackAction(() => playback.stop());
-      }
-    },
-    [currentTrack, handleNext, handlePlayPause, handlePrevious, isPlaying, playQueueTrack, runPlaybackAction, state],
-  );
-
-  useEffect(() => {
-    const unsubscribe = window.echo?.smtc?.onCommand(handleSmtcCommand);
-    return () => unsubscribe?.();
-  }, [handleSmtcCommand]);
 
   useEffect(() => {
     applyMediaSessionSnapshot({
@@ -734,7 +781,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
         return;
       }
 
-      if (isPlaybackShortcutTextTarget(event.target)) {
+      if (isPlaybackShortcutTextTarget(event)) {
         return;
       }
 
@@ -799,6 +846,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
               }
             : current,
         );
+        setPlaybackStatusSnapshot({ playbackStatus: nextStatus, error: null });
         dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? trackId ?? null);
         await refreshStatus();
       } catch (seekError) {
@@ -809,23 +857,6 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     },
     [durationSeconds, filePath, refreshStatus, trackId],
   );
-
-  useEffect(() => {
-    if (!smtcEnabled) {
-      clearMediaSession();
-      return () => undefined;
-    }
-
-    return bindMediaSessionActions({
-      onPlay: () => handleSmtcCommand('play'),
-      onPause: () => handleSmtcCommand('pause'),
-      onPrevious: () => handleSmtcCommand('previous'),
-      onNext: () => handleSmtcCommand('next'),
-      onStop: () => handleSmtcCommand('stop'),
-      onSeek: (positionSeconds) => void commitSeek(positionSeconds),
-      getPositionSeconds: () => positionSeconds,
-    });
-  }, [commitSeek, handleSmtcCommand, positionSeconds, smtcEnabled]);
 
   return (
     <footer className="player-bar" aria-label="播放控制">

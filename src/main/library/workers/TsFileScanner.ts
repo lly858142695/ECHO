@@ -1,12 +1,12 @@
 import { readdir, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { SUPPORTED_AUDIO_EXTENSIONS } from '../../../shared/constants/audioExtensions';
+import { SCANNABLE_AUDIO_EXTENSIONS } from '../../../shared/constants/audioExtensions';
 import type { ScannedFile, ScanOptions } from '../libraryTypes';
 import type { FileScanner } from './FileScanner';
 
 export class TsFileScanner implements FileScanner {
   async *scanFolder(folderPath: string, options: ScanOptions = {}): AsyncIterable<ScannedFile> {
-    const extensions = new Set(options.audioExtensions?.map((extension) => extension.toLocaleLowerCase()) ?? SUPPORTED_AUDIO_EXTENSIONS);
+    const extensions = new Set(options.audioExtensions?.map((extension) => extension.toLocaleLowerCase()) ?? SCANNABLE_AUDIO_EXTENSIONS);
     yield* this.walk(resolve(folderPath), extensions, options.signal);
   }
 

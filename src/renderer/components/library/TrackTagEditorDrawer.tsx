@@ -449,7 +449,8 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
     <div className="tag-editor-root" data-open={isOpen}>
       <button className="tag-editor-scrim" type="button" aria-label="关闭编辑标签" onClick={requestClose} />
       <form className="tag-editor-drawer" onSubmit={handleSubmit}>
-        <header className="tag-editor-header">
+        <div className="tag-editor-scroll">
+          <header className="tag-editor-header">
           <div>
             <Tag size={23} />
             <div>
@@ -629,7 +630,7 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
           </div>
         ) : null}
 
-        <footer className="tag-editor-actions">
+          <footer className="tag-editor-actions">
           <span>保存会写入源音频文件，并立即同步媒体库。</span>
           <button className="tag-editor-cancel" type="button" onClick={requestClose} disabled={isSaving}>
             取消
@@ -638,7 +639,8 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
             <Save size={18} />
             {isSaving ? '保存中' : '保存标签'}
           </button>
-        </footer>
+          </footer>
+        </div>
       </form>
     </div>
   );

@@ -22,6 +22,7 @@ type MvPanelProps = {
   title: string;
   artist: string;
   coverUrl: string | null;
+  hideFallbackTrackInfo?: boolean;
   isAudioPlaying: boolean;
   audioClock: MvAudioClock;
 };
@@ -52,9 +53,10 @@ const fallbackMvSettings: MvSettings = {
   immersiveBackgroundOverlayOpacityPercent: 0,
   lyricsReadabilityEnhanced: false,
   restartAudioOnLoad: false,
+  replayAudioOnChange: true,
   enabledProviders: ['bilibili', 'youtube'],
   providerOrder: ['bilibili', 'youtube'],
-  maxQuality: '1080p',
+  maxQuality: 'max',
   allow60fps: true,
 };
 
@@ -83,6 +85,7 @@ const mvSettingsKeys = [
   'immersiveBackgroundOverlayOpacityPercent',
   'lyricsReadabilityEnhanced',
   'restartAudioOnLoad',
+  'replayAudioOnChange',
   'enabledProviders',
   'providerOrder',
   'maxQuality',
@@ -197,11 +200,13 @@ const uniqueCoverUrls = (...urls: Array<string | null | undefined>): string[] =>
 const CoverFallback = ({
   artist,
   coverUrls,
+  hideTrackInfo = false,
   status,
   title,
 }: {
   artist: string;
   coverUrls: string[];
+  hideTrackInfo?: boolean;
   status: string;
   title: string;
 }): JSX.Element => {
@@ -226,7 +231,7 @@ const CoverFallback = ({
   }, [coverUrl]);
 
   return (
-    <div className="lyrics-mv-card" data-cover={Boolean(coverUrl)}>
+    <div className="lyrics-mv-card" data-cover={Boolean(coverUrl)} data-hide-track-info={hideTrackInfo ? 'true' : undefined}>
       <div className="lyrics-mv-card-backdrop" aria-hidden="true">
         {coverUrl ? <img alt="" draggable={false} src={coverUrl} onError={handleCoverError} /> : null}
       </div>
@@ -244,8 +249,12 @@ const CoverFallback = ({
           <Film size={15} />
           {status}
         </span>
-        <strong>{title}</strong>
-        <em>{artist}</em>
+        {hideTrackInfo ? null : (
+          <>
+            <strong>{title}</strong>
+            <em>{artist}</em>
+          </>
+        )}
       </div>
     </div>
   );
@@ -255,6 +264,7 @@ export const MvPanel = ({
   artist,
   audioClock,
   coverUrl,
+  hideFallbackTrackInfo = false,
   isAudioPlaying,
   streamingTarget = null,
   title,
@@ -893,6 +903,7 @@ export const MvPanel = ({
         <CoverFallback
           artist={artist}
           coverUrls={uniqueCoverUrls(shouldSurfaceSelectedFallback ? selectedVideo?.thumbnailUrl : null, coverUrl)}
+          hideTrackInfo={hideFallbackTrackInfo}
           status={
             isMvEnabled
               ? selectedVideo

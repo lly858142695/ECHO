@@ -42,6 +42,17 @@ const waitForJob = async (service: DownloadService, jobId: string): Promise<Retu
   return job;
 };
 
+const waitForCondition = async (condition: () => boolean, describeFailure: string | (() => string) = 'Timed out waiting for condition'): Promise<void> => {
+  for (let index = 0; index < 40; index += 1) {
+    if (condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error(typeof describeFailure === 'function' ? describeFailure() : describeFailure);
+};
+
 afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
@@ -753,5 +764,62 @@ describe('DownloadService', () => {
     expect(completedJob.importedTrackId).toBe('track-1');
     expect(importAudioFile).toHaveBeenCalledWith(outputPath, { folderPath: outputDirectory });
     expect(bindMvUrl).toHaveBeenCalledWith('track-1', 'https://www.bilibili.com/video/BV1ECHO');
+  });
+
+  it('defers library import while audio playback is active', async () => {
+    const ytDlpPath = makeToolPath();
+    const outputDirectory = makeTempRoot();
+    const outputPath = join(outputDirectory, 'Deferred Song [deferred].m4a');
+    let playbackState = 'playing';
+    const importAudioFile = vi.fn(async () => ({ id: 'track-deferred' }));
+    const bindMvUrl = vi.fn();
+    const service = new DownloadService(
+      () => ({
+        promise: Promise.resolve({
+          stdout: JSON.stringify({
+            title: 'Deferred Song',
+            webpage_url: 'https://www.youtube.com/watch?v=deferred',
+          }),
+          stderr: '',
+          exitCode: 0,
+        }),
+        kill: vi.fn(),
+      }),
+      () => ytDlpPath,
+      {
+        importAudioFile,
+        bindMvUrl,
+        getPlaybackState: () => playbackState,
+        postDownloadImportRetryMs: 5,
+        streamingCommandRunner: (_command, _args, listeners) => {
+          writeFileSync(outputPath, 'audio');
+          listeners.onStdout?.(outputPath);
+          return {
+            promise: Promise.resolve({ stdout: outputPath, stderr: '', exitCode: 0 }),
+            kill: vi.fn(),
+          };
+        },
+      },
+    );
+    service.setSettings({ outputDirectory, importToLibrary: true, bindMvAfterImport: true });
+
+    const job = service.createUrlJob('https://www.youtube.com/watch?v=deferred');
+    const completedJob = await waitForJob(service, job.id);
+
+    expect(completedJob.status).toBe('completed');
+    expect(completedJob.importedTrackId).toBeNull();
+    expect(importAudioFile).not.toHaveBeenCalled();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(importAudioFile).not.toHaveBeenCalled();
+
+    playbackState = 'paused';
+    await waitForCondition(() => service.getJobs()[0]?.importedTrackId === 'track-deferred');
+
+    expect(service.getJobs()[0]).toMatchObject({
+      status: 'completed',
+      importedTrackId: 'track-deferred',
+    });
+    expect(bindMvUrl).toHaveBeenCalledWith('track-deferred', 'https://www.youtube.com/watch?v=deferred');
   });
 });

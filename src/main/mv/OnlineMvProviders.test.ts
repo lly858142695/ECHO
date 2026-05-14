@@ -342,10 +342,25 @@ describe('BilibiliMvProvider', () => {
     const variants = await provider.resolve(video, { ...settings, maxQuality: 'max', allow60fps: true });
 
     expect(variants.map((variant) => variant.id)).toEqual(['bilibili-qn-120', 'bilibili-qn-116', 'bilibili-qn-80']);
+    expect(variants[0]).toMatchObject({
+      id: 'bilibili-qn-120',
+      label: '4K',
+      rawProviderJson: {
+        requestedQn: 120,
+        qn: 120,
+        qualityRank: 5,
+        qualityLimited: false,
+      },
+    });
     expect(variants.find((variant) => variant.id === 'bilibili-qn-116')).toMatchObject({
       label: '1080p 60fps',
       fps: 60,
       url: 'https://cdn.example/1080-60.mp4',
+      rawProviderJson: {
+        requestedQn: 116,
+        qn: 116,
+        qualityRank: 4,
+      },
     });
   });
 
@@ -380,6 +395,10 @@ describe('BilibiliMvProvider', () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (url.includes('/x/web-interface/view')) {
         return jsonResponse({ data: { cid: 123 } });
+      }
+
+      if (url.includes('qn=126') || url.includes('qn=125') || url.includes('qn=127')) {
+        throw new Error('2160p cap should not request 8K, Dolby Vision, or HDR variants');
       }
 
       if (url.includes('qn=120')) {
@@ -455,6 +474,60 @@ describe('BilibiliMvProvider', () => {
       rawProviderJson: {
         requestedQn: 127,
         qn: 80,
+        qualityRank: 2,
+        qualityLimited: true,
+      },
+    });
+  });
+
+  it('keeps the Bilibili 1080p60 label when the encoded DASH height is letterboxed', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('/x/web-interface/view')) {
+        return jsonResponse({ data: { cid: 123 } });
+      }
+
+      if (url.includes('qn=116')) {
+        return jsonResponse({
+          data: {
+            quality: 116,
+            accept_quality: [116, 80, 64],
+            dash: {
+              video: [
+                {
+                  id: 116,
+                  baseUrl: 'https://upos.example/1080-60-letterbox.m4s',
+                  width: 1920,
+                  height: 888,
+                  frameRate: '60',
+                  codecs: 'avc1.640032',
+                },
+              ],
+            },
+          },
+        });
+      }
+
+      return jsonResponse({ code: -1 }, 403);
+    }) as typeof fetch;
+    const provider = new BilibiliMvProvider({
+      fetchImpl,
+      getCredentials: () => ({ provider: 'bilibili', cookie: 'SESSDATA=secret' }),
+    });
+
+    const variants = await provider.resolve(video, { ...settings, maxQuality: '1080p', allow60fps: true });
+
+    expect(variants[0]).toMatchObject({
+      id: 'bilibili-qn-116',
+      label: '1080p 60fps',
+      qualityTier: '1080p',
+      width: 1920,
+      height: 888,
+      fps: 60,
+      rawProviderJson: {
+        requestedQn: 116,
+        qn: 116,
+        qualityRank: 4,
+        availableQn: [116, 80, 64],
       },
     });
   });

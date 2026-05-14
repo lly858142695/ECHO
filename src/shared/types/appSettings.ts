@@ -37,6 +37,7 @@ export type AppSettings = {
   rememberedAudioOutput?: RememberedAudioOutput;
   hiddenAudioDeviceKeys?: string[];
   albumMergeStrategy: 'standard' | 'sameTitleAndCover';
+  chineseCrossScriptSearchEnabled?: boolean;
   artistWallAlbumArtwork: boolean;
   autoUpdateEnabled?: boolean;
   coverCacheDir: string | null;
@@ -65,6 +66,7 @@ export type AppSettings = {
   lyricsOffsetControlsEnabled?: boolean;
   lyricsEnabled: boolean;
   lyricsHeaderHidden: boolean;
+  lyricsMvAutoShowTrackInfoDisabled?: boolean;
   lyricsEmptyStateHidden: boolean;
   lyricsPlayerBarDrawerEnabled?: boolean;
   lyricsRomanizationEnabled: boolean;
@@ -95,10 +97,12 @@ export type AppSettings = {
   mvImmersiveBackgroundOverlayOpacityPercent?: number;
   mvLyricsReadabilityEnhanced?: boolean;
   mvRestartAudioOnLoad?: boolean;
+  mvReplayAudioOnChange?: boolean;
   mvMaxQuality: MvMaxQuality;
   mvAllow60fps: boolean;
   channelBalance: ChannelBalanceState;
   playerVolume: number;
+  backgroundSpacePauseEnabled?: boolean;
   playbackFollowCurrentTrack?: boolean;
   playbackSpeed: number;
   playbackSpeedMode: PlaybackSpeedMode;

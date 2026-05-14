@@ -103,7 +103,7 @@ const fileHashId = (filePath: string): string => `local:${createHash('sha1').upd
 const networkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
 export const MV_AUTO_MATCH_THRESHOLD = 0.7;
 const normalizeAutoApplyThreshold = (value: unknown): number =>
-  typeof value === 'number' && Number.isFinite(value) ? Math.max(0.5, Math.min(1, value)) : MV_AUTO_MATCH_THRESHOLD;
+  typeof value === 'number' && Number.isFinite(value) ? Math.max(0.3, Math.min(1, value)) : MV_AUTO_MATCH_THRESHOLD;
 const normalizePercent = (value: unknown, fallback: number, min: number, max: number): number => {
   const percent = Number(value);
   return Number.isFinite(percent) ? Math.round(Math.max(min, Math.min(max, percent))) : fallback;
@@ -114,6 +114,11 @@ const qualityHeight: Record<Exclude<MvQualityTier, 'auto'>, number> = {
   '1440p': 1440,
   '2160p': 2160,
   '4320p': 4320,
+};
+const bilibiliQualityOrder = [127, 126, 125, 120, 116, 112, 80, 64];
+const bilibiliQualityRank = (qn: number): number => {
+  const index = bilibiliQualityOrder.indexOf(qn);
+  return index >= 0 ? bilibiliQualityOrder.length - index : 0;
 };
 
 const maxQualityHeight = (quality: MvSettings['maxQuality']): number => (quality === 'max' ? Number.POSITIVE_INFINITY : qualityHeight[quality]);
@@ -158,6 +163,28 @@ const parseHeaders = (value: string | null): Record<string, string> => {
       typeof entry === 'string' ? [[key, entry]] : [],
     ),
   );
+};
+
+const recordFromJson = (value: string | null): Record<string, unknown> | null => {
+  const parsed = parseJson(value);
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+};
+
+const bilibiliQnFromRaw = (variant: TrackVideoStreamRow): number | null => {
+  const raw = recordFromJson(variant.raw_json);
+  const qn = Number(raw?.qn);
+  return Number.isFinite(qn) && qn > 0 ? qn : null;
+};
+
+const bilibiliRankFromRaw = (variant: TrackVideoStreamRow): number => {
+  const raw = recordFromJson(variant.raw_json);
+  const explicitRank = Number(raw?.qualityRank);
+  if (Number.isFinite(explicitRank) && explicitRank > 0) {
+    return explicitRank;
+  }
+
+  const qn = bilibiliQnFromRaw(variant);
+  return qn ? bilibiliQualityRank(qn) : 0;
 };
 
 const mediaUrlForLocal = (row: TrackVideoRow): string | null => {
@@ -343,6 +370,10 @@ const normalizeSettingsPatch = (patch: Partial<MvSettings>): Partial<MvSettings>
     normalized.restartAudioOnLoad = patch.restartAudioOnLoad;
   }
 
+  if (typeof patch.replayAudioOnChange === 'boolean') {
+    normalized.replayAudioOnChange = patch.replayAudioOnChange;
+  }
+
   return normalized;
 };
 
@@ -362,6 +393,7 @@ const appSettingsToMvSettings = (): MvSettings => {
     immersiveBackgroundOverlayOpacityPercent: normalizePercent(settings.mvImmersiveBackgroundOverlayOpacityPercent, 0, 0, 100),
     lyricsReadabilityEnhanced: settings.mvLyricsReadabilityEnhanced === true,
     restartAudioOnLoad: settings.mvRestartAudioOnLoad === true,
+    replayAudioOnChange: settings.mvReplayAudioOnChange !== false,
     enabledProviders: settings.mvEnabledProviders,
     providerOrder: settings.mvProviderOrder,
     maxQuality: settings.mvMaxQuality,
@@ -457,6 +489,9 @@ export class MvService {
     }
     if (typeof normalized.restartAudioOnLoad === 'boolean') {
       appSettingsPatch.mvRestartAudioOnLoad = normalized.restartAudioOnLoad;
+    }
+    if (typeof normalized.replayAudioOnChange === 'boolean') {
+      appSettingsPatch.mvReplayAudioOnChange = normalized.replayAudioOnChange;
     }
 
     setAppSettings(appSettingsPatch);
@@ -1124,14 +1159,40 @@ export class MvService {
       [...variants]
         .filter((variant) => variant.protocol !== 'external')
         .filter((variant) => variant.playable_in_app === 1)
-        .filter((variant) => !variant.height || variant.height <= maxQualityHeight(settings.maxQuality))
-        .filter((variant) => settings.allow60fps !== false || !variant.fps || variant.fps < 55)
+        .filter((variant) => {
+          if (row.provider === 'bilibili') {
+            const qn = bilibiliQnFromRaw(variant);
+            return qn ? qn <= maxBilibiliQnForSettings(settings) : !variant.height || variant.height <= maxQualityHeight(settings.maxQuality);
+          }
+
+          return !variant.height || variant.height <= maxQualityHeight(settings.maxQuality);
+        })
+        .filter((variant) => {
+          if (settings.allow60fps !== false) {
+            return true;
+          }
+
+          const qn = row.provider === 'bilibili' ? bilibiliQnFromRaw(variant) : null;
+          return qn !== 116 && (!variant.fps || variant.fps < 55);
+        })
         .sort((left, right) => {
+          if (row.provider === 'bilibili') {
+            const rankDelta = bilibiliRankFromRaw(right) - bilibiliRankFromRaw(left);
+            if (rankDelta !== 0) {
+              return rankDelta;
+            }
+          }
+
           const heightDelta = (right.height ?? 0) - (left.height ?? 0);
           if (heightDelta !== 0) {
             return heightDelta;
           }
-          return (right.fps ?? 0) - (left.fps ?? 0);
+          const fpsDelta = (right.fps ?? 0) - (left.fps ?? 0);
+          if (fpsDelta !== 0) {
+            return fpsDelta;
+          }
+
+          return (right.codec ?? '').localeCompare(left.codec ?? '');
         })[0] ?? null
     );
   }
@@ -1185,12 +1246,11 @@ export class MvService {
     }
 
     const hasCurrentResolver = variants.some((variant) => {
-      const raw = parseJson(variant.raw_json);
+      const raw = recordFromJson(variant.raw_json);
       return Boolean(
         raw &&
-          typeof raw === 'object' &&
-          !Array.isArray(raw) &&
-          (raw as Record<string, unknown>).resolver === 'bilibili-dash-video-v3',
+          raw.resolver === 'bilibili-dash-video-v3' &&
+          Number.isFinite(Number(raw.qualityRank)),
       );
     });
 
@@ -1199,12 +1259,12 @@ export class MvService {
     }
 
     const highestRequestedQn = variants.reduce((highest, variant) => {
-      const raw = parseJson(variant.raw_json);
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      const raw = recordFromJson(variant.raw_json);
+      if (!raw) {
         return highest;
       }
 
-      const requestedQn = Number((raw as Record<string, unknown>).requestedQn);
+      const requestedQn = Number(raw.requestedQn);
       return Number.isFinite(requestedQn) ? Math.max(highest, requestedQn) : highest;
     }, 0);
 

@@ -32,6 +32,13 @@ export const registerLyricsIpc = (): void => {
   ipcMain.handle(IpcChannels.LyricsApplyCandidate, (_event, trackId: unknown, candidateId: unknown) =>
     getLyricsService().applyLyricsCandidate(requireText(trackId, 'trackId'), requireText(candidateId, 'candidateId')),
   );
+  ipcMain.handle(IpcChannels.LyricsApplyCustomLrc, (_event, trackId: unknown, lrcText: unknown, fileName?: unknown) =>
+    getLyricsService().applyCustomLrc(
+      requireText(trackId, 'trackId'),
+      requireText(lrcText, 'lrcText'),
+      typeof fileName === 'string' ? fileName : null,
+    ),
+  );
   ipcMain.handle(IpcChannels.LyricsRejectCandidate, (_event, candidateId: unknown) =>
     getLyricsService().rejectLyricsCandidate(requireText(candidateId, 'candidateId')),
   );

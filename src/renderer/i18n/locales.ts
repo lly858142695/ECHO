@@ -20,6 +20,10 @@ export type TranslationKey =
   | 'audioDrawer.action.copyDiagnostics'
   | 'audioDrawer.action.hideDevice'
   | 'audioDrawer.action.restore'
+  | 'audioDrawer.asioLatency.description'
+  | 'audioDrawer.asioLatency.recommended'
+  | 'audioDrawer.asioLatency.status'
+  | 'audioDrawer.asioLatency.value'
   | 'audioDrawer.badge.bitPerfectReady'
   | 'audioDrawer.badge.dspActive'
   | 'audioDrawer.badge.resampling'
@@ -271,8 +275,10 @@ export type TranslationKey =
   | 'route.mvSettings.label'
   | 'mvSettings.action.chooseFile'
   | 'mvSettings.action.close'
+  | 'mvSettings.action.collapseNetwork'
   | 'mvSettings.action.dragReorder'
   | 'mvSettings.action.dragSource'
+  | 'mvSettings.action.expandNetwork'
   | 'mvSettings.action.findLocal'
   | 'mvSettings.action.openExternal'
   | 'mvSettings.action.refresh'
@@ -331,6 +337,8 @@ export type TranslationKey =
   | 'mvSettings.network.autoPreload'
   | 'mvSettings.network.autoPreloadDescription'
   | 'mvSettings.network.maxQuality'
+  | 'mvSettings.network.replayAudioOnChange'
+  | 'mvSettings.network.replayAudioOnChangeDescription'
   | 'mvSettings.network.restartAudioOnLoad'
   | 'mvSettings.network.restartAudioOnLoadDescription'
   | 'mvSettings.network.title'
@@ -695,6 +703,10 @@ const zhCN: TranslationMap = {
   'audioDrawer.action.copyDiagnostics': '复制播放诊断信息',
   'audioDrawer.action.hideDevice': '隐藏设备',
   'audioDrawer.action.restore': '恢复',
+  'audioDrawer.asioLatency.description': '根据当前打开的缓冲估算输出端会多等多久再播放。数值越低越跟手，数值越高越稳、越不容易爆音。',
+  'audioDrawer.asioLatency.recommended': '推荐延迟',
+  'audioDrawer.asioLatency.status': '请求 {requested} frames / 已打开 {opened} frames',
+  'audioDrawer.asioLatency.value': '{value} ms',
   'audioDrawer.badge.bitPerfectReady': 'Bit-perfect ready',
   'audioDrawer.badge.dspActive': 'DSP active',
   'audioDrawer.badge.resampling': 'Resampling',
@@ -721,8 +733,8 @@ const zhCN: TranslationMap = {
   'audioDrawer.mode.exclusiveCandidate': '独占候选',
   'audioDrawer.mode.shared': '共享',
   'audioDrawer.note.asio': '低延迟专业音频接口，需要驱动支持。',
-  'audioDrawer.option.rememberOutput': '记住输出设备',
-  'audioDrawer.option.rememberOutputDescription': '下次启动时恢复所选输出设备和模式。',
+  'audioDrawer.option.rememberOutput': '保存输出设置',
+  'audioDrawer.option.rememberOutputDescription': '下次启动时恢复所选输出设备、输出模式和缓冲等参数。',
   'audioDrawer.option.wasapiExclusive': 'WASAPI 独占模式',
   'audioDrawer.option.wasapiExclusiveDescription': '共享是日常 Windows 输出路径。独占会请求同一设备但绕过共享混音器。',
   'audioDrawer.section.advancedOutput': '高级输出',
@@ -946,8 +958,10 @@ const zhCN: TranslationMap = {
   'route.mvSettings.label': 'MV 设置',
   'mvSettings.action.chooseFile': '选择文件',
   'mvSettings.action.close': '关闭 MV 设置',
+  'mvSettings.action.collapseNetwork': '折叠网络来源',
   'mvSettings.action.dragReorder': '拖拽调整优先级',
   'mvSettings.action.dragSource': '拖拽 {provider} 调整优先级',
+  'mvSettings.action.expandNetwork': '展开网络来源',
   'mvSettings.action.findLocal': '查找本地',
   'mvSettings.action.openExternal': '在外部打开已选 MV',
   'mvSettings.action.refresh': '刷新',
@@ -1006,6 +1020,8 @@ const zhCN: TranslationMap = {
   'mvSettings.network.autoPreload': '是否预加载MV',
   'mvSettings.network.autoPreloadDescription': '开启后，只要播放歌曲就会尝试提前查找并准备当前歌曲的 MV。',
   'mvSettings.network.maxQuality': '最高画质',
+  'mvSettings.network.replayAudioOnChange': '切换MV后自动重播音乐',
+  'mvSettings.network.replayAudioOnChangeDescription': '开启后，手动选择或绑定新的 MV 会重新播放当前歌曲，让新 MV 立即生效。',
   'mvSettings.network.restartAudioOnLoad': 'MV 跟随音乐进度',
   'mvSettings.network.restartAudioOnLoadDescription': '开启后，只校准 MV 视频时间，不会 seek 或重启音频；歌词同步偏移不会影响 MV。',
   'mvSettings.network.title': '网络来源',
@@ -1394,6 +1410,10 @@ const zhTW: TranslationMap = {
   'audioDrawer.action.copyDiagnostics': '複製播放診斷資訊',
   'audioDrawer.action.hideDevice': '隱藏裝置',
   'audioDrawer.action.restore': '復原',
+  'audioDrawer.asioLatency.description': '根據目前開啟的緩衝估算輸出端會多等多久才播放。數值越低越即時，數值越高越穩、越不容易爆音。',
+  'audioDrawer.asioLatency.recommended': '建議延遲',
+  'audioDrawer.asioLatency.status': '要求 {requested} frames / 已開啟 {opened} frames',
+  'audioDrawer.asioLatency.value': '{value} ms',
   'audioDrawer.device.asioDriver': 'ASIO 驅動',
   'audioDrawer.device.lowLatency': '低延遲',
   'audioDrawer.device.selected': '已選取',
@@ -1416,8 +1436,8 @@ const zhTW: TranslationMap = {
   'audioDrawer.mode.exclusiveCandidate': '獨佔候選',
   'audioDrawer.mode.shared': '共享',
   'audioDrawer.note.asio': '低延遲專業音訊介面，需要驅動支援。',
-  'audioDrawer.option.rememberOutput': '記住輸出裝置',
-  'audioDrawer.option.rememberOutputDescription': '下次啟動時復原所選輸出裝置與模式。',
+  'audioDrawer.option.rememberOutput': '儲存輸出設定',
+  'audioDrawer.option.rememberOutputDescription': '下次啟動時復原所選輸出裝置、輸出模式與緩衝等參數。',
   'audioDrawer.option.wasapiExclusive': 'WASAPI 獨佔模式',
   'audioDrawer.option.wasapiExclusiveDescription': '共享是日常 Windows 輸出路徑。獨佔會要求同一裝置但略過共享混音器。',
   'audioDrawer.section.advancedOutput': '進階輸出',
@@ -1538,8 +1558,10 @@ const zhTW: TranslationMap = {
   'route.mvSettings.label': 'MV 設定',
   'mvSettings.action.chooseFile': '選擇檔案',
   'mvSettings.action.close': '關閉 MV 設定',
+  'mvSettings.action.collapseNetwork': '折疊網路來源',
   'mvSettings.action.dragReorder': '拖曳調整優先級',
   'mvSettings.action.dragSource': '拖曳 {provider} 調整優先級',
+  'mvSettings.action.expandNetwork': '展開網路來源',
   'mvSettings.action.findLocal': '尋找本地',
   'mvSettings.action.openExternal': '在外部打開已選 MV',
   'mvSettings.action.refresh': '重新整理',
@@ -1598,6 +1620,8 @@ const zhTW: TranslationMap = {
   'mvSettings.network.autoPreload': '是否預載 MV',
   'mvSettings.network.autoPreloadDescription': '開啟後，只要播放歌曲就會嘗試提前查找並準備目前歌曲的 MV。',
   'mvSettings.network.maxQuality': '最高畫質',
+  'mvSettings.network.replayAudioOnChange': '切換 MV 後自動重播音樂',
+  'mvSettings.network.replayAudioOnChangeDescription': '開啟後，手動選擇或綁定新的 MV 會重新播放目前歌曲，讓新 MV 立即生效。',
   'mvSettings.network.restartAudioOnLoad': 'MV 跟隨音樂進度',
   'mvSettings.network.restartAudioOnLoadDescription': '開啟後，只校準 MV 影片時間，不會 seek 或重啟音訊；歌詞同步偏移不會影響 MV。',
   'mvSettings.network.title': '網路來源',
@@ -1836,6 +1860,10 @@ const jaJP: TranslationMap = {
   'audioDrawer.action.copyDiagnostics': '再生診断情報をコピー',
   'audioDrawer.action.hideDevice': 'デバイスを非表示',
   'audioDrawer.action.restore': '戻す',
+  'audioDrawer.asioLatency.description': '現在開いているバッファーから、出力側で再生までに待つ時間を見積もります。低いほど反応が速く、高いほど安定して音切れしにくくなります。',
+  'audioDrawer.asioLatency.recommended': '推奨レイテンシ',
+  'audioDrawer.asioLatency.status': '要求 {requested} frames / オープン {opened} frames',
+  'audioDrawer.asioLatency.value': '{value} ms',
   'audioDrawer.device.asioDriver': 'ASIO ドライバー',
   'audioDrawer.device.lowLatency': '低遅延',
   'audioDrawer.device.selected': '選択中',
@@ -1858,8 +1886,8 @@ const jaJP: TranslationMap = {
   'audioDrawer.mode.exclusiveCandidate': '排他候補',
   'audioDrawer.mode.shared': '共有',
   'audioDrawer.note.asio': '低遅延のプロ向け音声インターフェイスです。ドライバー対応が必要です。',
-  'audioDrawer.option.rememberOutput': '出力デバイスを記憶',
-  'audioDrawer.option.rememberOutputDescription': '次回起動時に選択した出力デバイスとモードを復元します。',
+  'audioDrawer.option.rememberOutput': '出力設定を保存',
+  'audioDrawer.option.rememberOutputDescription': '次回起動時に選択した出力デバイス、出力モード、バッファーなどの設定を復元します。',
   'audioDrawer.option.wasapiExclusive': 'WASAPI 排他モード',
   'audioDrawer.option.wasapiExclusiveDescription': '共有は通常の Windows 出力経路です。排他は共有ミキサーを通さず同じデバイスを要求します。',
   'audioDrawer.section.advancedOutput': '詳細出力',
@@ -2005,8 +2033,10 @@ const jaJP: TranslationMap = {
   'route.mvSettings.label': 'MV 設定',
   'mvSettings.action.chooseFile': 'ファイルを選択',
   'mvSettings.action.close': 'MV 設定を閉じる',
+  'mvSettings.action.collapseNetwork': 'ネットワークソースを折りたたむ',
   'mvSettings.action.dragReorder': 'ドラッグして優先度を変更',
   'mvSettings.action.dragSource': '{provider} をドラッグして優先度を変更',
+  'mvSettings.action.expandNetwork': 'ネットワークソースを展開',
   'mvSettings.action.findLocal': 'ローカル検索',
   'mvSettings.action.openExternal': '選択した MV を外部で開く',
   'mvSettings.action.refresh': '更新',
@@ -2065,6 +2095,8 @@ const jaJP: TranslationMap = {
   'mvSettings.network.autoPreload': 'MV をプリロード',
   'mvSettings.network.autoPreloadDescription': 'オンにすると、曲の再生時に現在の曲の MV を事前に検索して準備します。',
   'mvSettings.network.maxQuality': '最大画質',
+  'mvSettings.network.replayAudioOnChange': 'MV 切り替え後に音楽を自動再生',
+  'mvSettings.network.replayAudioOnChangeDescription': 'オンにすると、MV を手動で選択または紐付けた後、現在の曲を再生し直して新しい MV をすぐ反映します。',
   'mvSettings.network.restartAudioOnLoad': 'MV を音楽の進行に追従',
   'mvSettings.network.restartAudioOnLoadDescription': 'オンにすると MV の映像時間だけを補正し、音声のシークや再起動は行いません。歌詞同期オフセットの影響も受けません。',
   'mvSettings.network.title': 'ネットワークソース',
@@ -2355,6 +2387,10 @@ const enUS: TranslationMap = {
   'audioDrawer.action.copyDiagnostics': 'Copy Playback Diagnostics',
   'audioDrawer.action.hideDevice': 'Hide device',
   'audioDrawer.action.restore': 'Restore',
+  'audioDrawer.asioLatency.description': 'Estimated extra wait before the output plays from the buffer that actually opened. Lower feels faster; higher is safer against crackles.',
+  'audioDrawer.asioLatency.recommended': 'Recommended latency',
+  'audioDrawer.asioLatency.status': 'Requested {requested} frames / opened {opened} frames',
+  'audioDrawer.asioLatency.value': '{value} ms',
   'audioDrawer.badge.bitPerfectReady': 'Bit-perfect ready',
   'audioDrawer.badge.dspActive': 'DSP active',
   'audioDrawer.badge.resampling': 'Resampling',
@@ -2381,8 +2417,8 @@ const enUS: TranslationMap = {
   'audioDrawer.mode.exclusiveCandidate': 'Exclusive candidate',
   'audioDrawer.mode.shared': 'Shared',
   'audioDrawer.note.asio': 'Low-latency professional audio interface support requires a driver.',
-  'audioDrawer.option.rememberOutput': 'Remember Output Device',
-  'audioDrawer.option.rememberOutputDescription': 'Restores the selected output device and mode on the next launch.',
+  'audioDrawer.option.rememberOutput': 'Save Output Settings',
+  'audioDrawer.option.rememberOutputDescription': 'Restores the selected output device, output mode, buffer, and related settings on the next launch.',
   'audioDrawer.option.wasapiExclusive': 'WASAPI Exclusive Mode',
   'audioDrawer.option.wasapiExclusiveDescription': 'Shared is the everyday Windows path. Exclusive requests the same device without the shared mixer.',
   'audioDrawer.section.advancedOutput': 'Advanced Output',
@@ -2533,8 +2569,10 @@ const enUS: TranslationMap = {
   'route.mvSettings.label': 'MV Settings',
   'mvSettings.action.chooseFile': 'Choose file',
   'mvSettings.action.close': 'Close MV settings',
+  'mvSettings.action.collapseNetwork': 'Collapse network sources',
   'mvSettings.action.dragReorder': 'Drag to set priority',
   'mvSettings.action.dragSource': 'Drag {provider} to set priority',
+  'mvSettings.action.expandNetwork': 'Expand network sources',
   'mvSettings.action.findLocal': 'Find local',
   'mvSettings.action.openExternal': 'Open selected MV externally',
   'mvSettings.action.refresh': 'Refresh',
@@ -2593,6 +2631,8 @@ const enUS: TranslationMap = {
   'mvSettings.network.autoPreload': 'Preload MV',
   'mvSettings.network.autoPreloadDescription': 'When enabled, playing a song will look up and prepare its MV ahead of time.',
   'mvSettings.network.maxQuality': 'Max quality',
+  'mvSettings.network.replayAudioOnChange': 'Replay music after switching MV',
+  'mvSettings.network.replayAudioOnChangeDescription': 'When enabled, manually selecting or binding a new MV replays the current song so the MV applies immediately.',
   'mvSettings.network.restartAudioOnLoad': 'Follow music progress',
   'mvSettings.network.restartAudioOnLoadDescription': 'When enabled, only the MV video time is corrected. Audio is not seeked or restarted, and lyrics sync offsets do not affect the MV.',
   'mvSettings.network.title': 'Network Sources',

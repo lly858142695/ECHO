@@ -198,7 +198,7 @@ const createReuseKey = (options: NativeOutputStartOptions): string =>
     outputMode: options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared',
     deviceIndex: Number.isInteger(Number(options.deviceIndex)) ? Number(options.deviceIndex) : null,
     deviceName: options.deviceName ?? null,
-    requestedOutputSampleRate: options.requestedOutputSampleRate,
+    requestedOutputSampleRate: options.asio || options.exclusive ? null : options.requestedOutputSampleRate,
     channels: options.channels,
     asio: options.asio === true,
     exclusive: options.exclusive === true,
@@ -466,7 +466,8 @@ export class NativeOutputBridge extends EventEmitter {
   }
 
   resetOutputClock(startSeconds = 0, playbackRate = 1): void {
-    this.frameOffset = this.framesConsumed;
+    this.framesConsumed = 0;
+    this.frameOffset = 0;
     this.startSeconds = startSeconds;
     this.playbackRate = playbackRate;
     this.lastPositionReportedAtMs = null;

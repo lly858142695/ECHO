@@ -158,6 +158,46 @@ type SettingRowProps = {
   children: ReactNode;
 };
 
+const scheduleSettingsIdleTask = (callback: () => void): (() => void) => {
+  let cancelled = false;
+  let idleId: number | null = null;
+  let timeoutId: number | null = null;
+  const requestIdleCallback = window.requestIdleCallback;
+  const cancelIdleCallback = window.cancelIdleCallback;
+
+  const frameId = window.requestAnimationFrame(() => {
+    if (cancelled) {
+      return;
+    }
+
+    if (typeof requestIdleCallback === 'function') {
+      idleId = requestIdleCallback(() => {
+        if (!cancelled) {
+          callback();
+        }
+      }, { timeout: 1200 });
+      return;
+    }
+
+    timeoutId = window.setTimeout(() => {
+      if (!cancelled) {
+        callback();
+      }
+    }, 120);
+  });
+
+  return () => {
+    cancelled = true;
+    window.cancelAnimationFrame(frameId);
+    if (idleId !== null && typeof cancelIdleCallback === 'function') {
+      cancelIdleCallback(idleId);
+    }
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  };
+};
+
 const settingsNavItems: SettingsNavItem[] = [
   { key: 'general', labelKey: 'settings.nav.general.label', descriptionKey: 'settings.nav.general.description', icon: MessageSquare },
   { key: 'playback', labelKey: 'settings.nav.playback.label', descriptionKey: 'settings.nav.playback.description', icon: Zap },
@@ -242,15 +282,19 @@ const formatUpdateBytes = (bytes: number | null | undefined): string => {
   return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
 };
 
-const SettingSection = ({ id, activeKey, icon: Icon, title, children }: SettingSectionProps): JSX.Element => (
-  <section className="settings-section" id={`settings-sec-${id}`} data-visible={activeKey === id}>
-    <div className="section-title">
-      <Icon size={18} />
-      <h2>{title}</h2>
-    </div>
-    {children}
-  </section>
-);
+const SettingSection = ({ id, activeKey, icon: Icon, title, children }: SettingSectionProps): JSX.Element => {
+  const isActive = activeKey === id;
+
+  return (
+    <section className="settings-section" id={`settings-sec-${id}`} data-visible={isActive}>
+      <div className="section-title">
+        <Icon size={18} />
+        <h2>{title}</h2>
+      </div>
+      {isActive ? children : null}
+    </section>
+  );
+};
 
 const SettingRow = ({ className, title, description, children }: SettingRowProps): JSX.Element => (
   <div className={`setting-row ${className ?? ''}`.trim()}>
@@ -707,15 +751,7 @@ export const SettingsPage = (): JSX.Element => {
   }, []);
 
   useEffect(() => {
-    void refreshStatus();
-    void refreshDevices();
-    void refreshDiscordPresenceStatus();
-    void refreshLastFmStatus();
-    void refreshAccountStatuses();
-    void refreshDuplicateSummary();
     const app = getAppBridge();
-    const downloads = getDownloadsBridge();
-    const diagnostics = getDiagnosticsBridge();
     void app?.getSettings().then((settings) => {
       setAppSettings(settings);
       updateThemeMode(settings.appearanceTheme ?? 'light');
@@ -731,18 +767,68 @@ export const SettingsPage = (): JSX.Element => {
         setUpdateBusy(false);
       }
     });
-    void app?.getDefaultCacheDirectory().then(setDefaultCacheDirectory).catch(() => undefined);
-    void downloads?.getSettings().then(setDownloadSettings).catch(() => undefined);
-    void diagnostics?.getLastCrashSummary().then(setLastCrashSummary).catch(() => undefined);
-    const timer = window.setInterval(() => {
-      void refreshStatus();
-    }, 1000);
 
     return () => {
-      window.clearInterval(timer);
       unsubscribeUpdateStatus?.();
     };
-  }, [refreshAccountStatuses, refreshDevices, refreshDiscordPresenceStatus, refreshDuplicateSummary, refreshLastFmStatus, refreshStatus]);
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'playback' && activeSection !== 'eq') {
+      return undefined;
+    }
+
+    const cancelInitialRefresh = scheduleSettingsIdleTask(() => {
+      void refreshStatus();
+      if (activeSection === 'playback') {
+        void refreshDevices();
+      }
+    });
+    const timer = window.setInterval(() => {
+      void refreshStatus();
+    }, 2500);
+
+    return () => {
+      cancelInitialRefresh();
+      window.clearInterval(timer);
+    };
+  }, [activeSection, refreshDevices, refreshStatus]);
+
+  useEffect(() => {
+    if (activeSection !== 'integrations') {
+      return undefined;
+    }
+
+    return scheduleSettingsIdleTask(() => {
+      void refreshDiscordPresenceStatus();
+      void refreshLastFmStatus();
+      void refreshAccountStatuses();
+    });
+  }, [activeSection, refreshAccountStatuses, refreshDiscordPresenceStatus, refreshLastFmStatus]);
+
+  useEffect(() => {
+    if (activeSection !== 'library') {
+      return undefined;
+    }
+
+    return scheduleSettingsIdleTask(() => {
+      const app = getAppBridge();
+      const downloads = getDownloadsBridge();
+      void app?.getDefaultCacheDirectory().then(setDefaultCacheDirectory).catch(() => undefined);
+      void downloads?.getSettings().then(setDownloadSettings).catch(() => undefined);
+      void refreshDuplicateSummary();
+    });
+  }, [activeSection, refreshDuplicateSummary]);
+
+  useEffect(() => {
+    if (activeSection !== 'about') {
+      return undefined;
+    }
+
+    return scheduleSettingsIdleTask(() => {
+      void getDiagnosticsBridge()?.getLastCrashSummary().then(setLastCrashSummary).catch(() => undefined);
+    });
+  }, [activeSection]);
 
   useEffect(() => {
     const handleSettingsChanged = (event: Event): void => {
@@ -809,23 +895,29 @@ export const SettingsPage = (): JSX.Element => {
   }, [compatibleDevices, selectedDeviceId]);
 
   useEffect(() => {
+    if (activeSection !== 'appearance') {
+      return undefined;
+    }
+
     const queryLocalFonts = (navigator as NavigatorWithLocalFonts).queryLocalFonts;
 
     if (!queryLocalFonts) {
-      return;
+      return undefined;
     }
 
-    void queryLocalFonts()
-      .then((fonts) => {
-        const families = Array.from(new Set([...fallbackFontFamilies, ...fonts.map((font) => font.family).filter(Boolean)])).sort((a, b) =>
-          a.localeCompare(b),
-        );
-        setFontFamilies(families);
-      })
-      .catch(() => {
-        setFontFamilies(fallbackFontFamilies);
-      });
-  }, []);
+    return scheduleSettingsIdleTask(() => {
+      void queryLocalFonts()
+        .then((fonts) => {
+          const families = Array.from(new Set([...fallbackFontFamilies, ...fonts.map((font) => font.family).filter(Boolean)])).sort((a, b) =>
+            a.localeCompare(b),
+          );
+          setFontFamilies(families);
+        })
+        .catch(() => {
+          setFontFamilies(fallbackFontFamilies);
+        });
+    });
+  }, [activeSection]);
 
   const applyOutputSettings = useCallback(
     async (nextOutputMode = outputMode, nextDeviceId = selectedDeviceId) => {
@@ -1917,6 +2009,17 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={handleCloseToTrayToggle}
                 />
               </SettingRow>
+              <SettingRow title="简繁互搜" description="开启后，输入繁体可以搜到简体结果，输入简体也可以搜到繁体结果。">
+                <ToggleButton
+                  active={appSettings?.chineseCrossScriptSearchEnabled ?? true}
+                  disabled={!appSettings}
+                  onClick={() =>
+                    patchAppSettings({
+                      chineseCrossScriptSearchEnabled: !(appSettings?.chineseCrossScriptSearchEnabled ?? true),
+                    })
+                  }
+                />
+              </SettingRow>
               <SettingRow title={t('settings.general.backup.title')} description={t('settings.general.backup.description')}>
                 <div className="settings-chip-row">
                   <button className="settings-action-button" type="button">
@@ -1976,6 +2079,16 @@ export const SettingsPage = (): JSX.Element => {
                   active={appSettings?.playbackFollowCurrentTrack ?? false}
                   disabled={!appSettings}
                   onClick={() => patchAppSettings({ playbackFollowCurrentTrack: !(appSettings?.playbackFollowCurrentTrack ?? false) })}
+                />
+              </SettingRow>
+              <SettingRow
+                title="后台空格暂停"
+                description="默认关闭。开启后，ECHO 失焦且正在播放时，系统级空格键会暂停歌曲；写代码或输入文字时建议保持关闭。"
+              >
+                <ToggleButton
+                  active={appSettings?.backgroundSpacePauseEnabled ?? false}
+                  disabled={!appSettings}
+                  onClick={() => patchAppSettings({ backgroundSpacePauseEnabled: !(appSettings?.backgroundSpacePauseEnabled ?? false) })}
                 />
               </SettingRow>
               <SettingRow

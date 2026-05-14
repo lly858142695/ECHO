@@ -2615,10 +2615,7 @@
   display: flex;
   width: min(390px, calc(100vw - 18px));
   flex-direction: column;
-  gap: 16px;
-  padding: 28px 18px 22px;
-  overflow: auto;
-  scrollbar-width: none;
+  overflow: hidden;
   color: rgba(255, 255, 255, 0.9);
   border-left: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 28px 0 0 28px;
@@ -2636,7 +2633,51 @@
   will-change: opacity, transform;
 }
 
-.audio-drawer::-webkit-scrollbar {
+.audio-drawer::before,
+.audio-drawer::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  height: 54px;
+  content: "";
+  pointer-events: none;
+}
+
+.audio-drawer::before {
+  top: 0;
+  border-radius: 28px 0 0 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(38, 44, 58, 0.98) 0%,
+    rgba(38, 44, 58, 0.92) 30%,
+    rgba(38, 44, 58, 0) 100%
+  );
+}
+
+.audio-drawer::after {
+  bottom: 0;
+  background: linear-gradient(
+    to top,
+    rgba(49, 53, 64, 0.96) 0%,
+    rgba(49, 53, 64, 0.78) 34%,
+    rgba(49, 53, 64, 0) 100%
+  );
+}
+
+.audio-drawer-scroll {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  gap: 16px;
+  padding: 28px 18px 22px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.audio-drawer-scroll::-webkit-scrollbar {
   display: none;
 }
 
@@ -3352,6 +3393,42 @@
   line-height: 1.55;
 }
 
+.audio-recommended-latency {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.38fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(156, 182, 255, 0.24);
+  border-radius: 12px;
+  background: rgba(130, 151, 218, 0.14);
+}
+
+.audio-recommended-latency > div {
+  display: grid;
+  gap: 3px;
+}
+
+.audio-recommended-latency span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.audio-recommended-latency strong {
+  color: #eef4ff;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.audio-recommended-latency p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1.45;
+}
+
 .audio-diagnostics-copy-button {
   display: inline-flex;
   align-items: center;
@@ -3408,6 +3485,12 @@
   color: rgba(79, 91, 111, 0.62);
   font-size: 11px;
   font-weight: 800;
+}
+
+@media (max-width: 520px) {
+  .audio-recommended-latency {
+    grid-template-columns: 1fr;
+  }
 }
 
 .audio-advanced-todo {
@@ -3605,30 +3688,84 @@
   z-index: 5;
 }
 
-.mv-settings-drawer {
+.mv-settings-drawer .mv-network-section {
+  order: 2;
+}
+
+.mv-network-section > :not(.audio-drawer-section-title):not(.mv-quality-controls):not(.mv-source-list) {
+  order: 2;
+}
+
+.mv-network-section > .audio-drawer-section-title {
+  order: 0;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.mv-network-section > .audio-drawer-section-title > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.mv-section-collapse {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: rgba(232, 240, 255, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.mv-section-collapse:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.mv-section-collapse svg {
+  transition: transform 160ms ease;
+}
+
+.mv-network-section--open .mv-section-collapse svg {
+  transform: rotate(180deg);
+}
+
+.mv-network-section > .mv-quality-controls,
+.mv-network-section > .mv-source-list {
+  order: 1;
+}
+
+.mv-settings-drawer .audio-drawer-scroll {
+  padding-bottom: 96px;
   scrollbar-color: rgba(228, 235, 255, 0.34) rgba(255, 255, 255, 0.06);
   scrollbar-width: thin;
 }
 
-.mv-settings-drawer::-webkit-scrollbar {
+.mv-settings-drawer .audio-drawer-scroll::-webkit-scrollbar {
   display: block;
   width: 10px;
 }
 
-.mv-settings-drawer::-webkit-scrollbar-track {
+.mv-settings-drawer .audio-drawer-scroll::-webkit-scrollbar-track {
   margin: 22px 0;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.05);
 }
 
-.mv-settings-drawer::-webkit-scrollbar-thumb {
+.mv-settings-drawer .audio-drawer-scroll::-webkit-scrollbar-thumb {
   border: 3px solid rgba(0, 0, 0, 0);
   border-radius: 999px;
   background: rgba(231, 237, 255, 0.38);
   background-clip: padding-box;
 }
 
-.mv-settings-drawer::-webkit-scrollbar-thumb:hover {
+.mv-settings-drawer .audio-drawer-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(244, 248, 255, 0.52);
   background-clip: padding-box;
 }
@@ -4098,6 +4235,18 @@
   padding-right: 5px;
   scrollbar-color: rgba(236, 240, 255, 0.36) rgba(255, 255, 255, 0.06);
   scrollbar-width: thin;
+}
+
+.mv-settings-search-error {
+  margin: 0;
+  padding: 10px 12px;
+  color: rgba(255, 218, 218, 0.9);
+  border: 1px solid rgba(255, 184, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(154, 65, 65, 0.18);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.45;
 }
 
 .mv-settings-candidates::-webkit-scrollbar {
@@ -5563,6 +5712,11 @@ html[data-theme="dark"] .settings-nav-item:hover {
   background: rgba(255, 255, 255, 0.065);
 }
 
+html[data-theme="dark"] .nav-item:hover svg {
+  color: var(--echo-heading-text);
+  background: var(--theme-control-bg-hover);
+}
+
 html[data-theme="dark"] .titlebar-action[data-active="true"],
 html[data-theme="dark"] .titlebar-action[data-drawer-open="true"] {
   color: var(--color-accent-strong);
@@ -5577,6 +5731,17 @@ html[data-theme="dark"] .settings-nav-item.active {
     linear-gradient(180deg, rgba(42, 51, 64, 0.84), rgba(29, 36, 46, 0.84)),
     rgba(29, 36, 46, 0.9);
   box-shadow: inset 3px 0 0 rgba(100, 181, 255, 0.78);
+}
+
+html[data-theme="dark"] .nav-item[data-active="true"] svg,
+html[data-theme="dark"] .nav-item[data-active="true"]:hover svg {
+  color: var(--color-accent-strong);
+  background:
+    linear-gradient(180deg, var(--theme-control-bg-hover), var(--theme-control-bg-active)),
+    var(--theme-control-bg);
+  box-shadow:
+    0 6px 14px var(--theme-overlay-bg),
+    inset 0 0 0 1px var(--theme-button-border);
 }
 
 html[data-theme="dark"] .utility-nav,

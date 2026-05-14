@@ -6,7 +6,19 @@ import type { AudioDeviceInfo, AudioStatus } from '../../../shared/types/audio';
 
 vi.mock('../../i18n/I18nProvider', () => ({
   useI18n: () => ({
-    t: (key: string) => key.split('.').at(-1) ?? key,
+    t: (key: string, options?: Record<string, string | number>) => {
+      const value = key.split('.').at(-1) ?? key;
+
+      if (value === 'value' && options?.value !== undefined) {
+        return `${options.value} ms`;
+      }
+
+      if (value === 'status') {
+        return `Requested ${options?.requested ?? 'Auto'} frames / opened ${options?.opened ?? 'n/a'} frames`;
+      }
+
+      return value;
+    },
   }),
 }));
 
@@ -105,6 +117,18 @@ afterEach(() => {
 });
 
 describe('AudioSettingsDrawer ASIO buffer controls', () => {
+  it('hides low latency while WASAPI exclusive mode is selected', () => {
+    renderDrawer({
+      ...baseStatus,
+      outputMode: 'exclusive',
+      outputBackend: 'wasapi-exclusive',
+      latencyProfile: 'lowLatency',
+    });
+
+    expect(screen.queryByRole('button', { name: /Low latency/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Balanced/ }).className).toContain('active');
+  });
+
   it('shows ASIO buffer controls only in ASIO mode', () => {
     renderDrawer({
       ...baseStatus,
@@ -118,6 +142,8 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
 
     expect(screen.getByRole('heading', { name: 'ASIO buffer' })).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /128/ }).length).toBeGreaterThan(0);
+    expect(screen.getByText('recommended')).toBeTruthy();
+    expect(screen.getByText('5 ms')).toBeTruthy();
 
     cleanup();
     renderDrawer(baseStatus);
@@ -154,5 +180,30 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     fireEvent.click(screen.getByRole('button', { name: /Auto/ }));
 
     await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ bufferSizeFrames: null }));
+  });
+
+  it('saves current output mode and ASIO buffer when output settings are enabled', async () => {
+    renderDrawer({
+      ...baseStatus,
+      outputMode: 'asio',
+      outputBackend: 'asio',
+      outputDeviceName: 'TEAC ASIO',
+      latencyProfile: 'balanced',
+      nativeRequestedBufferFrames: 256,
+      nativeActualBufferFrames: 256,
+    });
+
+    await waitFor(() => expect(screen.getAllByText('TEAC ASIO').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole('checkbox', { name: /rememberOutput/ }));
+
+    const remembered = JSON.parse(window.localStorage.getItem('echo-next.audio-output-memory') ?? '{}');
+    expect(remembered).toMatchObject({
+      enabled: true,
+      outputMode: 'asio',
+      latencyProfile: 'balanced',
+      deviceIndex: 0,
+      deviceName: 'TEAC ASIO',
+      bufferSizeFrames: 256,
+    });
   });
 });

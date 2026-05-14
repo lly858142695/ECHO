@@ -58,6 +58,10 @@ const bilibiliQualityMap: Record<number, { tier: Exclude<MvQualityTier, 'auto'>;
 
 const bilibiliDashFnval = '4048';
 const bilibiliQualityOrder = [127, 126, 125, 120, 116, 112, 80, 64];
+const bilibiliQualityRank = (qn: number): number => {
+  const index = bilibiliQualityOrder.indexOf(qn);
+  return index >= 0 ? bilibiliQualityOrder.length - index : 0;
+};
 const bilibiliMixinKeyEncTable = [
   46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16,
   24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
@@ -223,6 +227,11 @@ const firstUrl = (...values: unknown[]): string | null => {
   return null;
 };
 
+const numericArray = (value: unknown): number[] =>
+  asArray(value)
+    .map((entry) => number(entry))
+    .filter((entry): entry is number => entry !== null);
+
 const fpsFromDashStream = (stream: Record<string, unknown>, label: string): number | null => {
   const frameRate = text(stream.frameRate ?? stream.frame_rate);
   if (frameRate) {
@@ -270,7 +279,20 @@ const bilibiliQualitiesForSettings = (settings: MvSettings): number[] =>
       return false;
     }
 
-    return qualityHeight[quality.tier] <= maxQualityHeight(settings.maxQuality);
+    if (settings.maxQuality === 'max') {
+      return true;
+    }
+    if (settings.maxQuality === '2160p') {
+      return qn <= 120;
+    }
+    if (settings.maxQuality === '1440p') {
+      return qn <= 112;
+    }
+    if (settings.maxQuality === '1080p') {
+      return qn <= (settings.allow60fps === false ? 112 : 116);
+    }
+
+    return qn <= 64 && qualityHeight[quality.tier] <= maxQualityHeight(settings.maxQuality);
   });
 
 const makeQualityVariant = (
@@ -489,6 +511,9 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
         const playData = isRecord(playPayload) ? playPayload.data : null;
         const actualQn = number(isRecord(playData) ? playData.quality : null);
         const actualQuality = actualQn ? bilibiliQualityMap[actualQn] ?? quality : quality;
+        const availableQn = isRecord(playData)
+          ? Array.from(new Set([...numericArray(playData.accept_quality), ...numericArray(playData.acceptQuality)]))
+          : [];
         const dash = isRecord(playData) && isRecord(playData.dash) ? playData.dash : null;
         const dashStreams = asArray(dash?.video)
           .filter(isRecord)
@@ -547,6 +572,9 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
               endpoint: wbiMixinKey ? 'wbi-playurl' : 'playurl',
               requestedQn: qn,
               qn: streamQn,
+              qualityRank: bilibiliQualityRank(streamQn),
+              availableQn,
+              qualityLimited: streamQn < qn,
               cid,
             },
           });

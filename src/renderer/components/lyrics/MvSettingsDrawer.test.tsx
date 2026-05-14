@@ -97,7 +97,7 @@ const defaultMvSettings: MvSettings = {
   restartAudioOnLoad: false,
   enabledProviders: ['bilibili', 'youtube'],
   providerOrder: ['bilibili', 'youtube'],
-  maxQuality: '1080p',
+  maxQuality: 'max',
   allow60fps: true,
 };
 
@@ -132,6 +132,36 @@ const renderDrawer = (settings: MvSettings = defaultMvSettings, selectedVideo: T
       clearSelected: vi.fn(),
       openExternal: vi.fn(),
     },
+    playback: {
+      getStatus: vi.fn().mockResolvedValue({
+        state: 'playing',
+        currentTrackId: 'track-1',
+        positionMs: 0,
+        durationMs: 180000,
+        filePath: 'D:\\Music\\song.flac',
+      }),
+      playLocalFile: vi.fn().mockResolvedValue({
+        state: 'playing',
+        currentTrackId: 'track-1',
+        positionMs: 0,
+        durationMs: 180000,
+        filePath: 'D:\\Music\\song.flac',
+      }),
+      playMediaItem: vi.fn(),
+      prepareMediaItem: vi.fn(),
+      play: vi.fn(),
+      pause: vi.fn(),
+      stop: vi.fn(),
+      seek: vi.fn(),
+      openLocalAudioFile: vi.fn(),
+      openLocalAudioFiles: vi.fn(),
+      resolveLocalAudioFiles: vi.fn(),
+      onLocalAudioFilesOpened: vi.fn(),
+    },
+    app: {
+      getSettings: vi.fn().mockResolvedValue({ lyricsMvAutoShowTrackInfoDisabled: true }),
+      setSettings: vi.fn().mockResolvedValue({ lyricsHeaderHidden: false }),
+    },
   } as unknown as Window['echo'];
 
   return render(
@@ -151,6 +181,17 @@ afterEach(() => {
 });
 
 describe('MvSettingsDrawer', () => {
+  it('syncs hidden lyrics song info from the MV master switch when enabled', async () => {
+    const { container } = renderDrawer({ ...defaultMvSettings, enabled: true });
+
+    const masterToggle = container.querySelector('.mv-master-toggle') as HTMLButtonElement;
+    await waitFor(() => expect(masterToggle).toBeTruthy());
+    fireEvent.click(masterToggle);
+
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ enabled: false }));
+    await waitFor(() => expect(window.echo.app.setSettings).toHaveBeenCalledWith({ lyricsHeaderHidden: false }));
+  });
+
   it('shows selected MV title and video quality in the engine meter', async () => {
     renderDrawer(defaultMvSettings, { ...makeVideo(), width: 1920, height: 1080, fps: 60, qualityLabel: null });
 
@@ -176,6 +217,22 @@ describe('MvSettingsDrawer', () => {
     expect(await screen.findByText('Bilibili / 1080p')).toBeTruthy();
   });
 
+  it('shows the platform quality for letterboxed 1080p60 streams instead of the encoded height', async () => {
+    renderDrawer(defaultMvSettings, {
+      ...makeVideo(),
+      provider: 'bilibili',
+      width: 1920,
+      height: 888,
+      qualityLabel: '1080p 60fps',
+      fps: 60,
+    });
+
+    const engineMeter = within(await screen.findByLabelText('MV engine status'));
+    expect(engineMeter.getByText('1080p 60fps')).toBeTruthy();
+    expect(engineMeter.queryByText('888p / 60fps')).toBeNull();
+    expect(await screen.findByText('Bilibili / 1080p 60fps')).toBeTruthy();
+  });
+
   it('contains the MV choose action and omits the local search shortcut', async () => {
     renderDrawer();
 
@@ -191,15 +248,38 @@ describe('MvSettingsDrawer', () => {
 
     await waitFor(() => expect(window.echo.mv.chooseLocalVideo).toHaveBeenCalledWith('track-1'));
     expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'mv:changed' }));
+    await waitFor(() =>
+      expect(window.echo.playback.playLocalFile).toHaveBeenCalledWith(
+        expect.objectContaining({ filePath: 'D:\\Music\\song.flac', trackId: 'track-1' }),
+      ),
+    );
+  });
+
+  it('does not replay the current track when replay on MV change is disabled', async () => {
+    renderDrawer({ ...defaultMvSettings, replayAudioOnChange: false });
+
+    fireEvent.click(await screen.findByRole('button', { name: /Choose file/ }));
+
+    await waitFor(() => expect(window.echo.mv.chooseLocalVideo).toHaveBeenCalledWith('track-1'));
+    expect(window.echo.playback.playLocalFile).not.toHaveBeenCalled();
   });
 
   it('updates the max network quality from the drawer menu', async () => {
     renderDrawer();
 
-    fireEvent.click(await screen.findByRole('button', { name: /Max quality 1080p/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Max' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Max quality Max/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '4K' }));
 
-    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ maxQuality: 'max' }));
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ maxQuality: '2160p' }));
+  });
+
+  it('places the max quality control before the network source order list', async () => {
+    renderDrawer();
+
+    const maxQualityTrigger = await screen.findByRole('button', { name: /Max quality Max/ });
+    const bilibiliToggle = await screen.findByRole('button', { name: 'Bilibili' });
+
+    expect(Boolean(maxQualityTrigger.compareDocumentPosition(bilibiliToggle) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
 
   it('toggles automatic MV search from the drawer', async () => {
@@ -226,20 +306,23 @@ describe('MvSettingsDrawer', () => {
 
     const slider = await screen.findByRole('slider', { name: /Auto-apply match/ });
     expect((slider as HTMLInputElement).value).toBe('70');
+    expect((slider as HTMLInputElement).min).toBe('30');
 
-    fireEvent.change(slider, { target: { value: '82' } });
+    fireEvent.change(slider, { target: { value: '30' } });
 
-    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ autoApplyThreshold: 0.82 }));
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ autoApplyThreshold: 0.3 }));
   });
 
-  it('toggles MV preload and restart sync from the drawer', async () => {
+  it('toggles MV preload, restart sync, and replay on change from the drawer', async () => {
     renderDrawer();
 
     fireEvent.click(await screen.findByRole('button', { name: /Preload MV/ }));
     fireEvent.click(await screen.findByRole('button', { name: /Follow music progress/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Replay music after switching MV/ }));
 
     await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ autoPreload: false }));
     await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ restartAudioOnLoad: true }));
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ replayAudioOnChange: false }));
   });
 
   it('shows immersive MV controls and updates zoom', async () => {

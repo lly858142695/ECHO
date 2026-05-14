@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AudioStatus } from '../../../shared/types/audio';
 import type { EqState } from '../../../shared/types/eq';
 import type { LibraryTrack } from '../../../shared/types/library';
 import { PlaybackQueueProvider, usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
+import { PlaybackCommandController } from './PlaybackCommandController';
 import { PlayerBar } from './PlayerBar';
 
 const makeTrack = (index: number, overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
@@ -108,6 +109,7 @@ const ExternalPlaySeed = ({ track }: { track: LibraryTrack }): JSX.Element => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('PlayerBar', () => {
@@ -336,6 +338,7 @@ describe('PlayerBar', () => {
       },
       app: {
         getVersion: vi.fn(),
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
         minimize: vi.fn(),
         toggleMaximize: vi.fn(),
         close: vi.fn(),
@@ -598,7 +601,276 @@ describe('PlayerBar', () => {
     expect(pause).not.toHaveBeenCalled();
   });
 
-  it('routes SMTC previous and next commands through the playback queue', async () => {
+  it('does not hijack space when a focused search field receives a window-level key event', async () => {
+    const track = makeTrack(1);
+    const pause = vi.fn();
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 4000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause,
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(audioStatus(track)),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+        <input aria-label="Search text" type="search" />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    const searchInput = screen.getByLabelText('Search text');
+    searchInput.focus();
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' });
+
+    expect(document.activeElement).toBe(searchInput);
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it('uses the main process playback state before toggling from the space shortcut', async () => {
+    const track = makeTrack(1);
+    const play = vi.fn();
+    const pause = vi.fn().mockResolvedValue({
+      state: 'paused',
+      currentTrackId: track.id,
+      positionMs: 4000,
+      durationMs: track.duration * 1000,
+      filePath: track.path,
+    });
+    const getStatus = vi
+      .fn()
+      .mockResolvedValueOnce({
+        state: 'paused',
+        currentTrackId: track.id,
+        positionMs: 4000,
+        durationMs: track.duration * 1000,
+        filePath: track.path,
+      })
+      .mockResolvedValue({
+        state: 'playing',
+        currentTrackId: track.id,
+        positionMs: 4000,
+        durationMs: track.duration * 1000,
+        filePath: track.path,
+      });
+
+    window.echo = {
+      playback: {
+        getStatus,
+        playLocalFile: vi.fn(),
+        play,
+        pause,
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          ...audioStatus(track),
+          state: 'paused',
+        }),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(track),
+        getLikedTrackIds: vi.fn().mockResolvedValue({ [track.id]: false }),
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' });
+
+    await waitFor(() => expect(pause).toHaveBeenCalledTimes(1));
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('does not let a stale paused refresh freeze the UI after resuming playback', async () => {
+    const track = makeTrack(1);
+    const playbackGetStatus = vi.fn().mockResolvedValue({
+      state: 'paused',
+      currentTrackId: track.id,
+      positionMs: 10000,
+      durationMs: track.duration * 1000,
+      filePath: track.path,
+    });
+    const audioGetStatus = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...audioStatus(track),
+        state: 'paused',
+        positionSeconds: 10,
+      })
+      .mockResolvedValue({
+        ...audioStatus(track),
+        state: 'paused',
+        positionSeconds: 10,
+      });
+    const play = vi.fn().mockResolvedValue({
+      state: 'playing',
+      currentTrackId: track.id,
+      positionMs: 10000,
+      durationMs: track.duration * 1000,
+      filePath: track.path,
+    });
+
+    window.echo = {
+      playback: {
+        getStatus: playbackGetStatus,
+        playLocalFile: vi.fn(),
+        play,
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: audioGetStatus,
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(track),
+        getLikedTrackIds: vi.fn().mockResolvedValue({ [track.id]: false }),
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByRole('button', { name: 'Play' });
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(audioGetStatus.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+  });
+
+  it('keeps polling local BPM analysis after playback is paused', async () => {
+    const track = makeTrack(1, {
+      bpm: null,
+      analysisStatus: 'none',
+    });
+    const analyzedTrack = {
+      ...track,
+      bpm: 128,
+      bpmConfidence: 0.86,
+      beatOffsetMs: 12,
+      analysisStatus: 'complete' as const,
+      analysisUpdatedAt: '2026-05-14T12:00:00.000Z',
+    };
+    const startBpmAnalysis = vi.fn().mockResolvedValue({
+      id: 'bpm-job-1',
+      status: 'running',
+      totalTracks: 1,
+      processedTracks: 0,
+      updatedTracks: 0,
+      errorCount: 0,
+      currentTrackTitle: track.title,
+      startedAt: '2026-05-14T11:59:58.000Z',
+      finishedAt: null,
+      errors: [],
+    });
+    const getBpmAnalysisStatus = vi.fn().mockResolvedValue({
+      id: 'bpm-job-1',
+      status: 'completed',
+      totalTracks: 1,
+      processedTracks: 1,
+      updatedTracks: 1,
+      errorCount: 0,
+      currentTrackTitle: null,
+      startedAt: '2026-05-14T11:59:58.000Z',
+      finishedAt: '2026-05-14T12:00:00.000Z',
+      errors: [],
+    });
+    const pause = vi.fn().mockResolvedValue({
+      state: 'paused',
+      currentTrackId: track.id,
+      positionMs: 4000,
+      durationMs: track.duration * 1000,
+      filePath: track.path,
+    });
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 4000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause,
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(audioStatus(track)),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(analyzedTrack),
+        getLikedTrackIds: vi.fn().mockResolvedValue({ [track.id]: false }),
+        startBpmAnalysis,
+        getBpmAnalysisStatus,
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    await waitFor(() => expect(startBpmAnalysis).toHaveBeenCalledWith({ trackIds: [track.id] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    await waitFor(() => expect(pause).toHaveBeenCalledTimes(1));
+
+    await waitFor(() => expect(screen.getByText('128 BPM')).toBeTruthy(), { timeout: 3000 });
+    expect(getBpmAnalysisStatus).toHaveBeenCalledWith('bpm-job-1');
+  }, 10000);
+
+  it('routes SMTC pause, previous, and next commands through the playback queue', async () => {
     const firstTrack = makeTrack(1);
     const secondTrack = makeTrack(2);
     const smtcHandlers: Array<(command: 'play' | 'pause' | 'playPause' | 'previous' | 'next' | 'stop') => void> = [];
@@ -611,6 +883,13 @@ describe('PlayerBar', () => {
         filePath,
       }),
     );
+    const pause = vi.fn().mockResolvedValue({
+      state: 'paused',
+      currentTrackId: secondTrack.id,
+      positionMs: 4000,
+      durationMs: secondTrack.duration * 1000,
+      filePath: secondTrack.path,
+    });
 
     window.echo = {
       playback: {
@@ -623,7 +902,7 @@ describe('PlayerBar', () => {
         }),
         playLocalFile,
         play: vi.fn(),
-        pause: vi.fn(),
+        pause,
         stop: vi.fn(),
         seek: vi.fn(),
         openLocalAudioFile: vi.fn(),
@@ -676,6 +955,7 @@ describe('PlayerBar', () => {
 
     render(
       <PlaybackQueueProvider>
+        <PlaybackCommandController />
         <QueueSeed tracks={[firstTrack, secondTrack]} />
       </PlaybackQueueProvider>,
     );
@@ -685,6 +965,12 @@ describe('PlayerBar', () => {
     smtcHandlers[0]?.('next');
 
     await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: secondTrack.id })));
+    smtcHandlers[0]?.('previous');
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: firstTrack.id })));
+    smtcHandlers[0]?.('pause');
+
+    await waitFor(() => expect(pause).toHaveBeenCalledTimes(1));
   });
 
   it('publishes current playback metadata and actions through the browser media session', async () => {
@@ -792,6 +1078,7 @@ describe('PlayerBar', () => {
 
     const { container } = render(
       <PlaybackQueueProvider>
+        <PlaybackCommandController />
         <QueueSeed tracks={[track]} />
       </PlaybackQueueProvider>,
     );
@@ -894,6 +1181,87 @@ describe('PlayerBar', () => {
     const slider = screen.getByRole('slider', { name: 'Seek position' }) as HTMLInputElement;
     expect(Number(slider.value)).toBe(0);
     await waitFor(() => expect(Number(slider.value)).toBeGreaterThan(0.1), { timeout: 1000 });
+  });
+
+  it('keeps progress from jumping backward on a brief same-track stale audio status', async () => {
+    const track = makeTrack(1);
+    const statusHandlers: Array<(status: AudioStatus) => void> = [];
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 12000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({ ...audioStatus(track), positionSeconds: 12 }),
+        onStatus: vi.fn((handler) => {
+          statusHandlers[0] = handler;
+          return () => {
+            statusHandlers.length = 0;
+          };
+        }),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      eq: {
+        getState: vi.fn().mockResolvedValue(eqState()),
+        setEnabled: vi.fn().mockResolvedValue(eqState()),
+        setBandGain: vi.fn().mockResolvedValue(eqState()),
+        setPreamp: vi.fn().mockResolvedValue(eqState()),
+        setPreset: vi.fn().mockResolvedValue(eqState()),
+        reset: vi.fn().mockResolvedValue(eqState()),
+        listPresets: vi.fn().mockResolvedValue([]),
+        savePreset: vi.fn(),
+        deletePreset: vi.fn().mockResolvedValue([]),
+      },
+      app: {
+        getVersion: vi.fn(),
+        minimize: vi.fn(),
+        toggleMaximize: vi.fn(),
+        close: vi.fn(),
+      },
+      library: {
+        getTracks: vi.fn(),
+        getAlbums: vi.fn(),
+        getAlbumTracks: vi.fn(),
+        getSummary: vi.fn(),
+        chooseFolder: vi.fn(),
+        addFolder: vi.fn(),
+        getFolders: vi.fn(),
+        removeFolder: vi.fn(),
+        scanFolder: vi.fn(),
+        getScanStatus: vi.fn(),
+        cancelScan: vi.fn(),
+        getDiagnostics: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    const slider = screen.getByRole('slider', { name: 'Seek position' }) as HTMLInputElement;
+    await waitFor(() => expect(Number(slider.value)).toBeGreaterThanOrEqual(12));
+
+    act(() => {
+      statusHandlers[0]?.({ ...audioStatus(track), positionSeconds: 10.6 });
+    });
+
+    expect(Number(slider.value)).toBeGreaterThanOrEqual(12);
   });
 
   it('broadcasts the requested seek target when streaming seek returns stale status', async () => {
@@ -1077,5 +1445,9 @@ describe('PlayerBar', () => {
     });
 
     await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: secondTrack.id })));
+    await screen.findByText('Song 2');
+
+    statusHandlers[0]?.(audioStatus(firstTrack));
+    expect(screen.getByText('Song 2')).toBeTruthy();
   });
 });

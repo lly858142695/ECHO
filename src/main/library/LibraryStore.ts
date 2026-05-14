@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import type { EchoDatabase } from '../database/createDatabase';
+import { chineseSearchVariants } from './ChineseSearchVariants';
 import type { AlbumKeyInput, AlbumMergeStrategy, AlbumService } from './AlbumService';
 import { updateCoverPathsInDatabase } from './CoverCacheManager';
 import { DuplicateTrackService } from './duplicates/DuplicateTrackService';
@@ -84,7 +85,8 @@ const defaultPageSize = 100;
 const maxPageSize = 500;
 const likedSongsSourcePlaylistId = 'liked-tracks';
 const likedAlbumsSourcePlaylistId = 'liked-albums';
-const likedSystemPlaylistIds = new Set([likedSongsSourcePlaylistId, likedAlbumsSourcePlaylistId]);
+const neteaseDailyRecommendSourcePlaylistId = 'daily-recommend';
+const protectedSystemPlaylistIds = new Set([likedSongsSourcePlaylistId, likedAlbumsSourcePlaylistId, neteaseDailyRecommendSourcePlaylistId]);
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -150,6 +152,9 @@ const folderDepth = (rootPath: string, folderPath: string): number => {
 };
 
 type SearchPredicate = (term: string) => { sql: string; params: string[] };
+type LibraryStoreSearchOptions = {
+  chineseCrossScriptSearchEnabled?: boolean;
+};
 
 const likePredicate =
   (expression: string): SearchPredicate =>
@@ -181,11 +186,21 @@ const ftsTerm = (term: string): string => {
   return `"${term.replace(/"/g, '""')}"`;
 };
 
-const buildFtsSearchQuery = (search: string): string => ftsSearchTerms(search).map(ftsTerm).join(' AND ');
+const searchTermVariants = (term: string, options?: LibraryStoreSearchOptions): string[] =>
+  options?.chineseCrossScriptSearchEnabled === false ? [term] : chineseSearchVariants(term);
+
+const buildFtsSearchQuery = (search: string, options?: LibraryStoreSearchOptions): string =>
+  ftsSearchTerms(search)
+    .map((term) => {
+      const variants = searchTermVariants(term, options).map(ftsTerm);
+      return variants.length === 1 ? variants[0] : `(${variants.join(' OR ')})`;
+    })
+    .join(' AND ');
 
 const buildSearchFilter = (
   search: string,
   predicates: SearchPredicate[],
+  options?: LibraryStoreSearchOptions,
 ): { sql: string; params: string[] } => {
   const terms = searchTerms(search);
 
@@ -196,7 +211,7 @@ const buildSearchFilter = (
   const params: string[] = [];
   const sql = terms
     .map((term) => {
-      const clauses = predicates.map((predicate) => predicate(term));
+      const clauses = searchTermVariants(term, options).flatMap((variant) => predicates.map((predicate) => predicate(variant)));
       params.push(...clauses.flatMap((clause) => clause.params));
       return `(${clauses.map((clause) => clause.sql).join(' OR ')})`;
     })
@@ -361,7 +376,10 @@ export class LibraryStore {
   private lastTracksQueryMs: number | null = null;
   private lastAlbumsQueryMs: number | null = null;
 
-  constructor(private readonly database: EchoDatabase) {}
+  constructor(
+    private readonly database: EchoDatabase,
+    private readonly readSearchOptions: () => LibraryStoreSearchOptions = () => ({ chineseCrossScriptSearchEnabled: true }),
+  ) {}
 
   transaction<T>(work: () => T): T {
     if (this.database.inTransaction) {
@@ -561,6 +579,7 @@ export class LibraryStore {
     const folder = this.requireFolder(query.folderId);
     const folderPath = this.resolveFolderScopedPath(folder, query.path);
     const { page, pageSize, search, sort } = pageFromQuery(query);
+    const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const scope = this.folderTrackScope(folder.id, folderPath, query.recursive !== false);
     const searchFilter = buildSearchFilter(search, [
@@ -570,7 +589,7 @@ export class LibraryStore {
       likePredicate('tracks.album_artist'),
       likePredicate('COALESCE(tracks.genre, \'\')'),
       likePredicate('tracks.path'),
-    ]);
+    ], searchOptions);
     const whereSql = searchFilter.sql ? `WHERE ${scope.sql} AND ${searchFilter.sql}` : `WHERE ${scope.sql}`;
     const params = [...scope.params, ...searchFilter.params];
     const orderSql = this.trackOrderSql(sort);
@@ -1315,6 +1334,7 @@ export class LibraryStore {
 
   getPlaybackHistory(query?: PlaybackHistoryQuery): LibraryPage<PlaybackHistoryEntry> {
     const { page, pageSize, search, from, to, completedOnly } = pageFromHistoryQuery(query);
+    const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const searchFilter = buildSearchFilter(search, [
       likePredicate('playback_history_stats.title'),
@@ -1323,7 +1343,7 @@ export class LibraryStore {
       likePredicate("COALESCE(playback_history_stats.title_snapshot, '')"),
       likePredicate("COALESCE(playback_history_stats.artist_snapshot, '')"),
       likePredicate('playback_history_stats.track_path'),
-    ]);
+    ], searchOptions);
     const clauses: string[] = [];
     const params: unknown[] = [];
 
@@ -1924,10 +1944,11 @@ export class LibraryStore {
   getTracks(query?: LibraryPageQuery): LibraryPage<LibraryTrack> {
     const startedAt = performance.now();
     const { page, pageSize, search, sort } = pageFromQuery(query);
+    const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const hideDuplicates = query?.hideDuplicates === true;
     const duplicateMode = query?.duplicateMode === 'strict' ? query.duplicateMode : 'strict';
-    const searchQuery = buildFtsSearchQuery(search);
+    const searchQuery = buildFtsSearchQuery(search, searchOptions);
     const searchJoinSql = searchQuery ? 'INNER JOIN tracks_fts ON tracks_fts.rowid = tracks.rowid' : '';
     const duplicateJoinSql = hideDuplicates
       ? `LEFT JOIN duplicate_track_members AS duplicate_members
@@ -2031,6 +2052,7 @@ export class LibraryStore {
   getAlbums(query?: LibraryPageQuery): LibraryPage<LibraryAlbum> {
     const startedAt = performance.now();
     const { page, pageSize, search, sort } = pageFromQuery(query);
+    const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const searchFilter = buildSearchFilter(search, [
       likePredicate('albums.title'),
@@ -2057,7 +2079,7 @@ export class LibraryStore {
           params: [value, value, value, value, value],
         };
       },
-    ]);
+    ], searchOptions);
     const whereSql = searchFilter.sql ? `WHERE ${searchFilter.sql}` : '';
     const orderSql = this.albumOrderSql(sort);
     const totalRow = this.getRow(`SELECT COUNT(*) AS total FROM albums ${whereSql}`, ...searchFilter.params);
@@ -2101,13 +2123,31 @@ export class LibraryStore {
     return row ? this.mapAlbumDetail(row) : null;
   }
 
+  getAlbumForTrack(trackId: string): LibraryAlbum | null {
+    const row = this.getRow(
+      `SELECT
+        albums.id, albums.album_key, albums.title, albums.album_artist, albums.year, albums.track_count,
+        albums.duration, albums.cover_id
+       FROM album_tracks
+       INNER JOIN albums ON albums.id = album_tracks.album_id
+       INNER JOIN tracks ON tracks.id = album_tracks.track_id
+       WHERE album_tracks.track_id = ? AND tracks.missing = 0
+       ORDER BY album_tracks.position ASC
+       LIMIT 1`,
+      trackId,
+    );
+
+    return row ? this.mapAlbum(row) : null;
+  }
+
   getArtists(query?: LibraryPageQuery): LibraryPage<LibraryArtist> {
     const { page, pageSize, search, sort } = pageFromQuery(query);
+    const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const searchFilter = buildSearchFilter(search, [
       likePredicate('artists.name'),
       likePredicate('COALESCE(artists.sort_name, \'\')'),
-    ]);
+    ], searchOptions);
     const whereSql = searchFilter.sql ? `WHERE ${searchFilter.sql}` : '';
     const orderSql = this.artistOrderSql(sort);
     const totalRow = this.getRow(`SELECT COUNT(*) AS total FROM artists ${whereSql}`, ...searchFilter.params);
@@ -2339,7 +2379,7 @@ export class LibraryStore {
     }
 
     if (this.isProtectedSystemPlaylist(current) && (input.name !== undefined || input.description !== undefined)) {
-      throw new Error('Liked system playlists cannot be renamed.');
+      throw new Error('System playlists cannot be renamed.');
     }
 
     const name = input.name === undefined ? current.name : input.name.trim();
@@ -2379,7 +2419,7 @@ export class LibraryStore {
   deletePlaylist(playlistId: string): void {
     const playlist = this.getPlaylist(playlistId);
     if (playlist && this.isProtectedSystemPlaylist(playlist)) {
-      throw new Error('Liked system playlists cannot be deleted.');
+      throw new Error('System playlists cannot be deleted.');
     }
 
     this.run('DELETE FROM playlists WHERE id = ?', playlistId);
@@ -2392,12 +2432,13 @@ export class LibraryStore {
 
   getPlaylistItems(playlistId: string, query?: Pick<LibraryPageQuery, 'page' | 'pageSize' | 'search'>): LibraryPage<LibraryPlaylistItem> {
     const { page, pageSize, search } = pageFromQuery(query);
+    const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const searchFilter = buildSearchFilter(search, [
       likePredicate('COALESCE(playlist_items.title_snapshot, tracks.title, \'\')'),
       likePredicate('COALESCE(playlist_items.artist_snapshot, tracks.artist, \'\')'),
       likePredicate('COALESCE(playlist_items.album_snapshot, tracks.album, \'\')'),
-    ]);
+    ], searchOptions);
     const whereSql = searchFilter.sql ? `playlist_items.playlist_id = ? AND ${searchFilter.sql}` : 'playlist_items.playlist_id = ?';
     const params = [playlistId, ...searchFilter.params];
     const playlist = this.getPlaylist(playlistId);
@@ -3038,7 +3079,7 @@ export class LibraryStore {
   }
 
   private isProtectedSystemPlaylist(playlist: LibraryPlaylist): boolean {
-    return playlist.kind === 'system' && likedSystemPlaylistIds.has(playlist.sourcePlaylistId ?? '');
+    return playlist.kind === 'system' && protectedSystemPlaylistIds.has(playlist.sourcePlaylistId ?? '');
   }
 
   private getLikedMediaIds(
@@ -3126,12 +3167,13 @@ export class LibraryStore {
     query?: LibraryPageQuery,
   ): LibraryPage<LibraryPlaylistItem> {
     const { page, pageSize, search, sort } = pageFromQuery(query);
+    const searchOptions = this.readSearchOptions();
     const offset = (page - 1) * pageSize;
     const searchFilter = buildSearchFilter(search, [
       likePredicate('COALESCE(playlist_items.title_snapshot, tracks.title, albums.title, \'\')'),
       likePredicate('COALESCE(playlist_items.artist_snapshot, tracks.artist, albums.album_artist, \'\')'),
       likePredicate('COALESCE(playlist_items.album_snapshot, tracks.album, albums.title, \'\')'),
-    ]);
+    ], searchOptions);
     const whereSql = searchFilter.sql
       ? `playlist_items.playlist_id = ? AND playlist_items.media_type = ? AND ${searchFilter.sql}`
       : 'playlist_items.playlist_id = ? AND playlist_items.media_type = ?';

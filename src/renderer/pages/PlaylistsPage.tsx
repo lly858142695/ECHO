@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Download, ImagePlus, Link, ListPlus, Loader2, MoreHorizontal, Music2, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, SlidersHorizontal, Trash2, WifiOff, X } from 'lucide-react';
+import { CalendarDays, Check, Download, ImagePlus, Link, ListPlus, Loader2, MoreHorizontal, Music2, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, SlidersHorizontal, Trash2, WifiOff, X } from 'lucide-react';
+import type { DownloadJob, DownloadJobStatus } from '../../shared/types/downloads';
 import type { LibraryPage, LibraryPlaylist, LibraryPlaylistItem, LibraryTrack, PlaylistExportFormat, PlaylistSortMode } from '../../shared/types/library';
-import type { StreamingAudioQuality } from '../../shared/types/streaming';
+import type { StreamingAudioQuality, StreamingProviderName } from '../../shared/types/streaming';
 import { TrackList } from '../components/library/TrackList';
 import { TrackContextMenu, type TrackMenuAction } from '../components/library/TrackContextMenu';
 import { likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../hooks/useLikedMedia';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
+import { getDownloadsBridge, getStreamingBridge } from '../utils/echoBridge';
 
 const pageSize = 100;
 const playlistSortOptions: Array<{ value: PlaylistSortMode; label: string }> = [
@@ -27,9 +29,15 @@ const streamingQualityOptions: Array<{ value: StreamingAudioQuality; label: stri
   { value: 'high', label: 'High' },
   { value: 'standard', label: 'Standard' },
 ];
+const neteaseDailyRecommendSourcePlaylistId = 'daily-recommend';
+const runningDownloadStatuses = new Set<DownloadJobStatus>(['queued', 'probing', 'downloading', 'extracting_audio', 'importing', 'binding_mv']);
 
 const streamingPlaylistUrl = (playlist: LibraryPlaylist): string | null => {
   if (!playlist.sourcePlaylistId) {
+    return null;
+  }
+
+  if (playlist.sourceProvider === 'netease' && playlist.sourcePlaylistId === neteaseDailyRecommendSourcePlaylistId) {
     return null;
   }
 
@@ -43,6 +51,25 @@ const streamingPlaylistUrl = (playlist: LibraryPlaylist): string | null => {
 
   return null;
 };
+
+const streamingTrackWebUrl = (track: LibraryTrack): string | null => {
+  if (!track.providerTrackId) {
+    return null;
+  }
+
+  if (track.provider === 'netease') {
+    return `https://music.163.com/#/song?id=${encodeURIComponent(track.providerTrackId)}`;
+  }
+
+  if (track.provider === 'qqmusic') {
+    return `https://y.qq.com/n/ryqq/songDetail/${encodeURIComponent(track.providerTrackId)}`;
+  }
+
+  return null;
+};
+
+const streamingProviderFromTrack = (track: LibraryTrack): StreamingProviderName | null =>
+  track.provider === 'netease' || track.provider === 'qqmusic' || track.provider === 'mock' || track.provider === 'bilibili' ? track.provider : null;
 
 const emptyItemsPage = (): LibraryPage<LibraryPlaylistItem> => ({
   items: [],
@@ -131,12 +158,16 @@ export const PlaylistsPage = (): JSX.Element => {
   const [showNewPlaylistForm, setShowNewPlaylistForm] = useState(false);
   const [isImportingPlaylist, setIsImportingPlaylist] = useState(false);
   const [isRefreshingStreamingPlaylist, setIsRefreshingStreamingPlaylist] = useState(false);
+  const [downloadingTrackId, setDownloadingTrackId] = useState<string | null>(null);
+  const [downloadJobs, setDownloadJobs] = useState<DownloadJob[]>([]);
+  const [downloadJobIdsByTrackId, setDownloadJobIdsByTrackId] = useState<Record<string, string>>({});
   const [streamingQuality, setStreamingQuality] = useState<StreamingAudioQuality>('hires');
   const [playlistMenuOpen, setPlaylistMenuOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trackMenu, setTrackMenu] = useState<{ track: LibraryTrack; position: { x: number; y: number } } | null>(null);
   const requestIdRef = useRef(0);
+  const notifiedDownloadJobIdsRef = useRef<Set<string>>(new Set());
   const newPlaylistInputRef = useRef<HTMLInputElement>(null);
   const playlistMenuRef = useRef<HTMLDivElement | null>(null);
   const { currentTrackId, items: queueItems, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeQueueItem } = usePlaybackQueue();
@@ -144,6 +175,9 @@ export const PlaylistsPage = (): JSX.Element => {
     () => playlists.find((playlist) => playlist.id === selectedPlaylistId) ?? playlists[0] ?? null,
     [playlists, selectedPlaylistId],
   );
+  const isSelectedPlaylistNeteaseDailyRecommend =
+    selectedPlaylist?.sourceProvider === 'netease' && selectedPlaylist.sourcePlaylistId === neteaseDailyRecommendSourcePlaylistId;
+  const isSelectedPlaylistProtected = selectedPlaylist?.kind === 'system';
   const isSelectedPlaylistRemote = Boolean(selectedPlaylist && selectedPlaylist.sourceProvider !== 'local');
   const selectedStreamingPlaylistUrl = selectedPlaylist ? streamingPlaylistUrl(selectedPlaylist) : null;
   const displayTracks = useMemo(
@@ -152,6 +186,28 @@ export const PlaylistsPage = (): JSX.Element => {
   );
   const playableTracks = useMemo(() => displayTracks.filter((track) => !track.unavailable), [displayTracks]);
   const likedTrackIds = useLikedTrackIds(playableTracks.map((track) => track.id));
+  const downloadingTrackIds = useMemo(() => {
+    const result: Record<string, boolean> = {};
+    for (const track of displayTracks) {
+      const jobId = downloadJobIdsByTrackId[track.id];
+      const job = jobId ? downloadJobs.find((item) => item.id === jobId) : null;
+      result[track.id] = downloadingTrackId === track.id || (job ? runningDownloadStatuses.has(job.status) : false);
+    }
+    return result;
+  }, [displayTracks, downloadJobIdsByTrackId, downloadJobs, downloadingTrackId]);
+  const downloadProgressByTrackId = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const track of displayTracks) {
+      const jobId = downloadJobIdsByTrackId[track.id];
+      const job = jobId ? downloadJobs.find((item) => item.id === jobId) : null;
+      if (downloadingTrackId === track.id && !job) {
+        result[track.id] = 0;
+      } else if (job) {
+        result[track.id] = Math.max(0, Math.min(100, job.progress));
+      }
+    }
+    return result;
+  }, [displayTracks, downloadJobIdsByTrackId, downloadJobs, downloadingTrackId]);
   const queueSource = useMemo(
     () => ({ type: 'manual' as const, label: selectedPlaylist ? `Playlist: ${selectedPlaylist.name}` : 'Playlist' }),
     [selectedPlaylist],
@@ -224,6 +280,32 @@ export const PlaylistsPage = (): JSX.Element => {
   }, [loadItems, selectedPlaylist]);
 
   useEffect(() => {
+    const downloads = getDownloadsBridge();
+    if (!downloads?.onJobsUpdated) {
+      return undefined;
+    }
+
+    return downloads.onJobsUpdated((nextJobs) => {
+      setDownloadJobs(nextJobs);
+      const trackedEntries = Object.entries(downloadJobIdsByTrackId);
+      for (const job of nextJobs) {
+        if (job.status !== 'completed' || notifiedDownloadJobIdsRef.current.has(job.id)) {
+          continue;
+        }
+
+        const matchedTrackId = trackedEntries.find(([, jobId]) => jobId === job.id)?.[0];
+        if (matchedTrackId) {
+          notifiedDownloadJobIdsRef.current.add(job.id);
+          const matchedTrack = displayTracks.find((track) => track.id === matchedTrackId);
+          setError(null);
+          setStatusMessage(`下载完成：${job.title ?? matchedTrack?.title ?? job.sourceUrl}`);
+          break;
+        }
+      }
+    });
+  }, [displayTracks, downloadJobIdsByTrackId]);
+
+  useEffect(() => {
     const timeout = window.setTimeout(() => {
       setPlaylistSearch(playlistSearchInput.trim());
     }, 180);
@@ -269,6 +351,11 @@ export const PlaylistsPage = (): JSX.Element => {
   }, [loadItems, loadPlaylists, selectedPlaylist]);
 
   const handleRefreshStreamingPlaylist = async (): Promise<void> => {
+    if (isSelectedPlaylistNeteaseDailyRecommend) {
+      await handleRefreshNeteaseDailyRecommend();
+      return;
+    }
+
     const streaming = window.echo?.streaming;
     if (!streaming?.importPlaylistFromUrl || !selectedPlaylist || !selectedStreamingPlaylistUrl) {
       await refreshSelected();
@@ -286,6 +373,33 @@ export const PlaylistsPage = (): JSX.Element => {
       setPlaylistSearch('');
       await loadItems(result.playlistId, 1, 'replace', '');
       setStatusMessage(`已刷新歌单：${result.playlistName}，共 ${result.importedCount} 首`);
+      window.dispatchEvent(new Event('library:playlists-changed'));
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+      setStatusMessage(null);
+    } finally {
+      setIsRefreshingStreamingPlaylist(false);
+    }
+  };
+
+  const handleRefreshNeteaseDailyRecommend = async (): Promise<void> => {
+    const streaming = window.echo?.streaming;
+    if (!streaming?.refreshNeteaseDailyRecommend) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to refresh NetEase daily recommendations.');
+      return;
+    }
+
+    setIsRefreshingStreamingPlaylist(true);
+    setError(null);
+    setStatusMessage('正在刷新网易云每日推荐...');
+    try {
+      const result = await streaming.refreshNeteaseDailyRecommend();
+      await loadPlaylists();
+      setSelectedPlaylistId(result.playlistId);
+      setPlaylistSearchInput('');
+      setPlaylistSearch('');
+      await loadItems(result.playlistId, 1, 'replace', '');
+      setStatusMessage(`已刷新每日推荐：${result.importedCount} 首`);
       window.dispatchEvent(new Event('library:playlists-changed'));
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
@@ -425,6 +539,71 @@ export const PlaylistsPage = (): JSX.Element => {
     appendTracksToQueue(playableTracks, queueSource);
     setStatusMessage(`已添加 ${playableTracks.length} 首可用歌曲到队列`);
   };
+
+  const handleDownloadTrack = useCallback(
+    async (track: LibraryTrack): Promise<void> => {
+      const provider = streamingProviderFromTrack(track);
+      if (track.mediaType !== 'streaming' || !provider || !track.providerTrackId) {
+        setError('只有网络歌单中的流媒体歌曲可以直接下载。');
+        setStatusMessage(null);
+        return;
+      }
+
+      const webpageUrl = streamingTrackWebUrl(track);
+      if (!webpageUrl) {
+        setError('这个平台暂不支持从网络歌单直接下载。');
+        setStatusMessage(null);
+        return;
+      }
+
+      const downloads = getDownloadsBridge();
+      if (!downloads?.createUrlJob) {
+        setError('桌面下载服务不可用。');
+        setStatusMessage(null);
+        return;
+      }
+
+      const streaming = getStreamingBridge();
+      if (!streaming?.resolvePlayback) {
+        setError('桌面流媒体服务不可用，无法解析下载地址。');
+        setStatusMessage(null);
+        return;
+      }
+
+      setDownloadingTrackId(track.id);
+      setError(null);
+      setStatusMessage(null);
+      try {
+        const source = await streaming.resolvePlayback({
+          provider,
+          providerTrackId: track.providerTrackId,
+          quality: track.streamingQuality ?? streamingQuality,
+        });
+        const job = await downloads.createUrlJob(source.url, {
+          title: track.title,
+          artist: track.artist,
+          album: track.album,
+          albumArtist: track.albumArtist || track.artist,
+          coverUrl: track.coverThumb,
+          webpageUrl,
+          bindMvAfterImport: false,
+          requestHeaders: source.headers,
+          directAudio: true,
+          directAudioMimeType: source.mimeType,
+          directAudioExtension: source.codec,
+        });
+        setDownloadJobs((current) => (current.some((item) => item.id === job.id) ? current : [job, ...current]));
+        setDownloadJobIdsByTrackId((current) => ({ ...current, [track.id]: job.id }));
+        setStatusMessage(`已加入下载队列：${track.title}`);
+      } catch (downloadError) {
+        setError(downloadError instanceof Error ? downloadError.message : '添加下载任务失败');
+        setStatusMessage(null);
+      } finally {
+        setDownloadingTrackId((current) => (current === track.id ? null : current));
+      }
+    },
+    [streamingQuality],
+  );
 
   const handleImportStreamingPlaylist = async (): Promise<void> => {
     const streaming = window.echo?.streaming;
@@ -670,6 +849,19 @@ export const PlaylistsPage = (): JSX.Element => {
           </form>
         ) : null}
 
+        <button
+          className="playlist-daily-recommend"
+          type="button"
+          disabled={isRefreshingStreamingPlaylist}
+          onClick={() => void handleRefreshNeteaseDailyRecommend()}
+        >
+          {isRefreshingStreamingPlaylist ? <Loader2 className="spinning-icon" size={16} /> : <CalendarDays size={16} />}
+          <span>
+            <strong>每日推荐</strong>
+            <small>网易云账号推荐</small>
+          </span>
+        </button>
+
         <div className="playlist-list">
           {playlists.map((playlist) => (
             <button
@@ -818,7 +1010,7 @@ export const PlaylistsPage = (): JSX.Element => {
                   <ImagePlus size={16} />
                   <span>更换封面</span>
                 </button>
-                {selectedStreamingPlaylistUrl ? (
+                {selectedStreamingPlaylistUrl || isSelectedPlaylistNeteaseDailyRecommend ? (
                   <button
                     className="secondary-action"
                     type="button"
@@ -826,7 +1018,7 @@ export const PlaylistsPage = (): JSX.Element => {
                     onClick={() => void handleRefreshStreamingPlaylist()}
                   >
                     {isRefreshingStreamingPlaylist ? <Loader2 className="spinning-icon" size={16} /> : <RefreshCw size={16} />}
-                    <span>刷新歌单</span>
+                    <span>{isSelectedPlaylistNeteaseDailyRecommend ? '刷新推荐' : '刷新歌单'}</span>
                   </button>
                 ) : null}
                 {selectedPlaylist.coverId ? (
@@ -848,10 +1040,12 @@ export const PlaylistsPage = (): JSX.Element => {
                   </button>
                   {playlistMenuOpen ? (
                     <div className="playlist-action-menu" role="menu" aria-label="歌单操作">
-                      <button className="playlist-action-menu-item" type="button" role="menuitem" onClick={() => void handleRenamePlaylist()}>
-                        <Pencil size={14} />
-                        <span>重命名歌单</span>
-                      </button>
+                      {!isSelectedPlaylistProtected ? (
+                        <button className="playlist-action-menu-item" type="button" role="menuitem" onClick={() => void handleRenamePlaylist()}>
+                          <Pencil size={14} />
+                          <span>重命名歌单</span>
+                        </button>
+                      ) : null}
                       <div className="playlist-action-menu-section" role="presentation">
                         <span>排序方式</span>
                         {playlistSortOptions.map((option) => (
@@ -886,9 +1080,11 @@ export const PlaylistsPage = (): JSX.Element => {
                     </div>
                   ) : null}
                 </div>
-                <button className="tool-button danger" type="button" aria-label="删除歌单" title="删除歌单" onClick={() => void handleDeletePlaylist()}>
-                  <Trash2 size={17} />
-                </button>
+                {!isSelectedPlaylistProtected ? (
+                  <button className="tool-button danger" type="button" aria-label="删除歌单" title="删除歌单" onClick={() => void handleDeletePlaylist()}>
+                    <Trash2 size={17} />
+                  </button>
+                ) : null}
               </div>
             </header>
 
@@ -898,6 +1094,9 @@ export const PlaylistsPage = (): JSX.Element => {
               canLoadMore={itemsPage.hasMore && !isLoading}
               onEndReached={handleLoadMore}
               onAddToQueue={handleAddTrackToQueue}
+              onDownload={isSelectedPlaylistRemote ? handleDownloadTrack : undefined}
+              downloadingTrackIds={downloadingTrackIds}
+              downloadProgressByTrackId={downloadProgressByTrackId}
               likedTrackIds={likedTrackIds}
               onToggleLiked={(track) => void handleToggleLiked(track)}
               onOpenTrackMenu={handleOpenTrackMenu}
@@ -923,7 +1122,9 @@ export const PlaylistsPage = (): JSX.Element => {
                 className="text-action"
                 type="button"
                 disabled={isRefreshingStreamingPlaylist}
-                onClick={() => void (selectedStreamingPlaylistUrl ? handleRefreshStreamingPlaylist() : refreshSelected())}
+                onClick={() =>
+                  void (selectedStreamingPlaylistUrl || isSelectedPlaylistNeteaseDailyRecommend ? handleRefreshStreamingPlaylist() : refreshSelected())
+                }
               >
                 刷新
               </button>

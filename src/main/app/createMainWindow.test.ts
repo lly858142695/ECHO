@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolvePreloadPath } from './createMainWindow';
+import { createMainWindowWebPreferences, resolvePreloadPath } from './createMainWindow';
 
 const tempDirs: string[] = [];
 
@@ -37,5 +37,13 @@ describe('resolvePreloadPath', () => {
     const mainDir = makeOutMainDir();
 
     expect(resolvePreloadPath(mainDir)).toBe(join(mainDir, '../preload/index.js'));
+  });
+});
+
+describe('createMainWindowWebPreferences', () => {
+  it('keeps renderer timers unthrottled for background playback', () => {
+    expect(createMainWindowWebPreferences()).toMatchObject({
+      backgroundThrottling: false,
+    });
   });
 });

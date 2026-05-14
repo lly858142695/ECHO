@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, DragEvent } from "react";
 import {
   ArrowLeft,
   FastForward,
@@ -7,6 +7,7 @@ import {
   Music2,
   Rewind,
   RotateCcw,
+  Upload,
 } from "lucide-react";
 import type { AudioStatus } from "../../shared/types/audio";
 import type { AppSettings } from "../../shared/types/appSettings";
@@ -26,6 +27,7 @@ import { MvPanel, type MvAudioClock } from "../components/lyrics/MvPanel";
 import type { LyricLine, LyricsState } from "../components/lyrics/lyricsTypes";
 import { titleFromPath } from "../components/player/playerFormat";
 import { usePlaybackQueue } from "../stores/PlaybackQueueProvider";
+import { refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from "../stores/playbackStatusStore";
 
 type LyricsPageProps = {
   initialLyrics?: LyricLine[];
@@ -41,6 +43,7 @@ type LyricsDisplaySettings = Pick<
   AppSettings,
   | "lyricsEnabled"
   | "lyricsHeaderHidden"
+  | "lyricsMvAutoShowTrackInfoDisabled"
   | "lyricsEmptyStateHidden"
   | "lyricsFontSizePx"
   | "lyricsColor"
@@ -61,14 +64,15 @@ type LyricsDisplaySettings = Pick<
   | "lyricsBackgroundScalePercent"
 >;
 
-const idlePollingStates = new Set(["paused", "stopped", "idle", "error"]);
 const playbackSeekedEvent = "playback:seeked";
 const maxInterpolatedStatusGapSeconds = 1.6;
+const maxStaleStatusRegressionSeconds = 2.5;
 const seekAnchorMaxAgeSeconds = 3;
 
 const fallbackLyricsDisplaySettings: LyricsDisplaySettings = {
   lyricsEnabled: true,
   lyricsHeaderHidden: false,
+  lyricsMvAutoShowTrackInfoDisabled: true,
   lyricsEmptyStateHidden: true,
   lyricsFontSizePx: 40,
   lyricsColor: "#314054",
@@ -236,6 +240,31 @@ const visibleReasons = (candidate: LyricsSearchCandidate): string[] =>
 const sourceFilterKey = (candidate: LyricsSearchCandidate): string =>
   `${candidate.provider}:${candidate.sourceLabel}`;
 
+const isAudioStatusForPlayback = (
+  audioStatus: AudioStatus,
+  playbackStatus: PlaybackStatus | null,
+): boolean => {
+  if (!playbackStatus?.currentTrackId && !playbackStatus?.filePath) {
+    return true;
+  }
+
+  return (
+    Boolean(playbackStatus.currentTrackId && audioStatus.currentTrackId === playbackStatus.currentTrackId) ||
+    Boolean(playbackStatus.filePath && audioStatus.currentFilePath === playbackStatus.filePath)
+  );
+};
+
+const firstLrcFile = (fileList: FileList | null): File | null => {
+  if (!fileList) {
+    return null;
+  }
+
+  return Array.from(fileList).find((file) => file.name.toLowerCase().endsWith(".lrc")) ?? null;
+};
+
+const hasFileDrag = (dataTransfer: DataTransfer): boolean =>
+  Array.from(dataTransfer.types).includes("Files");
+
 const selectAutoApplyCandidate = (
   candidates: LyricsSearchCandidate[],
   settings: Pick<LyricsDisplaySettings, "lyricsAutoAcceptScore" | "lyricsAutoSearch">,
@@ -280,6 +309,7 @@ const selectLyricsDisplaySettings = (
 ): LyricsDisplaySettings => ({
   lyricsEnabled: settings.lyricsEnabled,
   lyricsHeaderHidden: settings.lyricsHeaderHidden,
+  lyricsMvAutoShowTrackInfoDisabled: settings.lyricsMvAutoShowTrackInfoDisabled !== false,
   lyricsEmptyStateHidden: settings.lyricsEmptyStateHidden,
   lyricsFontSizePx: settings.lyricsFontSizePx,
   lyricsColor: settings.lyricsColor,
@@ -305,6 +335,7 @@ const cssUrl = (value: string): string =>
 const lyricsDisplaySettingsKeys = [
   "lyricsEnabled",
   "lyricsHeaderHidden",
+  "lyricsMvAutoShowTrackInfoDisabled",
   "lyricsEmptyStateHidden",
   "lyricsFontSizePx",
   "lyricsColor",
@@ -367,9 +398,9 @@ const useLyricsDisplayPosition = (
   const state = audioStatus?.state ?? playbackStatus?.state ?? "idle";
   const playbackRate = audioStatus?.playbackRate ?? 1;
   const currentTrackId =
-    audioStatus?.currentTrackId ?? playbackStatus?.currentTrackId ?? null;
+    playbackStatus?.currentTrackId ?? audioStatus?.currentTrackId ?? null;
   const currentFilePath =
-    audioStatus?.currentFilePath ?? playbackStatus?.filePath ?? null;
+    playbackStatus?.filePath ?? audioStatus?.currentFilePath ?? null;
   const [positionSeconds, setPositionSeconds] = useState(() =>
     clampPlaybackPosition(sourcePositionSeconds, sourceDurationSeconds),
   );
@@ -450,8 +481,13 @@ const useLyricsDisplayPosition = (
       const sourceCaughtUp = boundedSourcePosition + 0.35 >= estimatedPositionSeconds;
       const sourceJumpedForward = boundedSourcePosition > estimatedPositionSeconds + 0.35;
       const canBridgeSourceLag = elapsedSeconds <= maxInterpolatedStatusGapSeconds;
+      const staleRegressionSeconds = previous.positionSeconds - boundedSourcePosition;
+      const canIgnoreStaleRegression =
+        canBridgeSourceLag && staleRegressionSeconds > 0.35 && staleRegressionSeconds <= maxStaleStatusRegressionSeconds;
 
-      if (canBridgeSourceLag && !sourceJumpedBackward && !sourceCaughtUp && !sourceJumpedForward && estimatedPositionSeconds > boundedSourcePosition) {
+      if (canIgnoreStaleRegression) {
+        nextPositionSeconds = estimatedPositionSeconds;
+      } else if (canBridgeSourceLag && !sourceJumpedBackward && !sourceCaughtUp && !sourceJumpedForward && estimatedPositionSeconds > boundedSourcePosition) {
         nextPositionSeconds = estimatedPositionSeconds;
       }
     }
@@ -551,6 +587,7 @@ const useLyricsDisplayPosition = (
 
 export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const queue = usePlaybackQueue();
+  const sharedPlaybackStatus = useSharedPlaybackStatus();
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(
     null,
   );
@@ -568,6 +605,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     useState<LyricsDisplaySettings>(fallbackLyricsDisplaySettings);
   const [isLyricsDisplaySettingsReady, setIsLyricsDisplaySettingsReady] =
     useState(false);
+  const lyricsAutoAcceptScoreRef = useRef(fallbackLyricsDisplaySettings.lyricsAutoAcceptScore);
   const lyricsDisplaySettingsLoadVersionRef = useRef(0);
   const [isWindowMaximized, setIsWindowMaximized] = useState(isWindowApproximatelyMaximized);
   const [lyricsStatus, setLyricsStatus] = useState<string | null>(null);
@@ -580,20 +618,19 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     null,
   );
   const [isLyricsOffsetSaving, setIsLyricsOffsetSaving] = useState(false);
+  const [isCustomLyricsApplying, setIsCustomLyricsApplying] = useState(false);
+  const [isCustomLyricsDragging, setIsCustomLyricsDragging] = useState(false);
   const lyricsRequestRef = useRef(0);
-  const refreshRequestRef = useRef(0);
   const state = audioStatus?.state ?? playbackStatus?.state ?? "idle";
-  const pollIntervalMs =
-    idlePollingStates.has(state) && seekPreviewSeconds === null ? 1800 : 1000;
   const statusTrackId =
     playbackStatus?.currentTrackId ?? audioStatus?.currentTrackId ?? null;
   const trackId = queue.currentTrackId ?? statusTrackId;
   const currentTrack =
     queue.currentTrack ??
-    (statusTrackId
-      ? (queue.tracks.find((track) => track.id === statusTrackId) ?? null)
+    (trackId
+      ? (queue.tracks.find((track) => track.id === trackId) ?? null)
       : null) ??
-    (queue.lastPlayedTrack?.id === statusTrackId
+    (queue.lastPlayedTrack?.id === trackId
       ? queue.lastPlayedTrack
       : null);
   const streamingTarget = useMemo(
@@ -720,44 +757,35 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     [activeCandidateSource, candidates],
   );
 
-  const refreshStatus = useCallback(async (): Promise<void> => {
-    const echo = window.echo;
-
-    if (!echo) {
-      setError("Desktop bridge unavailable");
-      return;
-    }
-
-    try {
-      const requestId = refreshRequestRef.current + 1;
-      refreshRequestRef.current = requestId;
-      const [nextPlaybackStatus, nextAudioStatus] = await Promise.all([
-        echo.playback.getStatus(),
-        echo.audio.getStatus(),
-      ]);
-
-      if (refreshRequestRef.current !== requestId) {
-        return;
+  const applySharedPlaybackStatus = useCallback(
+    (snapshot: { playbackStatus: PlaybackStatus | null; audioStatus: AudioStatus | null; error: string | null }): void => {
+      if (snapshot.playbackStatus) {
+        setPlaybackStatus(snapshot.playbackStatus);
       }
 
-      setPlaybackStatus(nextPlaybackStatus);
-      setAudioStatus(nextAudioStatus);
+      const snapshotAudioStatus = snapshot.audioStatus;
+      const shouldApplyAudioStatus = snapshotAudioStatus
+        ? isAudioStatusForPlayback(snapshotAudioStatus, snapshot.playbackStatus)
+        : false;
+      if (shouldApplyAudioStatus) {
+        setAudioStatus(snapshotAudioStatus);
+      }
+
       const nextTrackId =
-        nextPlaybackStatus.currentTrackId ??
-        nextAudioStatus.currentTrackId ??
+        snapshot.playbackStatus?.currentTrackId ??
+        (snapshotAudioStatus && shouldApplyAudioStatus ? snapshotAudioStatus.currentTrackId : null) ??
         null;
       if (nextTrackId) {
         queue.setCurrentTrackId(nextTrackId);
       }
-      setError(nextAudioStatus.error);
-    } catch (statusError) {
-      setError(
-        statusError instanceof Error
-          ? statusError.message
-          : String(statusError),
-      );
-    }
-  }, [queue]);
+      setError(snapshot.error ?? snapshotAudioStatus?.error ?? null);
+    },
+    [queue],
+  );
+
+  const refreshStatus = useCallback(async (): Promise<void> => {
+    applySharedPlaybackStatus(await refreshPlaybackStatus());
+  }, [applySharedPlaybackStatus]);
 
   const loadLyricsDisplaySettings = useCallback(async (): Promise<void> => {
     const app = window.echo?.app;
@@ -791,29 +819,12 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   }, []);
 
   useEffect(() => {
-    void refreshStatus();
-    const timer = window.setInterval(() => {
-      void refreshStatus();
-    }, pollIntervalMs);
-
-    return () => window.clearInterval(timer);
-  }, [pollIntervalMs, refreshStatus]);
+    applySharedPlaybackStatus(sharedPlaybackStatus);
+  }, [applySharedPlaybackStatus, sharedPlaybackStatus]);
 
   useEffect(() => {
-    const audio = window.echo?.audio;
-    if (!audio?.onStatus) {
-      return undefined;
-    }
-
-    return audio.onStatus((nextAudioStatus) => {
-      refreshRequestRef.current += 1;
-      setAudioStatus(nextAudioStatus);
-      if (nextAudioStatus.currentTrackId) {
-        queue.setCurrentTrackId(nextAudioStatus.currentTrackId);
-      }
-      setError(nextAudioStatus.error);
-    });
-  }, [queue]);
+    lyricsAutoAcceptScoreRef.current = lyricsDisplaySettings.lyricsAutoAcceptScore;
+  }, [lyricsDisplaySettings.lyricsAutoAcceptScore]);
 
   useEffect(() => {
     const handleSettingsChanged = (event: Event): void => {
@@ -868,7 +879,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       const autoCandidate = selectAutoApplyCandidate(
         nextCandidates,
         {
-          lyricsAutoAcceptScore: lyricsDisplaySettings.lyricsAutoAcceptScore,
+          lyricsAutoAcceptScore: lyricsAutoAcceptScoreRef.current,
           lyricsAutoSearch: lyricsDisplaySettings.lyricsAutoSearch,
         },
       );
@@ -910,7 +921,6 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       }
     },
     [
-      lyricsDisplaySettings.lyricsAutoAcceptScore,
       lyricsDisplaySettings.lyricsAutoSearch,
       trackId,
     ],
@@ -1278,6 +1288,79 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     [lyricsDisplaySettings.lyricsEnabled, trackId],
   );
 
+  const applyCustomLyricsFile = useCallback(
+    async (file: File): Promise<void> => {
+      const lyricsApi = window.echo?.lyrics;
+      if (!lyricsApi?.applyCustomLrc || !trackId) {
+        setError("Desktop bridge unavailable");
+        return;
+      }
+
+      if (!file.name.toLowerCase().endsWith(".lrc")) {
+        setError("Please choose an .lrc lyrics file");
+        return;
+      }
+
+      setIsCustomLyricsApplying(true);
+      setLyricsStatus("Applying custom LRC...");
+      try {
+        const lrcText = await file.text();
+        const trackLyrics = await lyricsApi.applyCustomLrc(trackId, lrcText, file.name);
+        lyricsRequestRef.current += 1;
+        setLyrics(trackLyricsToState(trackLyrics));
+        dispatchCurrentLyricsProviderChanged(trackLyrics);
+        setCandidates([]);
+        setActiveCandidateSource("all");
+        setLyricsStatus(null);
+        setError(null);
+      } catch (customLyricsError) {
+        setLyricsStatus(null);
+        setError(
+          customLyricsError instanceof Error
+            ? customLyricsError.message
+            : String(customLyricsError),
+        );
+      } finally {
+        setIsCustomLyricsApplying(false);
+      }
+    },
+    [trackId],
+  );
+
+  const handleLyricsDragOver = useCallback((event: DragEvent<HTMLDivElement>): void => {
+    if (!firstLrcFile(event.dataTransfer.files) && !hasFileDrag(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    setIsCustomLyricsDragging(true);
+  }, []);
+
+  const handleLyricsDragLeave = useCallback((event: DragEvent<HTMLDivElement>): void => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+
+    setIsCustomLyricsDragging(false);
+  }, []);
+
+  const handleLyricsDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>): void => {
+      const file = firstLrcFile(event.dataTransfer.files);
+      if (!file) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      setIsCustomLyricsDragging(false);
+      void applyCustomLyricsFile(file);
+    },
+    [applyCustomLyricsFile],
+  );
+
   const handleLyricSeek = useCallback(
     async (timeMs: number): Promise<void> => {
       const playback = window.echo?.playback;
@@ -1308,6 +1391,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
               }
             : current,
         );
+        setPlaybackStatusSnapshot({ playbackStatus: nextStatus, error: null });
         dispatchPlaybackSeeked(nextSeconds, status.currentTrackId ?? trackId ?? null);
         await refreshStatus();
       } catch (seekError) {
@@ -1541,10 +1625,20 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     <div
       className="lyrics-page"
       data-background={effectiveLyricsBackgroundMode}
+      data-custom-lrc-dragging={isCustomLyricsDragging}
       data-window-maximized={isWindowMaximized}
       style={lyricsPageStyle}
+      onDragLeave={handleLyricsDragLeave}
+      onDragOver={handleLyricsDragOver}
+      onDrop={handleLyricsDrop}
     >
       <div className="lyrics-backdrop" aria-hidden="true" />
+      {isCustomLyricsDragging ? (
+        <div className="lyrics-custom-lrc-drop" aria-hidden="true">
+          <Upload size={28} />
+          <strong>Drop LRC to apply</strong>
+        </div>
+      ) : null}
 
       <section className="lyrics-left-panel">
         <button
@@ -1597,6 +1691,10 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         title={title}
         artist={artist}
         coverUrl={coverUrl}
+        hideFallbackTrackInfo={
+          lyricsDisplaySettings.lyricsHeaderHidden &&
+          lyricsDisplaySettings.lyricsMvAutoShowTrackInfoDisabled
+        }
         isAudioPlaying={state === "playing"}
         audioClock={mvAudioClock}
       />

@@ -30,6 +30,8 @@
 #include <fcntl.h>
 #include <io.h>
 #include <windows.h>
+#include <avrt.h>
+#include <mmsystem.h>
 #include <shellapi.h>
 #include <audioclient.h>
 #include <mmdeviceapi.h>
@@ -43,6 +45,91 @@
 
 namespace
 {
+void logLine(const std::string& message);
+
+#if JUCE_WINDOWS
+void logWindowsError(const std::string& action)
+{
+    logLine(action + " failed: win32=" + std::to_string(static_cast<unsigned long>(GetLastError())));
+}
+
+void configureProcessPriority()
+{
+    if (! SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS))
+        logWindowsError("SetPriorityClass(ABOVE_NORMAL_PRIORITY_CLASS)");
+}
+
+class ScopedTimerResolution final
+{
+public:
+    ScopedTimerResolution()
+        : active(timeBeginPeriod(1) == TIMERR_NOERROR)
+    {
+        if (! active)
+            logLine("timeBeginPeriod(1) failed");
+    }
+
+    ~ScopedTimerResolution()
+    {
+        if (active)
+            timeEndPeriod(1);
+    }
+
+private:
+    bool active = false;
+};
+
+class ScopedMmcssRegistration final
+{
+public:
+    ScopedMmcssRegistration(const wchar_t* taskName, AVRT_PRIORITY priority)
+    {
+        DWORD taskIndex = 0;
+        handle = AvSetMmThreadCharacteristicsW(taskName, &taskIndex);
+        if (handle == nullptr)
+        {
+            logWindowsError("AvSetMmThreadCharacteristicsW");
+            return;
+        }
+
+        if (! AvSetMmThreadPriority(handle, priority))
+            logWindowsError("AvSetMmThreadPriority");
+    }
+
+    ~ScopedMmcssRegistration()
+    {
+        if (handle != nullptr)
+            AvRevertMmThreadCharacteristics(handle);
+    }
+
+private:
+    HANDLE handle = nullptr;
+};
+
+void configureThreadPriority(const wchar_t* taskName, AVRT_PRIORITY priority)
+{
+    thread_local std::unique_ptr<ScopedMmcssRegistration> registration;
+    if (registration == nullptr)
+        registration = std::make_unique<ScopedMmcssRegistration>(taskName, priority);
+}
+
+void configureAudioCallbackThread()
+{
+    configureThreadPriority(L"Pro Audio", AVRT_PRIORITY_CRITICAL);
+}
+
+void configurePcmReaderThread()
+{
+    configureThreadPriority(L"Playback", AVRT_PRIORITY_HIGH);
+}
+#else
+class ScopedTimerResolution final {};
+
+void configureProcessPriority() {}
+void configureAudioCallbackThread() {}
+void configurePcmReaderThread() {}
+#endif
+
 struct Options
 {
     bool list = false;
@@ -889,11 +976,15 @@ public:
     PcmRingAudioSource(
         int channelCount,
         int capacityFrames,
+        int startupPrebufferFramesToUse,
+        int startupPrebufferTimeoutMsToUse,
         double gainToUse,
         echo::EqProcessor& eqProcessorToUse,
         echo::ChannelBalanceProcessor& channelBalanceProcessorToUse)
         : channels(channelCount),
           gain(static_cast<float>(gainToUse)),
+          startupPrebufferFrames(std::max(0, startupPrebufferFramesToUse)),
+          startupPrebufferTimeoutMs(std::max(0, startupPrebufferTimeoutMsToUse)),
           fifo(capacityFrames),
           buffer(static_cast<size_t>(capacityFrames * channelCount), 0.0f),
           eqProcessor(eqProcessorToUse),
@@ -915,10 +1006,15 @@ public:
 
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override
     {
+        configureAudioCallbackThread();
+
         if (info.buffer == nullptr)
             return;
 
         info.clearActiveBufferRegion();
+
+        if (shouldHoldForStartupPrebuffer())
+            return;
 
         int framesNeeded = info.numSamples;
         int outputOffset = 0;
@@ -938,7 +1034,9 @@ public:
                 const int framesRead = size1 + size2;
                 if (framesRead <= 0)
                 {
-                    if (! inputEnded.load(std::memory_order_acquire))
+                    if (
+                        ! inputEnded.load(std::memory_order_acquire)
+                        && sessionHasAudio.load(std::memory_order_acquire))
                     {
                         underrunCallbacks.fetch_add(1, std::memory_order_relaxed);
                         underrunFrames.fetch_add(static_cast<uint64_t>(framesNeeded), std::memory_order_relaxed);
@@ -965,6 +1063,9 @@ public:
 
     bool push(const float* samples, int frameCount)
     {
+        if (frameCount > 0)
+            sessionHasAudio.store(true, std::memory_order_release);
+
         int written = 0;
 
         while (written < frameCount && ! stopRequested.load(std::memory_order_relaxed))
@@ -999,12 +1100,15 @@ public:
         {
             std::lock_guard<std::mutex> lock(fifoMutex);
             fifo.reset();
+            prebufferDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(1, startupPrebufferTimeoutMs));
         }
 
         framesPlayed.store(0, std::memory_order_relaxed);
         underrunCallbacks.store(0, std::memory_order_relaxed);
         underrunFrames.store(0, std::memory_order_relaxed);
         inputEnded.store(false, std::memory_order_release);
+        sessionHasAudio.store(false, std::memory_order_release);
+        prebuffering.store(startupPrebufferFrames > 0, std::memory_order_release);
     }
 
     void markInputEnded()
@@ -1081,16 +1185,46 @@ private:
 
     const int channels;
     const float gain;
+    const int startupPrebufferFrames;
+    const int startupPrebufferTimeoutMs;
     juce::AbstractFifo fifo;
     std::vector<float> buffer;
     echo::EqProcessor& eqProcessor;
     echo::ChannelBalanceProcessor& channelBalanceProcessor;
     mutable std::mutex fifoMutex;
     std::atomic<bool> inputEnded { false };
+    std::atomic<bool> sessionHasAudio { false };
+    std::atomic<bool> prebuffering { false };
     std::atomic<bool> stopRequested { false };
     std::atomic<uint64_t> framesPlayed { 0 };
     std::atomic<uint64_t> underrunCallbacks { 0 };
     std::atomic<uint64_t> underrunFrames { 0 };
+    std::chrono::steady_clock::time_point prebufferDeadline {};
+
+    bool shouldHoldForStartupPrebuffer()
+    {
+        if (! prebuffering.load(std::memory_order_acquire))
+            return false;
+
+        int readyFrames = 0;
+        std::chrono::steady_clock::time_point deadline;
+        {
+            std::lock_guard<std::mutex> lock(fifoMutex);
+            readyFrames = fifo.getNumReady();
+            deadline = prebufferDeadline;
+        }
+        const bool enoughPcm = readyFrames >= startupPrebufferFrames;
+        const bool timedOut = startupPrebufferTimeoutMs <= 0 || std::chrono::steady_clock::now() >= deadline;
+        const bool ended = inputEnded.load(std::memory_order_acquire);
+
+        if (enoughPcm || timedOut || ended)
+        {
+            prebuffering.store(false, std::memory_order_release);
+            return false;
+        }
+
+        return true;
+    }
 };
 
 class EqControlServer final
@@ -1209,6 +1343,8 @@ private:
 
 void stdinReader(PcmRingAudioSource& source, int channels)
 {
+    configurePcmReaderThread();
+
 #if JUCE_WINDOWS
     _setmode(_fileno(stdin), _O_BINARY);
 #endif
@@ -1357,6 +1493,8 @@ void handleFramedStdinPayload(
 
 void framedStdinReader(PcmRingAudioSource& source, int channels, std::atomic<bool>& shutdownRequested)
 {
+    configurePcmReaderThread();
+
 #if JUCE_WINDOWS
     _setmode(_fileno(stdin), _O_BINARY);
 #endif
@@ -1581,6 +1719,9 @@ std::unique_ptr<juce::AudioIODevice> openSelectedDevice(
 
 int runHost(const Options& options)
 {
+    configureProcessPriority();
+    ScopedTimerResolution timerResolution;
+
     if (options.asio && ! ECHO_ENABLE_ASIO)
         throw std::runtime_error("ASIO open failed: ASIO support is disabled at build time (ECHO_ENABLE_ASIO=OFF)");
 
@@ -1621,6 +1762,8 @@ int runHost(const Options& options)
     PcmRingAudioSource source(
         options.channels,
         fifoCapacityFrames,
+        startupPrebufferFrames,
+        startupPrebufferTimeoutMs,
         options.volume,
         eqProcessor,
         channelBalanceProcessor);

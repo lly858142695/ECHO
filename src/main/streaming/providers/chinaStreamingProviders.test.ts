@@ -286,6 +286,147 @@ describe('China streaming providers', () => {
     });
   });
 
+  it('fetches NetEase playlist song details in batches small enough for the API', async () => {
+    setNeteaseApiForTests(null);
+    const trackIds = Array.from({ length: 250 }, (_value, index) => index + 1);
+    const detailSongs = (ids: number[]) =>
+      ids.map((id) => ({
+        id,
+        name: `Song ${id}`,
+        dt: 180000 + id,
+        ar: [{ id: 1000 + id, name: `Artist ${id}` }],
+        al: { id: 2000 + id, name: `Album ${id}`, picUrl: `https://p.music.126.net/${id}.jpg` },
+      }));
+    const fetchRunner = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          playlist: {
+            name: 'NetEase Likes',
+            trackCount: trackIds.length,
+            trackIds: trackIds.map((id) => ({ id })),
+            tracks: [],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ songs: detailSongs(trackIds.slice(0, 100)) }))
+      .mockResolvedValueOnce(jsonResponse({ songs: detailSongs(trackIds.slice(100, 200)) }))
+      .mockResolvedValueOnce(jsonResponse({ songs: detailSongs(trackIds.slice(200)) }));
+    vi.stubGlobal('fetch', fetchRunner);
+
+    const playlist = await new NeteaseStreamingProvider().getPlaylist({ providerPlaylistId: '163289102', page: 1, pageSize: 250 });
+
+    expect(playlist).toMatchObject({
+      provider: 'netease',
+      providerPlaylistId: '163289102',
+      title: 'NetEase Likes',
+      trackCount: 250,
+      total: 250,
+      hasMore: false,
+    });
+    expect(playlist.tracks).toHaveLength(250);
+    expect(playlist.tracks[0]).toMatchObject({
+      providerTrackId: '1',
+      title: 'Song 1',
+      artist: 'Artist 1',
+      album: 'Album 1',
+    });
+    expect(fetchRunner).toHaveBeenCalledTimes(4);
+    const detailRequests = fetchRunner.mock.calls.slice(1).map(([url]) => new URL(String(url)));
+    expect(detailRequests.map((url) => JSON.parse(url.searchParams.get('ids') ?? '[]')).map((ids) => ids.length)).toEqual([100, 100, 50]);
+  });
+
+  it('uses the NetEase playlist track API for large playlist pages', async () => {
+    const trackIds = Array.from({ length: 1500 }, (_value, index) => index + 1);
+    const playlistTrackAll = vi.fn().mockResolvedValue({
+      body: {
+        songs: [
+          {
+            id: 1001,
+            name: 'Deep Page Song',
+            dt: 188000,
+            ar: [{ id: 1, name: 'Deep Artist' }],
+            al: { id: 2, name: 'Deep Album', picUrl: 'https://p.music.126.net/deep.jpg' },
+          },
+        ],
+      },
+    });
+    setNeteaseApiForTests({ playlist_track_all: playlistTrackAll });
+    const fetchRunner = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        playlist: {
+          name: 'Large NetEase Playlist',
+          trackCount: trackIds.length,
+          trackIds: trackIds.map((id) => ({ id })),
+          tracks: [],
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchRunner);
+
+    const playlist = await new NeteaseStreamingProvider().getPlaylist({ providerPlaylistId: '2764805072', page: 3, pageSize: 500 });
+
+    expect(playlistTrackAll).toHaveBeenCalledWith({
+      id: '2764805072',
+      limit: 500,
+      offset: 1000,
+      cookie: 'MUSIC_U=secret; csrf=hidden',
+    });
+    expect(fetchRunner).toHaveBeenCalledTimes(1);
+    expect(playlist).toMatchObject({
+      provider: 'netease',
+      providerPlaylistId: '2764805072',
+      title: 'Large NetEase Playlist',
+      total: 1500,
+      hasMore: false,
+    });
+    expect(playlist.tracks).toHaveLength(1);
+    expect(playlist.tracks[0]).toMatchObject({
+      providerTrackId: '1001',
+      title: 'Deep Page Song',
+      artist: 'Deep Artist',
+      album: 'Deep Album',
+    });
+  });
+
+  it('maps NetEase daily recommendations from the signed-in account', async () => {
+    const recommendSongs = vi.fn().mockResolvedValue({
+      body: {
+        data: {
+          dailySongs: [
+            {
+              id: 456,
+              name: 'Daily Song',
+              dt: 210000,
+              ar: [{ id: 7, name: 'Daily Artist' }],
+              al: { id: 8, name: 'Daily Album', picUrl: 'http://p.music.126.net/daily.jpg' },
+            },
+          ],
+        },
+      },
+    });
+    setNeteaseApiForTests({ recommend_songs: recommendSongs });
+
+    const playlist = await new NeteaseStreamingProvider().getDailyRecommendPlaylist();
+
+    expect(recommendSongs).toHaveBeenCalledWith({ cookie: 'MUSIC_U=secret; csrf=hidden' });
+    expect(playlist).toMatchObject({
+      provider: 'netease',
+      providerPlaylistId: 'daily-recommend',
+      title: '每日推荐',
+      trackCount: 1,
+      hasMore: false,
+      coverThumb: remoteImageUrl('https://p.music.126.net/daily.jpg?param=160y160', 'https://music.163.com/'),
+    });
+    expect(playlist.tracks[0]).toMatchObject({
+      providerTrackId: '456',
+      title: 'Daily Song',
+      artist: 'Daily Artist',
+      album: 'Daily Album',
+      coverThumb: remoteImageUrl('https://p.music.126.net/daily.jpg?param=160y160', 'https://music.163.com/'),
+    });
+  });
+
   it('resolves QQ Music playback through vkey without leaking account cookies', async () => {
     vi.stubGlobal(
       'fetch',

@@ -39,6 +39,11 @@ export const SUPPORTED_AUDIO_EXTENSION_LIST = [...audioExtensionValues];
 
 export const SUPPORTED_AUDIO_EXTENSIONS = new Set<string>(SUPPORTED_AUDIO_EXTENSION_LIST);
 
+export const SCANNABLE_AUDIO_EXTENSION_LIST = SUPPORTED_AUDIO_EXTENSION_LIST
+  .filter((extension) => extension !== '.cue');
+
+export const SCANNABLE_AUDIO_EXTENSIONS = new Set<string>(SCANNABLE_AUDIO_EXTENSION_LIST);
+
 export const SUPPORTED_AUDIO_DIALOG_EXTENSIONS = SUPPORTED_AUDIO_EXTENSION_LIST
   .map((extension) => extension.slice(1));
 
@@ -55,5 +60,7 @@ const getSafeExtension = (filePath: string): string => {
 };
 
 export const isSupportedAudioExtension = (filePath: string): boolean => SUPPORTED_AUDIO_EXTENSIONS.has(getSafeExtension(filePath));
+
+export const isScannableAudioExtension = (filePath: string): boolean => SCANNABLE_AUDIO_EXTENSIONS.has(getSafeExtension(filePath));
 
 export const isCueFile = (filePath: string): boolean => getSafeExtension(filePath) === '.cue';

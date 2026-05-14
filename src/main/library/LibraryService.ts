@@ -21,6 +21,7 @@ import type {
   LibraryAlbumDetail,
   LibraryArtist,
   LibraryDiagnostics,
+  EditableAlbumTags,
   EditableTrackTags,
   LibraryFolder,
   LibraryFolderChildrenQuery,
@@ -36,6 +37,7 @@ import type {
   LibrarySummary,
   LibraryTrack,
   LibraryCleanupResult,
+  LibraryAlbumTagUpdateRequest,
   LibraryTrackTagUpdateRequest,
   CoverVariant,
   MetadataResult,
@@ -360,6 +362,21 @@ export class LibraryService {
 
   getAlbumTracks(albumId: string, query?: Pick<LibraryPageQuery, 'page' | 'pageSize'>): LibraryPage<LibraryTrack> {
     return this.store.getAlbumTracks(albumId, query);
+  }
+
+  getAllAlbumTracks(albumId: string): LibraryTrack[] {
+    const tracks: LibraryTrack[] = [];
+    let page = 1;
+    const pageSize = 500;
+
+    for (;;) {
+      const result = this.store.getAlbumTracks(albumId, { page, pageSize });
+      tracks.push(...result.items);
+      if (!result.hasMore) {
+        return tracks;
+      }
+      page += 1;
+    }
   }
 
   getSummary(): LibrarySummary {
@@ -732,6 +749,122 @@ export class LibraryService {
     });
   }
 
+  async updateAlbumTags(request: LibraryAlbumTagUpdateRequest): Promise<LibraryAlbum> {
+    const album = this.store.getAlbum(request.albumId);
+
+    if (!album) {
+      throw new Error(`Unknown album ${request.albumId}`);
+    }
+
+    const tracks = this.getAllAlbumTracks(request.albumId);
+    if (tracks.length === 0) {
+      throw new Error(`Album has no active tracks: ${album.title}`);
+    }
+
+    const missingTrack = tracks.find((track) => !existsSync(track.path));
+    if (missingTrack) {
+      throw new Error(`Track file is missing: ${missingTrack.path}`);
+    }
+
+    const tags = normalizeEditableAlbumTags(request.tags, album);
+    const coverPath = cleanNullableText(request.coverPath ?? null);
+    const coverUrl = cleanNullableText(request.coverUrl ?? null);
+    let coverData: { data: Uint8Array; mimeType: string } | null = null;
+    if (coverPath) {
+      coverData = readCoverImage(coverPath);
+    } else if (coverUrl) {
+      // Network cover failures should not block confirmed text tag edits.
+      coverData = await readCoverImageFromUrl(coverUrl, request.coverMimeType ?? null).catch(() => null);
+    }
+
+    const updates: Array<{
+      track: LibraryTrack;
+      sizeBytes: number;
+      mtimeMs: number;
+      fieldSources: Record<string, string>;
+      coverId?: string | null;
+    }> = [];
+
+    for (const track of tracks) {
+      try {
+        const sourceAudio = readFileSync(track.path);
+        let updatedAudio = await applyTags(sourceAudio, {
+          title: track.title,
+          artist: track.artist,
+          album: tags.album,
+          albumArtist: tags.albumArtist,
+          track: track.trackNo ?? 0,
+          discNumber: track.discNo ?? 0,
+          year: tags.year ?? 0,
+          genre: tags.genre ?? '',
+        });
+
+        if (coverData) {
+          updatedAudio = await applyCoverArt(updatedAudio, coverData.data, coverData.mimeType);
+        }
+
+        writeFileSync(track.path, Buffer.from(updatedAudio));
+      } catch (error) {
+        throw new Error(`Failed to write album tags for ${track.path}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      const fileStat = statSync(track.path);
+      const fieldSources = {
+        ...track.fieldSources,
+        album: 'manual',
+        albumArtist: 'manual',
+        year: 'manual',
+        genre: 'manual',
+      };
+
+      let coverId: string | null | undefined;
+      if (coverData) {
+        const coverResult = await this.coverExtractor.extract(track.path, {
+          cacheRoot: this.coverCacheDir,
+          metadata: metadataWithEmbeddedCover(coverData.data, coverData.mimeType),
+        });
+        coverId = this.store.upsertCover({ ...coverResult, source: coverUrl && !coverPath ? 'network' : 'manual' });
+      }
+
+      updates.push({
+        track,
+        sizeBytes: fileStat.size,
+        mtimeMs: fileStat.mtimeMs,
+        fieldSources,
+        coverId,
+      });
+    }
+
+    return this.store.transaction(() => {
+      for (const update of updates) {
+        this.store.updateTrackTags(update.track.id, {
+          title: update.track.title,
+          artist: update.track.artist,
+          album: tags.album,
+          albumArtist: tags.albumArtist,
+          trackNo: update.track.trackNo,
+          discNo: update.track.discNo,
+          year: tags.year,
+          genre: tags.genre,
+          sizeBytes: update.sizeBytes,
+          mtimeMs: update.mtimeMs,
+          fieldSources: update.fieldSources,
+        });
+        if (update.coverId !== undefined) {
+          this.store.updateTrackCover(update.track.id, update.coverId);
+        }
+      }
+
+      this.store.refreshAlbums(this.albumService, undefined, this.albumRefreshOptions());
+      this.store.refreshArtists();
+      const nextAlbum = this.store.getAlbumForTrack(tracks[0]!.id);
+      if (!nextAlbum) {
+        throw new Error(`Album update completed but refreshed album could not be found for ${album.title}`);
+      }
+      return nextAlbum;
+    });
+  }
+
   async repairMissingMetadata(trackId: string, providerNames?: AppSettings['networkMetadataProviders']): Promise<NetworkRepairResult> {
     if (!this.networkMetadataService) {
       throw new Error('Network metadata service is unavailable');
@@ -853,6 +986,24 @@ export class LibraryService {
     });
   }
 
+  deleteAlbumTracks(albumId: string): number {
+    const tracks = this.getAllAlbumTracks(albumId);
+    const trackIds = tracks.map((track) => track.id);
+
+    if (trackIds.length === 0) {
+      return 0;
+    }
+
+    return this.store.transaction(() => {
+      const changed = this.store.deleteTracks(trackIds);
+      if (changed > 0) {
+        this.store.refreshAlbums(this.albumService, undefined, this.albumRefreshOptions());
+        this.store.refreshArtists();
+      }
+      return changed;
+    });
+  }
+
   pruneMissingTracks(): LibraryCleanupResult {
     const tracks = this.store.getActiveTracks();
     const missingTrackIds = tracks.filter((track) => !existsSync(track.path)).map((track) => track.id);
@@ -957,7 +1108,10 @@ export const createLibraryService = (
   dependencies: LibraryServiceDependencies = {},
 ): LibraryService => {
   const database = createDatabase(databasePath);
-  const store = new LibraryStore(database);
+  const readSettings = dependencies.appSettings ?? getAppSettingsSafe;
+  const store = new LibraryStore(database, () => ({
+    chineseCrossScriptSearchEnabled: readSettings().chineseCrossScriptSearchEnabled !== false,
+  }));
   const fileScanner = dependencies.fileScanner ?? new TsFileScanner();
   const metadataReader =
     dependencies.metadataReader ??
@@ -979,7 +1133,6 @@ export const createLibraryService = (
     ? resolveCoverCacheDir(databasePath, dependencies.coverCacheDir)
     : resolveConfiguredCoverCacheDir(databasePath, (dependencies.appSettings ?? getAppSettingsSafe)());
   const albumService = new AlbumService();
-  const readSettings = dependencies.appSettings ?? getAppSettingsSafe;
   const appSettings = readSettings();
   const recommendedScanConcurrency = getRecommendedScanConcurrency({
     mode: appSettings.scanPerformanceMode ?? 'balanced',
@@ -1194,6 +1347,13 @@ const normalizeEditableTags = (tags: EditableTrackTags, previous: LibraryTrack):
     genre: cleanNullableText(tags.genre),
   };
 };
+
+const normalizeEditableAlbumTags = (tags: EditableAlbumTags, previous: LibraryAlbum): EditableAlbumTags => ({
+  album: cleanText(tags.album, previous.title || 'Untitled Album'),
+  albumArtist: cleanText(tags.albumArtist, previous.albumArtist || 'Unknown Artist'),
+  year: cleanNullableNumber(tags.year),
+  genre: cleanNullableText(tags.genre),
+});
 
 const directorySize = (targetPath: string): number | null => {
   if (!existsSync(targetPath)) {

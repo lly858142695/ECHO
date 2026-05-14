@@ -3,13 +3,13 @@ import type { LyricsProvider, LyricsProviderResult, LyricsProviderSearchRequest 
 import { LyricsMatchEngine } from './LyricsMatchEngine';
 
 const provider = (
-  id: 'lrclib' | 'netease',
+  id: 'lrclib' | 'netease' | 'qqmusic',
   results: LyricsProviderResult[],
   delayMs = 0,
 ): LyricsProvider => ({
   id,
-  label: id === 'lrclib' ? 'LRCLIB' : 'NetEase Lyrics',
-  priority: id === 'lrclib' ? 700 : 600,
+  label: id === 'lrclib' ? 'LRCLIB' : id === 'netease' ? 'NetEase Lyrics' : 'QQ Music',
+  priority: id === 'lrclib' ? 700 : id === 'netease' ? 600 : 590,
   capabilities: {
     synced: true,
     plain: true,
@@ -157,6 +157,24 @@ describe('LyricsMatchEngine', () => {
     expect(matched.accepted?.provider).toBe('netease');
     expect(matched.accepted?.providerLyricsId).toBe('first');
     expect(second.search).toHaveBeenCalled();
+  });
+
+  it('collects all provider candidates when requested', async () => {
+    const netease = provider('netease', [result({ provider: 'netease', providerLyricsId: 'netease-hit', raw: { id: 'netease-hit' } })], 0);
+    const lrclib = provider('lrclib', [result({ providerLyricsId: 'lrclib-hit', raw: { id: 'lrclib-hit' } })], 30);
+    const qqmusic = provider('qqmusic', [result({ provider: 'qqmusic', providerLyricsId: 'qq-hit', raw: { id: 'qq-hit' } })], 40);
+    const engine = new LyricsMatchEngine([lrclib, netease, qqmusic]);
+
+    const matched = await engine.match(query, {
+      enabledProviders: ['netease', 'lrclib', 'qqmusic'],
+      collectAllCandidates: true,
+      providerTimeoutMs: 100,
+      totalMatchTimeoutMs: 200,
+    });
+
+    expect(matched.candidates.map((candidate) => candidate.providerLyricsId)).toEqual(
+      expect.arrayContaining(['netease-hit', 'lrclib-hit', 'qq-hit']),
+    );
   });
 
   it('total deadline returns candidates already available', async () => {

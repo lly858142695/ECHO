@@ -10,6 +10,7 @@ import type { UpdateStatus } from '../../shared/types/updates';
 import type { FontFileAsset } from '../../preload/apiTypes';
 import { defaultSettings, getAppSettings, getAppWallpaperDirectory, getLyricsWallpaperDirectory, setAppSettings } from '../app/appSettings';
 import { checkForUpdates, getUpdateStatus, setAutoUpdateEnabled } from '../app/autoUpdater';
+import { refreshBackgroundSpaceRegistration } from '../app/backgroundPlaybackShortcuts';
 import { destroyTray, ensureTray } from '../app/tray';
 import { ensureCoverCacheDirectory } from '../library/CoverCacheManager';
 import { getLibraryService } from '../library/LibraryService';
@@ -160,6 +161,10 @@ export const registerIpc = (): void => {
       }
     }
 
+    if (typeof settingsPatch.backgroundSpacePauseEnabled === 'boolean') {
+      refreshBackgroundSpaceRegistration();
+    }
+
     return settings;
   });
   ipcMain.handle(IpcChannels.AppResetSettings, async (): Promise<AppSettings> => {
@@ -174,6 +179,7 @@ export const registerIpc = (): void => {
     libraryService.setCoverCacheDir(defaultCoverCacheDir);
     destroyTray();
     const settings = setAppSettings({ ...defaultSettings });
+    refreshBackgroundSpaceRegistration();
     await setDiscordPresenceEnabled(settings.discordRichPresenceEnabled);
     getLastFmService().disconnect();
     return settings;

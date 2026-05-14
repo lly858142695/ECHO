@@ -8,7 +8,7 @@ import { getLibraryService } from '../library/LibraryService';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { LyricsMatchRisk, LyricsProviderId, LyricsQuery, LyricsSearchCandidate, LyricsSource, TrackLyrics } from '../../shared/types/lyrics';
-import { deserializeLyricLines, parseSyncedLyrics, serializeLyricLines } from './lyricsParser';
+import { deserializeLyricLines, parsePlainLyrics, parseSyncedLyrics, serializeLyricLines } from './lyricsParser';
 import { normalizeText, normalizeTextForIdentity } from './lyricsScoring';
 import { LocalLyricsProvider } from './LocalLyricsProvider';
 import { LrclibProvider, mapLrclibRecordToTrackLyrics, type LrclibRecord } from './LrclibProvider';
@@ -423,6 +423,7 @@ export class LyricsService {
         autoAcceptScore: settings.lyricsAutoAcceptScore,
         coverAutoAcceptScore: settings.lyricsCoverAutoAcceptScore,
         deepSearchEnabled: settings.lyricsDeepSearchEnabled,
+        collectAllCandidates: true,
         isRejected: (provider, providerLyricsId) => this.hasRejectedProviderLyrics(trackId, provider, providerLyricsId),
       });
 
@@ -540,6 +541,46 @@ export class LyricsService {
       .prepare('UPDATE lyrics_candidates SET status = ?, updated_at = ? WHERE id = ?')
       .run('accepted', nowIso(), candidateId);
     return cached;
+  }
+
+  async applyCustomLrc(trackId: string, lrcText: string, fileName?: string | null): Promise<TrackLyrics> {
+    const track = this.library.getTrack(trackId);
+    const normalizedText = lrcText.replace(/^\uFEFF/u, '').trim();
+    if (!track) {
+      throw new Error(`Unknown track ${trackId}`);
+    }
+
+    if (!normalizedText) {
+      throw new Error('Custom LRC file is empty');
+    }
+
+    const query = toQuery(track);
+    const syncedLines = parseSyncedLyrics(normalizedText);
+    const plainLines = syncedLines.length > 0 ? [] : parsePlainLyrics(normalizedText);
+    if (syncedLines.length === 0 && plainLines.length === 0) {
+      throw new Error('Custom LRC file does not contain readable lyrics');
+    }
+
+    const lyrics: TrackLyrics = {
+      id: randomUUID(),
+      trackId,
+      provider: 'manual',
+      providerLyricsId: `custom-lrc:${hashJson({ trackId, fileName: fileName ?? null, lrcText: normalizedText })}`,
+      kind: syncedLines.length > 0 ? 'synced' : 'plain',
+      title: query.title,
+      artist: query.artist,
+      album: query.album ?? null,
+      durationSeconds: query.durationSeconds ?? null,
+      lines: syncedLines.length > 0 ? syncedLines : plainLines,
+      plainText: syncedLines.length > 0 ? syncedLines.map((line) => line.text).join('\n') : normalizedText,
+      syncedText: syncedLines.length > 0 ? normalizedText : null,
+      offsetMs: 0,
+      score: 1,
+      cachedAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+
+    return this.writeLyricsCache(query, await this.fillLyricsRomanization(lyrics));
   }
 
   async rejectLyricsCandidate(candidateId: string): Promise<void> {

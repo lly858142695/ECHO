@@ -1,6 +1,6 @@
 import { memo, useCallback, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
-import { Heart, ListPlus, MoreHorizontal, Music2 } from 'lucide-react';
+import { Download, Heart, ListPlus, Loader2, MoreHorizontal, Music2 } from 'lucide-react';
 import type { LibraryTrack } from '../../../shared/types/library';
 
 export type HifiTagKind = 'flac' | 'lossless' | 'depth' | 'rate' | 'bitrate' | 'bpm' | 'dsf' | 'hires';
@@ -16,6 +16,9 @@ type TrackRowProps = {
   duplicateHiddenCount?: number;
   onPlay?: (track: LibraryTrack) => void;
   onAddToQueue?: (track: LibraryTrack) => void;
+  onDownload?: (track: LibraryTrack) => void;
+  isDownloading?: boolean;
+  downloadProgress?: number | null;
   onShowVersions?: (track: LibraryTrack) => void;
   liked?: boolean;
   onToggleLiked?: (track: LibraryTrack) => void;
@@ -85,11 +88,15 @@ const tagClassNameByKind: Record<HifiTagKind, string> = {
 };
 
 export const TrackRow = memo(
-  ({ track, isPlaying, duplicateHiddenCount = 0, onPlay, onAddToQueue, onShowVersions, liked = false, onToggleLiked, onOpenMenu }: TrackRowProps): JSX.Element => {
+  ({ track, isPlaying, duplicateHiddenCount = 0, onPlay, onAddToQueue, onDownload, isDownloading = false, downloadProgress = null, onShowVersions, liked = false, onToggleLiked, onOpenMenu }: TrackRowProps): JSX.Element => {
     const tags = tagsFromTrack(track);
     const isUnavailable = track.unavailable === true;
     const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
     const shouldShowCover = Boolean(track.coverThumb && track.coverThumb !== failedCoverUrl);
+    const downloadPercent =
+      typeof downloadProgress === 'number' && Number.isFinite(downloadProgress)
+        ? Math.max(0, Math.min(100, Math.round(downloadProgress)))
+        : null;
     const handlePlay = useCallback((): void => {
       if (isUnavailable) {
         return;
@@ -135,6 +142,13 @@ export const TrackRow = memo(
         onAddToQueue?.(track);
       },
       [onAddToQueue, track],
+    );
+    const handleDownload = useCallback(
+      (event: MouseEvent<HTMLButtonElement>): void => {
+        event.stopPropagation();
+        onDownload?.(track);
+      },
+      [onDownload, track],
     );
     const handleToggleLiked = useCallback(
       (event: MouseEvent<HTMLButtonElement>): void => {
@@ -226,6 +240,24 @@ export const TrackRow = memo(
           <button className="row-action" type="button" aria-label={`Add to queue ${track.title}`} title="Add to queue" disabled={isUnavailable} onClick={handleAddToQueue}>
             <ListPlus size={16} />
           </button>
+          {onDownload ? (
+            <button
+              className="row-action"
+              type="button"
+              aria-label={isDownloading && downloadPercent !== null ? `Downloading ${track.title} ${downloadPercent}%` : `Download ${track.title}`}
+              title={isDownloading && downloadPercent !== null ? `Downloading ${downloadPercent}%` : 'Download'}
+              disabled={isUnavailable || isDownloading}
+              onClick={handleDownload}
+            >
+              {isDownloading && downloadPercent !== null ? (
+                <span className="row-action-progress" aria-hidden="true">{downloadPercent}%</span>
+              ) : isDownloading ? (
+                <Loader2 className="spinning-icon" size={16} />
+              ) : (
+                <Download size={16} />
+              )}
+            </button>
+          ) : null}
           <button className="row-action" type="button" aria-label={`More ${track.title}`} title="More" onClick={handleMoreClick}>
             <MoreHorizontal size={16} />
           </button>
@@ -240,6 +272,9 @@ export const TrackRow = memo(
     previous.liked === next.liked &&
     previous.onPlay === next.onPlay &&
     previous.onAddToQueue === next.onAddToQueue &&
+    previous.onDownload === next.onDownload &&
+    previous.isDownloading === next.isDownloading &&
+    previous.downloadProgress === next.downloadProgress &&
     previous.onShowVersions === next.onShowVersions &&
     previous.onToggleLiked === next.onToggleLiked &&
     previous.onOpenMenu === next.onOpenMenu,

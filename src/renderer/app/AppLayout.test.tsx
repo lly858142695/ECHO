@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Captions, ListMusic, Music2 } from 'lucide-react';
@@ -6,6 +7,7 @@ import { AppProviders } from './AppProviders';
 import { AppLayout } from './AppLayout';
 import type { AppRoute } from './routes';
 import type { LibraryTrack } from '../../shared/types/library';
+import { useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 
 const routes: AppRoute[] = [
   {
@@ -29,6 +31,11 @@ const routes: AppRoute[] = [
   },
 ];
 
+const SharedStatusProbe = (): JSX.Element => {
+  useSharedPlaybackStatus();
+  return <div>Standalone lyrics page</div>;
+};
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -36,6 +43,47 @@ afterEach(() => {
 });
 
 describe('AppLayout standalone routes', () => {
+  it('keeps the songs route mounted when navigating away and back', async () => {
+    const onSongsMount = vi.fn();
+    const onSongsUnmount = vi.fn();
+    const SongsProbe = (): JSX.Element => {
+      useEffect(() => {
+        onSongsMount();
+        return () => onSongsUnmount();
+      }, []);
+
+      return <div>Songs probe</div>;
+    };
+    const localRoutes: AppRoute[] = [
+      {
+        ...routes[0],
+        element: <SongsProbe />,
+      },
+      routes[1],
+    ];
+
+    const { container } = render(
+      <AppProviders>
+        <AppLayout routes={localRoutes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(onSongsMount).toHaveBeenCalledTimes(1));
+
+    const sidebar = screen.getByRole('complementary', { name: 'Main navigation' });
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Lyrics' }));
+
+    await waitFor(() => expect(screen.getByText('Standalone lyrics page')).toBeTruthy());
+    expect(container.querySelector('[data-route-id="songs"]')?.hasAttribute('hidden')).toBe(true);
+    expect(onSongsUnmount).not.toHaveBeenCalled();
+
+    window.dispatchEvent(new Event('app:navigate:lyrics-back'));
+
+    await waitFor(() => expect(container.querySelector('[data-route-id="songs"]')?.hasAttribute('hidden')).toBe(false));
+    expect(onSongsMount).toHaveBeenCalledTimes(1);
+    expect(onSongsUnmount).not.toHaveBeenCalled();
+  });
+
   it('keeps the player bar on the standalone lyrics page', async () => {
     render(
       <AppProviders>
@@ -125,6 +173,59 @@ describe('AppLayout standalone routes', () => {
     await waitFor(() => expect(container.querySelector('.lyrics-player-drawer-host')).toBeTruthy());
     expect(audioOnStatus).toHaveBeenCalledTimes(1);
     expect(unsubscribeAudioStatus).not.toHaveBeenCalled();
+  });
+
+  it('shares one audio status subscription between the player bar and lyrics page', async () => {
+    const audioOnStatus = vi.fn(() => vi.fn());
+    const localRoutes: AppRoute[] = [
+      routes[0],
+      {
+        ...routes[1],
+        element: <SharedStatusProbe />,
+      },
+    ];
+
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ lyricsPlayerBarDrawerEnabled: false, smtcEnabled: true }),
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: 'track-1',
+          positionMs: 15000,
+          durationMs: 120000,
+          filePath: 'D:\\Music\\song.flac',
+        }),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: 'track-1',
+          currentFilePath: 'D:\\Music\\song.flac',
+          positionSeconds: 15,
+          durationSeconds: 120,
+          error: null,
+        }),
+        onStatus: audioOnStatus,
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(null),
+        getLikedTrackIds: vi.fn().mockResolvedValue({}),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={localRoutes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(audioOnStatus).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(screen.getByRole('complementary', { name: 'Main navigation' })).getByRole('button', { name: 'Lyrics' }));
+
+    await waitFor(() => expect(screen.getByText('Standalone lyrics page')).toBeTruthy());
+    expect(audioOnStatus).toHaveBeenCalledTimes(1);
   });
 
   it('does not apply the app wallpaper layer to the standalone lyrics and MV page', async () => {

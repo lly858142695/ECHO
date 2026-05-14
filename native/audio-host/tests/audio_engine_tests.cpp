@@ -218,7 +218,7 @@ void testExplicitZeroPrebufferDisablesWait()
 
     echo::EqProcessor eqProcessor;
     echo::ChannelBalanceProcessor channelBalanceProcessor;
-    PcmRingAudioSource source(2, 512, 1.0f, eqProcessor, channelBalanceProcessor);
+    PcmRingAudioSource source(2, 512, 0, 0, 1.0f, eqProcessor, channelBalanceProcessor);
     require(waitForInitialPcm(source, 512, 0) == 0, "zero prebuffer timeout must not wait for PCM");
 }
 
@@ -242,7 +242,7 @@ void testFramedStdinSessionResetAndLatePcmDrop()
 {
     echo::EqProcessor eqProcessor;
     echo::ChannelBalanceProcessor channelBalanceProcessor;
-    PcmRingAudioSource source(2, 512, 1.0f, eqProcessor, channelBalanceProcessor);
+    PcmRingAudioSource source(2, 512, 0, 0, 1.0f, eqProcessor, channelBalanceProcessor);
     std::atomic<bool> shutdownRequested { false };
     uint32_t currentSessionId = 0;
     bool hasSession = false;
@@ -305,11 +305,53 @@ void testFramedStdinSessionResetAndLatePcmDrop()
     require(! shutdownRequested.load(), "end-session must not request host shutdown");
 }
 
+void testFramedStdinIdleDoesNotCountUnderrunBeforePcm()
+{
+    echo::EqProcessor eqProcessor;
+    echo::ChannelBalanceProcessor channelBalanceProcessor;
+    PcmRingAudioSource source(2, 512, 0, 0, 1.0f, eqProcessor, channelBalanceProcessor);
+    auto output = makeBuffer(2, 16);
+    juce::AudioSourceChannelInfo info(&output, 0, 16);
+    const auto payload = makePcmPayload({ 0.1f, 0.2f, 0.3f, 0.4f });
+
+    source.beginSession();
+    source.getNextAudioBlock(info);
+    require(source.getUnderrunCallbacks() == 0, "idle session before first PCM must not count underruns");
+    require(source.getUnderrunFrames() == 0, "idle session before first PCM must not count underrun frames");
+
+    std::vector<char> pending;
+    pushPcmPayload(source, 2, pending, payload);
+    source.getNextAudioBlock(info);
+    require(source.getUnderrunCallbacks() > 0, "session must count underruns after PCM has started");
+}
+
+void testFramedStdinPrebufferDoesNotCountUnderrunBeforeTarget()
+{
+    echo::EqProcessor eqProcessor;
+    echo::ChannelBalanceProcessor channelBalanceProcessor;
+    PcmRingAudioSource source(2, 512, 64, 5000, 1.0f, eqProcessor, channelBalanceProcessor);
+    auto output = makeBuffer(2, 16);
+    juce::AudioSourceChannelInfo info(&output, 0, 16);
+    std::vector<char> pending;
+
+    source.beginSession();
+    pushPcmPayload(source, 2, pending, makePcmPayload({ 0.1f, 0.2f, 0.3f, 0.4f }));
+    source.getNextAudioBlock(info);
+    require(source.getFramesPlayed() == 0, "prebuffering framed session must not consume early PCM");
+    require(source.getReadyFrames() == 2, "prebuffering framed session must retain early PCM");
+    require(source.getUnderrunCallbacks() == 0, "prebuffering framed session must not count underruns before target");
+
+    std::vector<float> samples(128, 0.15f);
+    pushPcmPayload(source, 2, pending, makePcmPayload(samples));
+    source.getNextAudioBlock(info);
+    require(source.getFramesPlayed() > 0, "framed session must start after the prebuffer target is reached");
+}
+
 void testFramedStdinShutdown()
 {
     echo::EqProcessor eqProcessor;
     echo::ChannelBalanceProcessor channelBalanceProcessor;
-    PcmRingAudioSource source(2, 512, 1.0f, eqProcessor, channelBalanceProcessor);
+    PcmRingAudioSource source(2, 512, 0, 0, 1.0f, eqProcessor, channelBalanceProcessor);
     std::atomic<bool> shutdownRequested { false };
     uint32_t currentSessionId = 0;
     bool hasSession = false;
@@ -390,6 +432,8 @@ int main()
         { "host prebuffer defaults remain compatible", testHostPrebufferDefaultsRemainCompatible },
         { "explicit zero prebuffer disables wait", testExplicitZeroPrebufferDisablesWait },
         { "framed stdin session reset and late PCM drop", testFramedStdinSessionResetAndLatePcmDrop },
+        { "framed stdin idle does not count underrun before PCM", testFramedStdinIdleDoesNotCountUnderrunBeforePcm },
+        { "framed stdin prebuffer does not count underrun before target", testFramedStdinPrebufferDoesNotCountUnderrunBeforeTarget },
         { "framed stdin shutdown", testFramedStdinShutdown },
         { "protocol messages", testProtocolMessages },
     };

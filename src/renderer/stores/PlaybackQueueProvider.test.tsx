@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LibraryTrack } from '../../shared/types/library';
 import { PlaybackQueueProvider, usePlaybackQueue } from './PlaybackQueueProvider';
+import { useSharedPlaybackStatus } from './playbackStatusStore';
 
 const makeTrack = (index: number): LibraryTrack => ({
   id: `track-${index}`,
@@ -156,22 +157,23 @@ describe('PlaybackQueueProvider playback history session', () => {
     }));
   });
 
-  it('triggers automatic network MV search when playback starts', async () => {
+  it('defers automatic network MV search when playback starts', async () => {
     const track = makeTrack(1);
     const getSettings = vi.fn().mockResolvedValue({ autoSearch: true });
     const searchNetworkCandidates = vi.fn().mockResolvedValue([]);
     const getSelected = vi.fn().mockResolvedValue(null);
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    const playLocalFile = vi.fn().mockResolvedValue({
+      state: 'playing',
+      currentTrackId: track.id,
+      positionMs: 0,
+      durationMs: track.duration * 1000,
+      filePath: track.path,
+    });
 
     window.echo = {
       playback: {
-        playLocalFile: vi.fn().mockResolvedValue({
-          state: 'playing',
-          currentTrackId: track.id,
-          positionMs: 0,
-          durationMs: track.duration * 1000,
-          filePath: track.path,
-        }),
+        playLocalFile,
       },
       mv: {
         getSettings,
@@ -202,6 +204,8 @@ describe('PlaybackQueueProvider playback history session', () => {
       </PlaybackQueueProvider>,
     );
 
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: track.id })));
+    expect(searchNetworkCandidates).not.toHaveBeenCalled();
     await waitFor(() => expect(searchNetworkCandidates).toHaveBeenCalledWith(track.id));
     await waitFor(() => expect(getSelected).toHaveBeenCalledWith(track.id));
     await waitFor(() =>
@@ -283,6 +287,180 @@ describe('PlaybackQueueProvider playback history session', () => {
       }),
     );
     expect(startPlaybackHistory.mock.calls[0]?.[0].trackPath).toBeUndefined();
+  });
+
+  it('keeps the requested streaming track current when media IPC returns a stale previous id', async () => {
+    const first: LibraryTrack = {
+      ...makeTrack(1),
+      id: 'streaming:qqmusic:first',
+      mediaType: 'streaming',
+      path: 'streaming:qqmusic:first',
+      provider: 'qqmusic',
+      providerTrackId: 'first',
+      stableKey: 'streaming:qqmusic:first',
+    };
+    const second: LibraryTrack = {
+      ...makeTrack(2),
+      id: 'streaming:qqmusic:second',
+      mediaType: 'streaming',
+      path: 'streaming:qqmusic:second',
+      provider: 'qqmusic',
+      providerTrackId: 'second',
+      stableKey: 'streaming:qqmusic:second',
+    };
+    const playMediaItem = vi.fn().mockResolvedValue({
+      state: 'playing',
+      currentTrackId: first.id,
+      positionMs: 0,
+      durationMs: first.duration * 1000,
+      filePath: 'http://127.0.0.1:49152/streaming/stale',
+    });
+
+    window.echo = {
+      playback: {
+        playMediaItem,
+      },
+    } as unknown as Window['echo'];
+
+    const StreamingProbe = (): JSX.Element => {
+      const queue = usePlaybackQueue();
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (didStartRef.current) {
+          return;
+        }
+
+        didStartRef.current = true;
+        void queue.playTrack(first, { replaceQueueWith: [first, second] });
+      }, [queue]);
+
+      return (
+        <div>
+          <output aria-label="current-track">{queue.currentTrackId ?? ''}</output>
+          <button type="button" onClick={() => void queue.playNext()}>
+            next
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <StreamingProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe(first.id));
+    fireEvent.click(screen.getByRole('button', { name: 'next' }));
+
+    await waitFor(() => expect(playMediaItem).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe(second.id));
+  });
+
+  it('publishes the requested track before slow playback IPC resolves', async () => {
+    const first = makeTrack(1);
+    const second = makeTrack(2);
+    let resolveSecondPlay: (() => void) | null = null;
+    const playLocalFile = vi
+      .fn()
+      .mockImplementationOnce((request: { trackId: string; filePath: string }) =>
+        Promise.resolve({
+          state: 'playing',
+          currentTrackId: request.trackId,
+          positionMs: 0,
+          durationMs: first.duration * 1000,
+          filePath: request.filePath,
+        }),
+      )
+      .mockImplementationOnce((request: { trackId: string; filePath: string }) =>
+        new Promise((resolve) => {
+          resolveSecondPlay = () =>
+            resolve({
+              state: 'playing',
+              currentTrackId: request.trackId,
+              positionMs: 0,
+              durationMs: second.duration * 1000,
+              filePath: request.filePath,
+            });
+        }),
+      );
+
+    window.echo = {
+      playback: {
+        playLocalFile,
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: first.id,
+          positionMs: 5000,
+          durationMs: first.duration * 1000,
+          filePath: first.path,
+        }),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: first.id,
+          currentFilePath: first.path,
+          positionSeconds: 5,
+          durationSeconds: first.duration,
+          fileSampleRate: first.sampleRate,
+          outputSampleRate: first.sampleRate,
+          channels: 2,
+          bitDepth: first.bitDepth,
+          bitrate: first.bitrate,
+          codec: first.codec,
+          outputMode: 'shared',
+          requestedSampleRate: first.sampleRate,
+          actualDeviceSampleRate: first.sampleRate,
+          sampleRateMismatch: false,
+          playbackRate: 1,
+          playbackSpeedMode: 'nightcore',
+          volume: 1,
+          error: null,
+        }),
+      },
+    } as unknown as Window['echo'];
+
+    const PendingPlaybackProbe = (): JSX.Element => {
+      const queue = usePlaybackQueue();
+      const status = useSharedPlaybackStatus();
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (didStartRef.current) {
+          return;
+        }
+
+        didStartRef.current = true;
+        void queue.playTrack(first, { replaceQueueWith: [first, second] });
+      }, [queue]);
+
+      return (
+        <div>
+          <output aria-label="queue-track">{queue.currentTrackId ?? ''}</output>
+          <output aria-label="shared-track">{status.playbackStatus?.currentTrackId ?? ''}</output>
+          <button type="button" onClick={() => void queue.playNext()}>
+            next
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <PendingPlaybackProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('queue-track').textContent).toBe(first.id));
+    fireEvent.click(screen.getByRole('button', { name: 'next' }));
+
+    await waitFor(() => expect(screen.getByLabelText('queue-track').textContent).toBe(second.id));
+    await waitFor(() => expect(screen.getByLabelText('shared-track').textContent).toBe(second.id));
+
+    const finishSecondPlay = resolveSecondPlay ?? (() => undefined);
+    finishSecondPlay();
   });
 });
 
@@ -500,5 +678,52 @@ describe('PlaybackQueueProvider playback modes', () => {
 
     expect(screen.getByTestId('shuffle').textContent).toBe('on');
     expect(screen.getByTestId('repeat').textContent).toBe('one');
+  });
+
+  it('remembers queue items and the current track across provider restarts', async () => {
+    const tracks = [makeTrack(1), makeTrack(2)];
+
+    const QueueMemoryProbe = ({ seed = false }: { seed?: boolean }): JSX.Element => {
+      const queue = usePlaybackQueue();
+      const didSeedRef = useRef(false);
+
+      useEffect(() => {
+        if (!seed || didSeedRef.current) {
+          return;
+        }
+
+        didSeedRef.current = true;
+        queue.replaceQueue(tracks, { startTrackId: tracks[1].id });
+      }, [queue, seed]);
+
+      return (
+        <div>
+          <output aria-label="queue-size">{queue.items.length}</output>
+          <output aria-label="current-track">{queue.currentTrackId ?? ''}</output>
+          <output aria-label="current-title">{queue.currentTrack?.title ?? ''}</output>
+        </div>
+      );
+    };
+
+    const firstRender = render(
+      <PlaybackQueueProvider>
+        <QueueMemoryProbe seed />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('queue-size').textContent).toBe('2'));
+    expect(screen.getByLabelText('current-track').textContent).toBe('track-2');
+
+    firstRender.unmount();
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueMemoryProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    expect(screen.getByLabelText('queue-size').textContent).toBe('2');
+    expect(screen.getByLabelText('current-track').textContent).toBe('track-2');
+    expect(screen.getByLabelText('current-title').textContent).toBe('Track 2');
   });
 });

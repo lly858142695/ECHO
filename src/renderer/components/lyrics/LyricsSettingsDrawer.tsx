@@ -48,6 +48,7 @@ type LyricsDrawerSettings = Pick<
   | 'lyricsDeepSearchEnabled'
   | 'lyricsEnabled'
   | 'lyricsHeaderHidden'
+  | 'lyricsMvAutoShowTrackInfoDisabled'
   | 'lyricsEmptyStateHidden'
   | 'lyricsPlayerBarDrawerEnabled'
   | 'lyricsRomanizationEnabled'
@@ -78,6 +79,7 @@ const fallbackSettings: LyricsDrawerSettings = {
   lyricsDeepSearchEnabled: true,
   lyricsEnabled: true,
   lyricsHeaderHidden: false,
+  lyricsMvAutoShowTrackInfoDisabled: true,
   lyricsEmptyStateHidden: true,
   lyricsPlayerBarDrawerEnabled: false,
   lyricsRomanizationEnabled: true,
@@ -175,6 +177,7 @@ const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
   lyricsDeepSearchEnabled: settings.lyricsDeepSearchEnabled !== false,
   lyricsEnabled: settings.lyricsEnabled,
   lyricsHeaderHidden: settings.lyricsHeaderHidden,
+  lyricsMvAutoShowTrackInfoDisabled: settings.lyricsMvAutoShowTrackInfoDisabled !== false,
   lyricsEmptyStateHidden: settings.lyricsEmptyStateHidden,
   lyricsPlayerBarDrawerEnabled: settings.lyricsPlayerBarDrawerEnabled === true,
   lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled,
@@ -346,6 +349,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
     if (optimistic) {
       setSettings((current) => ({ ...(current ?? fallbackSettings), ...(patch as Partial<LyricsDrawerSettings>) }));
       dispatchSettingsChanged(patch);
+      dispatchLyricsDisplaySettingsChanged(patch);
     }
 
     setIsBusy(true);
@@ -356,6 +360,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
         setSettings(nextLyricsSettings);
         setError(null);
         dispatchSettingsChanged(nextLyricsSettings);
+        dispatchLyricsDisplaySettingsChanged(nextLyricsSettings);
       }
     } catch (settingsError) {
       if (requestId === saveRequestIdRef.current) {
@@ -423,6 +428,36 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
     },
     [flushDebouncedSettings],
   );
+
+  const toggleLyricsHeaderHidden = useCallback(
+    (hidden: boolean): void => {
+      void patchSettings({ lyricsHeaderHidden: hidden });
+    },
+    [patchSettings],
+  );
+
+  const toggleMvAutoShowTrackInfoDisabled = useCallback((): void => {
+    const nextDisabled = !effectiveSettings.lyricsMvAutoShowTrackInfoDisabled;
+    if (!nextDisabled) {
+      void patchSettings({ lyricsMvAutoShowTrackInfoDisabled: false });
+      return;
+    }
+
+    void (async (): Promise<void> => {
+      let isMvEnabled = true;
+      try {
+        const mvSettings = await window.echo?.mv?.getSettings?.();
+        isMvEnabled = mvSettings?.enabled !== false;
+      } catch {
+        isMvEnabled = true;
+      }
+
+      await patchSettings({
+        lyricsMvAutoShowTrackInfoDisabled: true,
+        lyricsHeaderHidden: isMvEnabled,
+      });
+    })();
+  }, [effectiveSettings.lyricsMvAutoShowTrackInfoDisabled, patchSettings]);
 
   useEffect(() => {
     return () => {
@@ -800,7 +835,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                 value={thresholdPercent}
                 aria-label="歌词匹配度设置"
                 disabled={isBusy || !effectiveSettings.lyricsEnabled}
-                onChange={(event) => void patchSettings({ lyricsAutoAcceptScore: thresholdFromPercent(event.currentTarget.value) })}
+                onChange={(event) => patchSettingsDebounced({ lyricsAutoAcceptScore: thresholdFromPercent(event.currentTarget.value) })}
               />
               <strong>{thresholdPercent}%</strong>
             </span>
@@ -816,9 +851,23 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               type="checkbox"
               checked={effectiveSettings.lyricsHeaderHidden}
               disabled={isBusy || !effectiveSettings.lyricsEnabled}
-              onChange={(event) => void patchSettings({ lyricsHeaderHidden: event.currentTarget.checked })}
+              onChange={(event) => toggleLyricsHeaderHidden(event.currentTarget.checked)}
             />
           </label>
+          {effectiveSettings.lyricsHeaderHidden ? (
+            <label className="audio-toggle-row">
+              <span>
+                <EyeOff size={17} />
+                <strong>关闭MV自动显示歌曲信息</strong>
+              </span>
+              <input
+                type="checkbox"
+                checked={effectiveSettings.lyricsMvAutoShowTrackInfoDisabled}
+                disabled={isBusy || !effectiveSettings.lyricsEnabled}
+                onChange={toggleMvAutoShowTrackInfoDisabled}
+              />
+            </label>
+          ) : null}
           <label className="audio-toggle-row">
             <span>
               <EyeOff size={17} />
@@ -1375,7 +1424,8 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
     <div className="audio-drawer-root lyrics-settings-drawer-root no-drag" role="presentation" data-open={isMotionOpen}>
       <button className="audio-drawer-scrim" type="button" aria-label="关闭歌词设置" onClick={onClose} />
       <aside className="audio-drawer lyrics-settings-drawer" aria-label="歌词设置">
-        <header className="audio-drawer-header">
+        <div className="audio-drawer-scroll">
+          <header className="audio-drawer-header">
           <div>
             <SlidersHorizontal size={18} />
             <h2>歌词设置</h2>
@@ -1383,8 +1433,9 @@ export const LyricsSettingsDrawer = ({ isOpen, onClose }: LyricsSettingsDrawerPr
           <button className="audio-drawer-close" type="button" aria-label="关闭歌词设置" title="关闭歌词设置" onClick={onClose}>
             <X size={20} />
           </button>
-        </header>
-        <LyricsSettingsPanel />
+          </header>
+          <LyricsSettingsPanel />
+        </div>
       </aside>
     </div>
   );

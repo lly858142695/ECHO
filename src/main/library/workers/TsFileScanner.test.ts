@@ -25,13 +25,13 @@ const collectNames = async (root: string): Promise<string[]> => {
 };
 
 describe('TsFileScanner', () => {
-  it('discovers newly supported audio and cue formats', async () => {
+  it('discovers newly supported audio formats without importing cue sheets', async () => {
     const root = makeTempRoot();
     const nested = join(root, 'nested');
     mkdirSync(nested, { recursive: true });
-    const supported = ['album.cue', 'track.alac', 'track.opus', 'track.dsf', 'track.dff', 'track.mka', 'track.mkv', 'track.mp4'];
+    const supported = ['track.alac', 'track.opus', 'track.dsf', 'track.dff', 'track.mka', 'track.mkv', 'track.mp4'];
 
-    for (const fileName of supported) {
+    for (const fileName of ['album.cue', ...supported]) {
       writeFileSync(join(nested, fileName), 'audio');
     }
 

@@ -6,6 +6,48 @@ import { getAudioBridge } from '../../utils/echoBridge';
 
 type AudioDiagnosticsFallback = Partial<AudioDiagnostics> & Partial<AudioStatus>;
 
+const diagnosticsRefreshIntervalMs = 3000;
+
+const scheduleIdleDiagnosticsRefresh = (callback: () => void): (() => void) => {
+  let cancelled = false;
+  let idleId: number | null = null;
+  let timeoutId: number | null = null;
+  const requestIdleCallback = window.requestIdleCallback;
+  const cancelIdleCallback = window.cancelIdleCallback;
+
+  const frameId = window.requestAnimationFrame(() => {
+    if (cancelled) {
+      return;
+    }
+
+    if (typeof requestIdleCallback === 'function') {
+      idleId = requestIdleCallback(() => {
+        if (!cancelled) {
+          callback();
+        }
+      }, { timeout: 1500 });
+      return;
+    }
+
+    timeoutId = window.setTimeout(() => {
+      if (!cancelled) {
+        callback();
+      }
+    }, 180);
+  });
+
+  return () => {
+    cancelled = true;
+    window.cancelAnimationFrame(frameId);
+    if (idleId !== null && typeof cancelIdleCallback === 'function') {
+      cancelIdleCallback(idleId);
+    }
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  };
+};
+
 const formatValue = (value: unknown, unknownValue = 'N/A'): string => {
   if (Array.isArray(value)) {
     return value.length ? value.join(', ') : unknownValue;
@@ -131,12 +173,17 @@ export const PlaybackStabilityDiagnosticsPanel = (): JSX.Element => {
   }, [desktopBridgeUnavailable]);
 
   useEffect(() => {
-    void refreshDiagnostics();
+    const cancelInitialRefresh = scheduleIdleDiagnosticsRefresh(() => {
+      void refreshDiagnostics();
+    });
     const interval = window.setInterval(() => {
       void refreshDiagnostics();
-    }, 1000);
+    }, diagnosticsRefreshIntervalMs);
 
-    return () => window.clearInterval(interval);
+    return () => {
+      cancelInitialRefresh();
+      window.clearInterval(interval);
+    };
   }, [refreshDiagnostics]);
 
   const rows = useMemo(

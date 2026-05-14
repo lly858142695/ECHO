@@ -23,7 +23,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { AudioDeviceInfo, AudioDiagnostics, AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, AudioStatus } from '../../../shared/types/audio';
 import { useI18n } from '../../i18n/I18nProvider';
-import { createOutputSettings, readRememberedAudioOutput, writeRememberedAudioOutput } from './audioOutputMemory';
+import { createOutputSettings, readRememberedAudioOutput, resolveSupportedLatencyProfile, writeRememberedAudioOutput } from './audioOutputMemory';
 
 type AudioSettingsDrawerProps = {
   isOpen: boolean;
@@ -288,6 +288,21 @@ const getNativeLatencyText = (status: AudioStatus | null, unknownValue: string):
   return `${profile} / ${bufferText} / ${latency} / ${stale}`;
 };
 
+const getRecommendedLatencyMs = (status: AudioStatus | null): number | null => {
+  if (status?.nativeOutputLatencyMs !== null && status?.nativeOutputLatencyMs !== undefined) {
+    return status.nativeOutputLatencyMs;
+  }
+
+  const frames = status?.nativeActualBufferFrames ?? status?.nativeRequestedBufferFrames ?? status?.nativeDeviceBufferFrames ?? null;
+  const sampleRate = getOutputSampleRate(status, null);
+
+  if (!frames || !sampleRate) {
+    return null;
+  }
+
+  return Math.round((frames / sampleRate) * 1000);
+};
+
 const deviceMatchesStatus = (device: AudioDeviceInfo, status: AudioStatus | null, mode: AudioOutputMode): boolean => {
   if (!status || status.outputMode !== mode) {
     return false;
@@ -537,10 +552,19 @@ export const AudioSettingsDrawer = ({
     };
   }, [copy, currentOutputName, effectiveSharedSampleRate, outputMode, status]);
   const currentLatencyProfile = status?.latencyProfile ?? readRememberedAudioOutput().latencyProfile ?? 'lowLatency';
+  const supportedLatencyProfile = resolveSupportedLatencyProfile(outputMode, currentLatencyProfile);
   const currentAsioBufferFrames =
     status?.outputMode === 'asio'
       ? status.nativeRequestedBufferFrames ?? null
       : readRememberedAudioOutput().bufferSizeFrames ?? null;
+  const recommendedLatencyMs = getRecommendedLatencyMs(status);
+  const recommendedLatencyText = recommendedLatencyMs !== null
+    ? t('audioDrawer.asioLatency.value', { value: recommendedLatencyMs })
+    : t('settings.playback.stability.value.unknown');
+  const asioBufferStatusText = t('audioDrawer.asioLatency.status', {
+    requested: status?.nativeRequestedBufferFrames ?? 'Auto',
+    opened: status?.nativeActualBufferFrames ?? 'n/a',
+  });
 
   const refresh = useCallback(async (): Promise<void> => {
     const audio = window.echo?.audio;
@@ -643,7 +667,10 @@ export const AudioSettingsDrawer = ({
       writeRememberedAudioOutput({
         enabled,
         outputMode: settings.outputMode ?? remembered.outputMode ?? status?.outputMode ?? outputMode ?? 'shared',
-        latencyProfile: settings.latencyProfile ?? remembered.latencyProfile ?? status?.latencyProfile ?? 'lowLatency',
+        latencyProfile: resolveSupportedLatencyProfile(
+          settings.outputMode ?? remembered.outputMode ?? status?.outputMode ?? outputMode ?? 'shared',
+          settings.latencyProfile ?? remembered.latencyProfile ?? status?.latencyProfile ?? 'lowLatency',
+        ),
         deviceIndex: isDeviceSelection ? settings.deviceIndex : remembered.deviceIndex,
         deviceName: isDeviceSelection ? settings.deviceName : remembered.deviceName,
         bufferSizeFrames: hasBufferSize
@@ -699,13 +726,16 @@ export const AudioSettingsDrawer = ({
 
   const toggleRememberOutput = (enabled: boolean): void => {
     setRememberOutput(enabled);
-      writeRememberedAudioOutput({
-        enabled,
+    persistOutput(
+      {
         outputMode: status?.outputMode ?? outputMode,
-        latencyProfile: status?.latencyProfile ?? 'lowLatency',
-        deviceName: status?.outputDeviceName ?? undefined,
-        bufferSizeFrames: status?.outputMode === 'asio' ? status.nativeRequestedBufferFrames ?? undefined : undefined,
-      });
+        latencyProfile: resolveSupportedLatencyProfile(status?.outputMode ?? outputMode, status?.latencyProfile ?? currentLatencyProfile),
+        deviceIndex: statusDevice?.index,
+        deviceName: status?.outputDeviceName ?? statusDevice?.name,
+        bufferSizeFrames: status?.outputMode === 'asio' ? currentAsioBufferFrames : undefined,
+      },
+      enabled,
+    );
   };
 
   const hideDevice = (device: AudioDeviceInfo): void => {
@@ -771,15 +801,16 @@ export const AudioSettingsDrawer = ({
     <div className="audio-drawer-root no-drag" role="presentation" data-open={isMotionOpen}>
       <button className="audio-drawer-scrim" type="button" aria-label={copy.close} onClick={onClose} />
       <aside className="audio-drawer" aria-label={t('audioDrawer.title')}>
-        <header className="audio-drawer-header">
-          <div>
-            <SlidersHorizontal size={18} />
-            <h2>{t('audioDrawer.title')}</h2>
-          </div>
-          <button className="audio-drawer-close" type="button" aria-label={copy.close} title={copy.close} onClick={onClose}>
-            <X size={20} />
-          </button>
-        </header>
+        <div className="audio-drawer-scroll">
+          <header className="audio-drawer-header">
+            <div>
+              <SlidersHorizontal size={18} />
+              <h2>{t('audioDrawer.title')}</h2>
+            </div>
+            <button className="audio-drawer-close" type="button" aria-label={copy.close} title={copy.close} onClick={onClose}>
+              <X size={20} />
+            </button>
+          </header>
 
         <button className="audio-engine-meter" type="button" onClick={() => void refresh()} disabled={isBusy}>
           <div className="audio-engine-meter__top">
@@ -950,9 +981,9 @@ export const AudioSettingsDrawer = ({
           <p>{t('audioDrawer.option.wasapiExclusiveDescription')}</p>
 
           <div className="audio-drawer-mini-grid" aria-label="Latency profile">
-            {latencyProfileOptions.map((option) => (
+            {latencyProfileOptions.filter((option) => !wasapiExclusive || option.id !== 'lowLatency').map((option) => (
               <button
-                className={`audio-device-pill ${currentLatencyProfile === option.id ? 'active' : ''}`}
+                className={`audio-device-pill ${supportedLatencyProfile === option.id ? 'active' : ''}`}
                 type="button"
                 key={option.id}
                 disabled={isBusy}
@@ -963,7 +994,7 @@ export const AudioSettingsDrawer = ({
                   <strong>{option.label}</strong>
                   <small>{option.detail}</small>
                 </span>
-                <em>{currentLatencyProfile === option.id ? 'On' : 'Set'}</em>
+                <em>{supportedLatencyProfile === option.id ? 'On' : 'Set'}</em>
               </button>
             ))}
           </div>
@@ -999,8 +1030,15 @@ export const AudioSettingsDrawer = ({
                 })}
               </div>
               <p>
-                Requested {status?.nativeRequestedBufferFrames ?? 'Auto'} frames / opened {status?.nativeActualBufferFrames ?? 'n/a'} frames / {status?.nativeOutputLatencyMs ?? 'n/a'} ms
+                {asioBufferStatusText}
               </p>
+              <div className="audio-recommended-latency">
+                <div>
+                  <span>{t('audioDrawer.asioLatency.recommended')}</span>
+                  <strong>{recommendedLatencyText}</strong>
+                </div>
+                <p>{t('audioDrawer.asioLatency.description')}</p>
+              </div>
             </>
           ) : null}
 
@@ -1030,32 +1068,32 @@ export const AudioSettingsDrawer = ({
 
         {error ? <p className="audio-drawer-error">{error}</p> : null}
 
-        <details className="audio-drawer-section audio-hidden-devices">
-          <summary>
-            <EyeOff size={17} />
-            <span>{t('audioDrawer.section.hiddenDevices')}</span>
-            <em>{hiddenDevices.length}</em>
-          </summary>
-          {hiddenDevices.length === 0 ? <p className="audio-drawer-empty">{t('audioDrawer.empty.hiddenDevices')}</p> : null}
-          {hiddenDevices.map((device) => {
-            const DeviceIcon = getDeviceIcon(device.name, device.outputMode);
-            const sampleRate = formatRate(device.sharedDeviceSampleRate ?? device.sampleRate);
+          <details className="audio-drawer-section audio-hidden-devices">
+            <summary>
+              <EyeOff size={17} />
+              <span>{t('audioDrawer.section.hiddenDevices')}</span>
+              <em>{hiddenDevices.length}</em>
+            </summary>
+            {hiddenDevices.length === 0 ? <p className="audio-drawer-empty">{t('audioDrawer.empty.hiddenDevices')}</p> : null}
+            {hiddenDevices.map((device) => {
+              const DeviceIcon = getDeviceIcon(device.name, device.outputMode);
+              const sampleRate = formatRate(device.sharedDeviceSampleRate ?? device.sampleRate);
 
-            return (
-              <div className={`audio-hidden-device ${device.outputMode === 'asio' ? 'audio-hidden-device--asio' : ''}`} key={getDeviceStorageKey(device)}>
-                <DeviceIcon size={15} />
-                <span>
-                  <strong title={device.name}>{device.name}</strong>
-                  <small>{device.outputMode === 'asio' ? copy.asioDriver : t('audioDrawer.device.systemOutput')} / {sampleRate || t('audioDrawer.status.sampleRatePending')}</small>
-                </span>
-                <button type="button" onClick={() => restoreDevice(device)}>
-                  {t('audioDrawer.action.restore')}
-                </button>
-              </div>
-            );
-          })}
-        </details>
-
+              return (
+                <div className={`audio-hidden-device ${device.outputMode === 'asio' ? 'audio-hidden-device--asio' : ''}`} key={getDeviceStorageKey(device)}>
+                  <DeviceIcon size={15} />
+                  <span>
+                    <strong title={device.name}>{device.name}</strong>
+                    <small>{device.outputMode === 'asio' ? copy.asioDriver : t('audioDrawer.device.systemOutput')} / {sampleRate || t('audioDrawer.status.sampleRatePending')}</small>
+                  </span>
+                  <button type="button" onClick={() => restoreDevice(device)}>
+                    {t('audioDrawer.action.restore')}
+                  </button>
+                </div>
+              );
+            })}
+          </details>
+        </div>
       </aside>
       {hiddenDeviceMenu ? (
         <div

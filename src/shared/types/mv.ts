@@ -41,6 +41,7 @@ export type MvSettings = {
   immersiveBackgroundOverlayOpacityPercent?: number;
   lyricsReadabilityEnhanced?: boolean;
   restartAudioOnLoad: boolean;
+  replayAudioOnChange?: boolean;
   enabledProviders: NetworkMvProviderId[];
   providerOrder: NetworkMvProviderId[];
   maxQuality: MvMaxQuality;

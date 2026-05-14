@@ -62,6 +62,7 @@ const renderPanel = (
   settings: MvSettings = defaultMvSettings,
   clockPositionSeconds = 0,
   clockPlaybackRate = 1,
+  hideFallbackTrackInfo = false,
 ) => {
   window.echo = {
     playback: {
@@ -90,6 +91,7 @@ const renderPanel = (
       title="Test Song"
       artist="Test Artist"
       coverUrl="echo-cover://thumb/test"
+      hideFallbackTrackInfo={hideFallbackTrackInfo}
       isAudioPlaying={isAudioPlaying}
       audioClock={makeAudioClock(clockPositionSeconds, clockPlaybackRate, {
         state: isAudioPlaying ? 'playing' : 'paused',
@@ -119,6 +121,15 @@ describe('MvPanel', () => {
     expect(screen.getByText('MV unavailable')).toBeTruthy();
     expect(screen.queryByText('Find local')).toBeNull();
     expect(screen.queryByText('Choose file')).toBeNull();
+  });
+
+  it('can hide track info on the cover fallback card', async () => {
+    renderPanel(null, true, defaultMvSettings, 0, 1, true);
+
+    await waitFor(() => expect(window.echo.mv.getSelected).toHaveBeenCalledWith('track-1'));
+    expect(screen.getByText('MV unavailable')).toBeTruthy();
+    expect(screen.queryByText('Test Song')).toBeNull();
+    expect(screen.queryByText('Test Artist')).toBeNull();
   });
 
   it('does not load or render MV when MV is disabled', async () => {

@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { BrowserWindow } from 'electron';
 import { getAppSettings } from './appSettings';
+import { bindBackgroundPlaybackShortcutsToWindow } from './backgroundPlaybackShortcuts';
 import { ensureTray, isAppQuitRequested } from './tray';
 import { clearMainWindow, setMainWindow } from './windowManager';
 
@@ -18,6 +19,14 @@ export const resolvePreloadPath = (baseDir = mainOutputDir): string => {
   return join(baseDir, '../preload/index.js');
 };
 
+export const createMainWindowWebPreferences = (): Electron.BrowserWindowConstructorOptions['webPreferences'] => ({
+  preload: resolvePreloadPath(),
+  contextIsolation: true,
+  nodeIntegration: false,
+  sandbox: false,
+  backgroundThrottling: false,
+});
+
 export const createMainWindow = (): BrowserWindow => {
   const window = new BrowserWindow({
     width: 1680,
@@ -29,12 +38,7 @@ export const createMainWindow = (): BrowserWindow => {
     backgroundColor: '#f7f9fc',
     frame: false,
     show: false,
-    webPreferences: {
-      preload: resolvePreloadPath(),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
+    webPreferences: createMainWindowWebPreferences(),
   });
 
   window.once('ready-to-show', () => {
@@ -60,6 +64,7 @@ export const createMainWindow = (): BrowserWindow => {
   }
 
   setMainWindow(window);
+  bindBackgroundPlaybackShortcutsToWindow(window);
 
   return window;
 };

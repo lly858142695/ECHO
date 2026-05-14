@@ -26,6 +26,7 @@ import { getAccountService } from '../accounts/AccountService';
 import { getLibraryService } from '../library/LibraryService';
 import { getNcmConverter } from '../library/NcmConverter';
 import { getMvService } from '../mv/MvService';
+import { getAudioSession } from '../audio/AudioSession';
 
 const defaultSettings: DownloadSettings = {
   audioStrategy: 'best_available',
@@ -37,6 +38,7 @@ const defaultSettings: DownloadSettings = {
 const terminalStatuses = new Set<DownloadJobStatus>(['completed', 'failed', 'cancelled']);
 const cancellableStatuses = new Set<DownloadJobStatus>(['queued', 'probing', 'downloading', 'extracting_audio', 'importing', 'binding_mv']);
 const progressEmitIntervalMs = 500;
+const postDownloadImportRetryMs = 5000;
 const maxCommandOutputBytes = 1024 * 1024 * 4;
 const ytDlpFileName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
 const outputTemplate = '%(title).180B [%(id)s].%(ext)s';
@@ -128,6 +130,8 @@ type DownloadServiceDependencies = {
   loadSettings?: () => Partial<DownloadSettings> | null;
   saveSettings?: (settings: DownloadSettings) => void;
   getAccountCredentials?: (provider: AccountProvider) => AccountCredentials;
+  getPlaybackState?: () => string | null | undefined;
+  postDownloadImportRetryMs?: number;
 };
 
 type YtDlpSearchEntry = {
@@ -409,6 +413,12 @@ export class DownloadService extends EventEmitter {
   private lastProgressEmitAt = new Map<string, number>();
 
   private jobOptions = new Map<string, DownloadJobOptions>();
+
+  private postDownloadImportQueue: string[] = [];
+
+  private postDownloadImportTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private postDownloadImportActive = false;
 
   constructor(
     private readonly commandRunner: CommandRunner = runCommand,
@@ -996,7 +1006,11 @@ export class DownloadService extends EventEmitter {
         await this.probe(jobId);
       }
       await this.download(jobId);
-      await this.importAndBind(jobId);
+      if (this.shouldImportAfterDownload(jobId) && this.isPlaybackBusyForPostDownloadImport()) {
+        this.queuePostDownloadImport(jobId);
+      } else {
+        await this.importAndBind(jobId);
+      }
       this.updateJob(jobId, {
         status: 'completed',
         progress: 100,
@@ -1276,8 +1290,15 @@ export class DownloadService extends EventEmitter {
     return headers;
   }
 
-  private async importAndBind(jobId: string): Promise<void> {
-    const job = this.requireJob(jobId);
+  private async importAndBind(jobId: string, optionsOverride: { emitProgress?: boolean } = {}): Promise<void> {
+    const emitProgress = optionsOverride.emitProgress !== false;
+    const job = this.jobs.find((item) => item.id === jobId);
+    if (!job) {
+      throw new Error(`Unknown download job ${jobId}`);
+    }
+    if (terminalStatuses.has(job.status) && (job.status !== 'completed' || job.importedTrackId)) {
+      throw new Error(`Download job ${jobId} is no longer active`);
+    }
     const options = this.jobOptions.get(jobId) ?? {
       importToLibrary: this.settings.importToLibrary,
       bindMvAfterImport: this.settings.bindMvAfterImport,
@@ -1301,7 +1322,9 @@ export class DownloadService extends EventEmitter {
       throw new Error('Download output path is unavailable for import');
     }
 
-    this.updateJob(jobId, { status: 'importing', progress: 98 });
+    if (emitProgress) {
+      this.updateJob(jobId, { status: 'importing', progress: 98 });
+    }
     const importAudioFile = this.dependencies.importAudioFile ?? ((filePath, importOptions) => getLibraryService().importAudioFile(filePath, importOptions));
     const track = await importAudioFile(job.outputPath, {
       folderPath: this.settings.outputDirectory ?? dirname(job.outputPath),
@@ -1321,9 +1344,83 @@ export class DownloadService extends EventEmitter {
       return;
     }
 
-    this.updateJob(jobId, { status: 'binding_mv', progress: 99 });
+    if (emitProgress) {
+      this.updateJob(jobId, { status: 'binding_mv', progress: 99 });
+    }
     const bindMvUrl = this.dependencies.bindMvUrl ?? ((trackId, url) => getMvService().bindUrl(trackId, url));
     bindMvUrl(track.id, job.webpageUrl ?? job.sourceUrl);
+  }
+
+  private shouldImportAfterDownload(jobId: string): boolean {
+    const job = this.jobs.find((item) => item.id === jobId);
+    const options = this.jobOptions.get(jobId);
+    return Boolean(job?.outputPath && (options?.importToLibrary ?? this.settings.importToLibrary));
+  }
+
+  private isPlaybackBusyForPostDownloadImport(): boolean {
+    try {
+      const state = this.dependencies.getPlaybackState?.() ?? getAudioSession().getStatus().state;
+      return state === 'playing' || state === 'loading';
+    } catch {
+      return false;
+    }
+  }
+
+  private queuePostDownloadImport(jobId: string): void {
+    if (!this.postDownloadImportQueue.includes(jobId)) {
+      this.postDownloadImportQueue.push(jobId);
+    }
+    this.schedulePostDownloadImport();
+  }
+
+  private getPostDownloadImportRetryMs(): number {
+    const configured = Number(this.dependencies.postDownloadImportRetryMs);
+    return Number.isFinite(configured) && configured >= 0 ? configured : postDownloadImportRetryMs;
+  }
+
+  private schedulePostDownloadImport(delayMs = this.getPostDownloadImportRetryMs()): void {
+    if (this.postDownloadImportTimer !== null || this.postDownloadImportActive || this.postDownloadImportQueue.length === 0) {
+      return;
+    }
+
+    this.postDownloadImportTimer = setTimeout(() => {
+      this.postDownloadImportTimer = null;
+      void this.processPostDownloadImportQueue();
+    }, delayMs);
+  }
+
+  private async processPostDownloadImportQueue(): Promise<void> {
+    if (this.postDownloadImportActive) {
+      return;
+    }
+
+    if (this.isPlaybackBusyForPostDownloadImport()) {
+      this.schedulePostDownloadImport();
+      return;
+    }
+
+    const jobId = this.postDownloadImportQueue.shift();
+    if (!jobId) {
+      return;
+    }
+
+    const job = this.jobs.find((item) => item.id === jobId);
+    if (!job || job.status === 'cancelled' || job.importedTrackId || !this.shouldImportAfterDownload(jobId)) {
+      this.schedulePostDownloadImport(0);
+      return;
+    }
+
+    this.postDownloadImportActive = true;
+    try {
+      await this.importAndBind(jobId, { emitProgress: false });
+    } catch (error) {
+      this.updateJob(jobId, {
+        error: `Library import failed after download: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    } finally {
+      this.postDownloadImportActive = false;
+      this.schedulePostDownloadImport(0);
+    }
   }
 
   private handleDownloadLine(jobId: string, line: string): void {

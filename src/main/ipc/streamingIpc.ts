@@ -106,6 +106,13 @@ export const registerStreamingIpc = (): void => {
       throw friendlyError(error, 'Streaming playlist import failed.');
     }
   });
+  ipcMain.handle(IpcChannels.StreamingRefreshNeteaseDailyRecommend, async () => {
+    try {
+      return await getStreamingService().refreshNeteaseDailyRecommend();
+    } catch (error) {
+      throw friendlyError(error, 'NetEase daily recommendations refresh failed.');
+    }
+  });
   ipcMain.handle(IpcChannels.StreamingSearch, async (_event, request: unknown) => {
     try {
       return await getStreamingService().search(normalizeSearchRequest(request));

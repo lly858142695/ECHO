@@ -283,6 +283,161 @@ describe('AlbumsPage', () => {
     expect(container.querySelector('.album-cover')?.getAttribute('data-empty')).toBe('true');
   });
 
+  it('opens an album-specific context menu without opening the detail view', async () => {
+    const getAlbums = vi.fn().mockResolvedValue(page([album('1')]));
+    installLibrary(getAlbums);
+
+    renderAlbumsPage();
+
+    await screen.findByText('Album 1');
+    fireEvent.contextMenu(screen.getByText('Album 1'));
+
+    expect(screen.getByRole('menuitem', { name: '编辑标签' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '删除专辑' })).toBeTruthy();
+    expect(screen.queryByLabelText('Album 1 album details')).toBeNull();
+  });
+
+  it('opens the album tag editor from the context menu and submits album-level fields', async () => {
+    const getAlbums = vi.fn().mockResolvedValue(page([album('1')]));
+    const updateAlbumTags = vi.fn().mockResolvedValue(album('1', { title: 'Renamed Album', albumArtist: 'New Artist', year: 2025 }));
+    installLibrary(getAlbums);
+    window.echo.library.updateAlbumTags = updateAlbumTags;
+
+    renderAlbumsPage();
+
+    await screen.findByText('Album 1');
+    fireEvent.contextMenu(screen.getByText('Album 1'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑标签' }));
+
+    fireEvent.change(screen.getByLabelText('专辑'), { target: { value: 'Renamed Album' } });
+    fireEvent.change(screen.getByLabelText('专辑艺术家'), { target: { value: 'New Artist' } });
+    fireEvent.change(screen.getByLabelText('年份'), { target: { value: '2025' } });
+    fireEvent.change(screen.getByLabelText('流派'), { target: { value: 'Ambient' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存标签' }));
+
+    await waitFor(() => expect(updateAlbumTags).toHaveBeenCalledWith({
+      albumId: '1',
+      tags: {
+        album: 'Renamed Album',
+        albumArtist: 'New Artist',
+        year: 2025,
+        genre: 'Ambient',
+      },
+      coverPath: null,
+      coverUrl: null,
+      coverMimeType: null,
+    }));
+  });
+
+  it('loads album fields from embedded tags through a representative album track', async () => {
+    const getAlbums = vi.fn().mockResolvedValue(page([album('1')]));
+    const getAlbumTracks = vi.fn().mockResolvedValue(trackPage([track('track-1')]));
+    const loadEmbeddedTrackTags = vi.fn().mockResolvedValue({
+      tags: {
+        title: 'Ignored Track Title',
+        artist: 'Ignored Artist',
+        album: 'Embedded Album',
+        albumArtist: 'Embedded Album Artist',
+        trackNo: 9,
+        discNo: 1,
+        year: 2024,
+        genre: 'Jazz',
+      },
+      coverId: 'cover-embedded',
+      coverThumb: 'echo-cover://thumb/cover-embedded',
+    });
+    installLibrary(getAlbums, vi.fn(), getAlbumTracks);
+    window.echo.library.loadEmbeddedTrackTags = loadEmbeddedTrackTags;
+
+    renderAlbumsPage();
+
+    await screen.findByText('Album 1');
+    fireEvent.contextMenu(screen.getByText('Album 1'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑标签' }));
+    fireEvent.click(screen.getByRole('button', { name: '从内嵌标签加载' }));
+
+    await waitFor(() => expect(loadEmbeddedTrackTags).toHaveBeenCalledWith('track-1'));
+    expect((screen.getByLabelText('专辑') as HTMLInputElement).value).toBe('Embedded Album');
+    expect((screen.getByLabelText('专辑艺术家') as HTMLInputElement).value).toBe('Embedded Album Artist');
+    expect((screen.getByLabelText('年份') as HTMLInputElement).value).toBe('2024');
+    expect((screen.getByLabelText('流派') as HTMLInputElement).value).toBe('Jazz');
+  });
+
+  it('applies network album candidates and submits the network cover url', async () => {
+    const getAlbums = vi.fn().mockResolvedValue(page([album('1')]));
+    const getAlbumTracks = vi.fn().mockResolvedValue(trackPage([track('track-1')]));
+    const updateAlbumTags = vi.fn().mockResolvedValue(album('1', { title: 'Network Album', albumArtist: 'Network Artist', year: 2023 }));
+    const searchNetworkTagCandidates = vi.fn().mockResolvedValue([
+      {
+        id: 'candidate-1',
+        provider: 'mock',
+        confidence: 0.95,
+        title: 'Ignored Track Title',
+        artist: 'Ignored Artist',
+        album: 'Network Album',
+        albumArtist: 'Network Artist',
+        trackNo: 1,
+        discNo: 1,
+        year: 2023,
+        genre: 'Electronic',
+        duration: 180,
+        coverUrl: 'https://example.test/cover.jpg',
+        coverMimeType: 'image/jpeg',
+        coverPreviewUrl: 'https://example.test/preview.jpg',
+      },
+    ]);
+    installLibrary(getAlbums, vi.fn(), getAlbumTracks);
+    window.echo.library.searchNetworkTagCandidates = searchNetworkTagCandidates;
+    window.echo.library.updateAlbumTags = updateAlbumTags;
+
+    renderAlbumsPage();
+
+    await screen.findByText('Album 1');
+    fireEvent.contextMenu(screen.getByText('Album 1'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑标签' }));
+    fireEvent.click(screen.getByRole('button', { name: '从网络加载' }));
+
+    await screen.findByText('Network Album');
+    expect(searchNetworkTagCandidates).toHaveBeenCalledWith('track-1');
+    fireEvent.click(screen.getByText('Network Album'));
+    fireEvent.click(screen.getByRole('button', { name: '应用到表单' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存标签' }));
+
+    await waitFor(() => expect(updateAlbumTags).toHaveBeenCalledWith({
+      albumId: '1',
+      tags: {
+        album: 'Network Album',
+        albumArtist: 'Network Artist',
+        year: 2023,
+        genre: 'Electronic',
+      },
+      coverPath: null,
+      coverUrl: 'https://example.test/cover.jpg',
+      coverMimeType: 'image/jpeg',
+    }));
+  });
+
+  it('deletes an album from the context menu after confirmation and reloads the wall', async () => {
+    const getAlbums = vi
+      .fn()
+      .mockResolvedValueOnce(page([album('1', { trackCount: 2 })]))
+      .mockResolvedValueOnce(page([]));
+    const deleteAlbumFiles = vi.fn().mockResolvedValue(undefined);
+    installLibrary(getAlbums);
+    window.echo.library.deleteAlbumFiles = deleteAlbumFiles;
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    renderAlbumsPage();
+
+    await screen.findByText('Album 1');
+    fireEvent.contextMenu(screen.getByText('Album 1'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除专辑' }));
+
+    await waitFor(() => expect(deleteAlbumFiles).toHaveBeenCalledWith('1'));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('2 首歌曲'));
+    await waitFor(() => expect(getAlbums).toHaveBeenCalledTimes(2));
+  });
+
   it('clicking an album opens detail view and Back restores the album wall state', async () => {
     const getAlbums = vi.fn().mockResolvedValue(
       page([album('1', { coverId: 'cover-1', coverThumb: 'echo-cover://album/cover-1' })], { page: 1, total: 1, hasMore: false }),

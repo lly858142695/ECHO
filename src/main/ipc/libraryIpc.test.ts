@@ -211,15 +211,18 @@ describe('library IPC', () => {
     const root = makeTempRoot();
     const folderPath = join(root, 'Album');
     const audioPath = join(root, 'song.opus');
+    const cuePath = join(root, 'album.cue');
     const unsupportedPath = join(root, 'cover.jpg');
     const missingPath = join(root, 'missing.flac');
     mkdirSync(folderPath, { recursive: true });
     writeFileSync(audioPath, 'audio');
+    writeFileSync(cuePath, 'cue');
     writeFileSync(unsupportedPath, 'image');
 
     const result = await handlers[IpcChannels.LibraryClassifyImportPaths]!(null, [
       folderPath,
       audioPath,
+      cuePath,
       unsupportedPath,
       missingPath,
     ]);
@@ -227,7 +230,7 @@ describe('library IPC', () => {
     expect(result).toEqual({
       folders: [folderPath],
       audioFiles: [audioPath],
-      unsupportedFiles: [unsupportedPath],
+      unsupportedFiles: [cuePath, unsupportedPath],
       missingPaths: [missingPath],
     });
   });

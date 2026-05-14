@@ -411,6 +411,21 @@ const importPlaylistFromDevApi = async (url: string): Promise<StreamingPlaylistI
   return payload as StreamingPlaylistImportResult;
 };
 
+const refreshNeteaseDailyRecommendFromDevApi = async (): Promise<StreamingPlaylistImportResult> => {
+  const response = await fetch(`${devApiBaseUrl}/streaming/netease-daily-recommend`, {
+    method: 'POST',
+  }).catch(() => {
+    throw new Error('本地开发接口未启动，请重启 npm run dev 后再刷新每日推荐。');
+  });
+  const payload = (await response.json().catch(() => ({}))) as { error?: string };
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? '刷新网易云每日推荐失败。');
+  }
+
+  return payload as StreamingPlaylistImportResult;
+};
+
 const browserStreamingBridge: StreamingBridgeApi = {
   search: async () => {
     throw new Error('桌面桥接不可用，请在 ECHO Next 客户端窗口中搜索流媒体。');
@@ -432,6 +447,7 @@ const browserStreamingBridge: StreamingBridgeApi = {
   },
   getProviders: async () => [],
   importPlaylistFromUrl: importPlaylistFromDevApi,
+  refreshNeteaseDailyRecommend: refreshNeteaseDailyRecommendFromDevApi,
 };
 
 export const getStreamingBridge = (): Window['echo']['streaming'] | null => getEchoBridge()?.streaming ?? browserStreamingBridge;

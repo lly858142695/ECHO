@@ -104,6 +104,13 @@ describe('TrackRow', () => {
     expect(onPlay).not.toHaveBeenCalled();
   });
 
+  it('shows streaming download progress inside the download action', () => {
+    render(<TrackRow isPlaying={false} track={track()} onDownload={vi.fn()} isDownloading downloadProgress={42} />);
+
+    expect(screen.getByRole('button', { name: 'Downloading Afraid 42%' })).toBeTruthy();
+    expect(screen.getByText('42%')).toBeTruthy();
+  });
+
   it('marks clickable rows without adding a cover play affordance', () => {
     const { container } = render(<TrackRow isPlaying={false} track={track()} onPlay={vi.fn()} />);
 

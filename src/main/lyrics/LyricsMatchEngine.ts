@@ -13,6 +13,7 @@ export type LyricsMatchEngineOptions = {
   autoAcceptScore: number;
   coverAutoAcceptScore: number;
   deepSearchEnabled: boolean;
+  collectAllCandidates: boolean;
   isRejected?: (provider: LyricsProviderId, providerLyricsId: string | null) => boolean;
 };
 
@@ -35,6 +36,7 @@ const defaultOptions: LyricsMatchEngineOptions = {
   autoAcceptScore: 0.7,
   coverAutoAcceptScore: 0.97,
   deepSearchEnabled: true,
+  collectAllCandidates: false,
 };
 
 const providerPriorityBonus = (priority: number): number => Math.min(0.01, Math.max(0, priority / 100000));
@@ -81,9 +83,14 @@ export class LyricsMatchEngine {
       ? orderedProviders.filter((provider) => provider.id !== 'local' && enabled.has(provider.id))
       : [];
 
+    const localCollected: MatchedLyricsCandidate[] = [];
     for (const provider of localProviders) {
       const localCandidates = await this.searchProvider(provider, query, normalized, settings, new AbortController().signal);
       if (localCandidates.length) {
+        localCollected.push(...localCandidates);
+      }
+
+      if (localCandidates.length && !settings.collectAllCandidates) {
         const sorted = sortLyricsCandidates(normalized.durationSeconds, dedupeLyricsCandidates(localCandidates));
         return {
           normalized,
@@ -94,17 +101,22 @@ export class LyricsMatchEngine {
     }
 
     if (!networkProviders.length) {
-      return { normalized, accepted: null, candidates: [] };
+      const candidates = sortLyricsCandidates(normalized.durationSeconds, dedupeLyricsCandidates(localCollected));
+      return {
+        normalized,
+        accepted: candidates.find((candidate) => candidate.decision.autoAccept && candidate.decision.risk === 'low') ?? null,
+        candidates,
+      };
     }
 
     if (!settings.deepSearchEnabled) {
-      const collected: MatchedLyricsCandidate[] = [];
+      const collected: MatchedLyricsCandidate[] = [...localCollected];
       for (const provider of networkProviders) {
         const providerCandidates = await this.searchProvider(provider, query, normalized, settings, new AbortController().signal);
         collected.push(...providerCandidates);
         const sorted = sortLyricsCandidates(normalized.durationSeconds, dedupeLyricsCandidates(collected));
         const accepted = sorted.find((candidate) => candidate.decision.autoAccept && candidate.decision.risk === 'low') ?? null;
-        if (accepted) {
+        if (accepted && !settings.collectAllCandidates) {
           return { normalized, accepted, candidates: sorted };
         }
       }
@@ -121,7 +133,7 @@ export class LyricsMatchEngine {
     const totalTimer = setTimeout(() => totalController.abort(), settings.totalMatchTimeoutMs);
     const pending = new Map<LyricsProviderId, Promise<MatchedLyricsCandidate[]>>();
     const providerPriorityById = new Map(networkProviders.map((provider) => [provider.id, providerOrderPriority(settings.enabledProviders, provider)]));
-    const collected: MatchedLyricsCandidate[] = [];
+    const collected: MatchedLyricsCandidate[] = [...localCollected];
     let accepted: MatchedLyricsCandidate | null = null;
 
     for (const provider of networkProviders) {
@@ -141,7 +153,7 @@ export class LyricsMatchEngine {
         const sorted = sortLyricsCandidates(normalized.durationSeconds, dedupeLyricsCandidates(collected));
         accepted = sorted.find((candidate) => candidate.decision.autoAccept && candidate.decision.risk === 'low') ?? null;
         const strongestPendingPriority = Math.max(0, ...Array.from(pending.keys()).map((id) => providerPriorityById.get(id) ?? 0));
-        if (accepted && (accepted.providerPriority ?? 0) >= strongestPendingPriority) {
+        if (accepted && !settings.collectAllCandidates && (accepted.providerPriority ?? 0) >= strongestPendingPriority) {
           totalController.abort();
           break;
         }

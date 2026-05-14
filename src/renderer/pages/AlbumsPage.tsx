@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, MouseEvent } from 'react';
 import { Check, ChevronDown, Disc3, ListFilter, RefreshCw, Search } from 'lucide-react';
-import type { LibraryAlbum, LibrarySort } from '../../shared/types/library';
+import type { EditableAlbumTags, LibraryAlbum, LibrarySort, LibraryTrack } from '../../shared/types/library';
+import { AlbumContextMenu } from '../components/album/AlbumContextMenu';
+import type { AlbumMenuAction } from '../components/album/AlbumContextMenu';
 import { AlbumDetailView } from '../components/album/AlbumDetailView';
+import { AlbumTagEditorDrawer } from '../components/album/AlbumTagEditorDrawer';
 import { InfiniteScrollSentinel, readPageScrollTop, writePageScrollTop } from '../components/ui/InfiniteScrollSentinel';
 import { MediaWallScrollSpacer, useMediaWallScrollSpacer } from '../components/ui/MediaWallScrollSpacer';
+import { likedAlbumsChangedEvent, likedChangedEvent } from '../hooks/useLikedMedia';
 import { useI18n } from '../i18n/I18nProvider';
 import type { TranslationKey } from '../i18n/locales';
+import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 
 const pageSize = 60;
 const albumSortOptions: Array<{ value: LibrarySort; labelKey: TranslationKey }> = [
@@ -22,8 +27,14 @@ const albumSortOptions: Array<{ value: LibrarySort; labelKey: TranslationKey }> 
   { value: 'random', labelKey: 'library.sort.random' },
 ];
 
+type AlbumMenuState = {
+  album: LibraryAlbum;
+  position: { x: number; y: number };
+};
+
 export const AlbumsPage = (): JSX.Element => {
   const { t } = useI18n();
+  const { appendTracksToQueue, playTrack, replaceQueue } = usePlaybackQueue();
   const [albums, setAlbums] = useState<LibraryAlbum[]>([]);
   const [total, setTotal] = useState(0);
   const [searchInput, setSearchInput] = useState('');
@@ -33,6 +44,12 @@ export const AlbumsPage = (): JSX.Element => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null);
+  const [albumMenu, setAlbumMenu] = useState<AlbumMenuState | null>(null);
+  const [likedAlbumIds, setLikedAlbumIds] = useState<Record<string, boolean>>({});
+  const [editingAlbum, setEditingAlbum] = useState<LibraryAlbum | null>(null);
+  const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);
+  const [tagEditorError, setTagEditorError] = useState<string | null>(null);
+  const [isSavingTags, setIsSavingTags] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failedCoverUrls, setFailedCoverUrls] = useState<Record<string, string>>({});
@@ -42,6 +59,7 @@ export const AlbumsPage = (): JSX.Element => {
   const shouldRestorePageScrollRef = useRef(false);
   const requestIdRef = useRef(0);
   const isLoadingRef = useRef(false);
+  const tagEditorCloseTimerRef = useRef<number | null>(null);
   const { wallRef: albumWallRef, spacerHeight } = useMediaWallScrollSpacer<HTMLElement>({
     itemCount: albums.length,
     totalCount: total,
@@ -64,7 +82,7 @@ export const AlbumsPage = (): JSX.Element => {
       return undefined;
     }
 
-    const handlePointerDown = (event: MouseEvent): void => {
+    const handlePointerDown = (event: PointerEvent): void => {
       if (!sortMenuRef.current?.contains(event.target as Node)) {
         setIsSortOpen(false);
       }
@@ -144,6 +162,31 @@ export const AlbumsPage = (): JSX.Element => {
     return () => window.removeEventListener('library:changed', handleLibraryChanged);
   }, [loadAlbums]);
 
+  useEffect(() => {
+    if (albums.length === 0) {
+      setLikedAlbumIds({});
+      return undefined;
+    }
+
+    let isMounted = true;
+    const ids = albums.map((album) => album.id);
+    void window.echo?.library?.getLikedAlbumIds?.(ids)
+      .then((result) => {
+        if (isMounted) {
+          setLikedAlbumIds(result);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setLikedAlbumIds({});
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [albums]);
+
   useLayoutEffect(() => {
     writePageScrollTop(pageRootRef.current, 0);
   }, [search, sort]);
@@ -162,6 +205,160 @@ export const AlbumsPage = (): JSX.Element => {
     shouldRestorePageScrollRef.current = true;
     setSelectedAlbum(album);
   }, []);
+
+  const getAllAlbumTracks = useCallback(async (albumId: string): Promise<LibraryTrack[]> => {
+    const library = window.echo?.library;
+
+    if (!library) {
+      throw new Error(t('library.albums.error.desktopBridge'));
+    }
+
+    const tracks: LibraryTrack[] = [];
+    let nextPage = 1;
+    const trackPageSize = 500;
+    for (;;) {
+      const result = await library.getAlbumTracks(albumId, { page: nextPage, pageSize: trackPageSize });
+      tracks.push(...result.items);
+      if (!result.hasMore) {
+        return tracks;
+      }
+      nextPage += 1;
+    }
+  }, [t]);
+
+  const playAlbum = useCallback(
+    async (album: LibraryAlbum): Promise<void> => {
+      const tracks = await getAllAlbumTracks(album.id);
+      const firstTrack = tracks[0];
+      if (!firstTrack) {
+        setError('这张专辑没有可播放的歌曲。');
+        return;
+      }
+
+      const source = { type: 'album' as const, label: album.title, albumId: album.id };
+      replaceQueue(tracks, { startTrackId: firstTrack.id, source });
+      await playTrack(firstTrack, { source });
+    },
+    [getAllAlbumTracks, playTrack, replaceQueue],
+  );
+
+  const closeTagEditor = useCallback((): void => {
+    setIsTagEditorOpen(false);
+    if (tagEditorCloseTimerRef.current !== null) {
+      window.clearTimeout(tagEditorCloseTimerRef.current);
+    }
+    tagEditorCloseTimerRef.current = window.setTimeout(() => {
+      setEditingAlbum(null);
+      tagEditorCloseTimerRef.current = null;
+    }, 280);
+  }, []);
+
+  const handleOpenAlbumMenu = useCallback((event: MouseEvent<HTMLElement>, album: LibraryAlbum): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    setAlbumMenu({ album, position: { x: event.clientX, y: event.clientY } });
+  }, []);
+
+  const handleAlbumMenuAction = useCallback(
+    async (action: AlbumMenuAction, album: LibraryAlbum): Promise<void> => {
+      const library = window.echo?.library;
+      setAlbumMenu(null);
+
+      if (!library) {
+        setError(t('library.albums.error.desktopBridge'));
+        return;
+      }
+
+      try {
+        setError(null);
+
+        switch (action) {
+          case 'play-album':
+            await playAlbum(album);
+            return;
+          case 'add-to-queue':
+            appendTracksToQueue(await getAllAlbumTracks(album.id), { type: 'album' as const, label: album.title, albumId: album.id });
+            return;
+          case 'toggle-liked':
+            {
+              const previous = likedAlbumIds[album.id] === true;
+              setLikedAlbumIds((current) => ({ ...current, [album.id]: !previous }));
+              const result = await library.toggleAlbumLiked(album.id);
+              setLikedAlbumIds((current) => ({ ...current, [album.id]: result.liked }));
+              window.dispatchEvent(new Event(likedAlbumsChangedEvent));
+              window.dispatchEvent(new Event(likedChangedEvent));
+            }
+            return;
+          case 'edit-tags':
+            setTagEditorError(null);
+            if (tagEditorCloseTimerRef.current !== null) {
+              window.clearTimeout(tagEditorCloseTimerRef.current);
+              tagEditorCloseTimerRef.current = null;
+            }
+            setIsTagEditorOpen(false);
+            setEditingAlbum(album);
+            window.requestAnimationFrame(() => setIsTagEditorOpen(true));
+            return;
+          case 'copy-info':
+            await library.copyAlbumInfo(album.id);
+            return;
+          case 'copy-cover':
+            if (!(await library.copyAlbumCover(album.id))) {
+              setError('这张专辑没有可复制的封面。');
+            }
+            return;
+          case 'save-cover':
+            if (!(await library.saveAlbumCover(album.id))) {
+              setError('没有保存专辑封面。');
+            }
+            return;
+          case 'delete-album':
+            if (!window.confirm(`删除专辑文件？\n${album.title}\n\n这会把 ${album.trackCount} 首歌曲移到系统回收站，并从媒体库移除。`)) {
+              return;
+            }
+            await library.deleteAlbumFiles(album.id);
+            setAlbums((current) => current.filter((item) => item.id !== album.id));
+            window.dispatchEvent(new Event('library:changed'));
+            return;
+        }
+      } catch (actionError) {
+        setError(actionError instanceof Error ? actionError.message : String(actionError));
+      }
+    },
+    [appendTracksToQueue, getAllAlbumTracks, likedAlbumIds, playAlbum, t],
+  );
+
+  const handleSaveAlbumTags = useCallback(
+    async (
+      album: LibraryAlbum,
+      tags: EditableAlbumTags,
+      coverPath: string | null,
+      coverUrl: string | null,
+      coverMimeType: string | null,
+    ): Promise<void> => {
+      const library = window.echo?.library;
+
+      if (!library) {
+        setTagEditorError(t('library.albums.error.desktopBridge'));
+        return;
+      }
+
+      setIsSavingTags(true);
+      setTagEditorError(null);
+
+      try {
+        const updatedAlbum = await library.updateAlbumTags({ albumId: album.id, tags, coverPath, coverUrl, coverMimeType });
+        setAlbums((current) => current.map((item) => (item.id === album.id ? updatedAlbum : item)));
+        window.dispatchEvent(new Event('library:changed'));
+        closeTagEditor();
+      } catch (saveError) {
+        setTagEditorError(saveError instanceof Error ? saveError.message : String(saveError));
+      } finally {
+        setIsSavingTags(false);
+      }
+    },
+    [closeTagEditor, t],
+  );
 
   const handleLoadMoreAlbums = useCallback((): void => {
     if (isLoadingRef.current || !hasMore) {
@@ -278,6 +475,7 @@ export const AlbumsPage = (): JSX.Element => {
               role="button"
               tabIndex={0}
               onClick={() => openAlbumDetail(album)}
+              onContextMenu={(event) => handleOpenAlbumMenu(event, album)}
               onKeyDown={(event) => handleAlbumKeyDown(event, album)}
             >
               <div className="album-cover" data-empty={!shouldShowCover} aria-hidden="true">
@@ -314,6 +512,23 @@ export const AlbumsPage = (): JSX.Element => {
         </div>
       ) : null}
       <MediaWallScrollSpacer height={spacerHeight} />
+      {albumMenu ? (
+        <AlbumContextMenu
+          album={albumMenu.album}
+          position={albumMenu.position}
+          liked={likedAlbumIds[albumMenu.album.id] === true}
+          onAction={(action, album) => void handleAlbumMenuAction(action, album)}
+          onClose={() => setAlbumMenu(null)}
+        />
+      ) : null}
+      <AlbumTagEditorDrawer
+        album={editingAlbum}
+        isOpen={isTagEditorOpen}
+        isSaving={isSavingTags}
+        error={tagEditorError}
+        onClose={closeTagEditor}
+        onSave={(album, tags, coverPath, coverUrl, coverMimeType) => void handleSaveAlbumTags(album, tags, coverPath, coverUrl, coverMimeType)}
+      />
     </div>
   );
 };

@@ -198,9 +198,19 @@ describe('LyricsSettingsDrawer', () => {
     expect(slider.max).toBe('100');
     expect(slider.value).toBe('50');
 
+    vi.useFakeTimers();
     fireEvent.change(slider, { target: { value: '30' } });
 
-    await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsAutoAcceptScore: 0.3 }));
+    expect(slider.disabled).toBe(false);
+    expect(slider.value).toBe('30');
+    expect(setSettings).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(240);
+      await Promise.resolve();
+    });
+
+    expect(setSettings).toHaveBeenCalledWith({ lyricsAutoAcceptScore: 0.3 });
   });
 
   it('previews background tuning immediately but debounces persisted settings writes', async () => {
@@ -341,6 +351,31 @@ describe('LyricsSettingsDrawer', () => {
     fireEvent.click(toggle);
 
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsPlayerBarDrawerEnabled: true }));
+  });
+
+  it('shows the MV track info toggle only when lyrics song info is hidden', async () => {
+    const getSettings = vi.fn().mockResolvedValue(makeSettings({ lyricsHeaderHidden: true }));
+    const setSettings = vi.fn().mockResolvedValue(makeSettings({ lyricsMvAutoShowTrackInfoDisabled: false }));
+    window.echo = {
+      app: {
+        getSettings,
+        setSettings,
+        chooseLyricsWallpaper: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    const { unmount } = render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+
+    const toggle = (await screen.findByRole('checkbox', { name: /关闭MV自动显示歌曲信息/ })) as HTMLInputElement;
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsMvAutoShowTrackInfoDisabled: false }));
+
+    getSettings.mockResolvedValue(makeSettings({ lyricsHeaderHidden: false }));
+    unmount();
+    render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: /关闭MV自动显示歌曲信息/ })).toBeNull());
   });
 
   it('lets users enable lyrics offset controls from the drawer', async () => {

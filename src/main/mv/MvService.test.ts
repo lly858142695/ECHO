@@ -20,7 +20,7 @@ const appSettingsMock = vi.hoisted(() => {
     mvImmersiveBackgroundScalePercent: 115,
     mvImmersiveBackgroundOffsetXPercent: 50,
     mvImmersiveBackgroundOffsetYPercent: 50,
-    mvMaxQuality: '1080p',
+    mvMaxQuality: 'max',
     mvAllow60fps: true,
   };
 
@@ -564,5 +564,149 @@ describe('MvService', () => {
       headers: { Referer: 'https://www.bilibili.com/video/BV1echo' },
       mimeType: 'video/mp4',
     });
+  });
+
+  it('auto-selects Bilibili streams by qn rank before encoded height', async () => {
+    const candidate: MvMatchCandidate = {
+      id: 'bilibili:BV1echo',
+      provider: 'bilibili',
+      sourceType: 'search_candidate',
+      title: 'Echo Song MV',
+      artist: 'Echo Artist',
+      filePath: null,
+      url: 'https://www.bilibili.com/video/BV1echo',
+      providerUrl: 'https://www.bilibili.com/video/BV1echo',
+      thumbnailUrl: null,
+      uploader: null,
+      availableQualities: [],
+      durationSeconds: 120,
+      score: 0.9,
+      playableInApp: true,
+      reasons: ['Bilibili search'],
+    };
+    const variants: ResolvedMvStreamVariant[] = [
+      {
+        id: 'bilibili-qn-80',
+        label: '1080p',
+        qualityTier: '1080p',
+        width: 1920,
+        height: 1080,
+        fps: null,
+        codec: 'avc1',
+        container: 'mp4',
+        mimeType: 'video/mp4',
+        protocol: 'direct',
+        playableInApp: true,
+        requiresAccount: false,
+        expiresAt: null,
+        url: 'https://cdn.example/echo-1080.mp4',
+        headers: {},
+        rawProviderJson: { provider: 'bilibili', resolver: 'bilibili-dash-video-v3', requestedQn: 116, qn: 80, qualityRank: 2 },
+      },
+      {
+        id: 'bilibili-qn-116',
+        label: '1080p 60fps',
+        qualityTier: '1080p',
+        width: 1920,
+        height: 888,
+        fps: 60,
+        codec: 'avc1',
+        container: 'mp4',
+        mimeType: 'video/mp4',
+        protocol: 'direct',
+        playableInApp: true,
+        requiresAccount: false,
+        expiresAt: null,
+        url: 'https://cdn.example/echo-1080-60.mp4',
+        headers: {},
+        rawProviderJson: { provider: 'bilibili', resolver: 'bilibili-dash-video-v3', requestedQn: 116, qn: 116, qualityRank: 4 },
+      },
+    ];
+    const provider: MainMvOnlineProvider = {
+      id: 'bilibili',
+      search: vi.fn(async () => [candidate]),
+      resolve: vi.fn(async () => variants),
+    };
+    const { service, track } = createHarness([provider]);
+
+    const [resolvedCandidate] = await service.searchNetworkCandidates(track.id);
+    const selected = service.selectVideo(track.id, resolvedCandidate.id);
+    const resolved = await service.resolveStreams(selected.id);
+
+    expect(resolved.video.mediaUrl).toBe(`echo-mv://stream/${encodeURIComponent(selected.id)}/bilibili-qn-116`);
+    expect(resolved.video.qualityLabel).toBe('1080p 60fps');
+    expect(resolved.video.height).toBe(888);
+  });
+
+  it('caps Bilibili auto quality at regular 4K when max quality is 2160p', async () => {
+    appSettingsMock.current = { ...appSettingsMock.current, mvMaxQuality: '2160p' };
+    const candidate: MvMatchCandidate = {
+      id: 'bilibili:BV1echo',
+      provider: 'bilibili',
+      sourceType: 'search_candidate',
+      title: 'Echo Song MV',
+      artist: 'Echo Artist',
+      filePath: null,
+      url: 'https://www.bilibili.com/video/BV1echo',
+      providerUrl: 'https://www.bilibili.com/video/BV1echo',
+      thumbnailUrl: null,
+      uploader: null,
+      availableQualities: [],
+      durationSeconds: 120,
+      score: 0.9,
+      playableInApp: true,
+      reasons: ['Bilibili search'],
+    };
+    const variants: ResolvedMvStreamVariant[] = [
+      {
+        id: 'bilibili-qn-126',
+        label: 'Dolby Vision',
+        qualityTier: '2160p',
+        width: 3840,
+        height: 2160,
+        fps: null,
+        codec: 'hev1',
+        container: 'mp4',
+        mimeType: 'video/mp4',
+        protocol: 'direct',
+        playableInApp: true,
+        requiresAccount: false,
+        expiresAt: null,
+        url: 'https://cdn.example/echo-dolby.mp4',
+        headers: {},
+        rawProviderJson: { provider: 'bilibili', resolver: 'bilibili-dash-video-v3', requestedQn: 126, qn: 126, qualityRank: 7 },
+      },
+      {
+        id: 'bilibili-qn-120',
+        label: '4K',
+        qualityTier: '2160p',
+        width: 3840,
+        height: 2160,
+        fps: null,
+        codec: 'hev1',
+        container: 'mp4',
+        mimeType: 'video/mp4',
+        protocol: 'direct',
+        playableInApp: true,
+        requiresAccount: false,
+        expiresAt: null,
+        url: 'https://cdn.example/echo-4k.mp4',
+        headers: {},
+        rawProviderJson: { provider: 'bilibili', resolver: 'bilibili-dash-video-v3', requestedQn: 120, qn: 120, qualityRank: 5 },
+      },
+    ];
+    const provider: MainMvOnlineProvider = {
+      id: 'bilibili',
+      search: vi.fn(async () => [candidate]),
+      resolve: vi.fn(async () => variants),
+    };
+    const { service, track } = createHarness([provider]);
+
+    const [resolvedCandidate] = await service.searchNetworkCandidates(track.id);
+    const selected = service.selectVideo(track.id, resolvedCandidate.id);
+    const resolved = await service.resolveStreams(selected.id);
+
+    expect(resolved.video.mediaUrl).toBe(`echo-mv://stream/${encodeURIComponent(selected.id)}/bilibili-qn-120`);
+    expect(resolved.video.qualityLabel).toBe('4K');
   });
 });

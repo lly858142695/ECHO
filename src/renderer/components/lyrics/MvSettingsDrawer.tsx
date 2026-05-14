@@ -24,6 +24,7 @@ import type { StreamingProviderName } from '../../../shared/types/streaming';
 import { streamingProviderNames } from '../../../shared/types/streaming';
 import { useI18n } from '../../i18n/I18nProvider';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
+import type { AppSettings } from '../../../shared/types/appSettings';
 
 type MvSettingsDrawerProps = {
   isOpen: boolean;
@@ -33,7 +34,7 @@ type MvSettingsDrawerProps = {
 const drawerExitAnimationMs = 320;
 const formatScore = (score: number): string => `${Math.round(score * 100)}%`;
 const formatThreshold = (threshold: number | undefined): string => `${Math.round((threshold ?? 0.7) * 100)}%`;
-const thresholdFromPercent = (value: string): number => Math.max(50, Math.min(100, Math.round(Number(value)))) / 100;
+const thresholdFromPercent = (value: string): number => Math.max(30, Math.min(100, Math.round(Number(value)))) / 100;
 const immersiveBackgroundDefaults = {
   immersiveBackgroundScalePercent: 115,
   immersiveBackgroundOffsetXPercent: 50,
@@ -52,9 +53,10 @@ const fallbackSettings: MvSettings = {
   immersiveBackground: true,
   ...immersiveBackgroundDefaults,
   restartAudioOnLoad: false,
+  replayAudioOnChange: true,
   enabledProviders: ['bilibili', 'youtube'],
   providerOrder: ['bilibili', 'youtube'],
-  maxQuality: '1080p',
+  maxQuality: 'max',
   allow60fps: true,
 };
 
@@ -63,7 +65,7 @@ const providerLabels: Record<NetworkMvProviderId, string> = {
   youtube: 'YouTube',
 };
 
-const dispatchSettingsChanged = (patch: Partial<MvSettings>): void => {
+const dispatchSettingsChanged = (patch: Partial<MvSettings> | Partial<AppSettings>): void => {
   window.dispatchEvent(new CustomEvent('settings:changed', { detail: patch }));
 };
 
@@ -78,6 +80,19 @@ const formatVideoTitle = (video: TrackVideo | null, emptyLabel: string): string 
 };
 
 const isResolutionQualityLabel = (label: string): boolean => /^(?:8K|4K|\d{3,4}p)(?:\s*\/?\s*60fps|\s+60fps)?$/i.test(label.trim());
+
+const heightFromResolutionQualityLabel = (label: string): number | null => {
+  const normalized = label.trim();
+  if (/^8K\b/i.test(normalized)) {
+    return 4320;
+  }
+  if (/^4K\b/i.test(normalized)) {
+    return 2160;
+  }
+
+  const match = normalized.match(/^(\d{3,4})p\b/i);
+  return match ? Number(match[1]) : null;
+};
 
 const formatVideoQuality = (video: TrackVideo | null, emptyLabel: string): string => {
   if (!video) {
@@ -94,7 +109,15 @@ const formatVideoQuality = (video: TrackVideo | null, emptyLabel: string): strin
       ? `${video.width}px`
       : null;
   const qualityLabel = video.qualityLabel?.trim() || null;
-  const baseLabel = resolutionLabel && (!qualityLabel || isResolutionQualityLabel(qualityLabel)) ? resolutionLabel : qualityLabel ?? resolutionLabel;
+  const qualityHeight = qualityLabel && isResolutionQualityLabel(qualityLabel) ? heightFromResolutionQualityLabel(qualityLabel) : null;
+  const canTrustQualityLabel =
+    qualityLabel !== null &&
+    (!isResolutionQualityLabel(qualityLabel) ||
+      !video.height ||
+      !qualityHeight ||
+      qualityHeight <= video.height ||
+      video.height >= qualityHeight * 0.7);
+  const baseLabel = canTrustQualityLabel ? qualityLabel : resolutionLabel ?? qualityLabel;
 
   if (!baseLabel) {
     return emptyLabel;
@@ -151,6 +174,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [networkSearchError, setNetworkSearchError] = useState<string | null>(null);
   const [isMaxQualityMenuOpen, setIsMaxQualityMenuOpen] = useState(false);
   const [useCurrentSongName, setUseCurrentSongName] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -158,6 +182,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   const [failedThumbnailIds, setFailedThumbnailIds] = useState<Set<string>>(() => new Set());
   const [draggedProvider, setDraggedProvider] = useState<NetworkMvProviderId | null>(null);
   const [dragOverProvider, setDragOverProvider] = useState<NetworkMvProviderId | null>(null);
+  const [isNetworkSectionOpen, setIsNetworkSectionOpen] = useState(true);
 
   const activeTrackId = queue.currentTrackId ?? fallbackTrackId;
   const activeTrack =
@@ -210,11 +235,24 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   const enabledProviders = new Set(settings.enabledProviders);
   const isMvEnabled = settings.enabled !== false;
   const followMusicProgress = settings.restartAudioOnLoad;
+  const replayAudioOnChange = settings.replayAudioOnChange !== false;
   const immersiveBackground = settings.immersiveBackground !== false;
 
   const notifyMvChanged = useCallback((trackId: string): void => {
     window.dispatchEvent(new CustomEvent('mv:changed', { detail: { trackId } }));
   }, []);
+
+  const replayCurrentTrackAfterMvChange = useCallback(async (): Promise<void> => {
+    if (!replayAudioOnChange || !activeTrack || !window.echo?.playback) {
+      return;
+    }
+
+    try {
+      await queue.playTrack(activeTrack);
+    } catch {
+      // MV switching should still succeed even if the current track cannot be replayed.
+    }
+  }, [activeTrack, queue, replayAudioOnChange]);
 
   const resolveSelectedStreams = useCallback(async (video: TrackVideo | null): Promise<TrackVideo | null> => {
     if (!video || video.provider === 'local' || !window.echo?.mv?.resolveStreams) {
@@ -251,6 +289,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
 
       try {
         setError(null);
+        setNetworkSearchError(null);
         setCandidates([]);
         const video = await window.echo.mv.getSelected(trackId);
         setSelectedVideo(await resolveSelectedStreams(video));
@@ -311,13 +350,16 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       }
 
       setCandidates(nextCandidates);
+      setNetworkSearchError(null);
       const selected = await resolveSelectedStreams(await mvApi.getSelected(effectiveTrackId));
       setSelectedVideo(selected);
       if (selected) {
         notifyMvChanged(effectiveTrackId);
       }
       if (nextCandidates.length === 0) {
-        setError(t('mvSettings.error.noNetworkCandidates'));
+        const emptyMessage = t('mvSettings.error.noNetworkCandidates');
+        setError(emptyMessage);
+        setNetworkSearchError(emptyMessage);
       }
     },
     [activeTrack, notifyMvChanged, resolveSelectedStreams, t],
@@ -332,6 +374,25 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         if (window.echo?.mv?.setSettings) {
           setSettings(await window.echo.mv.setSettings(patch));
           dispatchSettingsChanged(patch);
+          if (typeof patch.enabled === 'boolean') {
+            void (async (): Promise<void> => {
+              try {
+                const app = window.echo?.app;
+                if (!app?.getSettings || !app.setSettings) {
+                  return;
+                }
+
+                const appSettings = await app.getSettings();
+                if (appSettings.lyricsMvAutoShowTrackInfoDisabled !== false) {
+                  const lyricsPatch = { lyricsHeaderHidden: patch.enabled };
+                  await app.setSettings(lyricsPatch);
+                  dispatchSettingsChanged(lyricsPatch);
+                }
+              } catch {
+                // MV can still be toggled when the app settings bridge is unavailable.
+              }
+            })();
+          }
         }
       } catch (settingsError) {
         setSettings(settings);
@@ -367,10 +428,14 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       if (trackId && window.echo?.mv) {
         setIsBusy(true);
         setError(null);
+        setNetworkSearchError(null);
+        setCandidates([]);
         try {
           await searchNetworkForActiveTrack(trackId, searchQuery);
         } catch (searchError) {
-          setError(searchError instanceof Error ? searchError.message : String(searchError));
+          const message = searchError instanceof Error ? searchError.message : String(searchError);
+          setError(message);
+          setNetworkSearchError(message);
         } finally {
           setIsBusy(false);
         }
@@ -436,16 +501,23 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   const searchNetworkCandidates = useCallback(async (): Promise<void> => {
     const trackId = await refreshActiveTrack();
     if (!trackId || !window.echo?.mv) {
-      setError(t('mvSettings.error.noActiveTrackNetworkSearch'));
+      const message = t('mvSettings.error.noActiveTrackNetworkSearch');
+      setError(message);
+      setNetworkSearchError(message);
+      setCandidates([]);
       return;
     }
 
     setIsBusy(true);
     setError(null);
+    setNetworkSearchError(null);
+    setCandidates([]);
     try {
       await searchNetworkForActiveTrack(trackId, searchQuery);
     } catch (searchError) {
-      setError(searchError instanceof Error ? searchError.message : String(searchError));
+      const message = searchError instanceof Error ? searchError.message : String(searchError);
+      setError(message);
+      setNetworkSearchError(message);
     } finally {
       setIsBusy(false);
     }
@@ -466,13 +538,14 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         setSelectedVideo(video);
         setCandidates([]);
         notifyMvChanged(trackId);
+        await replayCurrentTrackAfterMvChange();
       }
     } catch (chooseError) {
       setError(chooseError instanceof Error ? chooseError.message : String(chooseError));
     } finally {
       setIsBusy(false);
     }
-  }, [notifyMvChanged, refreshActiveTrack, t]);
+  }, [notifyMvChanged, refreshActiveTrack, replayCurrentTrackAfterMvChange, t]);
 
   const bindCustomMvUrl = useCallback(async (): Promise<void> => {
     const trackId = await refreshActiveTrack();
@@ -488,12 +561,13 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       setSelectedVideo(await resolveSelectedStreams(video));
       setCandidates([]);
       notifyMvChanged(trackId);
+      await replayCurrentTrackAfterMvChange();
     } catch (bindError) {
       setError(bindError instanceof Error ? bindError.message : String(bindError));
     } finally {
       setIsBusy(false);
     }
-  }, [customMvUrl, notifyMvChanged, refreshActiveTrack, resolveSelectedStreams, t]);
+  }, [customMvUrl, notifyMvChanged, refreshActiveTrack, replayCurrentTrackAfterMvChange, resolveSelectedStreams, t]);
 
   const selectCandidate = useCallback(
     async (candidateId: string): Promise<void> => {
@@ -511,13 +585,14 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         setSelectedVideo(await resolveSelectedStreams(video));
         setCandidates([]);
         notifyMvChanged(targetTrackId);
+        await replayCurrentTrackAfterMvChange();
       } catch (selectError) {
         setError(selectError instanceof Error ? selectError.message : String(selectError));
       } finally {
         setBusyCandidateId(null);
       }
     },
-    [activeTrack, notifyMvChanged, refreshActiveTrack, resolveSelectedStreams, t],
+    [activeTrack, notifyMvChanged, refreshActiveTrack, replayCurrentTrackAfterMvChange, resolveSelectedStreams, t],
   );
 
   const clearSelected = useCallback(async (): Promise<void> => {
@@ -630,7 +705,9 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       }
 
       setCandidates(detail.candidates);
-      setError(detail.candidates.length === 0 ? t('mvSettings.error.noNetworkCandidates') : null);
+      const message = detail.candidates.length === 0 ? t('mvSettings.error.noNetworkCandidates') : null;
+      setError(message);
+      setNetworkSearchError(message);
     };
 
     window.addEventListener('mv:candidatesChanged', handleCandidatesChanged);
@@ -645,7 +722,8 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     <div className="audio-drawer-root mv-settings-drawer-root no-drag" role="presentation" data-open={isMotionOpen}>
       <button className="audio-drawer-scrim" type="button" aria-label={t('mvSettings.action.close')} onClick={onClose} />
       <aside className="audio-drawer mv-settings-drawer" aria-label={t('mvSettings.aria.drawer')}>
-        <header className="audio-drawer-header">
+        <div className="audio-drawer-scroll">
+          <header className="audio-drawer-header">
           <div>
             <Clapperboard size={18} />
             <h2>{t('mvSettings.title')}</h2>
@@ -849,227 +927,267 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
                 </button>
               ))}
             </div>
+          ) : networkSearchError ? (
+            <p className="mv-settings-search-error" role="status">
+              {networkSearchError}
+            </p>
           ) : null}
         </section>
 
-        <section className={`audio-drawer-section audio-drawer-options audio-drawer-options--open${isMaxQualityMenuOpen ? ' mv-section-menu-open' : ''}`}>
+        <section className={`audio-drawer-section audio-drawer-options audio-drawer-options--open mv-network-section${isNetworkSectionOpen ? ' mv-network-section--open' : ''}${isMaxQualityMenuOpen ? ' mv-section-menu-open' : ''}`}>
           <div className="audio-drawer-section-title">
-            <Globe2 size={17} />
-            <h3>{t('mvSettings.network.title')}</h3>
+            <span>
+              <Globe2 size={17} />
+              <h3>{t('mvSettings.network.title')}</h3>
+            </span>
+            <button
+              type="button"
+              className="mv-section-collapse"
+              aria-expanded={isNetworkSectionOpen}
+              aria-label={isNetworkSectionOpen ? t('mvSettings.action.collapseNetwork') : t('mvSettings.action.expandNetwork')}
+              title={isNetworkSectionOpen ? t('mvSettings.action.collapseNetwork') : t('mvSettings.action.expandNetwork')}
+              onClick={() => setIsNetworkSectionOpen((current) => !current)}
+            >
+              <ChevronDown size={16} />
+            </button>
           </div>
-          <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={settings.autoSearch} onClick={() => void toggleAutoSearch()}>
-            <span className="mv-switch-track" aria-hidden="true">
-              <span />
-            </span>
-            <span className="mv-toggle-copy">
-              <strong>{t('mvSettings.network.autoApply')}</strong>
-              <em>{settings.autoSearch ? t('mvSettings.status.on') : t('mvSettings.status.off')}</em>
-            </span>
-          </button>
-          <label className="mv-threshold-control">
-            <span className="mv-threshold-copy">
-              <strong>{t('mvSettings.network.autoApplyThreshold')}</strong>
-              <em>{t('mvSettings.network.autoApplyThresholdDescription', { threshold: formatThreshold(settings.autoApplyThreshold) })}</em>
-            </span>
-            <span className="mv-threshold-slider">
-              <input
-                type="range"
-                min="50"
-                max="100"
-                step="1"
-                value={Math.round((settings.autoApplyThreshold ?? 0.7) * 100)}
-                aria-label={t('mvSettings.network.autoApplyThreshold')}
-                onChange={(event) => void patchSettings({ autoApplyThreshold: thresholdFromPercent(event.currentTarget.value) })}
-              />
-              <strong>{formatThreshold(settings.autoApplyThreshold)}</strong>
-            </span>
-          </label>
-          <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={settings.autoPreload} onClick={() => void patchSettings({ autoPreload: !settings.autoPreload })}>
-            <span className="mv-switch-track" aria-hidden="true">
-              <span />
-            </span>
-            <span className="mv-toggle-copy">
-              <strong>{t('mvSettings.network.autoPreload')}</strong>
-              <em>{t('mvSettings.network.autoPreloadDescription')}</em>
-            </span>
-          </button>
-          <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={followMusicProgress} onClick={() => void patchSettings({ restartAudioOnLoad: !followMusicProgress })}>
-            <span className="mv-switch-track" aria-hidden="true">
-              <span />
-            </span>
-            <span className="mv-toggle-copy">
-              <strong>{t('mvSettings.network.restartAudioOnLoad')}</strong>
-              <em>{t('mvSettings.network.restartAudioOnLoadDescription')}</em>
-            </span>
-          </button>
-          <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={immersiveBackground} onClick={() => void patchSettings({ immersiveBackground: !immersiveBackground })}>
-            <span className="mv-switch-track" aria-hidden="true">
-              <span />
-            </span>
-            <span className="mv-toggle-copy">
-              <strong>{t('mvSettings.immersive.title')}</strong>
-              <em>{t('mvSettings.immersive.description')}</em>
-            </span>
-          </button>
-          {immersiveBackground ? (
-            <div className="mv-immersive-controls">
-              <button
-                type="button"
-                className="mv-immersive-reset"
-                onClick={() => void patchSettings(immersiveBackgroundDefaults)}
-              >
-                <RotateCcw size={15} />
-                {t('mvSettings.immersive.reset')}
+          {isNetworkSectionOpen ? (
+            <>
+              <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={settings.autoSearch} onClick={() => void toggleAutoSearch()}>
+                <span className="mv-switch-track" aria-hidden="true">
+                  <span />
+                </span>
+                <span className="mv-toggle-copy">
+                  <strong>{t('mvSettings.network.autoApply')}</strong>
+                  <em>{settings.autoSearch ? t('mvSettings.status.on') : t('mvSettings.status.off')}</em>
+                </span>
+              </button>
+              <label className="mv-threshold-control">
+                <span className="mv-threshold-copy">
+                  <strong>{t('mvSettings.network.autoApplyThreshold')}</strong>
+                  <em>{t('mvSettings.network.autoApplyThresholdDescription', { threshold: formatThreshold(settings.autoApplyThreshold) })}</em>
+                </span>
+                <span className="mv-threshold-slider">
+                  <input
+                    type="range"
+                    min="30"
+                    max="100"
+                    step="1"
+                    value={Math.round((settings.autoApplyThreshold ?? 0.7) * 100)}
+                    aria-label={t('mvSettings.network.autoApplyThreshold')}
+                    onChange={(event) => void patchSettings({ autoApplyThreshold: thresholdFromPercent(event.currentTarget.value) })}
+                  />
+                  <strong>{formatThreshold(settings.autoApplyThreshold)}</strong>
+                </span>
+              </label>
+              <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={settings.autoPreload} onClick={() => void patchSettings({ autoPreload: !settings.autoPreload })}>
+                <span className="mv-switch-track" aria-hidden="true">
+                  <span />
+                </span>
+                <span className="mv-toggle-copy">
+                  <strong>{t('mvSettings.network.autoPreload')}</strong>
+                  <em>{t('mvSettings.network.autoPreloadDescription')}</em>
+                </span>
               </button>
               <button
                 type="button"
                 className="mv-source-toggle mv-auto-apply-toggle"
-                aria-pressed={settings.lyricsReadabilityEnhanced === true}
-                onClick={() => void patchSettings({ lyricsReadabilityEnhanced: settings.lyricsReadabilityEnhanced !== true })}
+                aria-pressed={followMusicProgress}
+                onClick={() => void patchSettings({ restartAudioOnLoad: !followMusicProgress })}
               >
                 <span className="mv-switch-track" aria-hidden="true">
                   <span />
                 </span>
                 <span className="mv-toggle-copy">
-                  <strong>{t('mvSettings.immersive.lyricsReadability')}</strong>
-                  <em>{t('mvSettings.immersive.lyricsReadabilityDescription')}</em>
+                  <strong>{t('mvSettings.network.restartAudioOnLoad')}</strong>
+                  <em>{t('mvSettings.network.restartAudioOnLoadDescription')}</em>
                 </span>
               </button>
-              <label className="mv-threshold-control">
-                <span className="mv-threshold-copy">
-                  <strong>{t('mvSettings.immersive.zoom')}</strong>
-                  <em>{settings.immersiveBackgroundScalePercent ?? 115}%</em>
-                </span>
-                <span className="mv-threshold-slider">
-                  <input
-                    type="range"
-                    min="100"
-                    max="220"
-                    step="1"
-                    value={settings.immersiveBackgroundScalePercent ?? 115}
-                    aria-label={t('mvSettings.immersive.zoom')}
-                    onChange={(event) => void patchSettings({ immersiveBackgroundScalePercent: Number(event.currentTarget.value) })}
-                  />
-                  <strong>{settings.immersiveBackgroundScalePercent ?? 115}%</strong>
-                </span>
-              </label>
-              <label className="mv-threshold-control">
-                <span className="mv-threshold-copy">
-                  <strong>{t('mvSettings.immersive.blur')}</strong>
-                  <em>{t('mvSettings.immersive.visualHint')}</em>
-                </span>
-                <span className="mv-threshold-slider">
-                  <input
-                    type="range"
-                    min="0"
-                    max="32"
-                    step="1"
-                    value={settings.immersiveBackgroundBlurPx ?? 0}
-                    aria-label={t('mvSettings.immersive.blur')}
-                    onChange={(event) => void patchSettings({ immersiveBackgroundBlurPx: Number(event.currentTarget.value) })}
-                  />
-                  <strong>{settings.immersiveBackgroundBlurPx ?? 0}px</strong>
-                </span>
-              </label>
-              <label className="mv-threshold-control">
-                <span className="mv-threshold-copy">
-                  <strong>{t('mvSettings.immersive.brightness')}</strong>
-                  <em>{t('mvSettings.immersive.visualHint')}</em>
-                </span>
-                <span className="mv-threshold-slider">
-                  <input
-                    type="range"
-                    min="60"
-                    max="140"
-                    step="1"
-                    value={settings.immersiveBackgroundBrightnessPercent ?? 100}
-                    aria-label={t('mvSettings.immersive.brightness')}
-                    onChange={(event) => void patchSettings({ immersiveBackgroundBrightnessPercent: Number(event.currentTarget.value) })}
-                  />
-                  <strong>{settings.immersiveBackgroundBrightnessPercent ?? 100}%</strong>
-                </span>
-              </label>
-              <label className="mv-threshold-control">
-                <span className="mv-threshold-copy">
-                  <strong>{t('mvSettings.immersive.overlay')}</strong>
-                  <em>{t('mvSettings.immersive.overlayHint')}</em>
-                </span>
-                <span className="mv-threshold-slider">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value={settings.immersiveBackgroundOverlayOpacityPercent ?? 0}
-                    aria-label={t('mvSettings.immersive.overlay')}
-                    onChange={(event) => void patchSettings({ immersiveBackgroundOverlayOpacityPercent: Number(event.currentTarget.value) })}
-                  />
-                  <strong>{settings.immersiveBackgroundOverlayOpacityPercent ?? 0}%</strong>
-                </span>
-              </label>
-            </div>
-          ) : null}
-          <div className="mv-source-list" role="list" aria-label={t('mvSettings.aria.networkSources')}>
-            {settings.providerOrder.map((provider, index) => (
-              <div
-                className="mv-source-row"
-                key={provider}
-                role="listitem"
-                data-dragging={draggedProvider === provider}
-                data-drop-target={draggedProvider !== provider && dragOverProvider === provider}
-                onDragOver={(event) => handleProviderDragOver(event, provider)}
-                onDrop={(event) => handleProviderDrop(event, provider)}
-              >
-                <span
-                  className="mv-source-drag-handle"
-                  draggable
-                  role="button"
-                  tabIndex={0}
-                  aria-label={t('mvSettings.action.dragSource', { provider: providerLabels[provider] })}
-                  title={t('mvSettings.action.dragReorder')}
-                  onDragStart={(event) => handleProviderDragStart(event, provider)}
-                  onDragEnd={handleProviderDragEnd}
-                >
-                  <GripVertical size={16} />
-                  <small>{index + 1}</small>
-                </span>
-                <button type="button" className="mv-source-toggle" aria-pressed={enabledProviders.has(provider)} onClick={() => toggleProvider(provider)}>
-                  <span className="mv-switch-track" aria-hidden="true">
-                    <span />
-                  </span>
-                  {providerLabels[provider]}
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="mv-quality-controls">
-            <div className="mv-quality-menu">
-              <span className="mv-field-label">{t('mvSettings.network.maxQuality')}</span>
               <button
                 type="button"
-                className="mv-quality-trigger"
-                aria-expanded={isMaxQualityMenuOpen}
-                aria-label={t('mvSettings.aria.maxQuality', { quality: qualityLabels[settings.maxQuality] })}
-                onClick={() => setIsMaxQualityMenuOpen((current) => !current)}
+                className="mv-source-toggle mv-auto-apply-toggle"
+                aria-pressed={replayAudioOnChange}
+                onClick={() => void patchSettings({ replayAudioOnChange: !replayAudioOnChange })}
               >
-                <span>{qualityLabels[settings.maxQuality]}</span>
-                <ChevronDown size={15} />
+                <span className="mv-switch-track" aria-hidden="true">
+                  <span />
+                </span>
+                <span className="mv-toggle-copy">
+                  <strong>{t('mvSettings.network.replayAudioOnChange')}</strong>
+                  <em>{t('mvSettings.network.replayAudioOnChangeDescription')}</em>
+                </span>
               </button>
-              {isMaxQualityMenuOpen ? (
-                <div className="mv-quality-popover" role="menu" aria-label={t('mvSettings.aria.maxQualityOptions')}>
-                  {qualityCaps.map((quality) => (
-                    <button type="button" key={quality} role="menuitem" data-selected={settings.maxQuality === quality} onClick={() => chooseMaxQuality(quality)}>
-                      <span>{qualityLabels[quality]}</span>
-                      {settings.maxQuality === quality ? <Check size={13} /> : null}
-                    </button>
-                  ))}
+              <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={immersiveBackground} onClick={() => void patchSettings({ immersiveBackground: !immersiveBackground })}>
+                <span className="mv-switch-track" aria-hidden="true">
+                  <span />
+                </span>
+                <span className="mv-toggle-copy">
+                  <strong>{t('mvSettings.immersive.title')}</strong>
+                  <em>{t('mvSettings.immersive.description')}</em>
+                </span>
+              </button>
+              {immersiveBackground ? (
+                <div className="mv-immersive-controls">
+                  <button
+                    type="button"
+                    className="mv-immersive-reset"
+                    onClick={() => void patchSettings(immersiveBackgroundDefaults)}
+                  >
+                    <RotateCcw size={15} />
+                    {t('mvSettings.immersive.reset')}
+                  </button>
+                  <button
+                    type="button"
+                    className="mv-source-toggle mv-auto-apply-toggle"
+                    aria-pressed={settings.lyricsReadabilityEnhanced === true}
+                    onClick={() => void patchSettings({ lyricsReadabilityEnhanced: settings.lyricsReadabilityEnhanced !== true })}
+                  >
+                    <span className="mv-switch-track" aria-hidden="true">
+                      <span />
+                    </span>
+                    <span className="mv-toggle-copy">
+                      <strong>{t('mvSettings.immersive.lyricsReadability')}</strong>
+                      <em>{t('mvSettings.immersive.lyricsReadabilityDescription')}</em>
+                    </span>
+                  </button>
+                  <label className="mv-threshold-control">
+                    <span className="mv-threshold-copy">
+                      <strong>{t('mvSettings.immersive.zoom')}</strong>
+                      <em>{settings.immersiveBackgroundScalePercent ?? 115}%</em>
+                    </span>
+                    <span className="mv-threshold-slider">
+                      <input
+                        type="range"
+                        min="100"
+                        max="220"
+                        step="1"
+                        value={settings.immersiveBackgroundScalePercent ?? 115}
+                        aria-label={t('mvSettings.immersive.zoom')}
+                        onChange={(event) => void patchSettings({ immersiveBackgroundScalePercent: Number(event.currentTarget.value) })}
+                      />
+                      <strong>{settings.immersiveBackgroundScalePercent ?? 115}%</strong>
+                    </span>
+                  </label>
+                  <label className="mv-threshold-control">
+                    <span className="mv-threshold-copy">
+                      <strong>{t('mvSettings.immersive.blur')}</strong>
+                      <em>{t('mvSettings.immersive.visualHint')}</em>
+                    </span>
+                    <span className="mv-threshold-slider">
+                      <input
+                        type="range"
+                        min="0"
+                        max="32"
+                        step="1"
+                        value={settings.immersiveBackgroundBlurPx ?? 0}
+                        aria-label={t('mvSettings.immersive.blur')}
+                        onChange={(event) => void patchSettings({ immersiveBackgroundBlurPx: Number(event.currentTarget.value) })}
+                      />
+                      <strong>{settings.immersiveBackgroundBlurPx ?? 0}px</strong>
+                    </span>
+                  </label>
+                  <label className="mv-threshold-control">
+                    <span className="mv-threshold-copy">
+                      <strong>{t('mvSettings.immersive.brightness')}</strong>
+                      <em>{t('mvSettings.immersive.visualHint')}</em>
+                    </span>
+                    <span className="mv-threshold-slider">
+                      <input
+                        type="range"
+                        min="60"
+                        max="140"
+                        step="1"
+                        value={settings.immersiveBackgroundBrightnessPercent ?? 100}
+                        aria-label={t('mvSettings.immersive.brightness')}
+                        onChange={(event) => void patchSettings({ immersiveBackgroundBrightnessPercent: Number(event.currentTarget.value) })}
+                      />
+                      <strong>{settings.immersiveBackgroundBrightnessPercent ?? 100}%</strong>
+                    </span>
+                  </label>
+                  <label className="mv-threshold-control">
+                    <span className="mv-threshold-copy">
+                      <strong>{t('mvSettings.immersive.overlay')}</strong>
+                      <em>{t('mvSettings.immersive.overlayHint')}</em>
+                    </span>
+                    <span className="mv-threshold-slider">
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={settings.immersiveBackgroundOverlayOpacityPercent ?? 0}
+                        aria-label={t('mvSettings.immersive.overlay')}
+                        onChange={(event) => void patchSettings({ immersiveBackgroundOverlayOpacityPercent: Number(event.currentTarget.value) })}
+                      />
+                      <strong>{settings.immersiveBackgroundOverlayOpacityPercent ?? 0}%</strong>
+                    </span>
+                  </label>
                 </div>
               ) : null}
-            </div>
-          </div>
+              <div className="mv-quality-controls">
+                <div className="mv-quality-menu">
+                  <span className="mv-field-label">{t('mvSettings.network.maxQuality')}</span>
+                  <button
+                    type="button"
+                    className="mv-quality-trigger"
+                    aria-expanded={isMaxQualityMenuOpen}
+                    aria-label={t('mvSettings.aria.maxQuality', { quality: qualityLabels[settings.maxQuality] })}
+                    onClick={() => setIsMaxQualityMenuOpen((current) => !current)}
+                  >
+                    <span>{qualityLabels[settings.maxQuality]}</span>
+                    <ChevronDown size={15} />
+                  </button>
+                  {isMaxQualityMenuOpen ? (
+                    <div className="mv-quality-popover" role="menu" aria-label={t('mvSettings.aria.maxQualityOptions')}>
+                      {qualityCaps.map((quality) => (
+                        <button type="button" key={quality} role="menuitem" data-selected={settings.maxQuality === quality} onClick={() => chooseMaxQuality(quality)}>
+                          <span>{qualityLabels[quality]}</span>
+                          {settings.maxQuality === quality ? <Check size={13} /> : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="mv-source-list" role="list" aria-label={t('mvSettings.aria.networkSources')}>
+                {settings.providerOrder.map((provider, index) => (
+                  <div
+                    className="mv-source-row"
+                    key={provider}
+                    role="listitem"
+                    data-dragging={draggedProvider === provider}
+                    data-drop-target={draggedProvider !== provider && dragOverProvider === provider}
+                    onDragOver={(event) => handleProviderDragOver(event, provider)}
+                    onDrop={(event) => handleProviderDrop(event, provider)}
+                  >
+                    <span
+                      className="mv-source-drag-handle"
+                      draggable
+                      role="button"
+                      tabIndex={0}
+                      aria-label={t('mvSettings.action.dragSource', { provider: providerLabels[provider] })}
+                      title={t('mvSettings.action.dragReorder')}
+                      onDragStart={(event) => handleProviderDragStart(event, provider)}
+                      onDragEnd={handleProviderDragEnd}
+                    >
+                      <GripVertical size={16} />
+                      <small>{index + 1}</small>
+                    </span>
+                    <button type="button" className="mv-source-toggle" aria-pressed={enabledProviders.has(provider)} onClick={() => toggleProvider(provider)}>
+                      <span className="mv-switch-track" aria-hidden="true">
+                        <span />
+                      </span>
+                      {providerLabels[provider]}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
         </section>
 
-        {error ? <p className="audio-drawer-error">{error}</p> : null}
+          {error && error !== networkSearchError ? <p className="audio-drawer-error">{error}</p> : null}
+        </div>
       </aside>
     </div>
   );

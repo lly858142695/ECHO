@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties } from 'react';
 import { PlayerBar } from '../components/player/PlayerBar';
 import { AudioSettingsDrawer } from '../components/player/AudioSettingsDrawer';
 import { LyricsSettingsDrawer } from '../components/lyrics/LyricsSettingsDrawer';
@@ -38,6 +38,8 @@ const defaultAppWallpaperSettings: AppWallpaperSettings = {
   appWallpaperUnifiedOpacityEnabled: false,
 };
 
+const persistentRouteIds = new Set<AppRouteId>(['songs']);
+
 const selectAppWallpaperSettings = (settings: AppSettings): AppWallpaperSettings => ({
   appCustomWallpaperPath: settings.appCustomWallpaperPath,
   appWallpaperScalePercent: settings.appWallpaperScalePercent,
@@ -68,7 +70,28 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     () => routes.find((route) => route.id === activeRouteId) ?? routes[0],
     [activeRouteId, routes],
   );
-  const pageContent: ReactNode = activeRoute.element;
+  const [mountedPersistentRouteIds, setMountedPersistentRouteIds] = useState<AppRouteId[]>(() =>
+    persistentRouteIds.has(activeRouteId) ? [activeRouteId] : ['songs'],
+  );
+  const renderedRoutes = useMemo(() => {
+    const activeRouteIds = new Set<AppRouteId>();
+    const nextRoutes: AppRoute[] = [];
+
+    for (const route of routes) {
+      if (!mountedPersistentRouteIds.includes(route.id)) {
+        continue;
+      }
+
+      nextRoutes.push(route);
+      activeRouteIds.add(route.id);
+    }
+
+    if (activeRoute && !activeRouteIds.has(activeRoute.id)) {
+      nextRoutes.push(activeRoute);
+    }
+
+    return nextRoutes;
+  }, [activeRoute, mountedPersistentRouteIds, routes]);
   const isStandaloneRoute = activeRoute.chrome === 'standalone';
   const isLyricsRoute = activeRouteId === 'lyrics';
   const shouldUseLyricsPlayerDrawer = isLyricsRoute && isLyricsPlayerDrawerEnabled;
@@ -146,6 +169,14 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     },
     [activeRouteId],
   );
+
+  useEffect(() => {
+    if (!persistentRouteIds.has(activeRouteId)) {
+      return;
+    }
+
+    setMountedPersistentRouteIds((current) => (current.includes(activeRouteId) ? current : [...current, activeRouteId]));
+  }, [activeRouteId]);
 
   useEffect(() => {
     const folderInput = folderInputRef.current;
@@ -504,9 +535,22 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         />
       )}
 
-      <main className={`page-surface ${isStandaloneRoute ? 'page-surface--standalone' : ''}`} key={activeRoute.id}>
-        {pageContent}
-      </main>
+      {renderedRoutes.map((route) => {
+        const isActive = route.id === activeRoute.id;
+        const routeIsStandalone = route.chrome === 'standalone';
+
+        return (
+          <main
+            aria-hidden={isActive ? undefined : true}
+            className={`page-surface ${routeIsStandalone ? 'page-surface--standalone' : ''}`}
+            data-route-id={route.id}
+            hidden={!isActive}
+            key={route.id}
+          >
+            {route.element}
+          </main>
+        );
+      })}
 
       {isStandaloneRoute ? null : <DragDropImportOverlay onNotice={setChromeNotice} />}
 

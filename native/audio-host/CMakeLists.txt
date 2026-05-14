@@ -73,7 +73,7 @@ target_link_libraries(echo-audio-host
 )
 
 if(WIN32)
-  target_link_libraries(echo-audio-host PRIVATE shell32 ole32)
+  target_link_libraries(echo-audio-host PRIVATE shell32 ole32 avrt winmm)
 endif()
 
 juce_add_console_app(echo-audio-engine-tests
@@ -100,7 +100,7 @@ target_link_libraries(echo-audio-engine-tests
 )
 
 if(WIN32)
-  target_link_libraries(echo-audio-engine-tests PRIVATE shell32 ole32)
+  target_link_libraries(echo-audio-engine-tests PRIVATE shell32 ole32 avrt winmm)
 endif()
 
 enable_testing()

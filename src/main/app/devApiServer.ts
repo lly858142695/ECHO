@@ -81,6 +81,11 @@ export const startDevApiServer = (): void => {
         return;
       }
 
+      if (request.method === 'POST' && url.pathname === '/streaming/netease-daily-recommend') {
+        sendJson(response, 200, await getStreamingService().refreshNeteaseDailyRecommend());
+        return;
+      }
+
       sendJson(response, 404, { error: 'Not found.' });
     } catch (error) {
       sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) });

@@ -36,6 +36,8 @@ const lyricsCacheVersion = 'v2';
 const bpmConfidenceThreshold = 0.42;
 const playlistImportPageSize = 500;
 const maxPlaylistImportTracks = 20_000;
+const qqShareLinkUserAgent =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
 
 type StreamingTrackRequest = {
   provider: StreamingProviderName;
@@ -78,15 +80,16 @@ const lyricsCacheKey = (provider: StreamingProviderName, providerTrackId: string
 const mvCacheKey = (provider: StreamingProviderName, providerTrackId: string): string =>
   `mv:streaming:${provider}:${providerTrackId}`;
 
-const playlistIdFromUrl = (rawUrl: string): StreamingPlaylistUrlTarget => {
+const parsePlaylistUrl = (rawUrl: string): URL => {
   const trimmed = rawUrl.trim();
-  let url: URL;
   try {
-    url = new URL(trimmed);
+    return new URL(trimmed);
   } catch {
     throw new Error('Please enter a valid streaming playlist URL.');
   }
+};
 
+const playlistIdFromParsedUrl = (url: URL): StreamingPlaylistUrlTarget | null => {
   const host = url.hostname.toLocaleLowerCase();
   const hashUrl = url.hash.startsWith('#') ? url.hash.slice(1) : '';
   const combinedPath = `${url.pathname}${hashUrl}`;
@@ -121,6 +124,51 @@ const playlistIdFromUrl = (rawUrl: string): StreamingPlaylistUrlTarget => {
     if (id) {
       return { provider: 'qqmusic', providerPlaylistId: id };
     }
+  }
+
+  return null;
+};
+
+const shouldResolveQqShareLink = (url: URL): boolean => {
+  const host = url.hostname.toLocaleLowerCase();
+  return (host.includes('y.qq.com') || host.includes('qq.com')) && Boolean(url.searchParams.get('__'));
+};
+
+const resolveQqShareLinkTarget = async (url: URL): Promise<StreamingPlaylistUrlTarget | null> => {
+  if (!shouldResolveQqShareLink(url)) {
+    return null;
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    redirect: 'manual',
+    headers: {
+      Referer: 'https://y.qq.com/',
+      'User-Agent': qqShareLinkUserAgent,
+    },
+  });
+  const location = response.headers.get('location')?.trim();
+  if (!location) {
+    return null;
+  }
+
+  try {
+    return playlistIdFromParsedUrl(new URL(location, url));
+  } catch {
+    return null;
+  }
+};
+
+const resolvePlaylistIdFromUrl = async (rawUrl: string): Promise<StreamingPlaylistUrlTarget> => {
+  const parsedUrl = parsePlaylistUrl(rawUrl);
+  const target = playlistIdFromParsedUrl(parsedUrl);
+  if (target) {
+    return target;
+  }
+
+  const resolvedTarget = await resolveQqShareLinkTarget(parsedUrl);
+  if (resolvedTarget) {
+    return resolvedTarget;
   }
 
   throw new Error('Only NetEase Cloud Music and QQ Music playlist links are supported.');
@@ -357,7 +405,7 @@ export class StreamingService {
   }
 
   async importPlaylistFromUrl(url: string): Promise<StreamingPlaylistImportResult> {
-    const target = playlistIdFromUrl(url);
+    const target = await resolvePlaylistIdFromUrl(url);
     const provider = this.registry.get(target.provider);
     if (!provider.getPlaylist) {
       throw new Error('This streaming provider does not support playlist import.');
@@ -415,6 +463,31 @@ export class StreamingService {
       importedCount,
       provider: target.provider,
       providerPlaylistId: target.providerPlaylistId,
+    };
+  }
+
+  async refreshNeteaseDailyRecommend(): Promise<StreamingPlaylistImportResult> {
+    const provider = this.registry.get('netease');
+    if (!provider.getDailyRecommendPlaylist) {
+      throw new Error('NetEase daily recommendations are not supported.');
+    }
+
+    const detail = await this.callProvider(provider, () => provider.getDailyRecommendPlaylist!(), 'NetEase daily recommendations');
+    const normalizedTracks = detail.tracks.map((track) => this.normalizeTrack(detail.provider, track));
+    const normalizedDetail = { ...detail, tracks: normalizedTracks };
+    const result = this.cacheStore.importStreamingPlaylistPage(normalizedDetail, {
+      reset: true,
+      startPosition: 0,
+      kind: 'system',
+      addedFrom: 'netease-daily-recommend',
+    });
+
+    return {
+      playlistId: result.playlist.id,
+      playlistName: result.playlist.name,
+      importedCount: normalizedTracks.length,
+      provider: 'netease',
+      providerPlaylistId: detail.providerPlaylistId,
     };
   }
 

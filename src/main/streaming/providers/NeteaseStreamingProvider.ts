@@ -20,6 +20,7 @@ import { asRecord, integer, jsonFetch, linesFromLyrics, number, splitLyricsByKin
 const provider = 'netease' as const;
 const neteaseReferer = 'https://music.163.com/';
 const require = createRequire(import.meta.url);
+const neteaseSongDetailBatchSize = 100;
 
 const neteaseHeaders = (cookie?: string): Record<string, string> => ({
   Referer: neteaseReferer,
@@ -31,6 +32,8 @@ const neteaseHeaders = (cookie?: string): Record<string, string> => ({
 
 type NeteaseRequestedQuality = NonNullable<StreamingPlaybackRequest['quality']> | 'fallback';
 type NeteaseApi = {
+  playlist_track_all?: (request: Record<string, unknown>) => Promise<{ body?: { songs?: unknown[] } }>;
+  recommend_songs?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
   song_url_v1?: (request: Record<string, unknown>) => Promise<{ body?: { data?: unknown[] } }>;
 };
 type NeteaseResolvedSource = {
@@ -73,7 +76,8 @@ const neteaseQualityLevels: Record<NeteaseRequestedQuality, Array<{ level: strin
 
 const imageUrl = (value: unknown, size = 300): string | null => {
   const raw = text(value);
-  return raw ? `${raw}${raw.includes('?') ? '&' : '?'}param=${size}y${size}` : null;
+  const normalized = raw?.replace(/^http:\/\//iu, 'https://');
+  return normalized ? `${normalized}${normalized.includes('?') ? '&' : '?'}param=${size}y${size}` : null;
 };
 
 const neteaseImageUrl = (value: unknown, size: number): string | null => streamingImageProxyUrl(imageUrl(value, size), neteaseReferer);
@@ -234,6 +238,20 @@ const mapSong = (songValue: unknown, detailCoverUrl: string | null = null): Stre
   };
 };
 
+const dailyRecommendSongs = (value: unknown): unknown[] => {
+  const body = asRecord(value);
+  const data = asRecord(body.data);
+  if (Array.isArray(data.dailySongs)) {
+    return data.dailySongs;
+  }
+
+  if (Array.isArray(body.recommend)) {
+    return body.recommend;
+  }
+
+  return [];
+};
+
 export class NeteaseStreamingProvider implements StreamingProvider {
   readonly name = provider;
 
@@ -321,8 +339,10 @@ export class NeteaseStreamingProvider implements StreamingProvider {
     let tracks = embeddedTracks.slice(offset, offset + pageSize);
 
     if (pageTrackIds.length > 0) {
-      tracks = await this.fetchSongs(pageTrackIds).catch(() => tracks);
+      tracks = await this.fetchPlaylistTrackPage(input.providerPlaylistId, offset, pageSize, pageTrackIds).catch(() => tracks);
     }
+
+    const consumedCount = pageTrackIds.length || tracks.length;
 
     return {
       id: streamingStableKey(provider, `playlist:${input.providerPlaylistId}`),
@@ -338,7 +358,52 @@ export class NeteaseStreamingProvider implements StreamingProvider {
       page,
       pageSize,
       total,
-      hasMore: offset + tracks.length < total,
+      hasMore: offset + consumedCount < total,
+    };
+  }
+
+  async getDailyRecommendPlaylist(): Promise<StreamingPlaylistDetail> {
+    const cookie = accountCookie();
+    if (!cookie) {
+      throw new Error('Please connect a NetEase Cloud Music account before loading daily recommendations.');
+    }
+
+    const ncm = getNcmApi();
+    let body: unknown = null;
+    if (ncm?.recommend_songs) {
+      const response = await ncm.recommend_songs({ cookie });
+      body = response.body;
+    } else {
+      body = await jsonFetch('https://music.163.com/api/v3/discovery/recommend/songs', {
+        headers: neteaseHeaders(cookie),
+        timeoutMs: 12_000,
+      });
+    }
+
+    const songs = dailyRecommendSongs(body);
+    if (songs.length === 0) {
+      const data = asRecord(asRecord(body).data);
+      const message = text(data.message) ?? text(asRecord(body).message) ?? text(asRecord(body).msg);
+      throw new Error(message ?? 'NetEase daily recommendations returned no songs.');
+    }
+
+    const tracks = songs.map((song) => mapSong(song));
+
+    return {
+      id: streamingStableKey(provider, 'playlist:daily-recommend'),
+      provider,
+      providerPlaylistId: 'daily-recommend',
+      title: '每日推荐',
+      description: '根据网易云音乐账号生成，每天 6:00 更新。',
+      creator: accountStatus().displayName ?? accountStatus().username ?? null,
+      coverUrl: tracks[0]?.coverUrl ?? null,
+      coverThumb: tracks[0]?.coverThumb ?? null,
+      trackCount: songs.length,
+      tracks,
+      page: 1,
+      pageSize: songs.length,
+      total: songs.length,
+      hasMore: false,
     };
   }
 
@@ -372,14 +437,44 @@ export class NeteaseStreamingProvider implements StreamingProvider {
       return [];
     }
 
-    const params = new URLSearchParams({ id: songIds[0], ids: JSON.stringify(songIds) });
-    const data = asRecord(
-      await jsonFetch(`https://music.163.com/api/song/detail/?${params.toString()}`, {
-        headers: neteaseHeaders(accountCookie()),
-        timeoutMs: 12_000,
-      }),
-    );
-    return Array.isArray(data.songs) ? data.songs : [];
+    const songs: unknown[] = [];
+    for (let index = 0; index < songIds.length; index += neteaseSongDetailBatchSize) {
+      const batchIds = songIds.slice(index, index + neteaseSongDetailBatchSize);
+      const params = new URLSearchParams({ id: batchIds[0], ids: JSON.stringify(batchIds) });
+      const data = asRecord(
+        await jsonFetch(`https://music.163.com/api/song/detail/?${params.toString()}`, {
+          headers: neteaseHeaders(accountCookie()),
+          timeoutMs: 12_000,
+        }),
+      );
+      if (Array.isArray(data.songs)) {
+        songs.push(...data.songs);
+      }
+    }
+
+    return songs;
+  }
+
+  private async fetchPlaylistTrackPage(playlistId: string, offset: number, limit: number, fallbackSongIds: string[]): Promise<unknown[]> {
+    const ncm = getNcmApi();
+    const cookie = accountCookie();
+    if (ncm?.playlist_track_all) {
+      try {
+        const response = await ncm.playlist_track_all({
+          id: playlistId,
+          limit,
+          offset,
+          ...(cookie ? { cookie } : {}),
+        });
+        if (Array.isArray(response.body?.songs) && response.body.songs.length > 0) {
+          return response.body.songs;
+        }
+      } catch {
+        // Fall back to the public song detail endpoint below.
+      }
+    }
+
+    return this.fetchSongs(fallbackSongIds);
   }
 
   async getLyrics(input: { providerTrackId: string }): Promise<StreamingLyricsResult> {
