@@ -178,6 +178,7 @@ export const IpcChannels = {
   MvGetCandidates: 'mv:get-candidates',
   MvResolveStreams: 'mv:resolve-streams',
   MvSetQuality: 'mv:set-quality',
+  MvSetOffset: 'mv:set-offset',
   MvBindLocalVideo: 'mv:bind-local-video',
   MvSelectVideo: 'mv:select-video',
   MvClearSelected: 'mv:clear-selected',

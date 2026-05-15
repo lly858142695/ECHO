@@ -305,6 +305,26 @@ describe('LyricsService', () => {
     expect(online.getLyrics).not.toHaveBeenCalled();
   });
 
+  it('keeps network candidates searchable when local lrc exists', async () => {
+    const root = makeTempRoot();
+    const audioPath = join(root, 'Echo Song.flac');
+    writeFileSync(audioPath, 'audio');
+    writeFileSync(join(root, 'Echo Song.lrc'), '[00:01.00]Local line');
+    const { online, service } = createHarness({
+      currentTrack: track(audioPath),
+      localProvider: new LocalLyricsProvider(),
+      onlineProvider: {
+        getLyrics: vi.fn(async () => trackLyrics({ providerLyricsId: 'lrclib-network' })),
+        searchCandidates: vi.fn(async () => []),
+      },
+    });
+
+    const candidates = await service.searchLyricsCandidates('track-1');
+
+    expect(online.getLyrics).toHaveBeenCalled();
+    expect(candidates.map((item) => item.provider)).toEqual(expect.arrayContaining(['local', 'lrclib']));
+  });
+
   it('returns provider synced lyrics and caches them', async () => {
     const { service } = createHarness({
       onlineProvider: { getLyrics: vi.fn(async () => trackLyrics()), searchCandidates: vi.fn(async () => []) },

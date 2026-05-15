@@ -50,8 +50,11 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
     output.latencyProfile = input.latencyProfile as AudioLatencyProfile;
   }
 
-  if (typeof input.bufferSizeFrames === 'number' && Number.isFinite(input.bufferSizeFrames) && input.bufferSizeFrames > 0) {
-    output.bufferSizeFrames = Math.round(input.bufferSizeFrames);
+  if (Object.prototype.hasOwnProperty.call(input, 'bufferSizeFrames')) {
+    output.bufferSizeFrames =
+      typeof input.bufferSizeFrames === 'number' && Number.isFinite(input.bufferSizeFrames) && input.bufferSizeFrames > 0
+        ? Math.round(input.bufferSizeFrames)
+        : null;
   }
 
   if (typeof input.volume === 'number' && Number.isFinite(input.volume)) {

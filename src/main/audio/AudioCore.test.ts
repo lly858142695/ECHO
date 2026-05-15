@@ -163,16 +163,12 @@ class FakeBridge extends EventEmitter {
           ? 'asio'
           : options.exclusive
             ? 'wasapi-exclusive'
-            : options.sharedBackend === 'directsound'
-              ? 'directsound-shared'
-              : 'wasapi-shared',
+            : 'wasapi-shared',
         deviceType: options.asio
           ? 'ASIO'
           : options.exclusive
             ? 'Windows Audio (Exclusive Mode)'
-            : options.sharedBackend === 'directsound'
-              ? 'DirectSound'
-              : 'Windows Audio (Shared Mode)',
+            : 'Windows Audio (Shared Mode)',
         deviceName: options.deviceName ?? 'Default output',
         deviceBufferFrames: requestedBufferFrames,
         nativeActualBufferFrames: requestedBufferFrames,
@@ -264,6 +260,16 @@ class FakeBridge extends EventEmitter {
     this.sessionEnds += 1;
     this.inputEnded = true;
   }
+}
+
+class GracefulFakeBridge extends FakeBridge {
+  readonly stopGracefully = vi.fn(async () => undefined);
+}
+
+class ThrowingStopBridge extends FakeBridge {
+  override readonly stop = vi.fn(() => {
+    throw new Error('stop failed');
+  });
 }
 
 class DelayedReadyBridge extends FakeBridge {
@@ -965,13 +971,12 @@ describe('Audio Core sample-rate regression guard', () => {
     }));
   });
 
-  it('recovers a pre-ready shared access violation with DirectSound shared output', async () => {
+  it('does not recover pre-ready shared access violations with DirectSound', async () => {
     const crashMessage =
       'echo-audio-host exit_code_3221225477; host="echo-audio-host.exe"; args="-sr 48000 -ch 2"; mode="shared"; elapsedMs=778; exitCodeHex=0xC0000005; nativeCrash=access_violation; stderrTail="[echo-audio-host] createDevice completed"';
     const defaultBridge = new ConfigurableStartupFailingBridge(crashMessage);
     const safeBridge = new ConfigurableStartupFailingBridge(crashMessage);
-    const directSoundBridge = new FakeBridge(48000);
-    const bridges = [defaultBridge, safeBridge, directSoundBridge];
+    const bridges = [defaultBridge, safeBridge];
     const reportAudioError = vi.fn();
     const session = new AudioSession({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
@@ -981,29 +986,19 @@ describe('Audio Core sample-rate regression guard', () => {
       logger: noopLogger,
     });
 
-    const status = await session.playLocalFile({
+    await expect(session.playLocalFile({
       filePath: 'song.flac',
       output: { outputMode: 'shared' },
-    });
+    })).rejects.toThrow('nativeCrash=access_violation');
 
     expect(defaultBridge.stop).toHaveBeenCalledTimes(1);
     expect(safeBridge.stop).toHaveBeenCalledTimes(1);
-    expect(directSoundBridge.startOptions).toMatchObject({
-      sharedBackend: 'directsound',
-      bufferSizeFrames: 8192,
-      fifoCapacityMs: 1500,
-      startupPrebufferMs: 250,
-    });
-    expect(status.state).toBe('playing');
-    expect(status.outputBackend).toBe('directsound-shared');
-    expect(status.outputDeviceType).toBe('DirectSound');
-    expect(status.warnings).toContain('shared_output_recovered_safe_mode');
-    expect(status.warnings).toContain('shared_output_recovered_directsound_backend');
-    expect(reportAudioError).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining('nativeCrash=access_violation'),
-      phase: 'safe-shared-fallback',
-      severity: 'recoverable',
-    }));
+    expect(bridges).toHaveLength(0);
+    expect(session.getStatus().state).toBe('error');
+    expect(session.getStatus().warnings).toContain('shared_output_recovered_safe_mode');
+    expect(session.getStatus().warnings).not.toContain('shared_output_recovered_directsound_backend');
+    expect(reportAudioError).toHaveBeenCalled();
+    expect(JSON.stringify(reportAudioError.mock.calls)).not.toContain('directsound');
   });
 
   it('uses library probe hints and avoids device enumeration on the playback hot path', async () => {
@@ -1107,15 +1102,14 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.error).toBeNull();
   });
 
-  it('recovers exclusive fallback shared access violations with DirectSound shared output', async () => {
+  it('does not recover exclusive fallback shared access violations with DirectSound', async () => {
     const decoder = new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
     const exclusiveBridge = new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED');
     const sharedCrashMessage =
       'echo-audio-host exit_code_3221225477; host="echo-audio-host.exe"; args="-sr 48000 -ch 2"; mode="shared"; elapsedMs=778; exitCodeHex=0xC0000005; nativeCrash=access_violation';
     const sharedBridge = new ConfigurableStartupFailingBridge(sharedCrashMessage);
     const safeBridge = new ConfigurableStartupFailingBridge(sharedCrashMessage);
-    const directSoundBridge = new FakeBridge(48000);
-    const bridges = [exclusiveBridge, sharedBridge, safeBridge, directSoundBridge];
+    const bridges = [exclusiveBridge, sharedBridge, safeBridge];
     const session = new AudioSession({
       decoder,
       deviceService: { listDevices: () => [] },
@@ -1123,21 +1117,19 @@ describe('Audio Core sample-rate regression guard', () => {
       logger: noopLogger,
     });
 
-    const status = await session.playLocalFile({
+    await expect(session.playLocalFile({
       filePath: 'song.flac',
       output: { outputMode: 'exclusive' },
-    });
+    })).rejects.toThrow('nativeCrash=access_violation');
 
     expect(exclusiveBridge.startOptions).toMatchObject({ exclusive: true });
     expect(sharedBridge.startOptions).toMatchObject({ exclusive: false });
     expect(safeBridge.startOptions).toMatchObject({ exclusive: false });
-    expect(directSoundBridge.startOptions).toMatchObject({ exclusive: false, sharedBackend: 'directsound' });
-    expect(status.state).toBe('playing');
-    expect(status.outputMode).toBe('shared');
-    expect(status.outputBackend).toBe('directsound-shared');
-    expect(status.warnings).toContain('exclusive_output_fell_back_to_shared');
-    expect(status.warnings).toContain('shared_output_recovered_directsound_backend');
-    expect(status.error).toBeNull();
+    expect(bridges).toHaveLength(0);
+    expect(session.getStatus().state).toBe('error');
+    expect(session.getStatus().warnings).toContain('exclusive_output_fell_back_to_shared');
+    expect(session.getStatus().warnings).toContain('shared_output_recovered_safe_mode');
+    expect(session.getStatus().warnings).not.toContain('shared_output_recovered_directsound_backend');
   });
 
   it('ASIO ready metadata is exposed in AudioStatus', async () => {
@@ -1239,7 +1231,7 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges[0].sessionBegins).toBe(2);
   });
 
-  it('reopens ASIO output across sample-rate changes and decodes to the requested rate', async () => {
+  it('reuses ASIO output across sample-rate changes and decodes to the resident device rate', async () => {
     const { bridges, decoder, session } = createSessionHarness([probe('first-asio.flac', 48000), probe('second-asio.flac', 44100)]);
 
     await session.playLocalFile({
@@ -1251,15 +1243,34 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'asio', bufferSizeFrames: 128 },
     });
 
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(bridges[0].sessionBegins).toBe(2);
+    expect(status.requestedOutputSampleRate).toBe(48000);
+    expect(status.decoderOutputSampleRate).toBe(48000);
+    expect(status.resampling).toBe(true);
+    expect(status.warnings).toContain('resident_output_resampling_to_device_rate');
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({
+      filePath: 'second-asio.flac',
+      decoderOutputSampleRate: 48000,
+    });
+  });
+
+  it('reopens ASIO output when an explicit requested sample rate changes', async () => {
+    const { bridges, session } = createLongRunningSessionHarness([probe('first-asio.flac', 48000), probe('second-asio.flac', 44100)]);
+
+    await session.playLocalFile({
+      filePath: 'first-asio.flac',
+      output: { outputMode: 'asio', bufferSizeFrames: 128, requestedOutputSampleRate: 48000 },
+    });
+    const status = await session.playLocalFile({
+      filePath: 'second-asio.flac',
+      output: { outputMode: 'asio', bufferSizeFrames: 128, requestedOutputSampleRate: 44100 },
+    });
+
     expect(bridges).toHaveLength(2);
     expect(bridges[0].stop).toHaveBeenCalledTimes(1);
     expect(status.requestedOutputSampleRate).toBe(44100);
-    expect(status.decoderOutputSampleRate).toBe(44100);
-    expect(status.resampling).toBe(false);
-    expect(decoder.decodeRequests.at(-1)).toMatchObject({
-      filePath: 'second-asio.flac',
-      decoderOutputSampleRate: 44100,
-    });
   });
 
   it('uses balanced native buffering for WASAPI exclusive by default', async () => {
@@ -1295,7 +1306,7 @@ describe('Audio Core sample-rate regression guard', () => {
     });
   });
 
-  it('uses the adaptive low-latency 256-frame native buffer for ASIO by default', async () => {
+  it('uses low-latency buffering and no startup prebuffer for ASIO by default', async () => {
     const { bridges, session } = createSessionHarness([probe('asio.flac', 44100)]);
 
     await session.playLocalFile({
@@ -1354,12 +1365,12 @@ describe('Audio Core sample-rate regression guard', () => {
     });
 
     expect(status.outputMode).toBe('asio');
-    expect(status.requestedOutputSampleRate).toBe(44100);
+    expect(status.requestedOutputSampleRate).toBe(48000);
     expect(status.actualDeviceSampleRate).toBe(48000);
     expect(status.decoderOutputSampleRate).toBe(48000);
     expect(status.resampling).toBe(true);
     expect(status.bitPerfectCandidate).toBe(false);
-    expect(status.warnings).toContain('actual_device_sample_rate_mismatch:44100->48000');
+    expect(status.warnings).toContain('resident_output_resampling_to_device_rate');
     expect(decoder.decodeRequests[0]).toMatchObject({
       filePath: 'asio.flac',
       decoderOutputSampleRate: 48000,
@@ -2338,6 +2349,159 @@ describe('NativeOutputBridge host arguments', () => {
 
     expect(spawned[0].args).toEqual(expect.arrayContaining(['-sr', '96000', '-ch', '2', '-asio']));
     expect(spawned[0].args).not.toContain('-exclusive');
+    expect(spawned[0].args).not.toContain('-buffer');
+  });
+
+  it('passes explicit ASIO buffer arguments only when requested', async () => {
+    const spawned: Array<{ file: string; args: string[] }> = [];
+    const fakeSpawn = (file: string, args: string[]): ChildProcessWithoutNullStreams => {
+      spawned.push({ file, args });
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stdout.write('{"ready":true,"sampleRate":48000,"backend":"asio","deviceType":"ASIO","deviceName":"TEAC ASIO"}\n');
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      logger: noopLogger,
+    });
+
+    await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+      asio: true,
+      bufferSizeFrames: 512,
+    });
+
+    expect(spawned[0].args).toEqual(expect.arrayContaining(['-asio', '-buffer', '512']));
+    bridge.stop();
+  });
+
+  it('accepts legacy ASIO SDK ready metadata', async () => {
+    const fakeSpawn = (): ChildProcessWithoutNullStreams => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stdout.write(
+          '{"ready":true,"sampleRate":48000,"backend":"asio","backendImpl":"legacy-asio-sdk","format":"int32lsb24","deviceBufferFrames":512,"nativeActualBufferFrames":512,"asioPreferredBufferFrames":512}\n',
+        );
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      logger: noopLogger,
+    });
+
+    const ready = await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+      asio: true,
+    });
+
+    expect(ready.device.backendImpl).toBe('legacy-asio-sdk');
+    expect(ready.device.format).toBe('int32lsb24');
+    expect(ready.device.nativeActualBufferFrames).toBe(512);
+    expect(ready.device.asioPreferredBufferFrames).toBe(512);
+    bridge.stop();
+  });
+
+  it('accepts legacy WASAPI exclusive ready metadata', async () => {
+    const fakeSpawn = (): ChildProcessWithoutNullStreams => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stdout.write(
+          '{"ready":true,"sampleRate":48000,"backend":"wasapi-exclusive","backendImpl":"legacy-wasapi-exclusive","format":"pcm32","deviceBufferFrames":480,"nativeActualBufferFrames":480}\n',
+        );
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      logger: noopLogger,
+    });
+
+    const ready = await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+      exclusive: true,
+    });
+
+    expect(ready.device.backendImpl).toBe('legacy-wasapi-exclusive');
+    expect(ready.device.format).toBe('pcm32');
+    expect(ready.device.nativeActualBufferFrames).toBe(480);
+    bridge.stop();
+  });
+
+  it('accepts legacy WASAPI shared ready metadata', async () => {
+    const fakeSpawn = (): ChildProcessWithoutNullStreams => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), {
+        stdin,
+        stdout,
+        stderr,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcessWithoutNullStreams;
+
+      queueMicrotask(() => {
+        stdout.write(
+          '{"ready":true,"sampleRate":48000,"sharedSampleRate":48000,"backend":"wasapi-shared","backendImpl":"legacy-wasapi-shared","format":"float32","deviceBufferFrames":2048,"nativeActualBufferFrames":2048}\n',
+        );
+      });
+
+      return child;
+    };
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: fakeSpawn as HostSpawner,
+      logger: noopLogger,
+    });
+
+    const ready = await bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+    });
+
+    expect(ready.device.backendImpl).toBe('legacy-wasapi-shared');
+    expect(ready.device.format).toBe('float32');
+    expect(ready.device.sharedSampleRate).toBe(48000);
+    expect(ready.device.nativeActualBufferFrames).toBe(2048);
+    bridge.stop();
   });
 
   it('allows slow Exclusive host startup to outlive the shared-mode ready timeout', async () => {
@@ -2424,6 +2588,128 @@ describe('NativeOutputBridge host arguments', () => {
   });
 });
 
+describe('NativeOutputBridge graceful shutdown', () => {
+  const createStartedBridge = async () => {
+    const writes: Buffer[] = [];
+    const stdoutRef = new PassThrough();
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(),
+      stdout: stdoutRef,
+      stderr: new PassThrough(),
+      kill: vi.fn(() => true),
+    }) as unknown as ChildProcessWithoutNullStreams;
+    child.stdin.on('data', (chunk) => writes.push(Buffer.from(chunk)));
+
+    const bridge = new NativeOutputBridge({
+      hostBinary: 'echo-audio-host.exe',
+      spawn: vi.fn(() => child) as unknown as HostSpawner,
+      logger: noopLogger,
+    });
+
+    const started = bridge.start({
+      requestedOutputSampleRate: 48000,
+      channels: 2,
+    });
+    stdoutRef.write('{"ready":true,"sampleRate":48000}\n');
+    await started;
+
+    return { bridge, child, stdoutRef, writes };
+  };
+
+  it('stopGracefully sends Shutdown frame', async () => {
+    const { bridge, stdoutRef, writes } = await createStartedBridge();
+    const stopped = bridge.stopGracefully('test', 100);
+    stdoutRef.write('{"event":"shutdown-ack"}\n');
+    await stopped;
+
+    const framed = Buffer.concat(writes);
+    expect(framed.subarray(framed.length - 16, framed.length - 12).toString('ascii')).toBe('ECNP');
+    expect(framed.readUInt8(framed.length - 11)).toBe(4);
+  });
+
+  it('does not reuse a ready host after stdin becomes unavailable', async () => {
+    const { bridge, child } = await createStartedBridge();
+
+    expect(bridge.canReuseFor({ requestedOutputSampleRate: 48000, channels: 2 })).toBe(true);
+
+    child.stdin.destroy();
+
+    expect(bridge.canReuseFor({ requestedOutputSampleRate: 48000, channels: 2 })).toBe(false);
+    bridge.stop();
+  });
+
+  it('stopGracefully resolves when shutdown-ack is received', async () => {
+    const { bridge, child, stdoutRef } = await createStartedBridge();
+    const stopped = bridge.stopGracefully('test', 100);
+    stdoutRef.write('{"event":"shutdown-ack"}\n');
+    await stopped;
+
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('stopGracefully resolves when the child process exits without ack', async () => {
+    const { bridge, child } = await createStartedBridge();
+    const stopped = bridge.stopGracefully('test', 100);
+    child.emit('exit', 0, null);
+    await stopped;
+
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('stopGracefully force-kills after timeout', async () => {
+    const { bridge, child } = await createStartedBridge();
+    await bridge.stopGracefully('test', 5);
+
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+  });
+
+  it('shutdown-ack does not emit ended', async () => {
+    const { bridge, stdoutRef } = await createStartedBridge();
+    const ended = vi.fn();
+    bridge.on('ended', ended);
+
+    stdoutRef.write('{"event":"shutdown-ack"}\n');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(ended).not.toHaveBeenCalled();
+    bridge.stop();
+  });
+
+  it('shutdown-ack does not emit error', async () => {
+    const { bridge, stdoutRef } = await createStartedBridge();
+    const errors = vi.fn();
+    bridge.on('error', errors);
+
+    stdoutRef.write('{"event":"shutdown-ack"}\n');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errors).not.toHaveBeenCalled();
+    bridge.stop();
+  });
+
+  it('cleanup references are cleared after graceful stop', async () => {
+    const { bridge, stdoutRef } = await createStartedBridge();
+    const stopped = bridge.stopGracefully('test', 100);
+    stdoutRef.write('{"event":"shutdown-ack"}\n');
+    await stopped;
+
+    expect(bridge.writable).toBeNull();
+    expect(bridge.isReady).toBe(false);
+    expect(bridge.deviceInfo).toBeNull();
+  });
+
+  it('stopGracefully is idempotent when called multiple times', async () => {
+    const { bridge, stdoutRef } = await createStartedBridge();
+    const first = bridge.stopGracefully('first', 100);
+    const second = bridge.stopGracefully('second', 100);
+
+    expect(second).toBe(first);
+
+    stdoutRef.write('{"event":"shutdown-ack"}\n');
+    await first;
+  });
+});
+
 describe('AudioSession host availability', () => {
   it('reports unavailable when echo-audio-host is missing without throwing', () => {
     const unavailableSession = new AudioSession({
@@ -2437,6 +2723,105 @@ describe('AudioSession host availability', () => {
     expect(unavailableSession.getStatus().host).toBe('unavailable');
   });
 
+});
+
+describe('AudioSession graceful output cleanup', () => {
+  it('stopResourcesGracefully calls bridge.stopGracefully when available', async () => {
+    const bridge = new GracefulFakeBridge();
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridge,
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    await session.playLocalFile({ filePath: 'song.flac' });
+    await (session as unknown as { stopResourcesGracefully(reason: string): Promise<void> }).stopResourcesGracefully('test');
+
+    expect(bridge.stopGracefully).toHaveBeenCalledWith('test');
+  });
+
+  it('stops the old bridge gracefully before creating replacement output', async () => {
+    const order: string[] = [];
+    let index = 0;
+    const bridges: GracefulFakeBridge[] = [];
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([
+        ['first.flac', probe('first.flac', 44100)],
+        ['second.flac', probe('second.flac', 48000)],
+      ])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => {
+        const bridge = new GracefulFakeBridge();
+        const bridgeIndex = index;
+        index += 1;
+        order.push(`create:${bridgeIndex}`);
+        bridge.stopGracefully.mockImplementation(async () => {
+          order.push(`stop:${bridgeIndex}`);
+        });
+        bridges.push(bridge);
+        return bridge;
+      },
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    await session.playLocalFile({ filePath: 'first.flac', output: { outputMode: 'exclusive' } });
+    await session.playLocalFile({ filePath: 'second.flac', output: { outputMode: 'shared' } });
+
+    expect(bridges[0].stopGracefully).toHaveBeenCalledWith('replace-output');
+    expect(order).toEqual(['create:0', 'stop:0', 'create:1']);
+  });
+
+  it('disposeGracefully clears watchdog and stops bridge', async () => {
+    const bridge = new GracefulFakeBridge();
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridge,
+      logger: noopLogger,
+      watchdogIntervalMs: 250,
+    });
+
+    await session.playLocalFile({ filePath: 'song.flac' });
+    await session.disposeGracefully();
+
+    expect(bridge.stopGracefully).toHaveBeenCalledWith('dispose');
+    expect((session as unknown as { watchdogTimer: unknown }).watchdogTimer).toBeNull();
+  });
+
+  it('dispose remains safe and sync', async () => {
+    const bridge = new ThrowingStopBridge();
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridge,
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    await session.playLocalFile({ filePath: 'song.flac' });
+
+    expect(() => session.dispose()).not.toThrow();
+    expect(bridge.stop).toHaveBeenCalled();
+  });
+
+  it('cleanup failure does not throw out of disposeGracefully', async () => {
+    const bridge = new GracefulFakeBridge();
+    bridge.stopGracefully.mockRejectedValueOnce(new Error('cleanup failed'));
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridge,
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    await session.playLocalFile({ filePath: 'song.flac' });
+
+    await expect(session.disposeGracefully()).resolves.toBeUndefined();
+  });
 });
 
 describe('DeviceService diagnostics', () => {
@@ -2626,7 +3011,7 @@ describe('DecoderPipeline ffmpeg resolution', () => {
 });
 
 describe('NativeOutputBridge diagnostics', () => {
-  it('passes DirectSound shared backend to the host and includes it in the reuse key', async () => {
+  it('normalizes legacy-disabled DirectSound shared backend before spawning the host', async () => {
     let spawnedArgs: string[] = [];
     const fakeSpawn = (_file: string, args: string[]): ChildProcessWithoutNullStreams => {
       spawnedArgs = args;
@@ -2641,7 +3026,7 @@ describe('NativeOutputBridge diagnostics', () => {
       }) as unknown as ChildProcessWithoutNullStreams;
 
       queueMicrotask(() => {
-        stdout.write('{"ready":true,"sampleRate":48000,"backend":"directsound-shared","deviceType":"DirectSound","deviceName":"Default output"}\n');
+        stdout.write('{"ready":true,"sampleRate":48000,"backend":"wasapi-shared","deviceType":"Windows Audio","deviceName":"Default output"}\n');
       });
 
       return child;
@@ -2659,7 +3044,8 @@ describe('NativeOutputBridge diagnostics', () => {
       sharedBackend: 'directsound',
     });
 
-    expect(spawnedArgs).toEqual(expect.arrayContaining(['-shared-backend', 'directsound']));
+    expect(spawnedArgs).not.toContain('-shared-backend');
+    expect(spawnedArgs).not.toContain('directsound');
     expect(bridge.canReuseFor({
       requestedOutputSampleRate: 48000,
       sharedMixSampleRate: 48000,
@@ -2670,7 +3056,7 @@ describe('NativeOutputBridge diagnostics', () => {
       requestedOutputSampleRate: 48000,
       sharedMixSampleRate: 48000,
       channels: 2,
-    })).toBe(false);
+    })).toBe(true);
   });
 
   it('formats Windows access violations with hex crash metadata', async () => {

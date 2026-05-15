@@ -294,6 +294,7 @@ export type EchoApi = {
     getCandidates: (trackId: string) => Promise<TrackVideo[]>;
     resolveStreams: (videoId: string) => Promise<MvResolvedStreams>;
     setQuality: (videoId: string, qualityId: string) => Promise<TrackVideo>;
+    setOffset: (trackId: string, offsetMs: number) => Promise<TrackVideo | null>;
     chooseLocalVideo: (trackId: string) => Promise<TrackVideo | null>;
     bindLocalVideo: (trackId: string, filePath: string) => Promise<TrackVideo>;
     bindUrl: (trackId: string, url: string) => Promise<TrackVideo>;

@@ -13,6 +13,13 @@ shape from ECHO.
 - `PlaybackClock.ts`: output-side frame counter to position conversion.
 - `audioTypes.ts`: main-process audio core contracts.
 
+## Windows Native Backends
+
+Windows playback is limited to the legacy native WASAPI Shared, WASAPI Exclusive,
+and ASIO SDK paths. The old DirectSound/JUCE device backend is intentionally
+disabled for playback stability; `sharedBackend: 'directsound'` remains a
+legacy type value only and is normalized away before spawning the host.
+
 ## Sample-Rate Fields
 
 The status contract keeps source, decoder, requested output, and actual device

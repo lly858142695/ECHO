@@ -7,6 +7,12 @@
 #include "../../audio-engine/EqProcessor.h"
 #include "../../audio-engine/ChannelBalanceProcessor.h"
 
+#if JUCE_WINDOWS
+#include "asio_host.h"
+#include "wasapi_exclusive.h"
+#include "wasapi_shared.h"
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -416,9 +422,9 @@ bool shouldIncludeSharedBackendType(const juce::String& typeName, const juce::St
         return isPreferredSharedType(typeName);
 
     if (sharedBackend == "directsound")
-        return ! isExclusiveType(typeName) && isDirectSoundType(typeName);
+        return false;
 
-    return true;
+    return ! isDirectSoundType(typeName);
 }
 
 DeviceListMode getHostOutputMode(const Options& options)
@@ -432,6 +438,11 @@ DeviceListMode getHostOutputMode(const Options& options)
     return DeviceListMode::Shared;
 }
 
+bool isDisabledSharedBackend(const Options& options)
+{
+    return ! options.exclusive && ! options.asio && options.sharedBackend == "directsound";
+}
+
 std::string getBackendName(const Options& options, const juce::String& typeName)
 {
     if (options.asio || isAsioType(typeName))
@@ -439,9 +450,6 @@ std::string getBackendName(const Options& options, const juce::String& typeName)
 
     if (options.exclusive || isExclusiveType(typeName))
         return "wasapi-exclusive";
-
-    if (isDirectSoundType(typeName))
-        return "directsound-shared";
 
     return "wasapi-shared";
 }
@@ -778,6 +786,93 @@ void applyCoreAudioSharedSampleRates(std::vector<DeviceDescriptor>& devices)
         device.sharedSampleRate = sampleRate;
     }
 }
+
+std::vector<DeviceDescriptor> enumerateLegacyWasapiExclusiveDevices()
+{
+    std::vector<DeviceDescriptor> devices;
+    wasapi_exclusive_device_info* rawDevices = nullptr;
+    uint32_t rawCount = 0;
+
+    if (wasapi_exclusive_list_devices(&rawDevices, &rawCount) != 0 || rawDevices == nullptr)
+        return devices;
+
+    devices.reserve(rawCount);
+
+    for (uint32_t i = 0; i < rawCount; ++i)
+    {
+        devices.push_back({
+            static_cast<int>(i),
+            "Windows Audio (Exclusive Mode)",
+            juce::String::fromUTF8(rawDevices[i].name),
+            static_cast<int>(rawDevices[i].highestSampleRate),
+            static_cast<int>(rawDevices[i].sharedSampleRate),
+            rawDevices[i].isDefault != 0,
+            false,
+        });
+    }
+
+    wasapi_exclusive_free_devices(rawDevices);
+    return devices;
+}
+
+std::vector<DeviceDescriptor> enumerateLegacyWasapiSharedDevices()
+{
+    std::vector<DeviceDescriptor> devices;
+    wasapi_shared_device_info* rawDevices = nullptr;
+    uint32_t rawCount = 0;
+
+    if (wasapi_shared_list_devices(&rawDevices, &rawCount) != 0 || rawDevices == nullptr)
+        return devices;
+
+    devices.reserve(rawCount);
+
+    for (uint32_t i = 0; i < rawCount; ++i)
+    {
+        const int sharedSampleRate = static_cast<int>(rawDevices[i].sharedSampleRate);
+        devices.push_back({
+            static_cast<int>(i),
+            "Windows Audio",
+            juce::String::fromUTF8(rawDevices[i].name),
+            sharedSampleRate,
+            sharedSampleRate,
+            rawDevices[i].isDefault != 0,
+            false,
+        });
+    }
+
+    wasapi_shared_free_devices(rawDevices);
+    return devices;
+}
+
+std::vector<DeviceDescriptor> enumerateLegacyAsioDevices()
+{
+    std::vector<DeviceDescriptor> devices;
+#if ECHO_ENABLE_ASIO
+    asio_device_info* rawDevices = nullptr;
+    uint32_t rawCount = 0;
+
+    if (asio_list_devices(&rawDevices, &rawCount) != 0 || rawDevices == nullptr)
+        return devices;
+
+    devices.reserve(rawCount);
+
+    for (uint32_t i = 0; i < rawCount; ++i)
+    {
+        devices.push_back({
+            static_cast<int>(i),
+            "ASIO",
+            juce::String::fromUTF8(rawDevices[i].name),
+            0,
+            0,
+            rawDevices[i].isDefault != 0,
+            true,
+        });
+    }
+
+    asio_free_devices(rawDevices);
+#endif
+    return devices;
+}
 #else
 int getFallbackSharedSampleRate()
 {
@@ -802,6 +897,20 @@ std::vector<DeviceDescriptor> enumerateDevices(
     bool dedupe = true,
     const juce::String& sharedBackend = "auto")
 {
+#if JUCE_WINDOWS
+    if (mode == DeviceListMode::Shared && sharedBackend == "directsound")
+        return {};
+
+    if (mode == DeviceListMode::Asio)
+        return enumerateLegacyAsioDevices();
+
+    if (mode == DeviceListMode::Exclusive)
+        return enumerateLegacyWasapiExclusiveDevices();
+
+    if (mode == DeviceListMode::Shared && sharedBackend != "directsound")
+        return enumerateLegacyWasapiSharedDevices();
+#endif
+
     juce::OwnedArray<juce::AudioIODeviceType> types;
     createDeviceTypes(types);
 
@@ -881,17 +990,25 @@ std::vector<DeviceDescriptor> enumerateDevices(
     return devices;
 }
 
-int listDevices(bool asioOnly)
+int listDevices(const Options& options)
 {
-    if (asioOnly && ! ECHO_ENABLE_ASIO)
+    const auto mode = getHostOutputMode(options);
+
+    if (isDisabledSharedBackend(options))
+    {
+        logLine("DirectSound shared backend is disabled; JUCE device backend is not available");
+        return 2;
+    }
+
+    if (mode == DeviceListMode::Asio && ! ECHO_ENABLE_ASIO)
     {
         logLine("ASIO device enumeration failed: ASIO support is disabled at build time (ECHO_ENABLE_ASIO=OFF)");
         return 2;
     }
 
-    const auto devices = enumerateDevices(asioOnly ? DeviceListMode::Asio : DeviceListMode::Shared);
+    const auto devices = enumerateDevices(mode, true, options.sharedBackend);
 
-    if (asioOnly && devices.empty())
+    if (mode == DeviceListMode::Asio && devices.empty())
         logLine("ASIO device enumeration returned no devices");
 
     for (const auto& device : devices)
@@ -1038,6 +1155,14 @@ public:
         channelBalanceProcessor.prepare(sampleRate, samplesPerBlockExpected, channels);
     }
 
+    void prepareForNativeRender(int maxFramesPerCallback, double sampleRate)
+    {
+        const int safeFrames = std::max(1, maxFramesPerCallback);
+        nativeRenderBuffer.setSize(channels, safeFrames, false, true, true);
+        eqProcessor.prepare(sampleRate, safeFrames, channels);
+        channelBalanceProcessor.prepare(sampleRate, safeFrames, channels);
+    }
+
     void releaseResources() override
     {
         eqProcessor.reset();
@@ -1051,12 +1176,52 @@ public:
         if (info.buffer == nullptr)
             return;
 
-        info.clearActiveBufferRegion();
+        renderPlanar(*info.buffer, info.startSample, info.numSamples);
+    }
+
+    uint32_t renderInterleaved(float* output, uint32_t frameCount, uint32_t outputChannels)
+    {
+        if (output == nullptr || frameCount == 0 || outputChannels == 0)
+            return 0;
+
+        std::memset(output, 0, static_cast<size_t>(frameCount) * outputChannels * sizeof(float));
+
+        const int scratchFrames = nativeRenderBuffer.getNumSamples();
+        if (scratchFrames <= 0)
+            return 0;
+
+        uint32_t renderedFrames = 0;
+        uint32_t totalFramesRead = 0;
+
+        while (renderedFrames < frameCount)
+        {
+            const int framesThisChunk = static_cast<int>(std::min<uint32_t>(
+                static_cast<uint32_t>(scratchFrames),
+                frameCount - renderedFrames));
+            const auto framesRead = renderPlanar(nativeRenderBuffer, 0, framesThisChunk);
+            copyPlanarToInterleaved(
+                nativeRenderBuffer,
+                output + static_cast<size_t>(renderedFrames) * outputChannels,
+                framesThisChunk,
+                static_cast<int>(outputChannels));
+            totalFramesRead += static_cast<uint32_t>(framesRead);
+            renderedFrames += static_cast<uint32_t>(framesThisChunk);
+        }
+
+        return totalFramesRead;
+    }
+
+    uint64_t renderPlanar(juce::AudioBuffer<float>& output, int startSample, int frameCount)
+    {
+        if (frameCount <= 0)
+            return 0;
+
+        output.clear(startSample, frameCount);
 
         if (shouldHoldForStartupPrebuffer())
-            return;
+            return 0;
 
-        int framesNeeded = info.numSamples;
+        int framesNeeded = frameCount;
         int outputOffset = 0;
         uint64_t framesReadTotal = 0;
 
@@ -1084,8 +1249,8 @@ public:
                     break;
                 }
 
-                copyToOutput(start1, size1, *info.buffer, info.startSample + outputOffset);
-                copyToOutput(start2, size2, *info.buffer, info.startSample + outputOffset + size1);
+                copyToOutput(start1, size1, output, startSample + outputOffset);
+                copyToOutput(start2, size2, output, startSample + outputOffset + size1);
                 fifo.finishedRead(framesRead);
 
                 framesReadTotal += static_cast<uint64_t>(framesRead);
@@ -1097,8 +1262,10 @@ public:
         if (framesReadTotal > 0)
             framesPlayed.fetch_add(framesReadTotal, std::memory_order_relaxed);
 
-        eqProcessor.processBlock(*info.buffer, info.startSample, info.numSamples);
-        channelBalanceProcessor.processBlock(*info.buffer, info.startSample, info.numSamples);
+        eqProcessor.processBlock(output, startSample, frameCount);
+        channelBalanceProcessor.processBlock(output, startSample, frameCount);
+
+        return framesReadTotal;
     }
 
     bool push(const float* samples, int frameCount)
@@ -1223,12 +1390,37 @@ private:
         }
     }
 
+    void copyPlanarToInterleaved(
+        const juce::AudioBuffer<float>& source,
+        float* output,
+        int frameCount,
+        int outputChannels) const
+    {
+        if (output == nullptr || frameCount <= 0 || outputChannels <= 0)
+            return;
+
+        const int sourceChannels = source.getNumChannels();
+        if (sourceChannels <= 0)
+            return;
+
+        for (int frame = 0; frame < frameCount; ++frame)
+        {
+            for (int channel = 0; channel < outputChannels; ++channel)
+            {
+                const int sourceChannel = std::min(channel, sourceChannels - 1);
+                output[static_cast<size_t>(frame) * outputChannels + channel] =
+                    source.getReadPointer(sourceChannel)[frame];
+            }
+        }
+    }
+
     const int channels;
     const float gain;
     const int startupPrebufferFrames;
     const int startupPrebufferTimeoutMs;
     juce::AbstractFifo fifo;
     std::vector<float> buffer;
+    juce::AudioBuffer<float> nativeRenderBuffer;
     echo::EqProcessor& eqProcessor;
     echo::ChannelBalanceProcessor& channelBalanceProcessor;
     mutable std::mutex fifoMutex;
@@ -1590,6 +1782,102 @@ int waitForInitialPcm(PcmRingAudioSource& source, int targetFrames, int timeoutM
     return source.getReadyFrames();
 }
 
+void cleanupAudioDeviceAndAck(
+    PcmRingAudioSource& source,
+    std::unique_ptr<juce::AudioIODevice>& device,
+    juce::AudioSourcePlayer& player,
+    EqControlServer& eqControlServer,
+    bool& shutdownAckSent)
+{
+    try
+    {
+        source.requestStop();
+    }
+    catch (const std::exception& error)
+    {
+        logLine(std::string("source.requestStop cleanup failed: ") + error.what());
+    }
+    catch (...)
+    {
+        logLine("source.requestStop cleanup failed");
+    }
+
+    if (device != nullptr)
+    {
+        try
+        {
+            device->stop();
+        }
+        catch (const std::exception& error)
+        {
+            logLine(std::string("device->stop cleanup failed: ") + error.what());
+        }
+        catch (...)
+        {
+            logLine("device->stop cleanup failed");
+        }
+    }
+
+    try
+    {
+        player.setSource(nullptr);
+    }
+    catch (const std::exception& error)
+    {
+        logLine(std::string("player.setSource cleanup failed: ") + error.what());
+    }
+    catch (...)
+    {
+        logLine("player.setSource cleanup failed");
+    }
+
+    if (device != nullptr)
+    {
+        try
+        {
+            device->close();
+        }
+        catch (const std::exception& error)
+        {
+            logLine(std::string("device->close cleanup failed: ") + error.what());
+        }
+        catch (...)
+        {
+            logLine("device->close cleanup failed");
+        }
+    }
+
+    try
+    {
+        eqControlServer.stop();
+    }
+    catch (const std::exception& error)
+    {
+        logLine(std::string("eqControlServer.stop cleanup failed: ") + error.what());
+    }
+    catch (...)
+    {
+        logLine("eqControlServer.stop cleanup failed");
+    }
+
+    if (! shutdownAckSent)
+    {
+        shutdownAckSent = true;
+        try
+        {
+            writeJsonLine("{\"event\":\"shutdown-ack\"}");
+        }
+        catch (const std::exception& error)
+        {
+            logLine(std::string("shutdown-ack write failed: ") + error.what());
+        }
+        catch (...)
+        {
+            logLine("shutdown-ack write failed");
+        }
+    }
+}
+
 std::vector<int> buildSampleRateAttempts(const Options& options, const DeviceDescriptor& device)
 {
     std::vector<int> rates;
@@ -1762,6 +2050,702 @@ std::unique_ptr<juce::AudioIODevice> openSelectedDevice(
         + "\": " + (lastError.empty() ? "no compatible backend" : lastError));
 }
 
+#if JUCE_WINDOWS
+uint32_t legacyWasapiRenderCallback(void* userData, float* output, uint32_t frameCount, uint32_t channels)
+{
+    auto* source = static_cast<PcmRingAudioSource*>(userData);
+    return source != nullptr ? source->renderInterleaved(output, frameCount, channels) : 0;
+}
+
+void cleanupLegacyWasapiAndAck(
+    PcmRingAudioSource& source,
+    wasapi_exclusive_runtime*& runtime,
+    EqControlServer& eqControlServer,
+    bool& shutdownAckSent)
+{
+    try
+    {
+        source.requestStop();
+    }
+    catch (const std::exception& error)
+    {
+        logLine(std::string("source.requestStop cleanup failed: ") + error.what());
+    }
+    catch (...)
+    {
+        logLine("source.requestStop cleanup failed");
+    }
+
+    if (runtime != nullptr)
+    {
+        try
+        {
+            wasapi_exclusive_stop(runtime);
+        }
+        catch (const std::exception& error)
+        {
+            logLine(std::string("legacy WASAPI stop cleanup failed: ") + error.what());
+        }
+        catch (...)
+        {
+            logLine("legacy WASAPI stop cleanup failed");
+        }
+        runtime = nullptr;
+    }
+
+    try
+    {
+        eqControlServer.stop();
+    }
+    catch (const std::exception& error)
+    {
+        logLine(std::string("eqControlServer.stop cleanup failed: ") + error.what());
+    }
+    catch (...)
+    {
+        logLine("eqControlServer.stop cleanup failed");
+    }
+
+    if (! shutdownAckSent)
+    {
+        shutdownAckSent = true;
+        try
+        {
+            writeJsonLine("{\"event\":\"shutdown-ack\"}");
+        }
+        catch (const std::exception& error)
+        {
+            logLine(std::string("shutdown-ack write failed: ") + error.what());
+        }
+        catch (...)
+        {
+            logLine("shutdown-ack write failed");
+        }
+    }
+}
+
+void cleanupLegacyWasapiSharedAndAck(
+    PcmRingAudioSource& source,
+    wasapi_shared_runtime*& runtime,
+    EqControlServer& eqControlServer,
+    bool& shutdownAckSent)
+{
+    try
+    {
+        source.requestStop();
+    }
+    catch (const std::exception& error)
+    {
+        logLine(std::string("source.requestStop cleanup failed: ") + error.what());
+    }
+    catch (...)
+    {
+        logLine("source.requestStop cleanup failed");
+    }
+
+    if (runtime != nullptr)
+    {
+        try
+        {
+            wasapi_shared_stop(runtime);
+        }
+        catch (const std::exception& error)
+        {
+            logLine(std::string("legacy WASAPI shared stop cleanup failed: ") + error.what());
+        }
+        catch (...)
+        {
+            logLine("legacy WASAPI shared stop cleanup failed");
+        }
+        runtime = nullptr;
+    }
+
+    try
+    {
+        eqControlServer.stop();
+    }
+    catch (const std::exception& error)
+    {
+        logLine(std::string("eqControlServer.stop cleanup failed: ") + error.what());
+    }
+    catch (...)
+    {
+        logLine("eqControlServer.stop cleanup failed");
+    }
+
+    if (! shutdownAckSent)
+    {
+        shutdownAckSent = true;
+        try
+        {
+            writeJsonLine("{\"event\":\"shutdown-ack\"}");
+        }
+        catch (const std::exception& error)
+        {
+            logLine(std::string("shutdown-ack write failed: ") + error.what());
+        }
+        catch (...)
+        {
+            logLine("shutdown-ack write failed");
+        }
+    }
+}
+
+#if ECHO_ENABLE_ASIO
+void cleanupLegacyAsioAndAck(
+    PcmRingAudioSource& source,
+    asio_runtime*& runtime,
+    EqControlServer& eqControlServer,
+    bool& shutdownAckSent)
+{
+    try
+    {
+        source.requestStop();
+    }
+    catch (const std::exception& error)
+    {
+        logLine(std::string("source.requestStop cleanup failed: ") + error.what());
+    }
+    catch (...)
+    {
+        logLine("source.requestStop cleanup failed");
+    }
+
+    if (runtime != nullptr)
+    {
+        try
+        {
+            asio_stop(runtime);
+        }
+        catch (const std::exception& error)
+        {
+            logLine(std::string("legacy ASIO stop cleanup failed: ") + error.what());
+        }
+        catch (...)
+        {
+            logLine("legacy ASIO stop cleanup failed");
+        }
+        runtime = nullptr;
+    }
+
+    try
+    {
+        eqControlServer.stop();
+    }
+    catch (const std::exception& error)
+    {
+        logLine(std::string("eqControlServer.stop cleanup failed: ") + error.what());
+    }
+    catch (...)
+    {
+        logLine("eqControlServer.stop cleanup failed");
+    }
+
+    if (! shutdownAckSent)
+    {
+        shutdownAckSent = true;
+        try
+        {
+            writeJsonLine("{\"event\":\"shutdown-ack\"}");
+        }
+        catch (const std::exception& error)
+        {
+            logLine(std::string("shutdown-ack write failed: ") + error.what());
+        }
+        catch (...)
+        {
+            logLine("shutdown-ack write failed");
+        }
+    }
+}
+#endif
+
+int runLegacyWasapiExclusiveHost(const Options& options)
+{
+    const auto descriptor = selectDevice(options);
+    logLine("Using legacy WASAPI exclusive device index " + std::to_string(descriptor.index) + ": " + descriptor.name.toStdString());
+
+    echo::EqProcessor eqProcessor;
+    echo::ChannelBalanceProcessor channelBalanceProcessor;
+    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor);
+    const bool eqControlReady = eqControlServer.start();
+    const int requestedDeviceBufferFrames = getDeviceBufferSize(options);
+    const int fifoCapacityFrames = getFifoCapacityFrames(options, options.sampleRate);
+    const int startupPrebufferFrames = getStartupPrebufferFrames(options, options.sampleRate);
+    const int startupPrebufferTimeoutMs = getStartupPrebufferTimeoutMs(options);
+
+    PcmRingAudioSource source(
+        options.channels,
+        fifoCapacityFrames,
+        startupPrebufferFrames,
+        startupPrebufferTimeoutMs,
+        options.volume,
+        eqProcessor,
+        channelBalanceProcessor);
+    source.prepareForNativeRender(fifoCapacityFrames, static_cast<double>(options.sampleRate));
+
+    std::atomic<bool> shutdownRequested { false };
+    std::thread reader;
+
+    if (options.framedStdin)
+        reader = std::thread(framedStdinReader, std::ref(source), options.channels, std::ref(shutdownRequested));
+    else
+        reader = std::thread(stdinReader, std::ref(source), options.channels);
+
+    wasapi_exclusive_runtime* runtime = nullptr;
+    wasapi_exclusive_ready_info readyInfo {};
+    char error[512] {};
+    const auto startResult = wasapi_exclusive_start(
+        descriptor.name.toRawUTF8(),
+        -1,
+        static_cast<uint32_t>(options.sampleRate),
+        static_cast<uint32_t>(options.channels),
+        static_cast<uint32_t>(requestedDeviceBufferFrames),
+        legacyWasapiRenderCallback,
+        &source,
+        &runtime,
+        &readyInfo,
+        error,
+        sizeof(error));
+
+    if (startResult != 0 || runtime == nullptr)
+    {
+        shutdownRequested.store(true, std::memory_order_release);
+        source.requestStop();
+        if (reader.joinable())
+            reader.join();
+        eqControlServer.stop();
+        throw std::runtime_error(
+            std::string("WASAPI exclusive open failed: ")
+            + (error[0] != '\0' ? error : "failed to start legacy WASAPI exclusive output"));
+    }
+
+    const int actualSampleRate = static_cast<int>(readyInfo.sampleRate > 0 ? readyInfo.sampleRate : options.sampleRate);
+    const int actualDeviceBufferFrames = static_cast<int>(std::max<uint32_t>(1, readyInfo.bufferFrameCount));
+    const int openedDeviceBufferFrames = actualDeviceBufferFrames;
+
+    logLine("ready event writing");
+    writeJsonLine(
+        std::string("{\"ready\":true,\"sampleRate\":") + std::to_string(actualSampleRate)
+        + ",\"hardwareSampleRate\":" + std::to_string(actualSampleRate)
+        + ",\"sharedDeviceSampleRate\":0"
+        + ",\"sharedSampleRate\":0"
+        + ",\"channels\":" + std::to_string(options.channels)
+        + ",\"exclusive\":true"
+        + ",\"eqControlPort\":" + std::to_string(eqControlReady ? options.eqControlPort : 0)
+        + ",\"deviceBufferFrames\":" + std::to_string(actualDeviceBufferFrames)
+        + ",\"nativeActualBufferFrames\":" + std::to_string(actualDeviceBufferFrames)
+        + ",\"actualBufferFrames\":" + std::to_string(actualDeviceBufferFrames)
+        + ",\"requestedDeviceBufferFrames\":" + std::to_string(requestedDeviceBufferFrames)
+        + ",\"openedDeviceBufferFrames\":" + std::to_string(openedDeviceBufferFrames)
+        + ",\"bufferSizeFallback\":" + std::string(openedDeviceBufferFrames != requestedDeviceBufferFrames ? "true" : "false")
+        + ",\"fifoCapacityFrames\":" + std::to_string(fifoCapacityFrames)
+        + ",\"startupPrebufferFrames\":" + std::to_string(startupPrebufferFrames)
+        + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
+        + ",\"dspActive\":" + std::string((eqProcessor.isEnabled() || channelBalanceProcessor.isEnabled()) ? "true" : "false")
+        + ",\"backend\":\"wasapi-exclusive\""
+        + ",\"backendImpl\":\"legacy-wasapi-exclusive\""
+        + ",\"format\":\"" + jsonEscape(juce::String::fromUTF8(readyInfo.format)) + "\""
+        + ",\"deviceType\":\"Windows Audio (Exclusive Mode)\",\"deviceName\":\""
+        + jsonEscape(descriptor.name) + "\"}");
+
+    uint64_t lastReported = std::numeric_limits<uint64_t>::max();
+    bool endedReported = false;
+    bool shutdownAckSent = false;
+
+    while (! shutdownRequested.load(std::memory_order_acquire) && (! source.isDrained() || options.framedStdin))
+    {
+        const auto frames = source.getFramesPlayed();
+
+        if (frames != lastReported)
+        {
+            writeJsonLine(
+                std::string("{\"pos\":") + std::to_string(frames)
+                + ",\"bufferedFrames\":" + std::to_string(source.getReadyFrames())
+                + ",\"underrunCallbacks\":" + std::to_string(source.getUnderrunCallbacks())
+                + ",\"underrunFrames\":" + std::to_string(source.getUnderrunFrames())
+                + "}");
+            lastReported = frames;
+        }
+
+        if (options.framedStdin)
+        {
+            if (source.isDrained())
+            {
+                if (! endedReported)
+                {
+                    writeJsonLine("{\"event\":\"ended\"}");
+                    endedReported = true;
+                }
+            }
+            else
+            {
+                endedReported = false;
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(33));
+    }
+
+    if (reader.joinable())
+        reader.join();
+
+    const auto finalFrames = source.getFramesPlayed();
+    if (finalFrames != lastReported)
+        writeJsonLine(
+            std::string("{\"pos\":") + std::to_string(finalFrames)
+            + ",\"bufferedFrames\":" + std::to_string(source.getReadyFrames())
+            + ",\"underrunCallbacks\":" + std::to_string(source.getUnderrunCallbacks())
+            + ",\"underrunFrames\":" + std::to_string(source.getUnderrunFrames())
+            + "}");
+
+    if (source.getUnderrunCallbacks() > 0)
+    {
+        logLine(
+            "Output underruns: callbacks=" + std::to_string(source.getUnderrunCallbacks())
+            + " frames=" + std::to_string(source.getUnderrunFrames()));
+    }
+
+    if (! options.framedStdin || ! endedReported)
+        writeJsonLine("{\"event\":\"ended\"}");
+
+    cleanupLegacyWasapiAndAck(source, runtime, eqControlServer, shutdownAckSent);
+    return 0;
+}
+
+int runLegacyWasapiSharedHost(const Options& options)
+{
+    const auto descriptor = selectDevice(options);
+    logLine("Using legacy WASAPI shared device index " + std::to_string(descriptor.index) + ": " + descriptor.name.toStdString());
+
+    const int requestedDeviceBufferFrames = getDeviceBufferSize(options);
+    const int plannedSampleRate = descriptor.sharedSampleRate > 0 ? descriptor.sharedSampleRate : options.sampleRate;
+
+    echo::EqProcessor eqProcessor;
+    echo::ChannelBalanceProcessor channelBalanceProcessor;
+    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor);
+    const bool eqControlReady = eqControlServer.start();
+    const int fifoCapacityFrames = getFifoCapacityFrames(options, plannedSampleRate);
+    const int startupPrebufferFrames = getStartupPrebufferFrames(options, plannedSampleRate);
+    const int startupPrebufferTimeoutMs = getStartupPrebufferTimeoutMs(options);
+
+    PcmRingAudioSource source(
+        options.channels,
+        fifoCapacityFrames,
+        startupPrebufferFrames,
+        startupPrebufferTimeoutMs,
+        options.volume,
+        eqProcessor,
+        channelBalanceProcessor);
+    source.prepareForNativeRender(fifoCapacityFrames, static_cast<double>(plannedSampleRate));
+
+    std::atomic<bool> shutdownRequested { false };
+    std::thread reader;
+
+    if (options.framedStdin)
+        reader = std::thread(framedStdinReader, std::ref(source), options.channels, std::ref(shutdownRequested));
+    else
+        reader = std::thread(stdinReader, std::ref(source), options.channels);
+
+    wasapi_shared_runtime* runtime = nullptr;
+    wasapi_shared_ready_info readyInfo {};
+    char error[512] {};
+    const auto startResult = wasapi_shared_start(
+        descriptor.name.toRawUTF8(),
+        -1,
+        static_cast<uint32_t>(plannedSampleRate),
+        static_cast<uint32_t>(options.channels),
+        static_cast<uint32_t>(requestedDeviceBufferFrames),
+        legacyWasapiRenderCallback,
+        &source,
+        &runtime,
+        &readyInfo,
+        error,
+        sizeof(error));
+
+    if (startResult != 0 || runtime == nullptr)
+    {
+        shutdownRequested.store(true, std::memory_order_release);
+        source.requestStop();
+        if (reader.joinable())
+            reader.join();
+        eqControlServer.stop();
+        throw std::runtime_error(
+            std::string("WASAPI shared open failed: ")
+            + (error[0] != '\0' ? error : "failed to start legacy WASAPI shared output"));
+    }
+
+    const int actualSampleRate = static_cast<int>(readyInfo.sampleRate > 0 ? readyInfo.sampleRate : plannedSampleRate);
+    const int actualDeviceBufferFrames = static_cast<int>(std::max<uint32_t>(1, readyInfo.bufferFrameCount));
+    const int openedDeviceBufferFrames = actualDeviceBufferFrames;
+
+    logLine("ready event writing");
+    writeJsonLine(
+        std::string("{\"ready\":true,\"sampleRate\":") + std::to_string(actualSampleRate)
+        + ",\"hardwareSampleRate\":" + std::to_string(actualSampleRate)
+        + ",\"sharedDeviceSampleRate\":" + std::to_string(actualSampleRate)
+        + ",\"sharedSampleRate\":" + std::to_string(actualSampleRate)
+        + ",\"channels\":" + std::to_string(options.channels)
+        + ",\"exclusive\":false"
+        + ",\"eqControlPort\":" + std::to_string(eqControlReady ? options.eqControlPort : 0)
+        + ",\"deviceBufferFrames\":" + std::to_string(actualDeviceBufferFrames)
+        + ",\"nativeActualBufferFrames\":" + std::to_string(actualDeviceBufferFrames)
+        + ",\"actualBufferFrames\":" + std::to_string(actualDeviceBufferFrames)
+        + ",\"requestedDeviceBufferFrames\":" + std::to_string(requestedDeviceBufferFrames)
+        + ",\"openedDeviceBufferFrames\":" + std::to_string(openedDeviceBufferFrames)
+        + ",\"bufferSizeFallback\":" + std::string(openedDeviceBufferFrames != requestedDeviceBufferFrames ? "true" : "false")
+        + ",\"fifoCapacityFrames\":" + std::to_string(fifoCapacityFrames)
+        + ",\"startupPrebufferFrames\":" + std::to_string(startupPrebufferFrames)
+        + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
+        + ",\"dspActive\":" + std::string((eqProcessor.isEnabled() || channelBalanceProcessor.isEnabled()) ? "true" : "false")
+        + ",\"backend\":\"wasapi-shared\""
+        + ",\"backendImpl\":\"legacy-wasapi-shared\""
+        + ",\"format\":\"" + jsonEscape(juce::String::fromUTF8(readyInfo.format)) + "\""
+        + ",\"deviceType\":\"Windows Audio\",\"deviceName\":\""
+        + jsonEscape(descriptor.name) + "\"}");
+
+    uint64_t lastReported = std::numeric_limits<uint64_t>::max();
+    bool endedReported = false;
+    bool shutdownAckSent = false;
+
+    while (! shutdownRequested.load(std::memory_order_acquire) && (! source.isDrained() || options.framedStdin))
+    {
+        const auto frames = source.getFramesPlayed();
+
+        if (frames != lastReported)
+        {
+            writeJsonLine(
+                std::string("{\"pos\":") + std::to_string(frames)
+                + ",\"bufferedFrames\":" + std::to_string(source.getReadyFrames())
+                + ",\"underrunCallbacks\":" + std::to_string(source.getUnderrunCallbacks())
+                + ",\"underrunFrames\":" + std::to_string(source.getUnderrunFrames())
+                + "}");
+            lastReported = frames;
+        }
+
+        if (options.framedStdin)
+        {
+            if (source.isDrained())
+            {
+                if (! endedReported)
+                {
+                    writeJsonLine("{\"event\":\"ended\"}");
+                    endedReported = true;
+                }
+            }
+            else
+            {
+                endedReported = false;
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(33));
+    }
+
+    if (reader.joinable())
+        reader.join();
+
+    const auto finalFrames = source.getFramesPlayed();
+    if (finalFrames != lastReported)
+        writeJsonLine(
+            std::string("{\"pos\":") + std::to_string(finalFrames)
+            + ",\"bufferedFrames\":" + std::to_string(source.getReadyFrames())
+            + ",\"underrunCallbacks\":" + std::to_string(source.getUnderrunCallbacks())
+            + ",\"underrunFrames\":" + std::to_string(source.getUnderrunFrames())
+            + "}");
+
+    if (source.getUnderrunCallbacks() > 0)
+    {
+        logLine(
+            "Output underruns: callbacks=" + std::to_string(source.getUnderrunCallbacks())
+            + " frames=" + std::to_string(source.getUnderrunFrames()));
+    }
+
+    if (! options.framedStdin || ! endedReported)
+        writeJsonLine("{\"event\":\"ended\"}");
+
+    cleanupLegacyWasapiSharedAndAck(source, runtime, eqControlServer, shutdownAckSent);
+    return 0;
+}
+
+#if ! ECHO_ENABLE_ASIO
+int runLegacyAsioHost(const Options& options)
+{
+    (void)options;
+    throw std::runtime_error("ASIO open failed: ASIO support is disabled at build time (ECHO_ENABLE_ASIO=OFF)");
+}
+#else
+int runLegacyAsioHost(const Options& options)
+{
+    const auto descriptor = selectDevice(options);
+    logLine("Using legacy ASIO SDK device index " + std::to_string(descriptor.index) + ": " + descriptor.name.toStdString());
+
+    const int requestedDeviceBufferFrames = std::max(0, options.bufferSize);
+    const int plannedSampleRate = options.sampleRate;
+    const int fifoCapacityFrames = getFifoCapacityFrames(options, plannedSampleRate);
+    const int startupPrebufferFrames = getStartupPrebufferFrames(options, plannedSampleRate);
+    const int startupPrebufferTimeoutMs = getStartupPrebufferTimeoutMs(options);
+
+    echo::EqProcessor eqProcessor;
+    echo::ChannelBalanceProcessor channelBalanceProcessor;
+    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor);
+    const bool eqControlReady = eqControlServer.start();
+
+    PcmRingAudioSource source(
+        options.channels,
+        fifoCapacityFrames,
+        startupPrebufferFrames,
+        startupPrebufferTimeoutMs,
+        options.volume,
+        eqProcessor,
+        channelBalanceProcessor);
+    source.prepareForNativeRender(fifoCapacityFrames, static_cast<double>(plannedSampleRate));
+
+    std::atomic<bool> shutdownRequested { false };
+    std::thread reader;
+
+    if (options.framedStdin)
+        reader = std::thread(framedStdinReader, std::ref(source), options.channels, std::ref(shutdownRequested));
+    else
+        reader = std::thread(stdinReader, std::ref(source), options.channels);
+
+    asio_runtime* runtime = nullptr;
+    asio_ready_info readyInfo {};
+    char error[1024] {};
+    const auto startResult = asio_start(
+        descriptor.name.toRawUTF8(),
+        -1,
+        static_cast<uint32_t>(options.sampleRate),
+        static_cast<uint32_t>(options.channels),
+        static_cast<uint32_t>(requestedDeviceBufferFrames),
+        [] (void* userData, float* output, unsigned int frameCount, unsigned int channels) -> unsigned int
+        {
+            auto* pcmSource = static_cast<PcmRingAudioSource*>(userData);
+            return pcmSource != nullptr ? pcmSource->renderInterleaved(output, frameCount, channels) : 0;
+        },
+        &source,
+        &runtime,
+        &readyInfo,
+        error,
+        sizeof(error));
+
+    if (startResult != 0 || runtime == nullptr)
+    {
+        shutdownRequested.store(true, std::memory_order_release);
+        source.requestStop();
+        if (reader.joinable())
+            reader.join();
+        eqControlServer.stop();
+        throw std::runtime_error(
+            std::string("ASIO open failed: ")
+            + (error[0] != '\0' ? error : "failed to start legacy ASIO SDK output"));
+    }
+
+    const int actualSampleRate = static_cast<int>(readyInfo.sampleRate > 0 ? readyInfo.sampleRate : options.sampleRate);
+    const int actualDeviceBufferFrames = static_cast<int>(std::max<uint32_t>(1, readyInfo.bufferFrameCount));
+    const int openedDeviceBufferFrames = actualDeviceBufferFrames;
+    const int reportedRequestedDeviceBufferFrames = static_cast<int>(std::max<uint32_t>(
+        1,
+        readyInfo.requestedBufferFrameCount > 0 ? readyInfo.requestedBufferFrameCount : readyInfo.bufferFrameCount));
+
+    logLine("ready event writing");
+    writeJsonLine(
+        std::string("{\"ready\":true,\"sampleRate\":") + std::to_string(actualSampleRate)
+        + ",\"hardwareSampleRate\":" + std::to_string(actualSampleRate)
+        + ",\"sharedDeviceSampleRate\":0"
+        + ",\"sharedSampleRate\":0"
+        + ",\"channels\":" + std::to_string(static_cast<int>(readyInfo.channels > 0 ? readyInfo.channels : options.channels))
+        + ",\"exclusive\":false"
+        + ",\"asio\":true"
+        + ",\"eqControlPort\":" + std::to_string(eqControlReady ? options.eqControlPort : 0)
+        + ",\"deviceBufferFrames\":" + std::to_string(actualDeviceBufferFrames)
+        + ",\"nativeActualBufferFrames\":" + std::to_string(actualDeviceBufferFrames)
+        + ",\"actualBufferFrames\":" + std::to_string(actualDeviceBufferFrames)
+        + ",\"requestedDeviceBufferFrames\":" + std::to_string(reportedRequestedDeviceBufferFrames)
+        + ",\"openedDeviceBufferFrames\":" + std::to_string(openedDeviceBufferFrames)
+        + ",\"bufferSizeFallback\":" + std::string(openedDeviceBufferFrames != reportedRequestedDeviceBufferFrames ? "true" : "false")
+        + ",\"fifoCapacityFrames\":" + std::to_string(fifoCapacityFrames)
+        + ",\"startupPrebufferFrames\":" + std::to_string(startupPrebufferFrames)
+        + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
+        + ",\"dspActive\":" + std::string((eqProcessor.isEnabled() || channelBalanceProcessor.isEnabled()) ? "true" : "false")
+        + ",\"backend\":\"asio\""
+        + ",\"backendImpl\":\"legacy-asio-sdk\""
+        + ",\"format\":\"" + jsonEscape(juce::String::fromUTF8(readyInfo.format)) + "\""
+        + ",\"asioInputChannels\":" + std::to_string(readyInfo.inputChannels)
+        + ",\"asioOutputChannels\":" + std::to_string(readyInfo.outputChannels)
+        + ",\"asioPreferredBufferFrames\":" + std::to_string(readyInfo.preferredBufferFrames)
+        + ",\"asioMinBufferFrames\":" + std::to_string(readyInfo.minBufferFrames)
+        + ",\"asioMaxBufferFrames\":" + std::to_string(readyInfo.maxBufferFrames)
+        + ",\"asioGranularity\":" + std::to_string(readyInfo.granularity)
+        + ",\"deviceType\":\"ASIO\",\"deviceName\":\""
+        + jsonEscape(juce::String::fromUTF8(readyInfo.deviceName[0] != '\0' ? readyInfo.deviceName : descriptor.name.toRawUTF8())) + "\"}");
+
+    uint64_t lastReported = std::numeric_limits<uint64_t>::max();
+    bool endedReported = false;
+    bool shutdownAckSent = false;
+
+    while (! shutdownRequested.load(std::memory_order_acquire) && (! source.isDrained() || options.framedStdin))
+    {
+        const auto frames = source.getFramesPlayed();
+
+        if (frames != lastReported)
+        {
+            writeJsonLine(
+                std::string("{\"pos\":") + std::to_string(frames)
+                + ",\"bufferedFrames\":" + std::to_string(source.getReadyFrames())
+                + ",\"underrunCallbacks\":" + std::to_string(source.getUnderrunCallbacks())
+                + ",\"underrunFrames\":" + std::to_string(source.getUnderrunFrames())
+                + "}");
+            lastReported = frames;
+        }
+
+        if (options.framedStdin)
+        {
+            if (source.isDrained())
+            {
+                if (! endedReported)
+                {
+                    writeJsonLine("{\"event\":\"ended\"}");
+                    endedReported = true;
+                }
+            }
+            else
+            {
+                endedReported = false;
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(33));
+    }
+
+    if (reader.joinable())
+        reader.join();
+
+    const auto finalFrames = source.getFramesPlayed();
+    if (finalFrames != lastReported)
+        writeJsonLine(
+            std::string("{\"pos\":") + std::to_string(finalFrames)
+            + ",\"bufferedFrames\":" + std::to_string(source.getReadyFrames())
+            + ",\"underrunCallbacks\":" + std::to_string(source.getUnderrunCallbacks())
+            + ",\"underrunFrames\":" + std::to_string(source.getUnderrunFrames())
+            + "}");
+
+    if (source.getUnderrunCallbacks() > 0)
+    {
+        logLine(
+            "Output underruns: callbacks=" + std::to_string(source.getUnderrunCallbacks())
+            + " frames=" + std::to_string(source.getUnderrunFrames()));
+    }
+
+    if (! options.framedStdin || ! endedReported)
+        writeJsonLine("{\"event\":\"ended\"}");
+
+    cleanupLegacyAsioAndAck(source, runtime, eqControlServer, shutdownAckSent);
+    return 0;
+}
+#endif
+#endif
+
 int runHost(const Options& options)
 {
     configureProcessPriority();
@@ -1778,6 +2762,36 @@ int runHost(const Options& options)
 
     if (! options.exclusive && ! options.asio)
         logLine("Shared backend preference: " + options.sharedBackend.toStdString());
+
+    if (isDisabledSharedBackend(options))
+        throw std::runtime_error("DirectSound shared backend is disabled; JUCE device backend is not available");
+
+    if (options.exclusive && ! options.asio)
+    {
+#if JUCE_WINDOWS
+        return runLegacyWasapiExclusiveHost(options);
+#else
+        throw std::runtime_error("WASAPI exclusive open failed: legacy WASAPI exclusive backend is only available on Windows");
+#endif
+    }
+
+    if (options.asio)
+    {
+#if JUCE_WINDOWS
+        return runLegacyAsioHost(options);
+#else
+        throw std::runtime_error("ASIO open failed: legacy ASIO SDK backend is only available on Windows");
+#endif
+    }
+
+    if (! options.exclusive && ! options.asio && options.sharedBackend != "directsound")
+    {
+#if JUCE_WINDOWS
+        return runLegacyWasapiSharedHost(options);
+#else
+        throw std::runtime_error("WASAPI shared open failed: legacy WASAPI shared backend is only available on Windows");
+#endif
+    }
 
     const auto descriptor = selectDevice(options);
     logLine("Using device index " + std::to_string(descriptor.index) + ": " + descriptor.name.toStdString());
@@ -1867,6 +2881,7 @@ int runHost(const Options& options)
     logLine("device->start completed");
     uint64_t lastReported = std::numeric_limits<uint64_t>::max();
     bool endedReported = false;
+    bool shutdownAckSent = false;
 
     while (! shutdownRequested.load(std::memory_order_acquire) && (! source.isDrained() || options.framedStdin))
     {
@@ -1924,10 +2939,7 @@ int runHost(const Options& options)
     if (! options.framedStdin || ! endedReported)
         writeJsonLine("{\"event\":\"ended\"}");
 
-    device->stop();
-    player.setSource(nullptr);
-    source.requestStop();
-    eqControlServer.stop();
+    cleanupAudioDeviceAndAck(source, device, player, eqControlServer, shutdownAckSent);
 
     return 0;
 }
@@ -1943,7 +2955,7 @@ int main(int argc, char* argv[])
 
         if (options.list)
         {
-            return listDevices(options.asio);
+            return listDevices(options);
         }
 
         return runHost(options);

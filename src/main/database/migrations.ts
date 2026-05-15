@@ -891,6 +891,12 @@ export const migrations: Migration[] = [
       database.exec('CREATE INDEX IF NOT EXISTS idx_tracks_analysis_status ON tracks(analysis_status)');
     },
   },
+  {
+    id: 26,
+    apply: (database) => {
+      addColumnIfMissing(database, 'track_videos', 'offset_ms', 'offset_ms INTEGER NOT NULL DEFAULT 0');
+    },
+  },
 ];
 
 export const runMigrations = (database: EchoDatabase): void => {

@@ -463,6 +463,7 @@ export class LyricsService {
         autoAcceptScore: settings.lyricsAutoAcceptScore,
         coverAutoAcceptScore: settings.lyricsCoverAutoAcceptScore,
         deepSearchEnabled: settings.lyricsDeepSearchEnabled,
+        collectAllCandidates: true,
         isRejected: (provider, providerLyricsId) => this.hasRejectedProviderLyrics(trackId, provider, providerLyricsId),
       });
 

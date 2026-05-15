@@ -35,6 +35,7 @@ type OutputBridgeLike = {
   writable: Writable | null;
   start: (options: NativeOutputStartOptions) => Promise<NativeBridgeReadyResult>;
   stop: () => void;
+  stopGracefully?: (reason?: string, timeoutMs?: number) => Promise<void>;
   canReuseFor?: (options: NativeOutputStartOptions) => boolean;
   beginSession?: (options?: { startSeconds?: number; playbackRate?: number; durationSeconds?: number }) => number;
   createSessionWritable?: (sessionId?: number) => Writable;
@@ -253,11 +254,6 @@ const createSafeSharedFallbackSettings = (settings: AudioOutputSettings): AudioO
   latencyProfile: 'stable',
   bufferSizeFrames: undefined,
 });
-
-const isNativeAccessViolationHostCrash = (error: Error): boolean =>
-  error.message.includes('nativeCrash=access_violation') ||
-  error.message.includes('exit_code_3221225477') ||
-  error.message.includes('exit_code_-1073741819');
 
 const numericReadyField = (ready: NativeBridgeReadyResult, field: string): number | null => {
   const value = ready.device[field];
@@ -692,6 +688,7 @@ export class AudioSession extends EventEmitter {
 
   async setOutput(settings: AudioOutputSettings): Promise<AudioStatus> {
     const previousOutputSettings = this.currentOutputSettings ? { ...this.currentOutputSettings } : null;
+    const previousGlobalOutputSettings = { ...this.outputSettings };
     this.updatePositionFromOutput();
     const baseOutputMode = this.currentOutputSettings?.outputMode ?? this.outputSettings.outputMode;
     const baseLatencyProfile = this.currentOutputSettings?.latencyProfile ?? this.outputSettings.latencyProfile;
@@ -736,7 +733,7 @@ export class AudioSession extends EventEmitter {
 
     if (this.state === 'paused') {
       this.runToken += 1;
-      this.stopResources();
+      await this.stopResourcesGracefully('output-settings-paused');
       this.currentPlan = null;
       this.currentResidentOutputSampleRate = null;
       this.currentOutputBackend = null;
@@ -750,13 +747,21 @@ export class AudioSession extends EventEmitter {
 
     if (this.state === 'playing' && this.currentFilePath && this.currentProbe && this.currentOutputSettings) {
       const positionSeconds = this.clock.getPositionSeconds();
-      return this.playLocalFile({
-        filePath: this.currentFilePath,
-        trackId: this.currentTrackId ?? undefined,
-        startSeconds: positionSeconds,
-        output: this.currentOutputSettings,
-        probe: createProbeHint(this.currentProbe),
-      });
+      try {
+        return await this.playLocalFile({
+          filePath: this.currentFilePath,
+          trackId: this.currentTrackId ?? undefined,
+          startSeconds: positionSeconds,
+          output: this.currentOutputSettings,
+          probe: createProbeHint(this.currentProbe),
+        });
+      } catch (error) {
+        this.outputSettings = previousGlobalOutputSettings;
+        this.currentOutputSettings = previousOutputSettings;
+        this.currentDevice = createDeviceFromOutputSettings(this.currentOutputSettings ?? this.outputSettings);
+        this.emitStatus();
+        throw error;
+      }
     }
 
     this.emitStatus();
@@ -1072,7 +1077,7 @@ export class AudioSession extends EventEmitter {
       const sampleRate = this.currentPlan?.actualDeviceSampleRate ?? this.currentPlan?.requestedOutputSampleRate ?? null;
       this.runToken += 1;
       const token = this.runToken;
-      this.stopResources();
+      await this.stopResourcesGracefully('seek-paused');
       this.pausedPositionSeconds = safePositionSeconds;
       this.clock.reset(safePositionSeconds, sampleRate);
       const canPrewarm = Boolean(this.currentProbe && this.currentOutputSettings && this.isNativeHostAvailable());
@@ -1310,6 +1315,15 @@ export class AudioSession extends EventEmitter {
     this.stopResources();
   }
 
+  async disposeGracefully(reason = 'dispose'): Promise<void> {
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+
+    await this.stopResourcesGracefully(reason);
+  }
+
   private createOutputSettingsForRequest(output: AudioOutputSettings | undefined): AudioOutputSettings {
     const nextOutputMode = normalizeOutputMode(output?.outputMode ?? this.outputSettings.outputMode);
     const nextLatencyProfile = resolveLatencyProfile(
@@ -1539,7 +1553,9 @@ export class AudioSession extends EventEmitter {
     }
 
     this.currentReadyResult = ready;
-    if (!isResidentOutputMode(this.currentOutputSettings.outputMode)) {
+    if (this.currentOutputSettings.outputMode === 'asio' && !normalizePositiveInteger(this.currentOutputSettings.requestedOutputSampleRate)) {
+      this.currentResidentOutputSampleRate = getReadyOutputSampleRate(ready);
+    } else if (!isResidentOutputMode(this.currentOutputSettings.outputMode)) {
       this.currentResidentOutputSampleRate = null;
     }
     const readyDevice = ready.device;
@@ -1727,7 +1743,17 @@ export class AudioSession extends EventEmitter {
     const explicitBufferSizeFrames = normalizePositiveInteger(options.bufferSizeFrames);
     const profileBufferSizeFrames = explicitBufferSizeFrames ?? latencyProfileOptions.bufferSizeFrames ?? 2048;
 
-    if (options.exclusive || options.asio) {
+    if (options.asio) {
+      return {
+        ...options,
+        latencyProfile,
+        startupPrebufferMs: options.startupPrebufferMs ?? 0,
+        startupPrebufferTimeoutMs: options.startupPrebufferTimeoutMs ?? 0,
+        bufferSizeFrames: profileBufferSizeFrames,
+      };
+    }
+
+    if (options.exclusive) {
       return {
         ...options,
         latencyProfile,
@@ -1767,7 +1793,20 @@ export class AudioSession extends EventEmitter {
         outputMode === 'shared' && candidate === null && hasExplicitDeviceSelection(this.currentOutputSettings);
       const planDevice = outputMode === 'shared' && candidate === null ? this.resolveDefaultSharedDevice() : candidate;
       this.currentDevice = planDevice;
-      this.currentPlan = this.createSampleRatePlan(probe, this.currentOutputSettings, this.currentDevice);
+      const residentOutputSampleRate =
+        outputMode === 'asio' && !normalizePositiveInteger(this.currentOutputSettings.requestedOutputSampleRate)
+          ? this.currentReadyResult
+            ? getReadyOutputSampleRate(this.currentReadyResult)
+            : null
+          : null;
+      this.currentResidentOutputSampleRate = residentOutputSampleRate;
+      this.currentPlan = this.createSampleRatePlan(
+        probe,
+        this.currentOutputSettings,
+        this.currentDevice,
+        null,
+        { residentOutputSampleRate },
+      );
       this.logger(
         `[AudioSession] sample-rate plan: file=${this.currentPlan.fileSampleRate ?? 'n/a'} decoder=${
           this.currentPlan.decoderOutputSampleRate
@@ -1825,10 +1864,7 @@ export class AudioSession extends EventEmitter {
         : 'initial_start';
 
       if (this.bridge && !previousBridgeStopped) {
-        this.bridge.stop();
-        this.bridge = null;
-        this.currentReadyResult = null;
-        this.currentResidentOutputSampleRate = null;
+        await this.stopResourcesGracefully('replace-output');
         previousBridgeStopped = true;
       }
 
@@ -1854,11 +1890,7 @@ export class AudioSession extends EventEmitter {
           requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
           channels: probe.channels,
         });
-        bridge.stop();
-        if (this.bridge === bridge) {
-          this.bridge = null;
-          this.currentResidentOutputSampleRate = null;
-        }
+        await this.stopBridgeGracefully(bridge, 'output-start-failed');
       }
     }
 
@@ -1909,11 +1941,7 @@ export class AudioSession extends EventEmitter {
       } catch (error) {
         const fallbackError = error instanceof Error ? error : new Error(String(error));
         this.logger(`[AudioSession] shared fallback failed: ${fallbackError.message}`);
-        bridge.stop();
-        if (this.bridge === bridge) {
-          this.bridge = null;
-          this.currentResidentOutputSampleRate = null;
-        }
+        await this.stopBridgeGracefully(bridge, 'shared-fallback-failed');
         return this.startSafeSharedFallbackForProbe(probe, token, startSeconds, fallbackError);
       }
     }
@@ -1940,9 +1968,7 @@ export class AudioSession extends EventEmitter {
       throw new Error('audio output settings unavailable');
     }
 
-    this.bridge?.stop();
-    this.bridge = null;
-    this.currentResidentOutputSampleRate = null;
+    await this.stopResourcesGracefully('safe-shared-fallback');
 
     const fallbackSettings = createSafeSharedFallbackSettings(this.currentOutputSettings);
     const fallbackDevice = this.resolveDefaultSharedDevice();
@@ -1990,93 +2016,7 @@ export class AudioSession extends EventEmitter {
     } catch (error) {
       const fallbackError = error instanceof Error ? error : new Error(String(error));
       this.logger(`[AudioSession] safe shared fallback failed: ${fallbackError.message}`);
-      bridge.stop();
-      if (this.bridge === bridge) {
-        this.bridge = null;
-        this.currentResidentOutputSampleRate = null;
-      }
-      const nativeCrash = isNativeAccessViolationHostCrash(cause)
-        ? cause
-        : isNativeAccessViolationHostCrash(fallbackError)
-          ? fallbackError
-          : null;
-
-      if (nativeCrash) {
-        return this.startDirectSoundSharedFallbackForProbe(probe, token, startSeconds, nativeCrash);
-      }
-
-      throw cause;
-    }
-  }
-
-  private async startDirectSoundSharedFallbackForProbe(
-    probe: AudioProbeResult,
-    token: number,
-    startSeconds: number,
-    cause: Error,
-  ): Promise<BridgeStartResult> {
-    if (!this.currentOutputSettings) {
-      throw new Error('audio output settings unavailable');
-    }
-
-    this.bridge?.stop();
-    this.bridge = null;
-    this.currentResidentOutputSampleRate = null;
-
-    const fallbackSettings = createSafeSharedFallbackSettings(this.currentOutputSettings);
-    const fallbackDevice = this.resolveDefaultSharedDevice();
-    this.assertCurrentRun(token);
-    this.currentOutputSettings = fallbackSettings;
-    this.currentDevice = fallbackDevice;
-    this.currentPlan = this.createSampleRatePlan(probe, fallbackSettings, fallbackDevice);
-    this.sharedStabilityTier = 'emergency';
-    this.addOutputWarning('shared_output_recovered_safe_mode');
-    this.addOutputWarning('shared_output_recovered_directsound_backend');
-    this.logger(`[AudioSession] shared output crashed before ready; trying DirectSound shared output: ${cause.message}`);
-    this.clock.reset(startSeconds, this.currentPlan.requestedOutputSampleRate);
-
-    const bridge = this.createBridge();
-    this.bridge = bridge;
-    this.attachBridgeEvents(bridge, token);
-
-    try {
-      const ready = await bridge.start(this.createNativeOutputStartOptions({
-        requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
-        sharedMixSampleRate: this.currentPlan.requestedOutputSampleRate,
-        channels: probe.channels,
-        asio: false,
-        exclusive: false,
-        sharedBackend: 'directsound',
-        latencyProfile: fallbackSettings.latencyProfile,
-        bufferSizeFrames: fallbackSettings.bufferSizeFrames ?? undefined,
-        volume: fallbackSettings.volume,
-        startSeconds,
-        playbackRate: fallbackSettings.playbackRate,
-        playbackSpeedMode: fallbackSettings.playbackSpeedMode,
-        durationSeconds: probe.durationSeconds,
-      }));
-
-      this.reportRecoverableAudioError(cause, 'safe-shared-fallback', {
-        recovered: true,
-        sharedBackend: 'directsound',
-        requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
-        channels: probe.channels,
-      });
-      return {
-        bridge,
-        plan: this.currentPlan,
-        ready,
-        hostReused: false,
-        hostRestartReason: 'directsound_shared_fallback',
-      };
-    } catch (error) {
-      const fallbackError = error instanceof Error ? error : new Error(String(error));
-      this.logger(`[AudioSession] DirectSound shared fallback failed: ${fallbackError.message}`);
-      bridge.stop();
-      if (this.bridge === bridge) {
-        this.bridge = null;
-        this.currentResidentOutputSampleRate = null;
-      }
+      await this.stopBridgeGracefully(bridge, 'safe-shared-fallback-failed');
       throw cause;
     }
   }
@@ -2091,9 +2031,7 @@ export class AudioSession extends EventEmitter {
       throw new Error('audio output settings unavailable');
     }
 
-    this.bridge?.stop();
-    this.bridge = null;
-    this.currentResidentOutputSampleRate = null;
+    await this.stopResourcesGracefully('shared-fallback');
 
     const fallbackSettings = createSharedFallbackSettings(this.currentOutputSettings);
     const fallbackDevice = this.resolveSelectedDevice(fallbackSettings) ?? createDeviceFromOutputSettings(fallbackSettings);
@@ -2137,11 +2075,7 @@ export class AudioSession extends EventEmitter {
     } catch (error) {
       const fallbackError = error instanceof Error ? error : new Error(String(error));
       this.logger(`[AudioSession] shared fallback failed: ${fallbackError.message}`);
-      bridge.stop();
-      if (this.bridge === bridge) {
-        this.bridge = null;
-        this.currentResidentOutputSampleRate = null;
-      }
+      await this.stopBridgeGracefully(bridge, 'shared-fallback-failed');
       return this.startSafeSharedFallbackForProbe(probe, token, startSeconds, fallbackError);
     }
   }
@@ -2168,8 +2102,7 @@ export class AudioSession extends EventEmitter {
         return;
       }
 
-      this.bridge?.stop();
-      this.bridge = null;
+      await this.stopResourcesGracefully('paused-output-prewarm-failed');
       this.currentPlan = null;
       this.currentResidentOutputSampleRate = null;
       this.currentOutputBackend = null;
@@ -2410,10 +2343,59 @@ export class AudioSession extends EventEmitter {
     this.stopDecoderRun();
 
     if (this.bridge) {
-      this.bridge.stop();
+      try {
+        this.bridge.stop();
+      } catch {
+        // Emergency cleanup must stay synchronous and best-effort.
+      }
       this.bridge = null;
       this.currentReadyResult = null;
       this.currentResidentOutputSampleRate = null;
+    }
+  }
+
+  private async stopResourcesGracefully(reason: string): Promise<void> {
+    this.stopDecoderRun();
+
+    const bridge = this.bridge;
+    if (!bridge) {
+      this.currentReadyResult = null;
+      this.currentResidentOutputSampleRate = null;
+      return;
+    }
+
+    try {
+      if (bridge.stopGracefully) {
+        await bridge.stopGracefully(reason);
+      } else {
+        bridge.stop();
+      }
+    } catch (error) {
+      this.logger(`[AudioSession] graceful stop failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      if (this.bridge === bridge) {
+        this.bridge = null;
+      }
+      this.currentReadyResult = null;
+      this.currentResidentOutputSampleRate = null;
+    }
+  }
+
+  private async stopBridgeGracefully(bridge: OutputBridgeLike, reason: string): Promise<void> {
+    try {
+      if (bridge.stopGracefully) {
+        await bridge.stopGracefully(reason);
+      } else {
+        bridge.stop();
+      }
+    } catch (error) {
+      this.logger(`[AudioSession] graceful stop failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      if (this.bridge === bridge) {
+        this.bridge = null;
+        this.currentReadyResult = null;
+        this.currentResidentOutputSampleRate = null;
+      }
     }
   }
 

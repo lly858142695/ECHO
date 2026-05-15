@@ -1677,7 +1677,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
             durationMs={(audioStatus?.durationSeconds ?? currentTrack?.duration ?? 0) * 1000}
             hideEmptyState={lyricsDisplaySettings.lyricsEmptyStateHidden}
             lyrics={lyrics}
-            positionMs={lyricsPositionSeconds * 1000 + lyricsDisplaySettings.lyricsGlobalSyncOffsetMs}
+            positionMs={lyricsPositionSeconds * 1000}
             showRomanization={lyricsDisplaySettings.lyricsRomanizationEnabled}
             showTranslation={lyricsDisplaySettings.lyricsTranslationEnabled}
             onSeek={(timeMs) => void handleLyricSeek(timeMs)}

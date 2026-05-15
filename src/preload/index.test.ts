@@ -191,6 +191,7 @@ describe('preload SMTC API', () => {
     await exposedApi!.mv.getCandidates('track-1');
     await exposedApi!.mv.resolveStreams('video-1');
     await exposedApi!.mv.setQuality('video-1', 'auto');
+    await exposedApi!.mv.setOffset('track-1', 250);
     await exposedApi!.mv.chooseLocalVideo('track-1');
     await exposedApi!.mv.bindLocalVideo('track-1', 'D:\\Music\\Song.mp4');
     await exposedApi!.mv.bindUrl('track-1', 'https://www.bilibili.com/video/BV1ECHO');
@@ -206,6 +207,7 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MvGetCandidates, 'track-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MvResolveStreams, 'video-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MvSetQuality, 'video-1', 'auto');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MvSetOffset, 'track-1', 250);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MvChooseLocalVideo, 'track-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MvBindLocalVideo, 'track-1', 'D:\\Music\\Song.mp4');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.MvBindUrl, 'track-1', 'https://www.bilibili.com/video/BV1ECHO');

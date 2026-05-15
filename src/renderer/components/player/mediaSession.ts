@@ -108,7 +108,7 @@ export const applyMediaSessionSnapshot = (snapshot: MediaSessionSnapshot): void 
     });
   }
 
-  session.playbackState = snapshot.state === 'playing' ? 'playing' : 'paused';
+  session.playbackState = snapshot.state === 'playing' || snapshot.state === 'loading' ? 'playing' : 'paused';
 
   if (snapshot.durationSeconds > 0 && typeof session.setPositionState === 'function') {
     try {

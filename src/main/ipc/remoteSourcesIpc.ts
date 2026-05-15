@@ -72,13 +72,22 @@ const normalizeInput = (value: unknown): RemoteSourceInput => {
   const provider = providers.has(input.provider as RemoteSourceProvider) ? (input.provider as RemoteSourceProvider) : 'webdav';
   const syncMode = syncModes.has(input.syncMode as RemoteSourceSyncMode) ? (input.syncMode as RemoteSourceSyncMode) : 'index';
   const authType = input.authType === 'none' || input.authType === 'token' || input.authType === 'apiKey' ? input.authType : 'basic';
+  const username = optionalText(input.username);
+  const secret = typeof input.secret === 'string' && input.secret.length > 0 ? input.secret : null;
+
+  if (provider === 'webdav' && authType === 'basic' && (!username || !secret)) {
+    throw new Error('WebDAV password authentication requires both username and password.');
+  }
+  if (provider === 'webdav' && (authType === 'token' || authType === 'apiKey') && !secret) {
+    throw new Error('WebDAV token authentication requires a token or API key.');
+  }
 
   return {
     provider,
     displayName: requireText(input.displayName, 'displayName'),
     baseUrl: optionalText(input.baseUrl),
-    username: optionalText(input.username),
-    secret: typeof input.secret === 'string' ? input.secret : null,
+    username: authType === 'none' || authType === 'token' || authType === 'apiKey' ? null : username,
+    secret: authType === 'none' ? null : secret,
     authType,
     config: normalizeConfig(input.config),
     syncMode,
@@ -122,6 +131,11 @@ const normalizeUpdate = (value: unknown): RemoteSourceUpdate => {
   }
   if (input.status !== undefined) {
     update.status = input.status === 'disabled' || input.status === 'error' ? input.status : 'enabled';
+  }
+
+  if (update.authType === 'none') {
+    update.username = null;
+    update.secret = null;
   }
 
   return update;

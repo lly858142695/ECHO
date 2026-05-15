@@ -69,6 +69,7 @@ type AudioDrawerCopy = {
 
 const hiddenDeviceStorageKey = 'echo-next.hidden-audio-devices';
 const drawerExitAnimationMs = 320;
+const outputApplyTimeoutMs = 20_000;
 const latencyProfileOptions: Array<{ id: AudioLatencyProfile; label: string; detail: string }> = [
   { id: 'lowLatency', label: 'Low latency', detail: '256 frames / adaptive' },
   { id: 'balanced', label: 'Balanced', detail: '2048 frames' },
@@ -303,6 +304,41 @@ const getRecommendedLatencyMs = (status: AudioStatus | null): number | null => {
   return Math.round((frames / sampleRate) * 1000);
 };
 
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
+  let timer: number | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+    }
+  }
+};
+
+const getFramesLatencyMs = (frames: number | null | undefined, status: AudioStatus | null): number | null => {
+  const sampleRate = getOutputSampleRate(status, null);
+
+  if (!frames || !sampleRate) {
+    return null;
+  }
+
+  return Math.round((frames / sampleRate) * 1000);
+};
+
+const formatFramesWithLatency = (frames: number | null | undefined, status: AudioStatus | null, fallback: string): string => {
+  if (!frames) {
+    return fallback;
+  }
+
+  const latencyMs = getFramesLatencyMs(frames, status);
+  return latencyMs === null ? String(frames) : `${frames} (~${latencyMs} ms)`;
+};
+
 const deviceMatchesStatus = (device: AudioDeviceInfo, status: AudioStatus | null, mode: AudioOutputMode): boolean => {
   if (!status || status.outputMode !== mode) {
     return false;
@@ -476,6 +512,7 @@ export const AudioSettingsDrawer = ({
   const sharedDevices = useMemo(() => visibleDevices.filter((device) => device.outputMode === 'shared'), [visibleDevices]);
   const asioDevices = useMemo(() => visibleDevices.filter((device) => device.outputMode === 'asio'), [visibleDevices]);
   const wasapiExclusive = outputMode === 'exclusive';
+  const lockWasapiExclusive = outputMode === 'asio';
   const statusDevice = useMemo(() => {
     if (!status) {
       return null;
@@ -562,8 +599,8 @@ export const AudioSettingsDrawer = ({
     ? t('audioDrawer.asioLatency.value', { value: recommendedLatencyMs })
     : t('settings.playback.stability.value.unknown');
   const asioBufferStatusText = t('audioDrawer.asioLatency.status', {
-    requested: status?.nativeRequestedBufferFrames ?? 'Auto',
-    opened: status?.nativeActualBufferFrames ?? 'n/a',
+    requested: formatFramesWithLatency(status?.nativeRequestedBufferFrames, status, 'Auto'),
+    opened: formatFramesWithLatency(status?.nativeActualBufferFrames, status, 'n/a'),
   });
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -694,20 +731,28 @@ export const AudioSettingsDrawer = ({
 
       setIsBusy(true);
       setError(null);
+      const previousMode = outputMode;
       try {
         if (rememberOutput) {
           persistOutput(settings);
         }
-        const nextStatus = await audio.setOutput(settings);
+        const nextStatus = await withTimeout(audio.setOutput(settings), outputApplyTimeoutMs, 'Audio output switch timed out');
         setOutputMode(nextStatus.outputMode);
         onStatusChange(nextStatus);
       } catch (applyError) {
         setError(applyError instanceof Error ? applyError.message : String(applyError));
+        try {
+          const latestStatus = await withTimeout(audio.getStatus(), 2_500, 'Audio status refresh timed out');
+          setOutputMode(latestStatus.outputMode);
+          onStatusChange(latestStatus);
+        } catch {
+          setOutputMode(status?.outputMode ?? previousMode);
+        }
       } finally {
         setIsBusy(false);
       }
     },
-    [copy.desktopBridgeUnavailable, onStatusChange, persistOutput, rememberOutput],
+    [copy.desktopBridgeUnavailable, onStatusChange, outputMode, persistOutput, rememberOutput, status?.outputMode],
   );
 
   const applyDevice = (mode: AudioOutputMode, device: AudioDeviceInfo | null): void => {
@@ -721,6 +766,10 @@ export const AudioSettingsDrawer = ({
   };
 
   const toggleExclusive = (enabled: boolean): void => {
+    if (lockWasapiExclusive) {
+      return;
+    }
+
     const nextMode: AudioOutputMode = enabled ? 'exclusive' : 'shared';
     const currentDevice = allSharedDevices.find((device) => deviceMatchesStatus(device, status, outputMode)) ?? null;
     applyDevice(nextMode, currentDevice);
@@ -977,6 +1026,7 @@ export const AudioSettingsDrawer = ({
             <input
               type="checkbox"
               checked={wasapiExclusive}
+              disabled={lockWasapiExclusive || isBusy}
               onChange={(event) => toggleExclusive(event.currentTarget.checked)}
             />
           </label>

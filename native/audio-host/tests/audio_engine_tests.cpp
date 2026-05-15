@@ -4,10 +4,15 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#if JUCE_WINDOWS
+#include "../third_party/asio-sdk/common/asio.h"
+#endif
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -198,6 +203,7 @@ void testHostSharedBackendOptions()
 
     const auto directSound = parseOptions({ "echo-audio-host", "-shared-backend", "directsound" });
     require(directSound.sharedBackend == "directsound", "directsound shared backend must parse");
+    require(isDisabledSharedBackend(directSound), "directsound backend must be disabled");
 
     const auto windows = parseOptions({ "echo-audio-host", "-shared-backend", "windows" });
     require(windows.sharedBackend == "windows", "windows shared backend must parse");
@@ -205,11 +211,11 @@ void testHostSharedBackendOptions()
     const auto invalid = parseOptions({ "echo-audio-host", "-shared-backend", "invalid" });
     require(invalid.sharedBackend == "auto", "invalid shared backend must fall back to auto");
 
-    require(shouldIncludeSharedBackendType("DirectSound", directSound.sharedBackend), "directsound backend must include DirectSound");
+    require(! shouldIncludeSharedBackendType("DirectSound", directSound.sharedBackend), "disabled directsound backend must skip DirectSound");
     require(! shouldIncludeSharedBackendType("Windows Audio", directSound.sharedBackend), "directsound backend must skip Windows Audio");
     require(shouldIncludeSharedBackendType("Windows Audio", windows.sharedBackend), "windows backend must include Windows Audio");
     require(! shouldIncludeSharedBackendType("DirectSound", windows.sharedBackend), "windows backend must skip DirectSound");
-    require(shouldIncludeSharedBackendType("DirectSound", defaultOptions.sharedBackend), "auto backend must include DirectSound");
+    require(! shouldIncludeSharedBackendType("DirectSound", defaultOptions.sharedBackend), "auto backend must skip DirectSound");
     require(shouldIncludeSharedBackendType("Windows Audio", defaultOptions.sharedBackend), "auto backend must include Windows Audio");
 }
 
@@ -217,7 +223,7 @@ void testHostBackendNames()
 {
     const auto shared = parseOptions({ "echo-audio-host" });
     require(getBackendName(shared, "Windows Audio") == "wasapi-shared", "Windows Audio shared backend name");
-    require(getBackendName(shared, "DirectSound") == "directsound-shared", "DirectSound shared backend name");
+    require(getBackendName(shared, "DirectSound") == "wasapi-shared", "disabled DirectSound must not surface a DirectSound backend name");
 
     const auto exclusive = parseOptions({ "echo-audio-host", "-exclusive" });
     require(getBackendName(exclusive, "Windows Audio (Exclusive Mode)") == "wasapi-exclusive", "exclusive backend name");
@@ -382,6 +388,107 @@ void testFramedStdinPrebufferDoesNotCountUnderrunBeforeTarget()
     require(source.getFramesPlayed() > 0, "framed session must start after the prebuffer target is reached");
 }
 
+void testNativeRenderAdapter()
+{
+    echo::EqProcessor eqProcessor;
+    echo::ChannelBalanceProcessor channelBalanceProcessor;
+    PcmRingAudioSource source(2, 64, 0, 0, 1.0f, eqProcessor, channelBalanceProcessor);
+    source.prepareForNativeRender(16, 48000.0);
+    source.beginSession();
+
+    std::vector<float> emptyOutput(8, 1.0f);
+    const auto emptyFrames = source.renderInterleaved(emptyOutput.data(), 4, 2);
+    require(emptyFrames == 0, "native render adapter must report zero frames before PCM");
+    require(std::all_of(emptyOutput.begin(), emptyOutput.end(), [] (float sample) { return sample == 0.0f; }),
+        "native render adapter must clear output before PCM");
+    require(source.getUnderrunCallbacks() == 0, "native render adapter must not count underrun before first PCM");
+
+    const std::vector<float> input {
+        0.10f, -0.10f,
+        0.20f, -0.20f,
+        0.30f, -0.30f,
+        0.40f, -0.40f,
+    };
+    require(source.push(input.data(), 4), "native render adapter test PCM push");
+
+    std::vector<float> output(8, 0.0f);
+    const auto frames = source.renderInterleaved(output.data(), 4, 2);
+    require(frames == 4, "native render adapter must report consumed frame count");
+
+    for (size_t i = 0; i < input.size(); ++i)
+        require(std::abs(output[i] - input[i]) <= nearTolerance, "native render adapter must preserve interleaved PCM");
+}
+
+#if JUCE_WINDOWS
+std::vector<uint32_t> buildAsioCandidates(long minSize, long maxSize, long preferredSize, long granularity, uint32_t requested)
+{
+    std::vector<uint32_t> values(16, 0);
+    const auto count = asio_build_buffer_candidates_for_tests(
+        minSize,
+        maxSize,
+        preferredSize,
+        granularity,
+        requested,
+        values.data(),
+        static_cast<uint32_t>(values.size()));
+    values.resize(count);
+    return values;
+}
+
+void testAsioBufferCandidateGeneration()
+{
+    auto explicitValid = buildAsioCandidates(128, 4096, 512, 128, 1024);
+    require(! explicitValid.empty(), "ASIO explicit valid candidate list");
+    require(explicitValid[0] == 1024, "ASIO explicit valid buffer must be first");
+    require(std::find(explicitValid.begin(), explicitValid.end(), 512) != explicitValid.end(), "ASIO preferred fallback must be included");
+
+    auto defaultPreferred = buildAsioCandidates(128, 4096, 512, 128, 0);
+    require(! defaultPreferred.empty(), "ASIO default candidate list");
+    require(defaultPreferred[0] == 512, "ASIO default buffer must prefer driver preferred size");
+
+    auto powerOfTwo = buildAsioCandidates(64, 4096, 512, -1, 300);
+    require(std::find(powerOfTwo.begin(), powerOfTwo.end(), 256) != powerOfTwo.end(), "ASIO power-of-two lower candidate");
+    require(std::find(powerOfTwo.begin(), powerOfTwo.end(), 512) != powerOfTwo.end(), "ASIO power-of-two preferred candidate");
+
+    auto stepped = buildAsioCandidates(128, 4096, 512, 128, 1000);
+    require(std::find(stepped.begin(), stepped.end(), 896) != stepped.end(), "ASIO stepped lower aligned candidate");
+    require(std::find(stepped.begin(), stepped.end(), 1024) != stepped.end(), "ASIO stepped upper aligned candidate");
+}
+
+void testAsioSampleConversion()
+{
+    std::vector<unsigned char> bytes(16, 0);
+    asio_write_sample_for_tests(bytes.data(), ASIOSTInt16LSB, 0, 1.0f);
+    require(reinterpret_cast<int16_t*>(bytes.data())[0] == 32767, "ASIO int16 LSB conversion");
+
+    std::fill(bytes.begin(), bytes.end(), 0);
+    asio_write_sample_for_tests(bytes.data(), ASIOSTInt16MSB, 0, 1.0f);
+    require(bytes[0] == 0x7f && bytes[1] == 0xff, "ASIO int16 MSB conversion");
+
+    std::fill(bytes.begin(), bytes.end(), 0);
+    asio_write_sample_for_tests(bytes.data(), ASIOSTInt24LSB, 0, 1.0f);
+    require(bytes[0] == 0xff && bytes[1] == 0xff && bytes[2] == 0x7f, "ASIO int24 LSB conversion");
+
+    std::fill(bytes.begin(), bytes.end(), 0);
+    asio_write_sample_for_tests(bytes.data(), ASIOSTInt32LSB24, 0, 1.0f);
+    require(reinterpret_cast<int32_t*>(bytes.data())[0] == 0x7fffff00, "ASIO int32 LSB 24-bit aligned conversion");
+
+    std::fill(bytes.begin(), bytes.end(), 0);
+    asio_write_sample_for_tests(bytes.data(), ASIOSTFloat32LSB, 0, 0.5f);
+    require(std::abs(reinterpret_cast<float*>(bytes.data())[0] - 0.5f) <= nearTolerance, "ASIO float32 LSB conversion");
+
+    std::fill(bytes.begin(), bytes.end(), 0);
+    asio_write_sample_for_tests(bytes.data(), ASIOSTFloat64LSB, 0, -0.5f);
+    require(std::abs(reinterpret_cast<double*>(bytes.data())[0] + 0.5) <= nearTolerance, "ASIO float64 LSB conversion");
+
+    std::fill(bytes.begin(), bytes.end(), 0);
+    asio_write_sample_for_tests(bytes.data(), ASIOSTFloat32MSB, 0, 1.0f);
+    require(bytes[0] == 0x3f && bytes[1] == 0x80 && bytes[2] == 0x00 && bytes[3] == 0x00, "ASIO float32 MSB conversion");
+
+    require(std::string(asio_error_name_for_tests(ASE_InvalidMode)) == "ASE_InvalidMode", "ASIO error name helper");
+}
+#endif
+
 void testFramedStdinShutdown()
 {
     echo::EqProcessor eqProcessor;
@@ -402,6 +509,26 @@ void testFramedStdinShutdown()
         makeFrame(StdinFrameType::Shutdown, 0),
         {});
     require(shutdownRequested.load(), "shutdown frame must request host shutdown");
+}
+
+void testCleanupEmitsShutdownAckOnce()
+{
+    echo::EqProcessor eqProcessor;
+    echo::ChannelBalanceProcessor channelBalanceProcessor;
+    PcmRingAudioSource source(2, 512, 0, 0, 1.0f, eqProcessor, channelBalanceProcessor);
+    juce::AudioSourcePlayer player;
+    EqControlServer eqControlServer(0, eqProcessor, channelBalanceProcessor);
+    std::unique_ptr<juce::AudioIODevice> device;
+    bool shutdownAckSent = false;
+    std::ostringstream output;
+    auto* oldBuffer = std::cout.rdbuf(output.rdbuf());
+
+    cleanupAudioDeviceAndAck(source, device, player, eqControlServer, shutdownAckSent);
+    cleanupAudioDeviceAndAck(source, device, player, eqControlServer, shutdownAckSent);
+    std::cout.rdbuf(oldBuffer);
+
+    require(shutdownAckSent, "cleanup must mark shutdown ack sent");
+    require(output.str() == "{\"event\":\"shutdown-ack\"}\n", "cleanup must emit shutdown ack exactly once");
 }
 
 void testProtocolMessages()
@@ -471,7 +598,13 @@ int main()
         { "framed stdin session reset and late PCM drop", testFramedStdinSessionResetAndLatePcmDrop },
         { "framed stdin idle does not count underrun before PCM", testFramedStdinIdleDoesNotCountUnderrunBeforePcm },
         { "framed stdin prebuffer does not count underrun before target", testFramedStdinPrebufferDoesNotCountUnderrunBeforeTarget },
+        { "native render adapter", testNativeRenderAdapter },
+#if JUCE_WINDOWS
+        { "ASIO buffer candidate generation", testAsioBufferCandidateGeneration },
+        { "ASIO sample conversion", testAsioSampleConversion },
+#endif
         { "framed stdin shutdown", testFramedStdinShutdown },
+        { "cleanup emits shutdown ack once", testCleanupEmitsShutdownAckOnce },
         { "protocol messages", testProtocolMessages },
     };
 

@@ -73,6 +73,7 @@ export type TrackVideo = {
   selectedQualityId: string | null;
   qualityLabel: string | null;
   fps: number | null;
+  offsetMs?: number;
   score: number;
   selected: boolean;
   playableInApp: boolean;

@@ -56,6 +56,8 @@ const defaultLogger = (message: string): void => {
 
 const sharedReadyTimeoutMs = 15_000;
 const slowNativeModeReadyTimeoutMs = 45_000;
+const sharedGracefulStopTimeoutMs = 2_500;
+const exclusiveGracefulStopTimeoutMs = 4_000;
 const maxPositionExtrapolationMs = 250;
 
 const appendTailLine = (lines: string[], line: string): void => {
@@ -221,6 +223,18 @@ const createFrameHeader = (type: number, sessionId: number, payloadBytes: number
 const normalizeOutputMode = (options: NativeOutputStartOptions): 'shared' | 'exclusive' | 'asio' =>
   options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared';
 
+type NativeOutputMode = ReturnType<typeof normalizeOutputMode>;
+
+const normalizeSharedBackendForHost = (sharedBackend: NativeOutputStartOptions['sharedBackend']): 'auto' | 'windows' =>
+  sharedBackend === 'windows' ? 'windows' : 'auto';
+
+type PendingGracefulStop = {
+  promise: Promise<void>;
+  resolve: () => void;
+  proc: ChildProcessWithoutNullStreams;
+  timeout: NodeJS.Timeout | null;
+};
+
 const normalizePositiveInteger = (value: unknown): number | null => {
   const numeric = Number(value);
 
@@ -238,7 +252,7 @@ const createReuseKey = (options: NativeOutputStartOptions): string => {
     outputMode: options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared',
     deviceIndex: Number.isInteger(Number(options.deviceIndex)) ? Number(options.deviceIndex) : null,
     deviceName: options.deviceName ?? null,
-    sharedBackend: outputMode === 'shared' ? options.sharedBackend ?? 'auto' : null,
+    sharedBackend: outputMode === 'shared' ? normalizeSharedBackendForHost(options.sharedBackend) : null,
     sampleRate,
     channels: options.channels,
     asio: options.asio === true,
@@ -318,6 +332,9 @@ export class NativeOutputBridge extends EventEmitter {
   private readyTimer: NodeJS.Timeout | null = null;
   private readyMessage: NativeBridgeReadyMessage | null = null;
   private eqControlPort: number | null = null;
+  private pendingGracefulStop: PendingGracefulStop | null = null;
+  private shutdownAckReceived = false;
+  private lastOutputMode: NativeOutputMode | null = null;
 
   constructor(dependencies: NativeOutputBridgeDependencies = {}) {
     super();
@@ -390,11 +407,13 @@ export class NativeOutputBridge extends EventEmitter {
       this.stopRequested = false;
       this.readyMessage = null;
       this.eqControlPort = getEqBridge().reserveControlPort();
+      this.shutdownAckReceived = false;
 
       const args = this.createSpawnArgs(options);
       const stderrLines: string[] = [];
       const startedAtMs = performance.now();
       const mode = options.asio ? 'asio' : options.exclusive ? 'exclusive' : 'shared';
+      this.lastOutputMode = mode;
       const createError = (reason: string): Error =>
         createHostError(reason, bin, args, stderrLines, {
           elapsedMs: performance.now() - startedAtMs,
@@ -423,11 +442,12 @@ export class NativeOutputBridge extends EventEmitter {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
       });
+      const spawnedProc = this.proc;
       this.bridgeWritable = new BridgeWritable(this.proc.stdin);
 
       const stdout = readline.createInterface({ input: this.proc.stdout });
       stdout.on('line', (line) => {
-        this.handleStdoutLine(line, settleResolve);
+        this.handleStdoutLine(line, settleResolve, spawnedProc);
       });
 
       const stderr = readline.createInterface({ input: this.proc.stderr });
@@ -443,11 +463,21 @@ export class NativeOutputBridge extends EventEmitter {
       });
 
       this.proc.on('exit', (code, signal) => {
+        if (this.proc !== spawnedProc && this.pendingGracefulStop?.proc !== spawnedProc) {
+          return;
+        }
+
         const wasReady = this.ready;
         const intentional = this.stopRequested;
         this.ready = false;
         this.stopRequested = false;
         this.clearReadyTimer();
+
+        if (this.pendingGracefulStop?.proc === spawnedProc) {
+          this.logger('[NativeOutputBridge] process exited during graceful shutdown');
+          this.resolvePendingGracefulStop();
+          return;
+        }
 
         if (intentional || this.ended || code === 0) {
           return;
@@ -519,7 +549,16 @@ export class NativeOutputBridge extends EventEmitter {
   }
 
   canReuseFor(options: NativeOutputStartOptions): boolean {
-    return this.ready && this.proc !== null && this.reuseKey === createReuseKey(options);
+    const stdin = this.proc?.stdin;
+    return Boolean(
+      this.ready &&
+      this.proc &&
+      stdin &&
+      !stdin.destroyed &&
+      !stdin.writableEnded &&
+      stdin.writable &&
+      this.reuseKey === createReuseKey(options),
+    );
   }
 
   beginSession(options: { startSeconds?: number; playbackRate?: number; durationSeconds?: number } = {}): number {
@@ -586,6 +625,15 @@ export class NativeOutputBridge extends EventEmitter {
     this.clearReadyTimer();
     this.stopRequested = true;
 
+    const pendingGracefulStop = this.pendingGracefulStop;
+    if (pendingGracefulStop) {
+      if (pendingGracefulStop.timeout) {
+        clearTimeout(pendingGracefulStop.timeout);
+      }
+      this.pendingGracefulStop = null;
+      pendingGracefulStop.resolve();
+    }
+
     if (this.bridgeWritable) {
       try {
         this.bridgeWritable.destroy();
@@ -626,10 +674,92 @@ export class NativeOutputBridge extends EventEmitter {
       this.proc = null;
     }
 
-    getEqBridge().disconnect();
-    this.eqControlPort = null;
-    this.ready = false;
-    this.lastPositionReportedAtMs = null;
+    this.cleanupBridgeReferences();
+  }
+
+  stopGracefully(reason = 'stop', timeoutMs?: number): Promise<void> {
+    if (this.pendingGracefulStop) {
+      return this.pendingGracefulStop.promise;
+    }
+
+    this.logger(`[NativeOutputBridge] graceful shutdown requested: ${reason}`);
+    this.clearReadyTimer();
+    this.stopRequested = true;
+
+    const proc = this.proc;
+    if (!proc) {
+      this.cleanupBridgeReferences();
+      return Promise.resolve();
+    }
+
+    if (this.sessionWritable) {
+      try {
+        this.sessionWritable.destroy();
+      } catch {
+        // Best-effort graceful child cleanup.
+      }
+      this.sessionWritable = null;
+    }
+
+    if (this.bridgeWritable) {
+      try {
+        this.bridgeWritable.destroy();
+      } catch {
+        // Best-effort graceful child cleanup.
+      }
+      this.bridgeWritable = null;
+    }
+
+    const selectedTimeoutMs =
+      timeoutMs ?? (this.lastOutputMode === 'exclusive' || this.lastOutputMode === 'asio'
+        ? exclusiveGracefulStopTimeoutMs
+        : sharedGracefulStopTimeoutMs);
+
+    let resolveStop = (): void => undefined;
+    const promise = new Promise<void>((resolve) => {
+      resolveStop = resolve;
+    });
+
+    const pendingGracefulStop: PendingGracefulStop = {
+      promise,
+      resolve: resolveStop,
+      proc,
+      timeout: null,
+    };
+    this.pendingGracefulStop = pendingGracefulStop;
+
+    try {
+      this.writeFrame(frameTypeShutdown, 0, Buffer.alloc(0));
+    } catch {
+      // Best-effort graceful child cleanup.
+    }
+
+    try {
+      if (!proc.stdin.destroyed && !proc.stdin.writableEnded) {
+        proc.stdin.end();
+      }
+    } catch {
+      // The host may already have exited or closed stdin.
+    }
+
+    if (this.pendingGracefulStop?.proc === proc) {
+      pendingGracefulStop.timeout = setTimeout(() => {
+        if (this.pendingGracefulStop?.proc !== proc) {
+          return;
+        }
+
+        this.logger('[NativeOutputBridge] graceful shutdown timed out; killing host');
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          // Best-effort emergency cleanup.
+        }
+        this.resolvePendingGracefulStop();
+      }, Math.max(1, selectedTimeoutMs));
+      pendingGracefulStop.timeout?.unref?.();
+    }
+
+    return promise;
   }
 
   private createSpawnArgs(options: NativeOutputStartOptions): string[] {
@@ -652,8 +782,9 @@ export class NativeOutputBridge extends EventEmitter {
       args.push('-exclusive');
     }
 
-    if (!options.exclusive && !options.asio && options.sharedBackend && options.sharedBackend !== 'auto') {
-      args.push('-shared-backend', options.sharedBackend);
+    const sharedBackend = normalizeSharedBackendForHost(options.sharedBackend);
+    if (!options.exclusive && !options.asio && sharedBackend !== 'auto') {
+      args.push('-shared-backend', sharedBackend);
     }
 
     const volume = Number(options.volume ?? 1);
@@ -719,12 +850,26 @@ export class NativeOutputBridge extends EventEmitter {
   private handleStdoutLine(
     line: string,
     resolveReady: (value: NativeBridgeReadyResult) => void,
+    sourceProc?: ChildProcessWithoutNullStreams,
   ): void {
     let message: NativeBridgeReadyMessage & { pos?: unknown; event?: unknown };
 
     try {
       message = JSON.parse(line) as NativeBridgeReadyMessage & { pos?: unknown; event?: unknown };
     } catch {
+      return;
+    }
+
+    if (message.event === 'shutdown-ack') {
+      if (this.pendingGracefulStop && (!sourceProc || this.pendingGracefulStop.proc === sourceProc)) {
+        this.shutdownAckReceived = true;
+        this.logger('[NativeOutputBridge] shutdown-ack received');
+        this.resolvePendingGracefulStop();
+      }
+      return;
+    }
+
+    if (sourceProc && this.proc !== sourceProc) {
       return;
     }
 
@@ -795,6 +940,35 @@ export class NativeOutputBridge extends EventEmitter {
     if (message.event === 'error') {
       this.emit('error', new Error('echo-audio-host error event'));
     }
+  }
+
+  private resolvePendingGracefulStop(): void {
+    const pendingGracefulStop = this.pendingGracefulStop;
+    if (!pendingGracefulStop) {
+      return;
+    }
+
+    if (pendingGracefulStop.timeout) {
+      clearTimeout(pendingGracefulStop.timeout);
+    }
+    this.pendingGracefulStop = null;
+    this.cleanupBridgeReferences();
+    pendingGracefulStop.resolve();
+  }
+
+  private cleanupBridgeReferences(): void {
+    this.clearReadyTimer();
+    this.proc = null;
+    this.bridgeWritable = null;
+    this.sessionWritable = null;
+    this.ready = false;
+    this.ended = false;
+    this.readyMessage = null;
+    this.lastPositionReportedAtMs = null;
+    this.eqControlPort = null;
+    this.currentSessionId = 0;
+    this.currentSessionHasPcm = false;
+    getEqBridge().disconnect();
   }
 
   private clearReadyTimer(): void {

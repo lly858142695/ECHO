@@ -116,13 +116,14 @@ Packaging still needs an explicit check before release: `ffmpeg-static` binaries
 
 - lives in `native/audio-engine`
 - owns the realtime 10-band graphic EQ, preamp smoothing, and bypass crossfade
-- reads atomic targets from the control thread and processes audio inside the JUCE output callback
+- reads atomic targets from the control thread and processes audio inside the native render callback
 - does not talk to Electron, React, files, JSON storage, or UI state
 
 `DeviceService`
 
 - lists audio devices
-- later supports WASAPI and ASIO device capabilities
+- supports native WASAPI Shared, WASAPI Exclusive, and ASIO device discovery on Windows
+- does not use the legacy DirectSound/JUCE device backend for playback
 
 `PlaybackClock`
 

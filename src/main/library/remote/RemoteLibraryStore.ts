@@ -181,8 +181,10 @@ export class RemoteLibraryStore {
   }
 
   deleteSource(id: string): void {
-    this.database.prepare('UPDATE remote_sources SET status = ?, updated_at = ? WHERE id = ?').run('disabled', nowIso(), id);
-    this.database.prepare('UPDATE remote_tracks SET availability = ?, updated_at = ? WHERE source_id = ?').run('missing', nowIso(), id);
+    this.database.transaction(() => {
+      this.database.prepare('DELETE FROM remote_tracks WHERE source_id = ?').run(id);
+      this.database.prepare('DELETE FROM remote_sources WHERE id = ?').run(id);
+    })();
   }
 
   updateSourceTestResult(id: string, ok: boolean, message: string, testedAt = nowIso()): void {

@@ -67,7 +67,7 @@ export type NativeOutputStartOptions = {
   channels: number;
   deviceIndex?: number;
   deviceName?: string;
-  sharedBackend?: 'auto' | 'windows' | 'directsound';
+  sharedBackend?: 'auto' | 'windows' | 'directsound'; // directsound is legacy-disabled; callers should not request it.
   asio?: boolean;
   exclusive?: boolean;
   latencyProfile?: AudioOutputSettings['latencyProfile'];
@@ -99,6 +99,8 @@ export type NativeBridgeReadyMessage = Record<string, unknown> & {
   hardwareSampleRate?: number;
   exclusive?: boolean;
   backend?: string;
+  backendImpl?: string;
+  format?: string;
   deviceType?: string;
   deviceName?: string;
   eqControlPort?: number;
@@ -111,6 +113,12 @@ export type NativeBridgeReadyMessage = Record<string, unknown> & {
   fifoCapacityFrames?: number;
   startupPrebufferFrames?: number;
   startupPrebufferTimeoutMs?: number;
+  asioInputChannels?: number;
+  asioOutputChannels?: number;
+  asioPreferredBufferFrames?: number;
+  asioMinBufferFrames?: number;
+  asioMaxBufferFrames?: number;
+  asioGranularity?: number;
 };
 
 export type NativeBridgeReadyResult = {

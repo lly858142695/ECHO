@@ -428,6 +428,7 @@ CREATE TABLE IF NOT EXISTS track_videos (
   selected_quality_id TEXT,
   quality_label TEXT,
   fps REAL,
+  offset_ms INTEGER NOT NULL DEFAULT 0,
   raw_provider_json TEXT,
   score REAL NOT NULL DEFAULT 0,
   selected INTEGER NOT NULL DEFAULT 0,

@@ -1965,23 +1965,115 @@ export class LibraryStore {
       ...(hideDuplicates ? [duplicateMode] : []),
       ...(searchQuery ? [searchQuery] : []),
     ];
-    const orderSql = this.trackOrderSql(sort);
-    const totalRow = this.getRow(`SELECT COUNT(*) AS total FROM tracks ${searchJoinSql} ${duplicateJoinSql} ${whereSql}`, ...baseParams);
-    const rows = this.allRows(
-      `SELECT
-        tracks.id, tracks.path, tracks.title, tracks.artist, tracks.album, tracks.album_artist,
-        tracks.track_no, tracks.disc_no, tracks.year, tracks.genre,
-        tracks.duration, tracks.codec, tracks.sample_rate, tracks.bit_depth, tracks.bitrate,
-        tracks.bpm, tracks.bpm_confidence, tracks.beat_offset_ms, tracks.analysis_status, tracks.analysis_updated_at,
-        tracks.cover_id, tracks.metadata_status, tracks.embedded_metadata_status, tracks.embedded_cover_status,
-        tracks.network_metadata_status, tracks.field_sources_json
+    const remoteSearchFilter = buildSearchFilter(search, [
+      likePredicate('remote_tracks.title'),
+      likePredicate('remote_tracks.artist'),
+      likePredicate('remote_tracks.album'),
+      likePredicate('remote_tracks.album_artist'),
+      likePredicate('COALESCE(remote_tracks.genre, \'\')'),
+      likePredicate('remote_tracks.remote_path'),
+    ], searchOptions);
+    const remoteWhereSql = remoteSearchFilter.sql
+      ? `WHERE remote_tracks.availability != 'missing' AND remote_sources.status = 'enabled' AND ${remoteSearchFilter.sql}`
+      : "WHERE remote_tracks.availability != 'missing' AND remote_sources.status = 'enabled'";
+    const allParams = [...baseParams, ...remoteSearchFilter.params];
+    const unifiedTracksSql = `WITH library_tracks AS (
+      SELECT
+        tracks.id,
+        'local' AS media_type,
+        tracks.path,
+        NULL AS source_id,
+        NULL AS provider,
+        NULL AS remote_path,
+        NULL AS stable_key,
+        tracks.title,
+        tracks.artist,
+        tracks.album,
+        tracks.album_artist,
+        tracks.track_no,
+        tracks.disc_no,
+        tracks.year,
+        tracks.genre,
+        tracks.duration,
+        tracks.codec,
+        tracks.sample_rate,
+        tracks.bit_depth,
+        tracks.bitrate,
+        tracks.bpm,
+        tracks.bpm_confidence,
+        tracks.beat_offset_ms,
+        tracks.analysis_status,
+        tracks.analysis_updated_at,
+        tracks.cover_id,
+        tracks.metadata_status,
+        tracks.embedded_metadata_status,
+        tracks.embedded_cover_status,
+        tracks.network_metadata_status,
+        tracks.field_sources_json,
+        'available' AS availability,
+        tracks.created_at,
+        tracks.updated_at,
+        tracks.mtime_ms,
+        tracks.size_bytes,
+        tracks.play_count,
+        tracks.last_played_at
       FROM tracks
       ${searchJoinSql}
       ${duplicateJoinSql}
       ${whereSql}
+      UNION ALL
+      SELECT
+        remote_tracks.id,
+        'remote' AS media_type,
+        'remote://' || remote_tracks.source_id || remote_tracks.remote_path AS path,
+        remote_tracks.source_id,
+        remote_tracks.provider,
+        remote_tracks.remote_path,
+        remote_tracks.stable_key,
+        remote_tracks.title,
+        remote_tracks.artist,
+        remote_tracks.album,
+        remote_tracks.album_artist,
+        remote_tracks.track_no,
+        remote_tracks.disc_no,
+        remote_tracks.year,
+        remote_tracks.genre,
+        COALESCE(remote_tracks.duration, 0) AS duration,
+        remote_tracks.codec,
+        remote_tracks.sample_rate,
+        remote_tracks.bit_depth,
+        remote_tracks.bitrate,
+        NULL AS bpm,
+        NULL AS bpm_confidence,
+        NULL AS beat_offset_ms,
+        'none' AS analysis_status,
+        NULL AS analysis_updated_at,
+        remote_tracks.cover_id,
+        remote_tracks.metadata_status,
+        'present' AS embedded_metadata_status,
+        CASE WHEN remote_tracks.cover_id IS NULL THEN 'missing' ELSE 'present' END AS embedded_cover_status,
+        'none' AS network_metadata_status,
+        remote_tracks.field_sources_json,
+        remote_tracks.availability,
+        remote_tracks.created_at,
+        remote_tracks.updated_at,
+        COALESCE(CAST(strftime('%s', remote_tracks.modified_at) AS INTEGER) * 1000, 0) AS mtime_ms,
+        remote_tracks.size_bytes,
+        0 AS play_count,
+        NULL AS last_played_at
+      FROM remote_tracks
+      INNER JOIN remote_sources ON remote_sources.id = remote_tracks.source_id
+      ${remoteWhereSql}
+    )`;
+    const orderSql = this.unifiedTrackOrderSql(sort);
+    const totalRow = this.getRow(`${unifiedTracksSql} SELECT COUNT(*) AS total FROM library_tracks`, ...allParams);
+    const rows = this.allRows(
+      `${unifiedTracksSql}
+      SELECT *
+      FROM library_tracks
       ${orderSql}
       LIMIT ? OFFSET ?`,
-      ...baseParams,
+      ...allParams,
       pageSize,
       offset,
     );
@@ -3524,6 +3616,10 @@ export class LibraryStore {
     }
   }
 
+  private unifiedTrackOrderSql(sort: string): string {
+    return this.trackOrderSql(sort).replace(/\btracks\./g, '');
+  }
+
   private playlistItemsOrderSql(sort: string): string {
     switch (sort) {
       case 'addedDesc':
@@ -3744,9 +3840,16 @@ export class LibraryStore {
   }
 
   private mapTrack(row: DbRow): LibraryTrack {
+    const mediaType = row.media_type === 'remote' || row.media_type === 'streaming' ? row.media_type : 'local';
+
     return {
       id: String(row.id),
+      mediaType,
       path: String(row.path),
+      sourceId: textOrNull(row.source_id),
+      provider: textOrNull(row.provider),
+      remotePath: textOrNull(row.remote_path),
+      stableKey: textOrNull(row.stable_key),
       title: String(row.title),
       artist: String(row.artist),
       album: String(row.album),
@@ -3772,6 +3875,7 @@ export class LibraryStore {
       embeddedCoverStatus: this.mapEmbeddedStatus(row.embedded_cover_status),
       networkMetadataStatus: this.mapNetworkStatus(row.network_metadata_status),
       fieldSources: parseJsonObject(row.field_sources_json),
+      unavailable: row.availability === 'missing',
     };
   }
 

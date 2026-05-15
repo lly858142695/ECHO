@@ -36,7 +36,7 @@ set(ECHO_JUCE_DEFINITIONS
   JUCE_REPORT_APP_USAGE=0
   JUCE_USE_CURL=0
   JUCE_WEB_BROWSER=0
-  JUCE_ASIO=$<BOOL:${ECHO_ENABLE_ASIO}>
+  JUCE_ASIO=0
   ECHO_ENABLE_ASIO=$<BOOL:${ECHO_ENABLE_ASIO}>
 )
 
@@ -60,6 +60,24 @@ target_sources(echo-audio-host
     src/main.cpp
 )
 
+if(WIN32)
+  target_sources(echo-audio-host PRIVATE src/wasapi_exclusive.cpp src/wasapi_shared.cpp)
+  if(ECHO_ENABLE_ASIO)
+    target_sources(echo-audio-host PRIVATE
+      src/asio_host.cpp
+      third_party/asio-sdk/common/asio.cpp
+      third_party/asio-sdk/host/asiodrivers.cpp
+      third_party/asio-sdk/host/pc/asiolist.cpp
+    )
+    target_include_directories(echo-audio-host PRIVATE
+      third_party/asio-sdk/common
+      third_party/asio-sdk/host
+      third_party/asio-sdk/host/pc
+    )
+    target_compile_definitions(echo-audio-host PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endif()
+endif()
+
 target_compile_features(echo-audio-host PRIVATE cxx_std_17)
 
 target_compile_definitions(echo-audio-host
@@ -73,7 +91,7 @@ target_link_libraries(echo-audio-host
 )
 
 if(WIN32)
-  target_link_libraries(echo-audio-host PRIVATE shell32 ole32 avrt winmm)
+  target_link_libraries(echo-audio-host PRIVATE shell32 ole32 avrt winmm advapi32 uuid)
 endif()
 
 juce_add_console_app(echo-audio-engine-tests
@@ -85,6 +103,24 @@ target_sources(echo-audio-engine-tests
     ${ECHO_AUDIO_ENGINE_SOURCES}
     tests/audio_engine_tests.cpp
 )
+
+if(WIN32)
+  target_sources(echo-audio-engine-tests PRIVATE src/wasapi_exclusive.cpp src/wasapi_shared.cpp)
+  if(ECHO_ENABLE_ASIO)
+    target_sources(echo-audio-engine-tests PRIVATE
+      src/asio_host.cpp
+      third_party/asio-sdk/common/asio.cpp
+      third_party/asio-sdk/host/asiodrivers.cpp
+      third_party/asio-sdk/host/pc/asiolist.cpp
+    )
+    target_include_directories(echo-audio-engine-tests PRIVATE
+      third_party/asio-sdk/common
+      third_party/asio-sdk/host
+      third_party/asio-sdk/host/pc
+    )
+    target_compile_definitions(echo-audio-engine-tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endif()
+endif()
 
 target_compile_features(echo-audio-engine-tests PRIVATE cxx_std_17)
 set_target_properties(echo-audio-engine-tests PROPERTIES EXCLUDE_FROM_ALL TRUE)
@@ -100,7 +136,7 @@ target_link_libraries(echo-audio-engine-tests
 )
 
 if(WIN32)
-  target_link_libraries(echo-audio-engine-tests PRIVATE shell32 ole32 avrt winmm)
+  target_link_libraries(echo-audio-engine-tests PRIVATE shell32 ole32 avrt winmm advapi32 uuid)
 endif()
 
 enable_testing()

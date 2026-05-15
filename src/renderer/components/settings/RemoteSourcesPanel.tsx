@@ -189,8 +189,8 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         provider,
         displayName: form.displayName.trim() || defaultNameFor(provider),
         baseUrl: form.baseUrl.trim(),
-        username: form.username.trim() || null,
-        secret: form.secret,
+        username: form.authType === 'basic' ? form.username.trim() || null : null,
+        secret: form.authType === 'none' ? null : form.secret,
         authType: form.authType,
         config,
         syncMode: form.syncMode,
@@ -219,6 +219,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       setMessage(action === 'saveSync' ? '来源已保存，正在开始同步。' : '来源已保存。');
       if (action === 'saveSync') {
         await remoteApi.sync(saved.id);
+        window.dispatchEvent(new Event('library:changed'));
       }
       setForm((current) => ({ ...current, displayName: '', baseUrl: '', username: '', secret: '' }));
       await refreshSources();
@@ -246,6 +247,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         setMessage(result.message);
       } else if (action === 'sync') {
         await remoteApi.sync(source.id);
+        window.dispatchEvent(new Event('library:changed'));
         setMessage('已开始同步。');
       } else if (action === 'metadata') {
         await remoteApi.startBackgroundJobs(source.id, ['metadata', 'cover', 'duration-backfill']);
@@ -263,7 +265,8 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         await remoteApi.update({ id: source.id, status: source.status === 'disabled' ? 'enabled' : 'disabled' });
       } else if (action === 'delete') {
         await remoteApi.delete(source.id);
-        setMessage('来源已禁用，索引已标记不可用。');
+        window.dispatchEvent(new Event('library:changed'));
+        setMessage('来源已删除，相关远程索引已移除。');
       } else if (action === 'cancel') {
         await remoteApi.cancelSync(source.id);
       } else if (action === 'browse') {

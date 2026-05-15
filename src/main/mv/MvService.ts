@@ -48,6 +48,7 @@ type TrackVideoRow = {
   selected_quality_id: string | null;
   quality_label: string | null;
   fps: number | null;
+  offset_ms: number | null;
   raw_provider_json: string | null;
   score: number;
   selected: number;
@@ -97,6 +98,7 @@ export type StreamVariantForProtocol = {
 };
 
 const nowIso = (): string => new Date().toISOString();
+const clampOffset = (value: number): number => Math.max(-10000, Math.min(10000, Math.round(value)));
 
 const fileHashId = (filePath: string): string => `local:${createHash('sha1').update(resolve(filePath)).digest('hex')}`;
 
@@ -876,6 +878,20 @@ export class MvService {
     return this.mapRow(this.requireRow(videoId));
   }
 
+  setVideoOffset(trackId: string, offsetMs: number): TrackVideo | null {
+    const selected = this.getSelectedVideo(trackId);
+    if (!selected) {
+      return null;
+    }
+
+    const timestamp = nowIso();
+    this.database
+      .prepare('UPDATE track_videos SET offset_ms = ?, updated_at = ? WHERE id = ? AND track_id = ?')
+      .run(clampOffset(offsetMs), timestamp, selected.id, trackId);
+
+    return this.getSelectedVideo(trackId);
+  }
+
   async getStreamVariantForProtocol(videoId: string, variantId: string): Promise<StreamVariantForProtocol | null> {
     const row = this.getRow(videoId);
     if (!row || row.provider === 'local') {
@@ -1333,6 +1349,7 @@ export class MvService {
       selectedQualityId: provider === 'local' ? null : (row.selected_quality_id ?? 'auto'),
       qualityLabel: selectedStream?.label ?? row.quality_label,
       fps: selectedStream?.fps ?? row.fps,
+      offsetMs: clampOffset(Number(row.offset_ms ?? 0)),
       score: Number(row.score ?? 0),
       selected: row.selected === 1,
       playableInApp: localPlayable || streamPlayable,

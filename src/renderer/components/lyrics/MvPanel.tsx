@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent } from 'react';
-import { Film, Music2 } from 'lucide-react';
+import { FastForward, Film, Music2, Rewind, RotateCcw } from 'lucide-react';
 import type { AudioPlaybackState } from '../../../shared/types/audio';
 import type { MvSettings, TrackVideo } from '../../../shared/types/mv';
 import type { StreamingMvItem, StreamingProviderName } from '../../../shared/types/streaming';
@@ -158,14 +158,25 @@ const estimateAudioClockPositionSeconds = (clock: MvAudioClock, nowMs = performa
     : positionSeconds;
 };
 
-const targetVideoTimeForAudio = (video: HTMLVideoElement, audioClock: MvAudioClock): number => {
-  const position = normalizeAudioPosition(estimateAudioClockPositionSeconds(audioClock));
-  const duration = Number(video.duration);
-  if (video.loop && Number.isFinite(duration) && duration > 0) {
-    return position % duration;
+const formatOffset = (offsetMs: number): string => {
+  if (offsetMs === 0) {
+    return '0ms';
   }
 
-  return position;
+  return `${offsetMs > 0 ? '+' : ''}${offsetMs}ms`;
+};
+
+const clampOffset = (value: number): number => Math.max(-10000, Math.min(10000, Math.round(value)));
+
+const targetVideoTimeForAudio = (video: HTMLVideoElement, audioClock: MvAudioClock, offsetMs = 0): number => {
+  const position = normalizeAudioPosition(estimateAudioClockPositionSeconds(audioClock));
+  const offsetPosition = normalizeAudioPosition(position + offsetMs / 1000);
+  const duration = Number(video.duration);
+  if (video.loop && Number.isFinite(duration) && duration > 0) {
+    return offsetPosition % duration;
+  }
+
+  return offsetPosition;
 };
 
 const getVideoDriftSeconds = (video: HTMLVideoElement, targetTime: number): number => {
@@ -272,10 +283,11 @@ export const MvPanel = ({
 }: MvPanelProps): JSX.Element => {
   const [selectedVideo, setSelectedVideo] = useState<TrackVideo | null>(null);
   const [settings, setSettings] = useState<MvSettings>(fallbackMvSettings);
-  const [hasLoadedSettings, setHasLoadedSettings] = useState(false);
+  const [hasLoadedSettings, setHasLoadedSettings] = useState(() => !window.echo?.mv);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState(false);
+  const [isMvOffsetSaving, setIsMvOffsetSaving] = useState(false);
   const requestRef = useRef(0);
   const preloadAttemptRef = useRef<string | null>(null);
   const lastVideoSyncAtRef = useRef(0);
@@ -548,6 +560,7 @@ export const MvPanel = ({
   }, [loadSelected, loadSettings]);
 
   const isMvEnabled = settings.enabled !== false;
+  const selectedMvOffsetMs = clampOffset(Number(selectedVideo?.offsetMs ?? 0));
   const videoMediaUrl = isMvEnabled && selectedVideo?.playableInApp && selectedVideo.mediaUrl && !videoError ? selectedVideo.mediaUrl : null;
   const showVideo = Boolean(videoMediaUrl);
   const shouldSurfaceSelectedFallback = Boolean(
@@ -618,7 +631,7 @@ export const MvPanel = ({
       return false;
     }
 
-    const targetTime = targetVideoTimeForAudio(video, audioClockRef.current);
+    const targetTime = targetVideoTimeForAudio(video, audioClockRef.current, selectedVideo?.offsetMs ?? 0);
     const drift = getVideoDriftSeconds(video, targetTime);
     const now = Date.now();
 
@@ -639,13 +652,78 @@ export const MvPanel = ({
     } catch {
       return false;
     }
-  }, []);
+  }, [selectedVideo?.offsetMs]);
 
   const syncVideoToAudio = useCallback((options: { force?: boolean; bypassCooldown?: boolean } = {}): boolean => {
     const foregroundSynced = syncVideoElementToAudio(videoRef.current, options);
     const backgroundSynced = syncVideoElementToAudio(backgroundVideoRef.current, { ...options, recordCooldown: false });
     return foregroundSynced || backgroundSynced;
   }, [syncVideoElementToAudio]);
+
+  const handleMvOffsetChange = useCallback(
+    async (nextOffsetMs: number): Promise<void> => {
+      const mvApi = window.echo?.mv;
+      if (!mvApi?.setOffset || !trackId) {
+        return;
+      }
+
+      const clampedOffset = clampOffset(nextOffsetMs);
+      setSelectedVideo((current) => (current ? { ...current, offsetMs: clampedOffset } : current));
+      try {
+        setIsMvOffsetSaving(true);
+        const nextVideo = await mvApi.setOffset(trackId, clampedOffset);
+        if (nextVideo) {
+          setSelectedVideo(await resolveNetworkVideo(nextVideo));
+        }
+        syncVideoToAudio({ force: true, bypassCooldown: true });
+      } catch {
+        void loadSelected();
+      } finally {
+        setIsMvOffsetSaving(false);
+      }
+    },
+    [loadSelected, resolveNetworkVideo, syncVideoToAudio, trackId],
+  );
+
+  const mvOffsetControls = useMemo(() => {
+    if (!trackId || !selectedVideo || !showVideo || settings.restartAudioOnLoad !== true) {
+      return null;
+    }
+
+    const offsetSteps = [-500, -100, 100, 500];
+    return (
+      <section className="mv-offset-controls" aria-label="MV sync">
+        <span className="mv-offset-value">{formatOffset(selectedMvOffsetMs)}</span>
+        <div className="mv-offset-buttons">
+          {offsetSteps.map((step) => {
+            const nextOffsetMs = clampOffset(selectedMvOffsetMs + step);
+            const isForward = step > 0;
+            return (
+              <button
+                type="button"
+                key={step}
+                disabled={isMvOffsetSaving || nextOffsetMs === selectedMvOffsetMs}
+                title={step > 0 ? `MV earlier ${step}ms` : `MV later ${Math.abs(step)}ms`}
+                onClick={() => void handleMvOffsetChange(nextOffsetMs)}
+              >
+                {isForward ? <FastForward size={14} /> : <Rewind size={14} />}
+                <span>{step > 0 ? '+' : ''}{step}ms</span>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            disabled={isMvOffsetSaving || selectedMvOffsetMs === 0}
+            title="Reset MV offset"
+            onClick={() => void handleMvOffsetChange(0)}
+          >
+            <RotateCcw size={14} />
+            <span>0ms</span>
+          </button>
+        </div>
+      </section>
+    );
+  }, [handleMvOffsetChange, isMvOffsetSaving, selectedMvOffsetMs, selectedVideo, settings.restartAudioOnLoad, showVideo, trackId]);
 
   useEffect(() => {
     const wasAudioPlaying = previousAudioSyncPlayingRef.current;
@@ -733,6 +811,12 @@ export const MvPanel = ({
     lastVideoSyncAtRef.current = 0;
     videoSeekingRef.current = false;
   }, [videoMediaUrl]);
+
+  useEffect(() => {
+    if (showVideo) {
+      syncVideoToAudio({ force: true, bypassCooldown: true });
+    }
+  }, [selectedMvOffsetMs, showVideo, syncVideoToAudio]);
 
   useEffect(() => {
     if (!showVideo || !adaptiveStream || !videoMediaUrl || !videoRef.current) {
@@ -925,6 +1009,7 @@ export const MvPanel = ({
         />
       )}
 
+      {mvOffsetControls}
       {error ? <p className="lyrics-mv-error">{error}</p> : null}
       </section>
     </>

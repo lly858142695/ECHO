@@ -65,6 +65,7 @@ const makeVideo = (): TrackVideo => ({
   selectedQualityId: null,
   qualityLabel: null,
   fps: null,
+  offsetMs: 0,
   score: 1,
   selected: true,
   playableInApp: true,

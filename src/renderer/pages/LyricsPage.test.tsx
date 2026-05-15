@@ -220,6 +220,7 @@ const makeTrackVideo = (
   selectedQualityId: null,
   qualityLabel: null,
   fps: null,
+  offsetMs: 0,
   score: 1,
   selected: true,
   playableInApp: true,
@@ -254,6 +255,7 @@ const attachMvBridge = (
       getCandidates: vi.fn().mockResolvedValue([]),
       resolveStreams: vi.fn().mockResolvedValue({ video: selected, variants: [] }),
       setQuality: vi.fn(),
+      setOffset: vi.fn(),
       chooseLocalVideo: vi.fn().mockResolvedValue(null),
       bindLocalVideo: vi.fn(),
       selectVideo: vi.fn(),
@@ -646,7 +648,7 @@ describe("LyricsPage", () => {
     );
   });
 
-  it("applies global lyrics sync offset without changing lyric files", async () => {
+  it("keeps lyrics sync on the per-track lyric offset instead of the global setting", async () => {
     const track = makeTrack();
     mockEcho(track, 9.2, { lyricsGlobalSyncOffsetMs: 1000 });
     const { container, unmount } = render(
@@ -660,7 +662,7 @@ describe("LyricsPage", () => {
     await waitFor(() =>
       expect(
         container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
-      ).toContain("Second line"),
+      ).toContain("First line"),
     );
 
     unmount();
@@ -676,11 +678,11 @@ describe("LyricsPage", () => {
     await waitFor(() =>
       expect(
         secondRender.container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
-      ).toContain("First line"),
+      ).toContain("Second line"),
     );
   });
 
-  it("keeps MV progress following on raw audio time when global lyrics offset shifts lyrics", async () => {
+  it("keeps MV progress following on raw audio time when a global lyrics offset exists", async () => {
     vi.spyOn(performance, "now").mockReturnValue(0);
     vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const track = makeTrack();
@@ -697,7 +699,7 @@ describe("LyricsPage", () => {
     await waitFor(() =>
       expect(
         container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
-      ).toContain("Second line"),
+      ).toContain("First line"),
     );
 
     const video = await waitFor(() => {

@@ -24,6 +24,7 @@ const makeVideo = (overrides: Partial<TrackVideo> = {}): TrackVideo => ({
   selectedQualityId: null,
   qualityLabel: null,
   fps: null,
+  offsetMs: 0,
   score: 1,
   selected: true,
   playableInApp: true,
@@ -77,6 +78,7 @@ const renderPanel = (
       getCandidates: vi.fn().mockResolvedValue([]),
       resolveStreams: vi.fn().mockResolvedValue({ video: selected, variants: [] }),
       setQuality: vi.fn(),
+      setOffset: vi.fn(async (_trackId: string, offsetMs: number) => (selected ? { ...selected, offsetMs } : null)),
       chooseLocalVideo: vi.fn().mockResolvedValue(null),
       bindLocalVideo: vi.fn(),
       selectVideo: vi.fn(),
@@ -479,6 +481,32 @@ describe('MvPanel', () => {
 
     await waitFor(() => expect(video.currentTime).toBeCloseTo(42, 3));
     expect(window.echo.playback.seek).not.toHaveBeenCalled();
+  });
+
+  it('applies the selected track MV offset when syncing video time', async () => {
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    const { container } = renderPanel(makeVideo({ offsetMs: 750 }), true, { ...defaultMvSettings, restartAudioOnLoad: true }, 42);
+
+    const video = await waitFor(() => {
+      const element = container.querySelector('video') as HTMLVideoElement | null;
+      expect(element).toBeTruthy();
+      return element!;
+    });
+
+    Object.defineProperty(video, 'duration', { configurable: true, value: 120 });
+    video.dispatchEvent(new Event('loadedmetadata'));
+
+    await waitFor(() => expect(video.currentTime).toBeCloseTo(42.75, 3));
+  });
+
+  it('saves MV offset from the panel controls for the current track', async () => {
+    const { container } = renderPanel(makeVideo(), true, { ...defaultMvSettings, restartAudioOnLoad: true }, 10);
+
+    await waitFor(() => expect(container.querySelector('.mv-offset-controls')).toBeTruthy());
+    fireEvent.click(screen.getByTitle('MV earlier 100ms'));
+
+    await waitFor(() => expect(window.echo.mv.setOffset).toHaveBeenCalledWith('track-1', 100));
+    expect(container.querySelector('.mv-offset-value')?.textContent).toBe('+100ms');
   });
 
   it('corrects drift conservatively while allowing obvious audio position jumps through', async () => {

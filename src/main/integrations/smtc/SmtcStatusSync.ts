@@ -98,6 +98,9 @@ export const createSmtcMetadataFromStatus = (status: AudioStatus): SmtcTrackMeta
 
 const metadataKeyForStatus = (status: AudioStatus): string => `${status.currentTrackId ?? ''}|${status.currentFilePath ?? ''}`;
 
+const smtcPlaybackStateForStatus = (status: AudioStatus): SmtcPlaybackState =>
+  status.state === 'loading' && (status.currentTrackId || status.currentFilePath) ? 'playing' : status.state;
+
 export const bindSmtcCommandBridge = (
   service: SmtcService,
   getWindow: () => Pick<BrowserWindow, 'webContents' | 'isDestroyed'> | null = getMainWindow,
@@ -125,10 +128,11 @@ export const syncSmtcStatus = async (status: AudioStatus = getAudioSession().get
     }
   }
 
-  if (status.state !== state.lastPlaybackState) {
-    state.lastPlaybackState = status.state;
+  const playbackState = smtcPlaybackStateForStatus(status);
+  if (playbackState !== state.lastPlaybackState) {
+    state.lastPlaybackState = playbackState;
     try {
-      await service.setPlaybackState(status.state);
+      await service.setPlaybackState(playbackState);
     } catch (error) {
       logWarn('[SMTC] Failed to sync playback state', { error: error instanceof Error ? error.message : String(error) });
     }

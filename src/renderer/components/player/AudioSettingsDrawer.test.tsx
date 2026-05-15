@@ -151,6 +151,24 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     expect(screen.queryByRole('heading', { name: 'ASIO buffer' })).toBeNull();
   });
 
+  it('locks the WASAPI exclusive toggle while ASIO mode is active', async () => {
+    const status = {
+      ...baseStatus,
+      outputMode: 'asio' as const,
+      outputBackend: 'asio',
+      outputDeviceName: 'TEAC ASIO',
+    };
+    const setOutput = vi.fn().mockResolvedValue(status);
+    renderDrawer(status, setOutput);
+
+    const exclusiveToggle = screen.getByRole('checkbox', { name: /wasapiExclusive/ });
+
+    expect(exclusiveToggle).toHaveProperty('disabled', true);
+    fireEvent.click(exclusiveToggle);
+
+    await waitFor(() => expect(setOutput).not.toHaveBeenCalled());
+  });
+
   it('applies an explicit ASIO buffer size', async () => {
     const status = {
       ...baseStatus,
@@ -164,6 +182,30 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     fireEvent.click(screen.getByRole('button', { name: /128/ }));
 
     await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ bufferSizeFrames: 128 }));
+  });
+
+  it('recovers controls after an ASIO output switch fails', async () => {
+    const sharedStatus = {
+      ...baseStatus,
+      outputMode: 'shared' as const,
+      outputBackend: 'wasapi-shared',
+    };
+    const setOutput = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('ASIO open failed'))
+      .mockResolvedValueOnce(sharedStatus);
+    renderDrawer(sharedStatus, setOutput);
+
+    await waitFor(() => expect(screen.getAllByText('TEAC ASIO').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole('button', { name: /TEAC ASIO/ }));
+
+    await waitFor(() => expect(screen.getByText('ASIO open failed')).toBeTruthy());
+
+    const asioButton = screen.getByRole('button', { name: /TEAC ASIO/ });
+    expect(asioButton).toHaveProperty('disabled', false);
+    fireEvent.click(asioButton);
+
+    await waitFor(() => expect(setOutput).toHaveBeenCalledTimes(2));
   });
 
   it('clears explicit ASIO buffer size when Auto is selected', async () => {

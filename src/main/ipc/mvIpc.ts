@@ -13,6 +13,15 @@ const requireText = (value: unknown, name: string): string => {
 
 const optionalText = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
 
+const requireOffset = (value: unknown): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error('offsetMs must be a number');
+  }
+
+  return parsed;
+};
+
 const normalizeSnapshotSearchRequest = (value: unknown): MvTrackSnapshotSearchRequest => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('MV snapshot search request must be an object');
@@ -58,6 +67,9 @@ export const registerMvIpc = (): void => {
   );
   ipcMain.handle(IpcChannels.MvSetQuality, (_event, videoId: unknown, qualityId: unknown) =>
     getMvService().setQuality(requireText(videoId, 'videoId'), requireText(qualityId, 'qualityId')),
+  );
+  ipcMain.handle(IpcChannels.MvSetOffset, (_event, trackId: unknown, offsetMs: unknown) =>
+    getMvService().setVideoOffset(requireText(trackId, 'trackId'), requireOffset(offsetMs)),
   );
   ipcMain.handle(IpcChannels.MvBindLocalVideo, (_event, trackId: unknown, filePath: unknown) =>
     getMvService().bindLocalVideo(requireText(trackId, 'trackId'), requireText(filePath, 'filePath')),
