@@ -96,6 +96,40 @@ class FakeDecoder {
   }
 }
 
+class FakeJuceDecoder {
+  readonly decodeRequests: PcmDecodeRequest[] = [];
+
+  constructor(private readonly failure: Error | null = null) {}
+
+  decodeLocalFile(request: PcmDecodeRequest): DecoderRun {
+    this.decodeRequests.push(request);
+    if (this.failure) {
+      throw this.failure;
+    }
+
+    const stream = new PassThrough();
+    const stop = vi.fn(() => {
+      stream.destroy();
+    });
+
+    queueMicrotask(() => {
+      if (!stream.destroyed) {
+        stream.end();
+      }
+    });
+
+    const lowerPath = request.filePath.toLowerCase();
+
+    return {
+      stream,
+      stop,
+      done: Promise.resolve(),
+      ready: Promise.resolve(),
+      decoderBackendImpl: lowerPath.endsWith('.flac') ? 'juce-flac' : 'juce-wav',
+    };
+  }
+}
+
 class PcmChunkDecoder extends FakeDecoder {
   constructor(
     probes: Map<string, AudioProbeResult>,
@@ -1317,7 +1351,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Missing USB DAC' },
+      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Missing USB DAC', useJuceOutput: false },
     });
 
     expect(failingBridge.stop).toHaveBeenCalledTimes(1);
@@ -1376,7 +1410,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Sleeping USB DAC' },
+      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Sleeping USB DAC', useJuceOutput: false },
     });
 
     expect(failingBridge.startOptions).toMatchObject({
@@ -1451,7 +1485,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'shared' },
+      output: { outputMode: 'shared', useJuceOutput: false },
     });
 
     expect(defaultBridge.stop).toHaveBeenCalledTimes(1);
@@ -1490,7 +1524,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     await expect(session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'shared' },
+      output: { outputMode: 'shared', useJuceOutput: false },
     })).rejects.toThrow('nativeCrash=access_violation');
 
     expect(defaultBridge.stop).toHaveBeenCalledTimes(1);
@@ -1591,7 +1625,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'exclusive' },
+      output: { outputMode: 'exclusive', useJuceOutput: false },
     });
 
     expect(failingBridge.stop).toHaveBeenCalledTimes(1);
@@ -1621,7 +1655,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     await expect(session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'exclusive' },
+      output: { outputMode: 'exclusive', useJuceOutput: false },
     })).rejects.toThrow('nativeCrash=access_violation');
 
     expect(exclusiveBridge.startOptions).toMatchObject({ exclusive: true });
@@ -1651,6 +1685,166 @@ describe('Audio Core sample-rate regression guard', () => {
       exclusive: false,
       deviceName: 'TEAC ASIO USB DRIVER',
     });
+    expect(bridges[0].startOptions?.useJuceOutput).toBe(false);
+    expect(status.useJuceOutputRequested).toBe(true);
+  });
+
+  it.each([
+    ['shared', { outputMode: 'shared' as const }, { asio: false, exclusive: false }],
+    ['exclusive', { outputMode: 'exclusive' as const }, { asio: false, exclusive: true }],
+  ])('requests JUCE output by default for %s output', async (_label, output, expectedStart) => {
+    const { bridges, session } = createSessionHarness([probe('default-juce.flac', 44100)]);
+
+    const status = await session.playLocalFile({
+      filePath: 'default-juce.flac',
+      output,
+    });
+
+    expect(bridges[0].startOptions).toMatchObject({
+      ...expectedStart,
+      useJuceOutput: true,
+    });
+    expect(status.useJuceOutputRequested).toBe(true);
+  });
+
+  it('keeps JUCE decode disabled by default even for local WAV', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([{ ...probe('pilot.wav', 48000), codec: 'WAV' }], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'pilot.wav',
+      output: { outputMode: 'shared' },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(false);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+  });
+
+  it('keeps JUCE decode disabled by default even for local FLAC', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([probe('pilot.flac', 48000)], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'pilot.flac',
+      output: { outputMode: 'shared' },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(false);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+  });
+
+  it('uses JUCE decode for opt-in local WAV when no resampling is required', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([{ ...probe('pilot.wav', 48000), codec: 'WAV' }], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'pilot.wav',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests).toHaveLength(0);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('juce-wav');
+  });
+
+  it('uses JUCE decode for opt-in local FLAC when no resampling is required', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([probe('pilot.flac', 48000)], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'pilot.flac',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests).toHaveLength(0);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('juce-flac');
+  });
+
+  it('falls back to FFmpeg when opt-in JUCE FLAC decode fails before PCM starts', async () => {
+    const juceDecoder = new FakeJuceDecoder(new Error('juce flac open failed'));
+    const { decoder, session } = createSessionHarness([probe('pilot.flac', 48000)], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'pilot.flac',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+    expect(status.warnings).toContain('juce_decode_fell_back_to_ffmpeg');
+  });
+
+  it('keeps FFmpeg decode for local MP3 even when JUCE decode is enabled', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([{ ...probe('song.mp3', 48000), codec: 'MP3' }], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'song.mp3',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+    expect(status.warnings).not.toContain('juce_decode_fell_back_to_ffmpeg');
+  });
+
+  it('keeps FFmpeg decode for non-pilot local files even when JUCE decode is enabled', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([{ ...probe('song.m4a', 48000), codec: 'AAC' }], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'song.m4a',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+  });
+
+  it('keeps FFmpeg decode for HTTP FLAC streams even when JUCE decode is enabled', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const url = 'https://cdn.example.test/song.flac';
+    const { decoder, session } = createSessionHarness([], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: url,
+      probe: { ...probe(url, 48000), codec: 'FLAC' },
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
   });
 
   it('starts DirectSound compatibility output as shared mode without carrying WASAPI device index', async () => {
@@ -1665,6 +1859,7 @@ describe('Audio Core sample-rate regression guard', () => {
       sharedBackend: 'directsound',
       exclusive: false,
       asio: false,
+      useJuceOutput: false,
       deviceName: 'USB DAC',
       bufferSizeFrames: 256,
       fifoCapacityMs: 120,
@@ -2198,7 +2393,7 @@ describe('Audio Core sample-rate regression guard', () => {
       {
         filePath: 'shared-dirty.flac',
         outputMode: 'shared',
-        expectedBufferSizeFrames: 2048,
+        expectedBufferSizeFrames: 1024,
         expectedWarning: 'low_latency_buffer_ignored',
       },
       {
@@ -2582,6 +2777,48 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.useJuceOutputRequested).toBe(true);
     expect(status.activeOutputBackendImpl).toBe('legacy-asio-sdk');
     expect(status.warnings).not.toContain('juce_output_fell_back_to_native');
+    await expect(session.disposeGracefully()).resolves.toBeUndefined();
+  });
+
+  it('uses safe shared output when JUCE output and its native retry both fail', async () => {
+    const failingJuceBridge = new ConfigurableStartupFailingBridge('JUCE output open failed');
+    const failingNativeBridge = new ConfigurableStartupFailingBridge('native output open failed');
+    const safeBridge = new FakeBridge(48000, { backendImpl: 'legacy-wasapi-shared' });
+    const bridges = [failingJuceBridge, failingNativeBridge, safeBridge];
+    const reportAudioError = vi.fn();
+    const session = new AudioSession({
+      decoder: new FakeDecoder(new Map([['juce-safe.flac', probe('juce-safe.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      reportAudioError,
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'juce-safe.flac',
+      output: { outputMode: 'shared', useJuceOutput: true },
+    });
+
+    expect(failingJuceBridge.startOptions).toMatchObject({ useJuceOutput: true });
+    expect(failingNativeBridge.startOptions).toMatchObject({ useJuceOutput: false });
+    expect(safeBridge.startOptions).toMatchObject({
+      exclusive: false,
+      asio: false,
+      useJuceOutput: false,
+      bufferSizeFrames: 8192,
+    });
+    expect(status.state).toBe('playing');
+    expect(status.useJuceOutputRequested).toBe(true);
+    expect(status.warnings).toContain('juce_output_fell_back_to_native');
+    expect(status.warnings).toContain('shared_output_recovered_safe_mode');
+    expect(reportAudioError).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('native output open failed'),
+      details: expect.objectContaining({
+        juceFallback: true,
+        recovered: false,
+      }),
+    }));
     await expect(session.disposeGracefully()).resolves.toBeUndefined();
   });
 
@@ -2997,6 +3234,23 @@ describe('AudioSession playback watchdog', () => {
     });
   });
 
+  it('uses a conservative low-latency profile only when shared output explicitly requests it', async () => {
+    const { bridges, session } = createSessionHarness([probe('song.flac', 44100)]);
+
+    await session.playLocalFile({
+      filePath: 'song.flac',
+      output: { outputMode: 'shared', latencyProfile: 'lowLatency' },
+    });
+
+    expect(bridges[0].startOptions).toMatchObject({
+      bufferSizeFrames: 1024,
+      fifoCapacityMs: 300,
+      startupPrebufferMs: 80,
+      startupPrebufferTimeoutMs: 250,
+      latencyProfile: 'lowLatency',
+    });
+  });
+
   it('upgrades shared stability after repeated native underruns', async () => {
     const { bridges, session } = createSessionHarness([probe('song.flac', 48000)], [], [], {
       disableWatchdogTimer: true,
@@ -3041,6 +3295,14 @@ describe('AudioSession playback watchdog', () => {
       output: { outputMode: 'shared', latencyProfile: 'lowLatency' },
     });
 
+    expect(bridges[0].startOptions).toMatchObject({
+      bufferSizeFrames: 1024,
+      fifoCapacityMs: 300,
+      startupPrebufferMs: 80,
+      startupPrebufferTimeoutMs: 250,
+      latencyProfile: 'lowLatency',
+    });
+
     for (const [index, expected] of [
       { bufferSizeFrames: 4096, latencyProfile: 'balanced' as const },
       { bufferSizeFrames: 8192, latencyProfile: 'stable' as const },
@@ -3066,6 +3328,57 @@ describe('AudioSession playback watchdog', () => {
     expect(session.getStatus().sharedStabilityTier).toBe('emergency');
     expect(session.getStatus().warnings).toContain('shared_stability_recovered:2');
     expect(session.getStatus().warnings).toContain('native_output_buffer_recovered:stable');
+  });
+
+  it('keeps an unstable shared low-latency device on the remembered recovery profile', async () => {
+    const { bridges, session } = createSessionHarness([
+      probe('first.flac', 48000),
+      probe('second.flac', 48000),
+    ], [], [], {
+      disableWatchdogTimer: true,
+    });
+
+    await session.playLocalFile({
+      filePath: 'first.flac',
+      trackId: 'track-1',
+      output: { outputMode: 'shared', latencyProfile: 'lowLatency' },
+    });
+    bridges[0].emit('position', 48000, {
+      positionFrames: 48000,
+      bufferedFrames: 0,
+      underrunCallbacks: 0,
+      underrunFrames: 0,
+    });
+    bridges[0].emit('position', 48512, {
+      positionFrames: 48512,
+      bufferedFrames: 0,
+      underrunCallbacks: 3,
+      underrunFrames: 512,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(bridges[1].startOptions).toMatchObject({
+      bufferSizeFrames: 4096,
+      fifoCapacityMs: 750,
+      startupPrebufferMs: 180,
+      latencyProfile: 'balanced',
+    });
+
+    await session.playLocalFile({
+      filePath: 'second.flac',
+      trackId: 'track-2',
+      output: { outputMode: 'shared', latencyProfile: 'lowLatency' },
+    });
+
+    expect(bridges).toHaveLength(2);
+    expect(bridges[1].startOptions).toMatchObject({
+      bufferSizeFrames: 4096,
+      fifoCapacityMs: 750,
+      startupPrebufferMs: 180,
+      latencyProfile: 'balanced',
+    });
+    expect(session.getStatus().warnings).toContain('low_latency_buffer_ignored');
+    expect(session.getStatus().sharedStabilityTier).toBe('recovery');
   });
 
   it('falls back from unstable exclusive output to shared after repeated native underruns', async () => {
@@ -4207,7 +4520,7 @@ describe('AudioSession graceful output cleanup', () => {
     const status = await session.forceRestart('settings-audio-force-restart');
 
     expect(bridge.stopGracefully).toHaveBeenCalledWith('settings-audio-force-restart', undefined, true);
-    expect(refresh).toHaveBeenCalledWith({ useJuceOutput: false });
+    expect(refresh).toHaveBeenCalledWith({ useJuceOutput: true });
     expect(internals.sharedStabilityTier).toBe('standard');
     expect(internals.watchdogRecoveries.size).toBe(0);
     expect(internals.unavailableAsioDevices.size).toBe(0);

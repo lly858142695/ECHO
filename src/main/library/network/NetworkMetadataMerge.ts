@@ -147,7 +147,9 @@ export class NetworkMetadataMerge {
     }
 
     if (Object.keys(appliedFields).length === 0) {
-      this.store.recordDecision(candidate.trackId, candidate.id, 'ignored', {});
+      if (!candidate.coverUrl || !shouldApplyField('cover')) {
+        this.store.recordDecision(candidate.trackId, candidate.id, 'ignored', {});
+      }
       return { status: 'candidate_found', appliedFields: {}, reason: 'no_missing_fields' };
     }
 

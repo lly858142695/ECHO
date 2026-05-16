@@ -31,6 +31,12 @@ describe('lyricsParser', () => {
     ]);
   });
 
+  it('collapses bracket-style enhanced word timestamps into one lyric line', () => {
+    expect(parseSyncedLyrics("[00:05.340]I'm [00:05.760]a [00:05.940]big [00:06.660]big [00:07.320]girl[00:08.220]")).toEqual([
+      { timeMs: 5340, text: "I'm a big big girl" },
+    ]);
+  });
+
   it('splits inline Chinese translations from synced lyrics', () => {
     expect(parseSyncedLyrics('[00:08.00]僕ら出会えたの / 才换来你我这一次相遇')).toEqual([
       { timeMs: 8000, text: '僕ら出会えたの', translation: '才换来你我这一次相遇' },

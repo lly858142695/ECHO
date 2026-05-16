@@ -32,7 +32,7 @@ Phase 0 intentionally kept scanning, playback, and SQLite out of the shell.
 - TrackRow single-track playback through `playback.playLocalFile({ filePath, trackId })`
 - Phase 1.2 playback queue scope is the visible/loaded SongsPage window only
 - PlayerBar status readout for playback and audio sample-rate fields
-- dev-only Library Diagnostics through `library.getDiagnostics()`
+- library diagnostics remain available to internal diagnostics export only, not as a Settings panel
 - `benchmark:library` fake-data pressure script for 3000 and 10000 tracks plus 3000 and 10000 albums
 - sidebar `Import Folder` direct picker plus Settings/fallback folder import UX using `library.chooseFolder()`
 - sidebar `Import File` direct picker for the existing local audio file open path; single-file library ingestion remains deferred

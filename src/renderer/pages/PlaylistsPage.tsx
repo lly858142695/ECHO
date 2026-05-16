@@ -189,7 +189,7 @@ export const PlaylistsPage = (): JSX.Element => {
   const newPlaylistInputRef = useRef<HTMLInputElement>(null);
   const qualityMenuRef = useRef<HTMLDivElement | null>(null);
   const playlistMenuRef = useRef<HTMLDivElement | null>(null);
-  const { currentTrackId, items: queueItems, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeQueueItem } = usePlaybackQueue();
+  const { currentTrackId, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeTrackFromQueue } = usePlaybackQueue();
   const selectedPlaylist = useMemo(
     () => playlists.find((playlist) => playlist.id === selectedPlaylistId) ?? playlists[0] ?? null,
     [playlists, selectedPlaylistId],
@@ -828,10 +828,12 @@ export const PlaylistsPage = (): JSX.Element => {
             return;
           case 'remove-from-queue':
             {
-              const queuedItem = queueItems.find((item) => item.track.id === track.id);
-              if (queuedItem) {
-                removeQueueItem(queuedItem.queueId);
-              }
+              const removedCount = removeTrackFromQueue(track.id);
+              setStatusMessage(
+                removedCount > 0
+                  ? `已从播放队列移除：${track.title}`
+                  : `播放队列里没有这首歌：${track.title}`,
+              );
             }
             return;
           case 'show-in-folder':
@@ -887,7 +889,7 @@ export const PlaylistsPage = (): JSX.Element => {
         setError(actionError instanceof Error ? actionError.message : String(actionError));
       }
     },
-    [appendToQueue, handleToggleLiked, playTrackNext, queueItems, queueSource, removeQueueItem],
+    [appendToQueue, handleToggleLiked, playTrackNext, queueSource, removeTrackFromQueue],
   );
 
   return (

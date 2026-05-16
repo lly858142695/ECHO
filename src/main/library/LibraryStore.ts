@@ -4,7 +4,7 @@ import { basename, resolve } from 'node:path';
 import type { EchoDatabase } from '../database/createDatabase';
 import { chineseSearchVariants } from './ChineseSearchVariants';
 import { buildTrackSearchTerms } from './SearchIndexTokens';
-import type { AlbumKeyInput, AlbumMergeStrategy, AlbumService } from './AlbumService';
+import { normalizeAlbumTitleForLooseMerge, type AlbumKeyInput, type AlbumMergeStrategy, type AlbumService } from './AlbumService';
 import { updateCoverPathsInDatabase } from './CoverCacheManager';
 import { DuplicateTrackService } from './duplicates/DuplicateTrackService';
 import type {
@@ -80,7 +80,8 @@ type StandardAlbumGroup = AlbumIndexStats & {
 type LooseAlbumCluster = {
   albumKey: string;
   representativeTitle: string;
-  coverSourceHashes: Set<string>;
+  representativeLooseTitle: string;
+  coverMatchKeys: Set<string>;
 };
 
 const defaultPageSize = 100;
@@ -318,16 +319,8 @@ const mostCommonMapKey = (counts: Map<string, number>): string | null => {
 
   return selected;
 };
-const normalizeAlbumTitleForSimilarity = (value: string): string =>
-  value
-    .normalize('NFKD')
-    .toLocaleLowerCase()
-    .replace(/[\u0300-\u036f]/g, '')
-    .normalize('NFKC')
-    .replace(/[^\p{Letter}\p{Number}]+/gu, ' ')
-    .trim();
-const normalizeAlbumTitleForExactLooseMerge = (value: string): string =>
-  value.normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
+const normalizeAlbumTitleForSimilarity = normalizeAlbumTitleForLooseMerge;
+const isKnownLooseAlbumTitle = (value: string): boolean => value.length > 0 && value !== 'unknown album';
 const albumTitleSimilarity = (left: string, right: string): number => {
   const a = normalizeAlbumTitleForSimilarity(left);
   const b = normalizeAlbumTitleForSimilarity(right);
@@ -2132,23 +2125,31 @@ export class LibraryStore {
     for (const standardGroup of standardGroups.values()) {
       const coverSourceHash = mostCommonMapKey(standardGroup.coverSourceHashes);
       const coverMatchKey = mostCommonMapKey(standardGroup.coverFingerprints) ?? coverSourceHash;
-      const matchingCluster = clusters.find((cluster) => {
-        const titleScore = albumTitleSimilarity(standardGroup.title, cluster.representativeTitle);
-        const exactTitleMatch =
-          normalizeAlbumTitleForExactLooseMerge(standardGroup.title) ===
-          normalizeAlbumTitleForExactLooseMerge(cluster.representativeTitle);
+      const looseTitle = normalizeAlbumTitleForLooseMerge(standardGroup.title);
+      const matchingCluster = isKnownLooseAlbumTitle(looseTitle)
+        ? clusters.find((cluster) => {
+            if (!isKnownLooseAlbumTitle(cluster.representativeLooseTitle)) {
+              return false;
+            }
 
-        if (titleScore >= 0.95 && !exactTitleMatch) {
-          return true;
-        }
+            if (looseTitle === cluster.representativeLooseTitle) {
+              return true;
+            }
 
-        return Boolean(coverMatchKey && titleScore >= 0.9 && cluster.coverSourceHashes.has(coverMatchKey));
-      });
+            const titleScore = albumTitleSimilarity(standardGroup.title, cluster.representativeTitle);
+
+            if (titleScore >= 0.95) {
+              return true;
+            }
+
+            return Boolean(coverMatchKey && titleScore >= 0.85 && cluster.coverMatchKeys.has(coverMatchKey));
+          })
+        : undefined;
 
       if (matchingCluster) {
         albumKeys.set(standardGroup.albumKey, matchingCluster.albumKey);
         if (coverMatchKey) {
-          matchingCluster.coverSourceHashes.add(coverMatchKey);
+          matchingCluster.coverMatchKeys.add(coverMatchKey);
         }
         continue;
       }
@@ -2157,12 +2158,13 @@ export class LibraryStore {
         ...standardGroup.keyInput,
         coverId: standardGroup.coverId,
         coverSourceHash,
-        mergeStrategy: coverSourceHash ? 'sameTitleAndCover' : 'standard',
+        mergeStrategy: isKnownLooseAlbumTitle(looseTitle) ? 'sameTitleAndCover' : 'standard',
       });
       clusters.push({
         albumKey,
         representativeTitle: standardGroup.title,
-        coverSourceHashes: new Set(coverMatchKey ? [coverMatchKey] : []),
+        representativeLooseTitle: looseTitle,
+        coverMatchKeys: new Set(coverMatchKey ? [coverMatchKey] : []),
       });
       albumKeys.set(standardGroup.albumKey, albumKey);
     }

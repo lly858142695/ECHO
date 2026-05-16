@@ -55,6 +55,10 @@ type AudioDrawerCopy = {
   eqOff: string;
   eqOn: string;
   exclusive: string;
+  juceDecode: string;
+  juceDecodeFallback: string;
+  juceDecodeStandby: string;
+  juceDecodeMp3Unsupported: string;
   juceOutput: string;
   nativeRate: string;
   noActiveSource: string;
@@ -66,7 +70,10 @@ type AudioDrawerCopy = {
   soxrResampler: string;
   shared: string;
   directSound: string;
+  ffmpegDecode: string;
   sharedMixer: string;
+  asioSdkOutput: string;
+  juceFallback: string;
   speedUp: string;
   standardPath: string;
   systemAudio: string;
@@ -206,6 +213,82 @@ const isLosslessCodec = (status: AudioStatus | null): boolean => {
 
 const isActiveJuceBackend = (status: AudioStatus | null): boolean =>
   typeof status?.activeOutputBackendImpl === 'string' && status.activeOutputBackendImpl.startsWith('juce-');
+
+const isActiveJuceDecodeBackend = (status: AudioStatus | null): boolean =>
+  typeof status?.activeDecodeBackendImpl === 'string' && status.activeDecodeBackendImpl.startsWith('juce-');
+
+const isMp3Source = (status: AudioStatus | null): boolean => {
+  const codec = status?.codec?.toLocaleLowerCase() ?? '';
+  const filePath = status?.currentFilePath?.toLocaleLowerCase() ?? '';
+
+  return (
+    filePath.endsWith('.mp3') ||
+    codec.includes('mp3') ||
+    /\bmpeg\s*(?:1|2|2\.5)?\s*layer\s*(?:3|iii)\b/u.test(codec)
+  );
+};
+
+const isJuceDecodeFallbackVisible = (status: AudioStatus | null): boolean =>
+  Boolean(
+    status?.useJuceDecodeRequested &&
+      !isActiveJuceDecodeBackend(status) &&
+      status.activeDecodeBackendImpl === 'ffmpeg' &&
+      status.warnings.some((warning) => warning === 'juce_decode_fell_back_to_ffmpeg'),
+  );
+
+const isJuceDecodeStandbyVisible = (status: AudioStatus | null): boolean =>
+  Boolean(
+    status?.useJuceDecodeRequested &&
+      !isActiveJuceDecodeBackend(status) &&
+      status.activeDecodeBackendImpl === 'ffmpeg' &&
+      !isJuceDecodeFallbackVisible(status),
+  );
+
+const getJuceDecodeStandbyText = (status: AudioStatus | null, copy: AudioDrawerCopy): string =>
+  isMp3Source(status) ? copy.juceDecodeMp3Unsupported : copy.juceDecodeStandby;
+
+const hasJuceFallbackWarning = (status: AudioStatus | null): boolean =>
+  Boolean(status?.warnings.some((warning) => warning.startsWith('juce_') && warning.includes('fell_back')));
+
+const isJuceFallbackVisible = (status: AudioStatus | null): boolean =>
+  Boolean(
+    status?.useJuceOutputRequested &&
+      !isActiveJuceBackend(status) &&
+      status.outputMode !== 'asio' &&
+      (status.state !== 'idle' || hasJuceFallbackWarning(status)),
+  );
+
+const getPlaybackChainText = (status: AudioStatus | null, copy: AudioDrawerCopy): string => {
+  const decodeText = isActiveJuceDecodeBackend(status)
+    ? copy.juceDecode
+    : isJuceDecodeFallbackVisible(status)
+      ? copy.juceDecodeFallback
+      : isJuceDecodeStandbyVisible(status)
+        ? `${copy.ffmpegDecode} (${getJuceDecodeStandbyText(status, copy)})`
+        : copy.ffmpegDecode;
+
+  if (isActiveJuceBackend(status)) {
+    return `${decodeText} -> ${copy.juceOutput}`;
+  }
+
+  if (status?.outputMode === 'asio') {
+    return `${decodeText} -> ${copy.asioSdkOutput}`;
+  }
+
+  if (isJuceFallbackVisible(status)) {
+    return `${decodeText} -> ${copy.juceFallback}`;
+  }
+
+  if (status?.useJuceOutputRequested) {
+    return `${decodeText} -> ${copy.juceOutput}`;
+  }
+
+  if (status?.outputBackend === 'directsound-shared' || status?.sharedBackend === 'directsound') {
+    return `${decodeText} -> ${copy.directSound}`;
+  }
+
+  return `${decodeText} -> ${copy.standardPath}`;
+};
 
 const formatSourceQuality = (status: AudioStatus | null, copy: AudioDrawerCopy): string => {
   const parts = [
@@ -499,6 +582,8 @@ const formatAudioDiagnostics = (diagnostics: AudioDiagnostics): string => {
     ['outputBackend', diagnostics.outputBackend],
     ['activeOutputBackendImpl', diagnostics.activeOutputBackendImpl],
     ['useJuceOutputRequested', diagnostics.useJuceOutputRequested],
+    ['activeDecodeBackendImpl', diagnostics.activeDecodeBackendImpl],
+    ['useJuceDecodeRequested', diagnostics.useJuceDecodeRequested],
     ['outputDeviceName', diagnostics.outputDeviceName],
     ['currentFilePath', diagnostics.currentFilePath],
     ['currentTrackId', diagnostics.currentTrackId],
@@ -565,7 +650,14 @@ export const AudioSettingsDrawer = ({
       eqOff: t('audioDrawer.signal.eqOff'),
       eqOn: t('audioDrawer.signal.eqOn'),
       exclusive: t('audioDrawer.mode.exclusive'),
+      ffmpegDecode: t('audioDrawer.signal.ffmpegDecode'),
+      juceDecode: t('audioDrawer.signal.juceDecode'),
+      juceDecodeFallback: t('audioDrawer.signal.juceDecodeFallback'),
+      juceDecodeStandby: t('audioDrawer.signal.juceDecodeStandby'),
+      juceDecodeMp3Unsupported: t('audioDrawer.signal.juceDecodeMp3Unsupported'),
       juceOutput: t('audioDrawer.badge.juceOutput'),
+      juceFallback: t('audioDrawer.badge.juceFallback'),
+      asioSdkOutput: t('audioDrawer.signal.asioSdkOutput'),
       nativeRate: t('audioDrawer.signal.nativeRate'),
       noActiveSource: t('audioDrawer.signal.noActiveSource'),
       noTrack: t('audioDrawer.status.noTrack'),
@@ -593,6 +685,7 @@ export const AudioSettingsDrawer = ({
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [useJuceOutput, setUseJuceOutput] = useState(status?.useJuceOutputRequested === true);
+  const [useJuceDecode, setUseJuceDecode] = useState(status?.useJuceDecodeRequested === true);
   const [asioUnavailableFallbackEnabled, setAsioUnavailableFallbackEnabled] = useState(false);
   const [soxrFallbackEnabled, setSoxrFallbackEnabled] = useState(true);
   const [hiddenDeviceKeys, setHiddenDeviceKeys] = useState<string[]>(() => readHiddenDeviceKeys());
@@ -661,12 +754,22 @@ export const AudioSettingsDrawer = ({
       badges.push({ label: copy.soxrResampler, tone: 'ready' });
     }
 
+    if (isActiveJuceDecodeBackend(status)) {
+      badges.push({ label: copy.juceDecode, tone: 'ready' });
+    } else if (isJuceDecodeFallbackVisible(status)) {
+      badges.push({ label: copy.juceDecodeFallback, tone: 'warning' });
+    } else if (isJuceDecodeStandbyVisible(status)) {
+      badges.push({ label: getJuceDecodeStandbyText(status, copy), tone: 'neutral' });
+    }
+
     if (status?.outputBackend === 'directsound-shared' || status?.sharedBackend === 'directsound') {
       badges.push({ label: copy.directSound, tone: 'warning' });
     }
 
     if (isActiveJuceBackend(status)) {
       badges.push({ label: copy.juceOutput, tone: 'ready' });
+    } else if (isJuceFallbackVisible(status)) {
+      badges.push({ label: copy.juceFallback, tone: 'warning' });
     }
 
     if (hasInferredRateMismatch(status, effectiveSharedSampleRate) && !badges.some((badge) => badge.label === copy.resampling)) {
@@ -679,6 +782,7 @@ export const AudioSettingsDrawer = ({
   const engineSignalDetails = useMemo(
     () => [
       { label: t('audioDrawer.meter.source'), value: formatSourceQuality(status, copy) },
+      { label: t('audioDrawer.meter.chain'), value: getPlaybackChainText(status, copy) },
       { label: 'EQ', value: getEqSignalText(status, copy) },
       { label: t('audioDrawer.meter.resample'), value: getResampleSignalText(status, effectiveSharedSampleRate, copy) },
       { label: t('audioDrawer.meter.direct'), value: getDirectSignalText(status, effectiveSharedSampleRate, copy) },
@@ -799,7 +903,8 @@ export const AudioSettingsDrawer = ({
       .then((settings) => {
         setRememberOutput(settings.rememberedAudioOutput?.enabled === true);
         setSharedBackend(settings.rememberedAudioOutput?.sharedBackend ?? remembered.sharedBackend ?? 'auto');
-        setUseJuceOutput(settings.audioUseJuceOutput === true);
+        setUseJuceOutput(settings.audioUseJuceOutput !== false);
+        setUseJuceDecode(settings.audioUseJuceDecode === true);
         setAsioUnavailableFallbackEnabled(settings.audioAsioUnavailableFallbackEnabled === true);
         setSoxrFallbackEnabled(settings.audioSoxrFallbackEnabled !== false);
       })
@@ -816,7 +921,8 @@ export const AudioSettingsDrawer = ({
       setSharedBackend(status.outputBackend === 'directsound-shared' ? 'directsound' : normalizeSharedBackend(status.sharedBackend));
     }
     setUseJuceOutput(status?.useJuceOutputRequested === true);
-  }, [status?.outputBackend, status?.outputMode, status?.sharedBackend, status?.useJuceOutputRequested]);
+    setUseJuceDecode(status?.useJuceDecodeRequested === true);
+  }, [status?.outputBackend, status?.outputMode, status?.sharedBackend, status?.useJuceDecodeRequested, status?.useJuceOutputRequested]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1059,6 +1165,15 @@ export const AudioSettingsDrawer = ({
     void window.echo?.app.setSettings({ audioUseJuceOutput: enabled }).catch(() => undefined);
     void applyOutput({ useJuceOutput: enabled }).catch(() => {
       setUseJuceOutput(previous);
+    });
+  };
+
+  const toggleJuceDecode = (enabled: boolean): void => {
+    const previous = useJuceDecode;
+    setUseJuceDecode(enabled);
+    void window.echo?.app.setSettings({ audioUseJuceDecode: enabled }).catch(() => undefined);
+    void applyOutput({ useJuceDecode: enabled }).catch(() => {
+      setUseJuceDecode(previous);
     });
   };
 
@@ -1388,6 +1503,20 @@ export const AudioSettingsDrawer = ({
                 />
               </label>
               <p>{t('audioDrawer.note.juceOutput')}</p>
+
+              <label className="audio-toggle-row">
+                <span>
+                  <Music2 size={17} />
+                  <strong>{t('audioDrawer.option.juceDecode')}</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={useJuceDecode}
+                  disabled={isBusy}
+                  onChange={(event) => toggleJuceDecode(event.currentTarget.checked)}
+                />
+              </label>
+              <p>{t('audioDrawer.note.juceDecode')}</p>
 
               <label className="audio-toggle-row">
                 <span>

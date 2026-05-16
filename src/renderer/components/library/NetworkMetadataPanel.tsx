@@ -3,6 +3,7 @@ import { RefreshCw, Search, Wand2 } from 'lucide-react';
 import type {
   LibraryTrack,
   MissingMetadataField,
+  MissingMetadataReason,
   MissingMetadataScanItem,
   NetworkCandidateList,
   NetworkMetadataScanJobStatus,
@@ -36,6 +37,24 @@ const missingFilterOptions: Array<{ field: MissingMetadataField; label: string }
   { field: 'genre', label: '流派' },
 ];
 
+const missingReasonLabels: Record<MissingMetadataReason, string> = {
+  missing_cover: '缺封面',
+  missing_title: '缺标题',
+  missing_artist: '缺歌手',
+  missing_album: '缺专辑',
+  missing_album_artist: '缺专辑艺人',
+  missing_track_no: '缺音轨号',
+  missing_disc_no: '缺碟号',
+  missing_year: '缺年份',
+  missing_genre: '缺流派',
+  unknown_artist: '未知歌手',
+  filename_fallback: '文件名猜测',
+  unknown_field: '未知字段',
+};
+
+const missingReasonText = (reasons: MissingMetadataReason[]): string =>
+  reasons.map((reason) => missingReasonLabels[reason] ?? reason).join('、');
+
 const selectedMissingFieldLabel = (fields: MissingMetadataField[]): string => {
   if (!fields.length) {
     return '全部缺失项';
@@ -60,6 +79,14 @@ const resultReasonText = (reason: string | undefined): string => {
       return '这个候选之前已被拒绝。';
     case 'candidate_missing':
       return '候选已不存在，请重新扫描。';
+    case 'embedded_cover_not_ready':
+      return '本地封面还在读取中，暂时不能应用网络封面。';
+    case 'cover_source_embedded_protected':
+      return '已有内嵌封面，网络封面不会覆盖。';
+    case 'cover_source_folder_protected':
+      return '已有文件夹封面，网络封面不会覆盖。';
+    case 'cover_download_failed':
+      return '候选封面下载失败，标签信息仍可单独应用。';
     default:
       return reason ? `未应用：${reason}` : '没有字段被修改。';
   }
@@ -93,18 +120,53 @@ const scanLabel = (status: NetworkMetadataScanJobStatus, t: (key: TranslationKey
   }
 
   if (status.status === 'failed') {
-    return 'Scan failed';
+    return '扫描失败';
   }
 
   const currentTrack = status.currentTrackTitle ? `: ${status.currentTrackTitle}` : '';
   return `${t('settings.library.networkPanel.scanRunning')} ${status.processedTracks}/${status.totalTracks}${currentTrack}`;
 };
 
+const diagnosticsText = (diagnostics: NetworkMetadataScanJobStatus['diagnostics']): string =>
+  `目标 ${diagnostics.targetCount} 首；候选缺失 ${diagnostics.noCandidateCount} 首；来源错误 ${diagnostics.providerErrors} 个；已应用 ${diagnostics.appliedCount} 项`;
+
+const fieldSourceLabels: Record<string, string> = {
+  manual: '手动编辑',
+  embedded: '内嵌标签',
+  sidecar: '旁车文件',
+  folder_structure: '文件夹结构',
+  network: '网络补全',
+  filename_fallback: '文件名猜测',
+  artist_fallback: '歌手兜底',
+  unknown: '未知',
+};
+
+const readinessLabels: Record<string, string> = {
+  pending: '等待读取',
+  reading: '正在读取',
+  present: '已读取',
+  missing: '未找到',
+  skipped: '已跳过',
+  error: '读取失败',
+  none: '无',
+  unknown: '未知',
+};
+
+const sourceText = (source: string | null | undefined): string => {
+  const key = source || 'unknown';
+  return fieldSourceLabels[key] ?? key;
+};
+
+const readinessText = (status: string | null | undefined): string => {
+  const key = status || 'pending';
+  return readinessLabels[key] ?? key;
+};
+
 type NetworkMetadataPanelProps = {
   networkMetadataEnabled?: boolean;
 };
 
-const networkDisabledMessage = 'Enable Network Metadata Completion above before scanning or repairing missing metadata.';
+const networkDisabledMessage = '请先打开上方“网络元数据补全”，再扫描或修复缺失信息。';
 
 export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkMetadataPanelProps): JSX.Element => {
   const { t } = useI18n();
@@ -115,7 +177,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [bulkApplying, setBulkApplying] = useState(false);
-  const [selectedMissingFields, setSelectedMissingFields] = useState<MissingMetadataField[]>(['cover']);
+  const [selectedMissingFields, setSelectedMissingFields] = useState<MissingMetadataField[]>([]);
   const [scanProgress, setScanProgress] = useState<{ label: string; percent: number } | null>(null);
   const [candidateFeedback, setCandidateFeedback] = useState<Record<string, { tone: 'success' | 'info' | 'warning'; text: string }>>({});
   const networkActionDisabled = busy || !networkMetadataEnabled;
@@ -140,7 +202,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
     const library = getLibraryBridge();
 
     if (!library) {
-      setMessage('Desktop bridge unavailable. Open ECHO Next in Electron to repair metadata.');
+      setMessage('桌面桥接不可用，请在 ECHO Next 桌面端中使用此功能。');
       return null;
     }
 
@@ -167,7 +229,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
       const library = getLibraryBridge();
 
       if (!library) {
-        setMessage('Desktop bridge unavailable. Open ECHO Next in Electron to repair metadata.');
+        setMessage('桌面桥接不可用，请在 ECHO Next 桌面端中使用此功能。');
         return null;
       }
 
@@ -199,7 +261,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
     const audio = getAudioBridge();
 
     if (!playback && !audio) {
-      setMessage('Desktop bridge unavailable. Open ECHO Next in Electron to repair metadata.');
+      setMessage('桌面桥接不可用，请在 ECHO Next 桌面端中使用此功能。');
       return null;
     }
 
@@ -235,7 +297,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
       const library = getLibraryBridge();
 
       if (!library) {
-        setMessage('Desktop bridge unavailable. Open ECHO Next in Electron to repair metadata.');
+        setMessage('桌面桥接不可用，请在 ECHO Next 桌面端中使用此功能。');
         return;
       }
 
@@ -245,7 +307,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
       setMessage(
         nextCandidates.metadata.length + nextCandidates.covers.length
           ? null
-          : 'No candidates yet. Run repair or scan missing metadata first.',
+          : '还没有候选。请先扫描缺失信息，或补全当前歌曲。',
       );
     } catch (refreshError) {
       setMessage(refreshError instanceof Error ? refreshError.message : String(refreshError));
@@ -270,7 +332,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
       const library = getLibraryBridge();
 
       if (!library) {
-        setMessage('Desktop bridge unavailable. Open ECHO Next in Electron to repair metadata.');
+        setMessage('桌面桥接不可用，请在 ECHO Next 桌面端中使用此功能。');
         return;
       }
 
@@ -278,14 +340,15 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
       const candidateCount = result.metadata.length + result.covers.length;
       setCandidates({ metadata: result.metadata, covers: result.covers });
       setCandidateFeedback({});
+      const appliedSummary = `${t('settings.library.networkPanel.appliedCount')} ${result.applied.length}；${diagnosticsText(result.diagnostics)}`;
       setMessage(
         result.errors.length
           ? result.errors.join(', ')
           : result.applied.length
-            ? `${t('settings.library.networkPanel.appliedCount')} ${result.applied.length}`
+            ? appliedSummary
             : candidateCount
-              ? 'Candidates found, but confidence was below auto-apply. Review and apply selected fields.'
-              : 'No candidates found from the enabled providers.',
+              ? '已找到候选，但可信度不足以自动写入。请检查后点“应用所选候选”。'
+              : `已启用的来源没有找到候选。${diagnosticsText(result.diagnostics)}`,
       );
     } catch (repairError) {
       setMessage(repairError instanceof Error ? repairError.message : String(repairError));
@@ -303,8 +366,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
     const scanScope = selectedMissingFieldLabel(scanFields);
     setBusy(true);
     setScanProgress({ label: t('settings.library.networkPanel.scanPreparing'), percent: 5 });
-    setMessage(`正在扫描${scanScope}，只会处理当前筛选范围内的歌曲。`);
-    setMessage('正在后台筛选缺失文字元数据的曲目，然后扫描网络来源。切去听歌也会继续跑。');
+    setMessage(`正在后台扫描${scanScope}，只处理当前筛选范围内的歌曲。切去听歌也会继续跑。`);
     setTrack(null);
     setCandidates({ metadata: [], covers: [] });
     setScanItems([]);
@@ -314,7 +376,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
       const library = getLibraryBridge();
 
       if (!library) {
-        setMessage('Desktop bridge unavailable. Open ECHO Next in Electron to repair metadata.');
+        setMessage('桌面桥接不可用，请在 ECHO Next 桌面端中使用此功能。');
         setScanProgress(null);
         return;
       }
@@ -330,7 +392,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
         setScanProgress({ label: scanLabel(status, t), percent: scanPercent(status) });
         setMessage(
           status.totalTracks > 0
-            ? `${t('settings.library.networkPanel.scanDone')} ${status.processedTracks}/${status.totalTracks}; ${t('settings.library.networkPanel.candidates')} ${status.candidateCount}`
+            ? `${t('settings.library.networkPanel.scanDone')} ${status.processedTracks}/${status.totalTracks}；${t('settings.library.networkPanel.candidates')} ${status.candidateCount}；${diagnosticsText(status.diagnostics)}`
             : '没有需要网络扫描的缺失文字元数据曲目。',
         );
       }
@@ -339,10 +401,10 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
       setScanProgress({ label: scanLabel(status, t), percent: scanPercent(status) });
       setMessage(
         status.errors.length
-          ? `${t('settings.library.networkPanel.scanDone')} ${status.scannedCount}; ${t('settings.library.networkPanel.candidates')} ${status.candidateCount}; ${t('settings.library.networkPanel.providerErrors')} ${status.errors.length}`
+          ? `${t('settings.library.networkPanel.scanDone')} ${status.scannedCount}；${t('settings.library.networkPanel.candidates')} ${status.candidateCount}；${t('settings.library.networkPanel.providerErrors')} ${status.errors.length}；${diagnosticsText(status.diagnostics)}`
           : status.candidateCount
-            ? `${t('settings.library.networkPanel.scanDone')} ${status.scannedCount}; ${t('settings.library.networkPanel.candidates')} ${status.candidateCount}`
-            : `${t('settings.library.networkPanel.scanDone')} ${status.scannedCount}; no candidates found from the enabled providers`,
+            ? `${t('settings.library.networkPanel.scanDone')} ${status.scannedCount}；${t('settings.library.networkPanel.candidates')} ${status.candidateCount}；${diagnosticsText(status.diagnostics)}`
+            : `${t('settings.library.networkPanel.scanDone')} ${status.scannedCount}；已启用的来源没有找到候选。${diagnosticsText(status.diagnostics)}`,
       );
     } catch (scanError) {
       setMessage(scanError instanceof Error ? scanError.message : String(scanError));
@@ -358,7 +420,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
         const library = getLibraryBridge();
 
         if (!library) {
-          setMessage('Desktop bridge unavailable. Open ECHO Next in Electron to repair metadata.');
+          setMessage('桌面桥接不可用，请在 ECHO Next 桌面端中使用此功能。');
           return;
         }
 
@@ -383,11 +445,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
                 }
               : { tone: 'warning' as const, text: resultReasonText(result.reason) };
         setCandidateFeedback((current) => ({ ...current, [candidateId]: feedback }));
-        setMessage(
-          appliedKeys.length
-            ? feedback.text
-            : `${result.status}: ${feedback.text}`,
-        );
+        setMessage(feedback.text);
         if (appliedKeys.length) {
           window.dispatchEvent(new Event('library:changed'));
         }
@@ -431,7 +489,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
         const library = getLibraryBridge();
 
         if (!library) {
-          setMessage('Desktop bridge unavailable. Open ECHO Next in Electron to repair metadata.');
+          setMessage('桌面桥接不可用，请在 ECHO Next 桌面端中使用此功能。');
           return;
         }
 
@@ -444,7 +502,11 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
               : scanItem,
           ),
         );
-        setMessage(result.errors.length ? result.errors.join(', ') : `${t('settings.library.networkPanel.appliedCount')} ${result.applied.length}`);
+        setMessage(
+          result.errors.length
+            ? result.errors.join(', ')
+            : `${t('settings.library.networkPanel.appliedCount')} ${result.applied.length}；${diagnosticsText(result.diagnostics)}`,
+        );
       } catch (repairError) {
         setMessage(repairError instanceof Error ? repairError.message : String(repairError));
       } finally {
@@ -458,7 +520,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
     const library = getLibraryBridge();
 
     if (!library) {
-      setMessage('Desktop bridge unavailable. Open ECHO Next in Electron to repair metadata.');
+      setMessage('桌面桥接不可用，请在 ECHO Next 桌面端中使用此功能。');
       return;
     }
 
@@ -504,7 +566,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
       }
 
       setCandidateFeedback(feedback);
-      setMessage(`批量补全完成：已应用 ${appliedCount} 首，跳过 ${skippedCount} 首。`);
+      setMessage(`批量补全完成：已应用 ${appliedCount} 个候选，跳过 ${skippedCount} 个候选。`);
       if (appliedCount > 0) {
         window.dispatchEvent(new Event('library:changed'));
       }
@@ -552,7 +614,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
         <input
           value={trackId}
           onChange={(event) => setTrackId(event.target.value)}
-          placeholder={`${t('settings.library.networkPanel.trackId')} / title / artist`}
+          placeholder={`${t('settings.library.networkPanel.trackId')} / 标题 / 歌手`}
         />
       </label>
 
@@ -593,7 +655,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
           onClick={() => void applyAllScanCandidates()}
         >
           <Wand2 size={15} />
-          {bulkApplying ? '补全中...' : '一键全部补全'}
+          {bulkApplying ? '补全中...' : '应用全部候选'}
         </button>
         <button className="settings-action-button" type="button" disabled={networkActionDisabled} onClick={() => void repair()}>
           {t('settings.library.networkPanel.repairMissing')}
@@ -638,11 +700,11 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
           </span>
           <span>
             <em>{t('settings.library.networkPanel.embeddedMetadata')}</em>
-            <strong>{track.embeddedMetadataStatus}</strong>
+            <strong>{readinessText(track.embeddedMetadataStatus)}</strong>
           </span>
           <span>
             <em>{t('settings.library.networkPanel.embeddedCover')}</em>
-            <strong>{track.embeddedCoverStatus}</strong>
+            <strong>{readinessText(track.embeddedCoverStatus)}</strong>
           </span>
         </div>
       ) : null}
@@ -671,7 +733,7 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
                   <span>{item.track.artist || t('settings.library.networkPanel.unknownArtist')}</span>
                 </div>
                 <div className="network-missing-actions">
-                  <em>{item.reasons.join(', ')}</em>
+                  <em>{missingReasonText(item.reasons)}</em>
                   <button className="settings-action-button" type="button" disabled={networkActionDisabled} onClick={() => void repairScanItem(item)}>
                     {t('settings.library.networkPanel.repairThisTrack')}
                   </button>
@@ -684,11 +746,11 @@ export const NetworkMetadataPanel = ({ networkMetadataEnabled = true }: NetworkM
                 </span>
                 <span>
                   <em>{t('settings.library.networkPanel.artistSource')}</em>
-                  <strong>{item.track.fieldSources.artist ?? 'unknown'}</strong>
+                  <strong>{sourceText(item.track.fieldSources.artist)}</strong>
                 </span>
                 <span>
                   <em>{t('settings.library.networkPanel.embeddedMetadata')}</em>
-                  <strong>{item.track.embeddedMetadataStatus ?? 'pending'}</strong>
+                  <strong>{readinessText(item.track.embeddedMetadataStatus)}</strong>
                 </span>
                 <span>
                   <em>{t('settings.library.networkPanel.candidates')}</em>

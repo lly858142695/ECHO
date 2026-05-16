@@ -53,6 +53,8 @@ const audioStatus: AudioStatus = {
   activeOutputBackendImpl: null,
   outputMode: 'exclusive',
   useJuceOutputRequested: false,
+  useJuceDecodeRequested: false,
+  activeDecodeBackendImpl: null,
   volume: 1,
   playbackRate: 1,
   playbackSpeedMode: 'nightcore',

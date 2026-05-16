@@ -10,9 +10,12 @@ import {
   Globe2,
   Headphones,
   Info,
+  Keyboard,
   Link2,
   MessageSquare,
   Palette,
+  Pause,
+  Play,
   RotateCw,
   Search,
   Save,
@@ -21,25 +24,34 @@ import {
   Trash2,
   X,
   Zap,
+  ChevronDown,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AudioDeviceInfo, AudioOutputMode, AudioOutputSettings, AudioSharedBackend, AudioStatus, PlaybackSpeedMode } from '../../shared/types/audio';
 import type { AccountProvider, AccountStatus, YouTubeBrowser } from '../../shared/types/accounts';
 import type { AppSettings, AppThemeMode } from '../../shared/types/appSettings';
+import {
+  createDefaultGlobalShortcuts,
+  createRecommendedGlobalShortcuts,
+  globalShortcutActions,
+  validateGlobalShortcutAccelerator,
+  type GlobalShortcutAction,
+  type GlobalShortcutSettings,
+} from '../../shared/types/globalShortcuts';
 import type { CoverCacheMigrationResult } from '../../shared/types/coverCache';
 import type { LastCrashSummary } from '../../shared/types/diagnostics';
 import type { DiscordPresenceStatus } from '../../shared/types/discordPresence';
 import type { DownloadSettings } from '../../shared/types/downloads';
 import type { LastFmStatus } from '../../shared/types/lastfm';
-import type { ArtistImageCacheSummary, BpmAnalysisJobStatus, DuplicateTrackIndexSummary } from '../../shared/types/library';
+import type { ArtistImageCacheSummary, ArtistImageJobStatus, BpmAnalysisJobStatus, DuplicateTrackIndexSummary } from '../../shared/types/library';
 import type { UpdateStatus } from '../../shared/types/updates';
 import { EqPanel } from '../components/audio/EqPanel';
-import { LibraryDiagnosticsPanel } from '../components/library/LibraryDiagnosticsPanel';
 import { LibraryFoldersPanel } from '../components/library/LibraryFoldersPanel';
 import { NetworkMetadataPanel } from '../components/library/NetworkMetadataPanel';
 import { LyricsSettingsPanel } from '../components/lyrics/LyricsSettingsDrawer';
 import { PlaybackStabilityDiagnosticsPanel } from '../components/player/PlaybackStabilityDiagnosticsPanel';
 import { RemoteSourcesPanel } from '../components/settings/RemoteSourcesPanel';
+import { StyledSelect } from '../components/ui/StyledSelect';
 import { useI18n } from '../i18n/I18nProvider';
 import type { TranslationKey } from '../i18n/locales';
 import {
@@ -70,6 +82,99 @@ const playbackSpeedModes: Array<{ mode: PlaybackSpeedMode; label: string }> = [
   { mode: 'speed', label: '普通变速' },
 ];
 
+const globalShortcutActionMeta: Array<{
+  action: GlobalShortcutAction;
+  titleKey: TranslationKey;
+  descriptionKey: TranslationKey;
+}> = [
+  { action: 'playPause', titleKey: 'settings.shortcuts.action.playPause.title', descriptionKey: 'settings.shortcuts.action.playPause.description' },
+  { action: 'previousTrack', titleKey: 'settings.shortcuts.action.previousTrack.title', descriptionKey: 'settings.shortcuts.action.previousTrack.description' },
+  { action: 'nextTrack', titleKey: 'settings.shortcuts.action.nextTrack.title', descriptionKey: 'settings.shortcuts.action.nextTrack.description' },
+  { action: 'stop', titleKey: 'settings.shortcuts.action.stop.title', descriptionKey: 'settings.shortcuts.action.stop.description' },
+  { action: 'volumeUp', titleKey: 'settings.shortcuts.action.volumeUp.title', descriptionKey: 'settings.shortcuts.action.volumeUp.description' },
+  { action: 'volumeDown', titleKey: 'settings.shortcuts.action.volumeDown.title', descriptionKey: 'settings.shortcuts.action.volumeDown.description' },
+  { action: 'seekBackward', titleKey: 'settings.shortcuts.action.seekBackward.title', descriptionKey: 'settings.shortcuts.action.seekBackward.description' },
+  { action: 'seekForward', titleKey: 'settings.shortcuts.action.seekForward.title', descriptionKey: 'settings.shortcuts.action.seekForward.description' },
+  { action: 'showMainWindow', titleKey: 'settings.shortcuts.action.showMainWindow.title', descriptionKey: 'settings.shortcuts.action.showMainWindow.description' },
+];
+
+const shortcutKeyAliases = new Map<string, string>([
+  [' ', 'Space'],
+  ['Spacebar', 'Space'],
+  ['ArrowLeft', 'Left'],
+  ['ArrowRight', 'Right'],
+  ['ArrowUp', 'Up'],
+  ['ArrowDown', 'Down'],
+  ['Escape', 'Esc'],
+]);
+
+const normalizeShortcutEventKey = (event: KeyboardEvent): string | null => {
+  const code = event.code;
+  if (/^Key[A-Z]$/u.test(code)) {
+    return code.slice(3);
+  }
+
+  if (/^Digit[0-9]$/u.test(code)) {
+    return code.slice(5);
+  }
+
+  const aliased = shortcutKeyAliases.get(event.key);
+  if (aliased) {
+    return aliased;
+  }
+
+  if (event.key === 'Control' || event.key === 'Alt' || event.key === 'Shift' || event.key === 'Meta') {
+    return null;
+  }
+
+  return event.key.length === 1 ? event.key.toUpperCase() : event.key;
+};
+
+const acceleratorFromKeyboardEvent = (event: KeyboardEvent): string | null => {
+  const key = normalizeShortcutEventKey(event);
+  if (!key) {
+    return null;
+  }
+
+  const modifiers = [
+    event.ctrlKey ? 'Ctrl' : null,
+    event.altKey ? 'Alt' : null,
+    event.shiftKey ? 'Shift' : null,
+    event.metaKey ? 'Command' : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return [...modifiers, key].join('+');
+};
+
+const acceleratorFromMouseEvent = (event: MouseEvent): string | null => {
+  switch (event.button) {
+    case 1:
+      return 'MouseButton3';
+    case 3:
+      return 'MouseButton4';
+    case 4:
+      return 'MouseButton5';
+    default:
+      return null;
+  }
+};
+
+const formatAcceleratorForDisplay = (accelerator: string | null | undefined, emptyLabel: string): string =>
+  accelerator ? accelerator.split('+').join(' + ') : emptyLabel;
+
+const findDuplicateGlobalShortcutAction = (
+  shortcuts: GlobalShortcutSettings,
+  action: GlobalShortcutAction,
+  accelerator: string,
+): GlobalShortcutAction | null => {
+  const normalized = accelerator.toLowerCase();
+  return (
+    globalShortcutActions.find(
+      (candidate) => candidate !== action && shortcuts[candidate]?.accelerator?.toLowerCase() === normalized,
+    ) ?? null
+  );
+};
+
 const normalizeSharedBackend = (value: unknown): AudioSharedBackend =>
   value === 'windows' || value === 'directsound' ? value : 'auto';
 
@@ -80,8 +185,10 @@ const networkProviderLabels: Record<AppSettings['networkMetadataProviders'][numb
   'cover-art-archive': 'Cover Art Archive',
   mock: 'Mock',
 };
+const visibleNetworkMetadataProviders: AppSettings['networkMetadataProviders'] = ['netease-cloud-music', 'qq-music', 'musicbrainz'];
+const defaultNetworkMetadataProviders: AppSettings['networkMetadataProviders'] = ['netease-cloud-music', 'qq-music'];
 
-type SettingsNavKey = 'general' | 'playback' | 'lyrics' | 'integrations' | 'remote' | 'eq' | 'appearance' | 'library' | 'about' | 'danger';
+type SettingsNavKey = 'general' | 'playback' | 'shortcuts' | 'lyrics' | 'integrations' | 'remote' | 'eq' | 'appearance' | 'library' | 'about' | 'danger';
 
 type SettingsNavItem = {
   key: SettingsNavKey;
@@ -132,10 +239,7 @@ const accountProviderLabels: Record<AccountProvider, string> = {
   spotify: 'Spotify',
 };
 
-type ArtistImageProgress = {
-  queued: number;
-  skipped: number;
-  summary: ArtistImageCacheSummary | null;
+type ArtistImageProgress = ArtistImageJobStatus & {
   startedAt: number;
 };
 
@@ -148,9 +252,6 @@ const emptyArtistImageSummary: ArtistImageCacheSummary = {
   error: 0,
   rateLimited: 0,
 };
-
-const artistImageActiveCount = (summary: ArtistImageCacheSummary | null | undefined): number =>
-  (summary?.pending ?? 0) + (summary?.loading ?? 0);
 
 const accountLoginUrls: Record<AccountProvider, string> = {
   netease: 'https://music.163.com/',
@@ -227,6 +328,7 @@ const scheduleSettingsIdleTask = (callback: () => void): (() => void) => {
 const settingsNavItems: SettingsNavItem[] = [
   { key: 'general', labelKey: 'settings.nav.general.label', descriptionKey: 'settings.nav.general.description', icon: MessageSquare },
   { key: 'playback', labelKey: 'settings.nav.playback.label', descriptionKey: 'settings.nav.playback.description', icon: Zap },
+  { key: 'shortcuts', labelKey: 'settings.nav.shortcuts.label', descriptionKey: 'settings.nav.shortcuts.description', icon: Keyboard },
   { key: 'lyrics', labelKey: 'route.lyricsSettings.label', descriptionKey: 'route.lyricsSettings.description', icon: Captions },
   { key: 'integrations', labelKey: 'settings.nav.integrations.label', descriptionKey: 'settings.nav.integrations.description', icon: Link2 },
   { key: 'remote', labelKey: 'settings.nav.remote.label', descriptionKey: 'settings.nav.remote.description', icon: Globe2 },
@@ -254,6 +356,8 @@ const statusRows = (
   { label: 'outputBackend', value: status?.outputBackend ?? 'n/a' },
   { label: 'activeOutputBackendImpl', value: status?.activeOutputBackendImpl ?? 'n/a' },
   { label: 'useJuceOutputRequested', value: formatBool(status?.useJuceOutputRequested ?? false) },
+  { label: 'activeDecodeBackendImpl', value: status?.activeDecodeBackendImpl ?? 'n/a' },
+  { label: 'useJuceDecodeRequested', value: formatBool(status?.useJuceDecodeRequested ?? false) },
   { label: 'fileSampleRate', value: formatRate(status?.fileSampleRate ?? null) },
   { label: 'decoderOutputSampleRate', value: formatRate(status?.decoderOutputSampleRate ?? null) },
   { label: 'requestedOutputSampleRate', value: formatRate(status?.requestedOutputSampleRate ?? null) },
@@ -713,6 +817,8 @@ export const SettingsPage = (): JSX.Element => {
   const [audioResetBusy, setAudioResetBusy] = useState(false);
   const [windowsAudioRestartBusy, setWindowsAudioRestartBusy] = useState(false);
   const [audioResetMessage, setAudioResetMessage] = useState<string | null>(null);
+  const [recordingShortcutAction, setRecordingShortcutAction] = useState<GlobalShortcutAction | null>(null);
+  const [shortcutMessages, setShortcutMessages] = useState<Partial<Record<GlobalShortcutAction, string | null>>>({});
   const [fontFamilies, setFontFamilies] = useState<string[]>(fallbackFontFamilies);
   const [fontPickerTarget, setFontPickerTarget] = useState<FontPickerTarget | null>(null);
   const [fontPickerQuery, setFontPickerQuery] = useState('');
@@ -733,6 +839,20 @@ export const SettingsPage = (): JSX.Element => {
   const compatibleDevices = useMemo(
     () => devices.filter((device) => (outputMode === 'asio' ? device.outputMode === 'asio' : device.outputMode === 'shared')),
     [devices, outputMode],
+  );
+  const outputDeviceOptions = useMemo(
+    () =>
+      compatibleDevices.length === 0
+        ? [{ value: '', label: t('settings.playback.outputDevice.empty'), disabled: true }]
+        : compatibleDevices.map((device) => ({
+            value: device.id,
+            label: `${device.index} - ${device.name}`,
+          })),
+    [compatibleDevices, t],
+  );
+  const globalShortcuts = useMemo(
+    () => appSettings?.globalShortcuts ?? createDefaultGlobalShortcuts(),
+    [appSettings?.globalShortcuts],
   );
 
   const accountStatusByProvider = useMemo(
@@ -921,12 +1041,12 @@ export const SettingsPage = (): JSX.Element => {
   }, [activeSection]);
 
   useEffect(() => {
-    if (!artistImageProgress) {
+    if (activeSection !== 'appearance') {
       return undefined;
     }
 
     const library = getLibraryBridge();
-    if (!library?.getArtistImageCacheSummary) {
+    if (!library?.getArtistImageJobStatus) {
       return undefined;
     }
 
@@ -935,17 +1055,15 @@ export const SettingsPage = (): JSX.Element => {
 
     const refreshSummary = async (): Promise<void> => {
       try {
-        const summary = await library.getArtistImageCacheSummary();
+        const status = await library.getArtistImageJobStatus();
         if (disposed) {
           return;
         }
 
-        setArtistImageProgress((current) => (current ? { ...current, summary } : current));
-
-        if (artistImageActiveCount(summary) === 0 && timer !== null) {
-          window.clearInterval(timer);
-          timer = null;
-        }
+        setArtistImageProgress((current) => ({
+          ...status,
+          startedAt: current?.startedAt ?? Date.now(),
+        }));
       } catch {
         if (!disposed && timer !== null) {
           window.clearInterval(timer);
@@ -965,7 +1083,7 @@ export const SettingsPage = (): JSX.Element => {
         window.clearInterval(timer);
       }
     };
-  }, [artistImageProgress?.startedAt]);
+  }, [activeSection]);
 
   useEffect(() => {
     const handleSettingsChanged = (event: Event): void => {
@@ -1068,7 +1186,8 @@ export const SettingsPage = (): JSX.Element => {
         outputMode: nextOutputMode,
         sharedBackend: normalizedSharedBackend,
         latencyProfile: 'lowLatency',
-        useJuceOutput: appSettings?.audioUseJuceOutput === true,
+        useJuceOutput: appSettings?.audioUseJuceOutput !== false,
+        useJuceDecode: appSettings?.audioUseJuceDecode === true,
         asioUnavailableFallbackEnabled: appSettings?.audioAsioUnavailableFallbackEnabled === true,
         soxrFallbackEnabled: appSettings?.audioSoxrFallbackEnabled !== false,
       };
@@ -1092,6 +1211,7 @@ export const SettingsPage = (): JSX.Element => {
     [
       appSettings?.audioAsioUnavailableFallbackEnabled,
       appSettings?.audioSoxrFallbackEnabled,
+      appSettings?.audioUseJuceDecode,
       appSettings?.audioUseJuceOutput,
       devices,
       outputMode,
@@ -1125,7 +1245,7 @@ export const SettingsPage = (): JSX.Element => {
   };
 
   const handleJuceOutputToggle = async (): Promise<void> => {
-    const nextUseJuceOutput = !(appSettings?.audioUseJuceOutput ?? false);
+    const nextUseJuceOutput = !(appSettings?.audioUseJuceOutput ?? true);
     patchAppSettings({ audioUseJuceOutput: nextUseJuceOutput });
 
     const audio = getAudioBridge();
@@ -1136,6 +1256,23 @@ export const SettingsPage = (): JSX.Element => {
 
     try {
       setStatus(await audio.setOutput({ useJuceOutput: nextUseJuceOutput }));
+    } catch (audioError) {
+      setError(audioError instanceof Error ? audioError.message : String(audioError));
+    }
+  };
+
+  const handleJuceDecodeToggle = async (): Promise<void> => {
+    const nextUseJuceDecode = !(appSettings?.audioUseJuceDecode ?? false);
+    patchAppSettings({ audioUseJuceDecode: nextUseJuceDecode });
+
+    const audio = getAudioBridge();
+    if (!audio) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to change audio output.');
+      return;
+    }
+
+    try {
+      setStatus(await audio.setOutput({ useJuceDecode: nextUseJuceDecode }));
     } catch (audioError) {
       setError(audioError instanceof Error ? audioError.message : String(audioError));
     }
@@ -1237,11 +1374,11 @@ export const SettingsPage = (): JSX.Element => {
     patchAppSettings({ appearanceTheme });
   };
 
-  const dispatchSettingsChanged = (patch: Partial<AppSettings>): void => {
+  const dispatchSettingsChanged = useCallback((patch: Partial<AppSettings>): void => {
     window.dispatchEvent(new CustomEvent('settings:changed', { detail: patch }));
-  };
+  }, []);
 
-  const patchAppSettings = (patch: Partial<AppSettings>, options: { announce?: boolean } = {}): void => {
+  const patchAppSettings = useCallback((patch: Partial<AppSettings>, options: { announce?: boolean } = {}): void => {
     const app = getAppBridge();
 
     if (!app) {
@@ -1260,7 +1397,7 @@ export const SettingsPage = (): JSX.Element => {
       .catch((settingsError) => {
         setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
       });
-  };
+  }, [dispatchSettingsChanged]);
 
   const handleCheckForUpdates = async (): Promise<void> => {
     const app = getAppBridge();
@@ -1717,17 +1854,29 @@ export const SettingsPage = (): JSX.Element => {
       ? `${formatUpdateBytes(updateStatus.transferredBytes)} / ${formatUpdateBytes(updateStatus.totalBytes)}`
       : formatUpdateBytes(updateStatus?.totalBytes);
   const updateDownloadSpeedLabel = updateStatus?.bytesPerSecond ? `${formatUpdateBytes(updateStatus.bytesPerSecond)}/s` : 'n/a';
+  const artistImageHasSummary = Boolean(artistImageProgress);
   const artistImageSummary = artistImageProgress?.summary ?? emptyArtistImageSummary;
-  const artistImageActive = artistImageActiveCount(artistImageSummary);
-  const artistImageQueuedTotal = artistImageProgress?.queued ?? 0;
+  const artistImageQueuedTotal = artistImageProgress?.lastQueued.queued ?? 0;
+  const artistImageRuntimeActive = (artistImageProgress?.queued ?? 0) + (artistImageProgress?.active ?? 0);
+  const artistImageActive = artistImageHasSummary ? artistImageRuntimeActive : artistImageQueuedTotal;
   const artistImageProgressTotal = artistImageQueuedTotal > 0 ? artistImageQueuedTotal : Math.max(artistImageSummary.total, 1);
   const artistImageProgressDone =
-    artistImageQueuedTotal > 0
+    !artistImageHasSummary
+      ? 0
+      : artistImageQueuedTotal > 0
       ? Math.max(0, Math.min(artistImageQueuedTotal, artistImageQueuedTotal - Math.min(artistImageQueuedTotal, artistImageActive)))
       : Math.max(0, artistImageSummary.total - artistImageActive);
   const artistImageProgressPercent =
     artistImageProgressTotal > 0 ? Math.max(0, Math.min(100, Math.round((artistImageProgressDone / artistImageProgressTotal) * 100))) : 0;
   const artistImageFailed = artistImageSummary.error + artistImageSummary.rateLimited;
+  const artistImagePaused = artistImageProgress?.paused ?? appSettings?.artistImageFetchPaused ?? false;
+  const artistImageStatusLabel = !appSettings?.autoFetchArtistImages
+    ? '未启用'
+    : artistImagePaused
+      ? '已暂停'
+      : artistImageProgress?.running
+        ? '运行中'
+        : '空闲';
 
   const handleDownloadDirectoryChoose = async (): Promise<void> => {
     try {
@@ -1843,6 +1992,144 @@ export const SettingsPage = (): JSX.Element => {
       });
   };
 
+  const setShortcutMessage = useCallback((action: GlobalShortcutAction, message: string | null): void => {
+    setShortcutMessages((current) => ({ ...current, [action]: message }));
+  }, []);
+
+  const patchGlobalShortcuts = useCallback((nextShortcuts: GlobalShortcutSettings): void => {
+    patchAppSettings({ globalShortcuts: nextShortcuts });
+  }, [patchAppSettings]);
+
+  const patchGlobalShortcut = useCallback((action: GlobalShortcutAction, patch: Partial<GlobalShortcutSettings[GlobalShortcutAction]>): void => {
+    patchGlobalShortcuts({
+      ...globalShortcuts,
+      [action]: {
+        ...globalShortcuts[action],
+        ...patch,
+      },
+    });
+  }, [globalShortcuts, patchGlobalShortcuts]);
+
+  const validateShortcutBeforeEnable = async (action: GlobalShortcutAction, accelerator: string | null): Promise<string | null> => {
+    if (!accelerator) {
+      return t('settings.shortcuts.message.empty');
+    }
+
+    const validation = validateGlobalShortcutAccelerator(accelerator);
+    if (!validation.valid || !validation.accelerator) {
+      return t(validation.reason === 'unsafe' ? 'settings.shortcuts.message.unsafe' : 'settings.shortcuts.message.invalid');
+    }
+
+    const duplicateAction = findDuplicateGlobalShortcutAction(globalShortcuts, action, validation.accelerator);
+    if (duplicateAction) {
+      return t('settings.shortcuts.message.duplicate');
+    }
+
+    const bridgeValidation = await getAppBridge()?.validateGlobalShortcut?.(validation.accelerator);
+    if (bridgeValidation && (!bridgeValidation.valid || !bridgeValidation.available)) {
+      return t(bridgeValidation.reason === 'unavailable' ? 'settings.shortcuts.message.unavailable' : 'settings.shortcuts.message.invalid');
+    }
+
+    return null;
+  };
+
+  const handleShortcutToggle = async (action: GlobalShortcutAction): Promise<void> => {
+    const binding = globalShortcuts[action];
+    if (binding.enabled) {
+      setShortcutMessage(action, null);
+      patchGlobalShortcut(action, { enabled: false });
+      return;
+    }
+
+    const message = await validateShortcutBeforeEnable(action, binding.accelerator);
+    if (message) {
+      setShortcutMessage(action, message);
+      patchGlobalShortcut(action, { enabled: false });
+      return;
+    }
+
+    setShortcutMessage(action, null);
+    patchGlobalShortcut(action, { enabled: true });
+  };
+
+  const handleShortcutClear = (action: GlobalShortcutAction): void => {
+    setShortcutMessage(action, null);
+    patchGlobalShortcut(action, { enabled: false, accelerator: null });
+  };
+
+  const handleShortcutRecommendedReset = (): void => {
+    setRecordingShortcutAction(null);
+    setShortcutMessages({});
+    patchGlobalShortcuts(createRecommendedGlobalShortcuts());
+  };
+
+  const commitRecordedShortcut = useCallback(
+    (action: GlobalShortcutAction, rawAccelerator: string | null): void => {
+      const validation = validateGlobalShortcutAccelerator(rawAccelerator);
+      if (!validation.valid || !validation.accelerator) {
+        setShortcutMessage(action, t(validation.reason === 'unsafe' ? 'settings.shortcuts.message.unsafe' : 'settings.shortcuts.message.invalid'));
+        return;
+      }
+
+      const duplicateAction = findDuplicateGlobalShortcutAction(globalShortcuts, action, validation.accelerator);
+      if (duplicateAction) {
+        setShortcutMessage(action, t('settings.shortcuts.message.duplicate'));
+        return;
+      }
+
+      setShortcutMessage(action, null);
+      patchGlobalShortcut(action, {
+        accelerator: validation.accelerator,
+        enabled: false,
+      });
+      setRecordingShortcutAction(null);
+    },
+    [globalShortcuts, patchGlobalShortcut, setShortcutMessage, t],
+  );
+
+  useEffect(() => {
+    if (!recordingShortcutAction) {
+      return undefined;
+    }
+
+    const handleShortcutKeyDown = (event: KeyboardEvent): void => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === 'Escape') {
+        setRecordingShortcutAction(null);
+        return;
+      }
+
+      commitRecordedShortcut(recordingShortcutAction, acceleratorFromKeyboardEvent(event));
+    };
+
+    const handleShortcutMouseDown = (event: MouseEvent): void => {
+      const rawAccelerator = acceleratorFromMouseEvent(event);
+      if (!rawAccelerator) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      commitRecordedShortcut(recordingShortcutAction, rawAccelerator);
+    };
+
+    const handleShortcutContextMenu = (event: MouseEvent): void => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    window.addEventListener('keydown', handleShortcutKeyDown, true);
+    window.addEventListener('mousedown', handleShortcutMouseDown, true);
+    window.addEventListener('contextmenu', handleShortcutContextMenu, true);
+    return () => {
+      window.removeEventListener('keydown', handleShortcutKeyDown, true);
+      window.removeEventListener('mousedown', handleShortcutMouseDown, true);
+      window.removeEventListener('contextmenu', handleShortcutContextMenu, true);
+    };
+  }, [commitRecordedShortcut, recordingShortcutAction]);
+
   const handleAutoFetchArtistImagesToggle = (): void => {
     patchAppSettings({ autoFetchArtistImages: !(appSettings?.autoFetchArtistImages ?? false) });
   };
@@ -1850,7 +2137,7 @@ export const SettingsPage = (): JSX.Element => {
   const handleRefreshMissingArtistImages = async (): Promise<void> => {
     const library = getLibraryBridge();
 
-    if (!library?.enqueueMissingArtistImages) {
+    if (!library?.kickoffArtistImageBackfill) {
       setError(t('settings.appearance.artistAvatars.message.desktopBridgeRefresh'));
       return;
     }
@@ -1858,26 +2145,36 @@ export const SettingsPage = (): JSX.Element => {
     try {
       setArtistImageBusyAction('refresh');
       setArtistImageMessage(null);
-      const result = await library.enqueueMissingArtistImages({ force: true, limit: 500 });
+      const status = await library.kickoffArtistImageBackfill({ force: true, limit: 500 });
       setArtistImageMessage(
-        result.disabled
+        !appSettings?.autoFetchArtistImages
           ? t('settings.appearance.artistAvatars.message.enableFirst')
-          : t('settings.appearance.artistAvatars.message.queued', { queued: result.queued, skipped: result.skipped }),
+          : t('settings.appearance.artistAvatars.message.queued', { queued: status.lastQueued.queued, skipped: status.lastQueued.skipped }),
       );
-      setArtistImageProgress(
-        result.disabled
-          ? null
-          : {
-              queued: result.queued,
-              skipped: result.skipped,
-              summary: null,
-              startedAt: Date.now(),
-            },
-      );
+      setArtistImageProgress({ ...status, startedAt: Date.now() });
     } catch (artistImageError) {
       setError(artistImageError instanceof Error ? artistImageError.message : String(artistImageError));
     } finally {
       setArtistImageBusyAction(null);
+    }
+  };
+
+  const handleArtistImagePauseToggle = async (): Promise<void> => {
+    const library = getLibraryBridge();
+
+    if (!library?.setArtistImageJobsPaused) {
+      setError(t('settings.appearance.artistAvatars.message.desktopBridgeRefresh'));
+      return;
+    }
+
+    try {
+      const nextPaused = !(artistImageProgress?.paused ?? appSettings?.artistImageFetchPaused ?? false);
+      const status = await library.setArtistImageJobsPaused(nextPaused);
+      setAppSettings((current) => (current ? { ...current, artistImageFetchPaused: nextPaused } : current));
+      setArtistImageProgress({ ...status, startedAt: Date.now() });
+      setArtistImageMessage(nextPaused ? '已暂停歌手头像后台获取。' : '已继续歌手头像后台获取。');
+    } catch (artistImageError) {
+      setError(artistImageError instanceof Error ? artistImageError.message : String(artistImageError));
     }
   };
 
@@ -1896,7 +2193,8 @@ export const SettingsPage = (): JSX.Element => {
       setArtistImageMessage(
         t('settings.appearance.artistAvatars.message.cleared', { removedRows: result.removedRows, deletedFiles: result.deletedFiles }),
       );
-      setArtistImageProgress(null);
+      const status = await library.getArtistImageJobStatus?.();
+      setArtistImageProgress(status ? { ...status, startedAt: Date.now() } : null);
       window.dispatchEvent(new Event('library:changed'));
     } catch (artistImageError) {
       setError(artistImageError instanceof Error ? artistImageError.message : String(artistImageError));
@@ -2130,9 +2428,11 @@ export const SettingsPage = (): JSX.Element => {
   };
 
   const toggleNetworkProvider = (provider: AppSettings['networkMetadataProviders'][number]): void => {
-    const current = appSettings?.networkMetadataProviders ?? ['mock'];
+    const current = (appSettings?.networkMetadataProviders ?? defaultNetworkMetadataProviders).filter((item) =>
+      visibleNetworkMetadataProviders.includes(item),
+    );
     const next = current.includes(provider) ? current.filter((item) => item !== provider) : [...current, provider];
-    patchAppSettings({ networkMetadataProviders: next.length ? next : ['mock'] });
+    patchAppSettings({ networkMetadataProviders: next.length ? next : defaultNetworkMetadataProviders });
   };
 
   const handlePlaybackSpeedModeChange = (playbackSpeedMode: PlaybackSpeedMode): void => {
@@ -2435,19 +2735,15 @@ export const SettingsPage = (): JSX.Element => {
                 </div>
               </SettingRow>
               <SettingRow title={t('settings.playback.outputDevice.title')} description={t('settings.playback.outputDevice.description')}>
-                <label className="settings-select-field">
-                  <select value={selectedDeviceId} onChange={(event) => handleDeviceChange(event.target.value)} disabled={compatibleDevices.length === 0}>
-                    {compatibleDevices.length === 0 ? (
-                      <option value="">{t('settings.playback.outputDevice.empty')}</option>
-                    ) : (
-                      compatibleDevices.map((device) => (
-                        <option value={device.id} key={device.id}>
-                          {device.index} - {device.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </label>
+                <StyledSelect
+                  className="settings-select-control"
+                  value={selectedDeviceId}
+                  options={outputDeviceOptions}
+                  onChange={handleDeviceChange}
+                  ariaLabel={t('settings.playback.outputDevice.title')}
+                  disabled={compatibleDevices.length === 0}
+                  showFilterIcon={false}
+                />
               </SettingRow>
               <SettingRow title={t('settings.playback.troubleshooting.title')} description={t('settings.playback.troubleshooting.description')}>
                 <div className="settings-chip-row">
@@ -2472,11 +2768,18 @@ export const SettingsPage = (): JSX.Element => {
                   {audioResetMessage ? <StatusText tone="good">{audioResetMessage}</StatusText> : null}
                 </div>
               </SettingRow>
-              <SettingRow title="使用JUCE输出" description="默认关闭。开启后才尝试 JUCE 接管输出；失败时会自动回退正常输出。">
+              <SettingRow title="JUCE 主输出" description="默认开启。FFmpeg 继续负责解码，JUCE 接管输出；失败时自动回退到兼容输出。">
                 <ToggleButton
-                  active={appSettings?.audioUseJuceOutput ?? false}
+                  active={appSettings?.audioUseJuceOutput ?? true}
                   disabled={!appSettings}
                   onClick={() => void handleJuceOutputToggle()}
+                />
+              </SettingRow>
+              <SettingRow title="JUCE 解码试验" description="默认关闭。本地 WAV/FLAC 在无需重采样时尝试 JUCE 解码；MP3 暂由 FFmpeg 负责；失败会自动回退 FFmpeg。">
+                <ToggleButton
+                  active={appSettings?.audioUseJuceDecode ?? false}
+                  disabled={!appSettings}
+                  onClick={() => void handleJuceDecodeToggle()}
                 />
               </SettingRow>
               <SettingRow title="ASIO unavailable guard" description="Default off. When enabled, ECHO skips the same ASIO device briefly after the driver says No device found, then uses safe shared output.">
@@ -2517,16 +2820,6 @@ export const SettingsPage = (): JSX.Element => {
                 />
               </SettingRow>
               <SettingRow
-                title="后台空格暂停"
-                description="默认关闭。开启后，ECHO 失焦且正在播放时，系统级空格键会暂停歌曲；写代码或输入文字时建议保持关闭。"
-              >
-                <ToggleButton
-                  active={appSettings?.backgroundSpacePauseEnabled ?? false}
-                  disabled={!appSettings}
-                  onClick={() => patchAppSettings({ backgroundSpacePauseEnabled: !(appSettings?.backgroundSpacePauseEnabled ?? false) })}
-                />
-              </SettingRow>
-              <SettingRow
                 className="setting-row--full setting-row--audio-status"
                 title={t('settings.playback.audioStatus.title')}
                 description={t('settings.playback.audioStatus.description')}
@@ -2545,6 +2838,72 @@ export const SettingsPage = (): JSX.Element => {
                 <p className="settings-inline-error">warnings: {status.warnings.join(', ')}</p>
               ) : null}
               <PlaybackStabilityDiagnosticsPanel />
+            </SettingSection>
+
+            <SettingSection activeKey={activeSection} icon={Keyboard} id="shortcuts" title={t('settings.nav.shortcuts.label')}>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                title={t('settings.shortcuts.title')}
+                description={t('settings.shortcuts.description')}
+              >
+                <div className="settings-shortcut-toolbar">
+                  <button className="settings-action-button" type="button" disabled={!appSettings} onClick={handleShortcutRecommendedReset}>
+                    {t('settings.shortcuts.action.restoreRecommended')}
+                  </button>
+                  <p className="settings-inline-note">{t('settings.shortcuts.note')}</p>
+                </div>
+              </SettingRow>
+              {globalShortcutActionMeta.map((item) => {
+                const binding = globalShortcuts[item.action];
+                const isRecording = recordingShortcutAction === item.action;
+                const message = shortcutMessages[item.action] ?? null;
+
+                return (
+                  <SettingRow
+                    className="setting-row--shortcut"
+                    key={item.action}
+                    title={t(item.titleKey)}
+                    description={t(item.descriptionKey)}
+                  >
+                    <div className="settings-shortcut-control">
+                      <button
+                        className={`settings-shortcut-key ${isRecording ? 'is-recording' : ''}`}
+                        type="button"
+                        disabled={!appSettings}
+                        onClick={() => setRecordingShortcutAction(item.action)}
+                      >
+                        {isRecording
+                          ? t('settings.shortcuts.recording')
+                          : formatAcceleratorForDisplay(binding.accelerator, t('settings.shortcuts.empty'))}
+                      </button>
+                      <div className="settings-chip-row settings-chip-row--actions">
+                        <button
+                          className="settings-action-button"
+                          type="button"
+                          disabled={!appSettings}
+                          onClick={() => setRecordingShortcutAction(item.action)}
+                        >
+                          {t('settings.shortcuts.action.record')}
+                        </button>
+                        <button
+                          className="settings-action-button"
+                          type="button"
+                          disabled={!appSettings || !binding.accelerator}
+                          onClick={() => handleShortcutClear(item.action)}
+                        >
+                          {t('settings.shortcuts.action.clear')}
+                        </button>
+                        <ToggleButton
+                          active={binding.enabled}
+                          disabled={!appSettings || !binding.accelerator}
+                          onClick={() => void handleShortcutToggle(item.action)}
+                        />
+                      </div>
+                      {message ? <p className="settings-inline-error">{message}</p> : null}
+                    </div>
+                  </SettingRow>
+                );
+              })}
             </SettingSection>
 
             <SettingSection activeKey={activeSection} icon={Captions} id="lyrics" title={t('route.lyricsSettings.label')}>
@@ -2746,6 +3105,15 @@ export const SettingsPage = (): JSX.Element => {
                         : t('settings.appearance.artistAvatars.action.refreshMissing')}
                     </button>
                     <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
+                      onClick={() => void handleArtistImagePauseToggle()}
+                    >
+                      {artistImagePaused ? <Play size={15} /> : <Pause size={15} />}
+                      {artistImagePaused ? '继续获取' : '暂停获取'}
+                    </button>
+                    <button
                       className="settings-danger-button"
                       type="button"
                       disabled={artistImageBusyAction !== null}
@@ -2756,6 +3124,32 @@ export const SettingsPage = (): JSX.Element => {
                     </button>
                   </div>
                   {artistImageMessage ? <p className="settings-inline-note">{artistImageMessage}</p> : null}
+                  {artistImageProgress ? (
+                    <div className="settings-update-progress settings-artist-image-progress" role="status" aria-live="polite">
+                      <div className="settings-update-progress-label">
+                        <strong>头像获取进度 · {artistImageStatusLabel}</strong>
+                        <span>
+                          {artistImageProgressDone} / {artistImageProgressTotal}
+                        </span>
+                      </div>
+                      <div
+                        className="settings-update-progress-track"
+                        role="progressbar"
+                        aria-label="头像获取进度"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={artistImageProgressPercent}
+                      >
+                        <span style={{ width: `${artistImageProgressPercent}%` }} />
+                      </div>
+                      <div className="settings-update-progress-meta">
+                        <span>
+                          处理中 {artistImageActive} · 待处理 {artistImageSummary.pending} · 已缓存 {artistImageSummary.matched} · 未找到 {artistImageSummary.notFound} · 失败 {artistImageFailed}
+                        </span>
+                        <span>跳过 {artistImageProgress.lastQueued.skipped}</span>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </SettingRow>
               <SettingRow
@@ -3243,9 +3637,9 @@ export const SettingsPage = (): JSX.Element => {
               </SettingRow>
               <SettingRow title={t('settings.library.networkSources.title')} description={t('settings.library.networkSources.description')}>
                 <div className="settings-chip-row">
-                  {(['netease-cloud-music', 'qq-music', 'musicbrainz', 'cover-art-archive', 'mock'] as AppSettings['networkMetadataProviders']).map((provider) => (
+                  {visibleNetworkMetadataProviders.map((provider) => (
                     <ChipButton
-                      active={(appSettings?.networkMetadataProviders ?? ['mock']).includes(provider)}
+                      active={(appSettings?.networkMetadataProviders ?? defaultNetworkMetadataProviders).includes(provider)}
                       key={provider}
                       onClick={() => toggleNetworkProvider(provider)}
                     >
@@ -3255,7 +3649,6 @@ export const SettingsPage = (): JSX.Element => {
                 </div>
               </SettingRow>
               <NetworkMetadataPanel networkMetadataEnabled={appSettings?.networkMetadataEnabled ?? false} />
-              {isDevBuild ? <LibraryDiagnosticsPanel /> : null}
             </SettingSection>
 
             <SettingSection activeKey={activeSection} icon={Info} id="about" title={t('settings.nav.about.label')}>
@@ -3420,11 +3813,12 @@ export const SettingsPage = (): JSX.Element => {
               {dangerMessage ? <p className="settings-inline-note">{dangerMessage}</p> : null}
             </SettingSection>
 
-            <section className="settings-section settings-section--devices" data-visible={activeSection === 'playback'}>
-              <div className="section-title">
+            <details className="settings-section settings-section--devices settings-collapsible-section" data-visible={activeSection === 'playback'}>
+              <summary className="section-title settings-collapsible-summary">
                 <Headphones size={18} />
                 <h2>{t('settings.devices.title')}</h2>
-              </div>
+                <ChevronDown size={17} />
+              </summary>
               {devices.length === 0 ? (
                 <p className="settings-inline-note">{t('settings.devices.empty')}</p>
               ) : (
@@ -3447,7 +3841,7 @@ export const SettingsPage = (): JSX.Element => {
                   ))}
                 </div>
               )}
-            </section>
+            </details>
           </div>
         </div>
       </div>

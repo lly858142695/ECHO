@@ -6,7 +6,7 @@ import { ArtistTrackList } from './ArtistTrackList';
 
 const queueMock = {
   items: [],
-  removeQueueItem: vi.fn(),
+  removeTrackFromQueue: vi.fn(),
 };
 
 vi.mock('../../stores/PlaybackQueueProvider', () => ({
@@ -59,7 +59,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   queueMock.items = [];
-  queueMock.removeQueueItem.mockReset();
+  queueMock.removeTrackFromQueue.mockReset();
 });
 
 describe('ArtistTrackList', () => {

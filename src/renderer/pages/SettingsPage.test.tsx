@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { SettingsPage } from './SettingsPage';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { DownloadSettings } from '../../shared/types/downloads';
+import { createDefaultGlobalShortcuts, createRecommendedGlobalShortcuts } from '../../shared/types/globalShortcuts';
 
 const settings: AppSettings = {
   appearanceTheme: 'light',
@@ -65,6 +66,7 @@ const settings: AppSettings = {
   },
   playerVolume: 1,
   backgroundSpacePauseEnabled: false,
+  globalShortcuts: createDefaultGlobalShortcuts(),
   playbackFollowCurrentTrack: false,
   playbackSpeed: 1,
   playbackSpeedMode: 'nightcore',
@@ -97,6 +99,7 @@ const audioSetOutputMock = vi.fn();
 const audioResetEngineMock = vi.fn();
 const audioForceRestartMock = vi.fn();
 const audioRestartWindowsAudioServiceMock = vi.fn();
+const validateGlobalShortcutMock = vi.fn();
 
 const downloadSettings: DownloadSettings = {
   audioStrategy: 'best_available',
@@ -121,6 +124,7 @@ vi.mock('../utils/echoBridge', () => ({
     getSettings: getSettingsMock,
     getVersion: vi.fn().mockResolvedValue('1.0.1'),
     chooseAppWallpaper: chooseAppWallpaperMock,
+    validateGlobalShortcut: validateGlobalShortcutMock,
     resetSettings: resetSettingsMock,
     setCoverCacheDirectory: vi.fn(),
     setSettings: setSettingsMock,
@@ -180,10 +184,6 @@ vi.mock('../components/audio/EqPanel', () => ({
   EqPanel: () => <div />,
 }));
 
-vi.mock('../components/library/LibraryDiagnosticsPanel', () => ({
-  LibraryDiagnosticsPanel: () => <div />,
-}));
-
 vi.mock('../components/library/LibraryFoldersPanel', () => ({
   LibraryFoldersPanel: () => <div />,
 }));
@@ -206,6 +206,12 @@ beforeEach(() => {
   audioResetEngineMock.mockResolvedValue({ state: 'stopped', warnings: [] });
   audioForceRestartMock.mockResolvedValue({ state: 'stopped', warnings: [] });
   audioRestartWindowsAudioServiceMock.mockResolvedValue({ state: 'stopped', warnings: [] });
+  validateGlobalShortcutMock.mockResolvedValue({
+    accelerator: 'Ctrl+Alt+Space',
+    available: true,
+    reason: 'available',
+    valid: true,
+  });
   window.echo = {
     app: {
       getSettings: getSettingsMock,
@@ -362,21 +368,109 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(audioListDevicesMock).toHaveBeenCalled());
   });
 
-  it('saves the background space pause setting from Settings', async () => {
+  it('records and enables a global playback shortcut from Settings', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);
-    setSettingsMock.mockResolvedValue({ ...settings, backgroundSpacePauseEnabled: true });
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
     resetSettingsMock.mockResolvedValue(settings);
     clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
 
     render(<SettingsPage />);
 
     await screen.findByText('route.settings.label');
-    fireEvent.click(screen.getAllByText('settings.nav.playback.label')[0]);
-    const row = screen.getByText('后台空格暂停').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button'));
+    fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
+    const row = screen.getByText('settings.shortcuts.action.playPause.title').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, altKey: true });
 
-    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ backgroundSpacePauseEnabled: true }));
+    const expectedShortcuts = {
+      ...createDefaultGlobalShortcuts(),
+      playPause: { enabled: false, accelerator: 'Ctrl+Alt+Space' },
+    };
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ globalShortcuts: expectedShortcuts }));
+
+    setSettingsMock.mockClear();
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({
+      ...settings,
+      globalShortcuts: expectedShortcuts,
+      ...patch,
+    }));
+    fireEvent.click(within(row).getByRole('button', { pressed: false }));
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        globalShortcuts: {
+          ...expectedShortcuts,
+          playPause: { enabled: true, accelerator: 'Ctrl+Alt+Space' },
+        },
+      }),
+    );
+  });
+
+  it('records a single-key global shortcut from Settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
+    const row = screen.getByText('settings.shortcuts.action.previousTrack.title').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.keyDown(window, { code: 'F13', key: 'F13' });
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        globalShortcuts: {
+          ...createDefaultGlobalShortcuts(),
+          previousTrack: { enabled: false, accelerator: 'F13' },
+        },
+      }),
+    );
+  });
+
+  it('records a mouse side button global shortcut from Settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
+    const row = screen.getByText('settings.shortcuts.action.nextTrack.title').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'settings.shortcuts.action.record' }));
+    fireEvent.mouseDown(window, { button: 3 });
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        globalShortcuts: {
+          ...createDefaultGlobalShortcuts(),
+          nextTrack: { enabled: false, accelerator: 'MouseButton4' },
+        },
+      }),
+    );
+  });
+
+  it('restores recommended global shortcuts without enabling them', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.shortcuts.label')[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'settings.shortcuts.action.restoreRecommended' }));
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ globalShortcuts: createRecommendedGlobalShortcuts() }));
   });
 
   it('resets the audio engine from playback settings', async () => {

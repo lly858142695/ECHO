@@ -10,7 +10,7 @@ import type { UpdateStatus } from '../../shared/types/updates';
 import type { FontFileAsset } from '../../preload/apiTypes';
 import { defaultSettings, getAppSettings, getAppWallpaperDirectory, getLyricsWallpaperDirectory, setAppSettings } from '../app/appSettings';
 import { checkForUpdates, getUpdateStatus, setAutoUpdateEnabled } from '../app/autoUpdater';
-import { refreshBackgroundSpaceRegistration } from '../app/backgroundPlaybackShortcuts';
+import { refreshBackgroundSpaceRegistration, validateGlobalShortcut } from '../app/backgroundPlaybackShortcuts';
 import { destroyTray, ensureTray } from '../app/tray';
 import { ensureCoverCacheDirectory } from '../library/CoverCacheManager';
 import { getLibraryService } from '../library/LibraryService';
@@ -150,7 +150,7 @@ export const registerIpc = (): void => {
   ipcMain.handle(IpcChannels.AppSetSettings, (_event: IpcMainInvokeEvent, patch: Partial<AppSettings>): AppSettings => {
     const settingsPatch = { ...patch };
     delete settingsPatch.coverCacheDir;
-    const settings = setAppSettings(settingsPatch);
+    let settings = setAppSettings(settingsPatch);
 
     if (settings.hideToTrayOnClose) {
       ensureTray();
@@ -166,12 +166,19 @@ export const registerIpc = (): void => {
       }
     }
 
-    if (typeof settingsPatch.backgroundSpacePauseEnabled === 'boolean') {
-      refreshBackgroundSpaceRegistration();
+    if (typeof settingsPatch.backgroundSpacePauseEnabled === 'boolean' || settingsPatch.globalShortcuts) {
+      settings = refreshBackgroundSpaceRegistration() ?? settings;
+    }
+
+    if (typeof settingsPatch.autoFetchArtistImages === 'boolean' || typeof settingsPatch.artistImageFetchPaused === 'boolean') {
+      getLibraryService().syncArtistImageBackfillState();
     }
 
     return settings;
   });
+  ipcMain.handle(IpcChannels.AppValidateGlobalShortcut, (_event: IpcMainInvokeEvent, accelerator: unknown) =>
+    validateGlobalShortcut(accelerator),
+  );
   ipcMain.handle(IpcChannels.AppResetSettings, async (): Promise<AppSettings> => {
     const libraryService = getLibraryService();
     const defaultCoverCacheDir = libraryService.getDefaultCoverCacheDir();

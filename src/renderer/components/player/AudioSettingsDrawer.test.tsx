@@ -15,6 +15,8 @@ const testTranslations: Record<string, string> = {
   'audioDrawer.buffer.stable': 'Stable',
   'audioDrawer.buffer.title': 'Buffer Settings',
   'audioDrawer.buffer.ultraLow': 'Ultra low',
+  'audioDrawer.badge.juceFallback': 'JUCE fallback',
+  'audioDrawer.badge.juceOutput': 'JUCE output',
   'audioDrawer.latency.balanced': 'Balanced',
   'audioDrawer.latency.balancedDetail': '2048 frames',
   'audioDrawer.latency.lowLatency': 'Low latency',
@@ -22,11 +24,20 @@ const testTranslations: Record<string, string> = {
   'audioDrawer.latency.stable': 'Stable',
   'audioDrawer.latency.stableDetail': '8192 frames',
   'audioDrawer.option.active': 'On',
+  'audioDrawer.option.juceDecode': 'JUCE Decode Experiment',
+  'audioDrawer.option.juceOutput': 'JUCE Main Output',
   'audioDrawer.option.set': 'Set',
   'audioDrawer.option.showAsioPanelSettings': 'Show ASIO panel settings',
   'audioDrawer.option.showAsioPanelSettingsDescription': 'Show ASIO panel buttons',
   'audioDrawer.action.openAsioPanel': 'Open ASIO Panel',
   'audioDrawer.badge.soxrResampler': 'SOXR',
+  'audioDrawer.meter.chain': 'Chain',
+  'audioDrawer.signal.asioSdkOutput': 'ASIO SDK output',
+  'audioDrawer.signal.ffmpegDecode': 'FFmpeg decode',
+  'audioDrawer.signal.juceDecode': 'JUCE decode',
+  'audioDrawer.signal.juceDecodeFallback': 'JUCE decode fallback',
+  'audioDrawer.signal.juceDecodeStandby': 'JUCE decode not used',
+  'audioDrawer.signal.juceDecodeMp3Unsupported': 'MP3 not supported yet',
 };
 
 vi.mock('../../i18n/I18nProvider', () => ({
@@ -61,6 +72,8 @@ const baseStatus: AudioStatus = {
   activeOutputBackendImpl: null,
   outputMode: 'shared',
   useJuceOutputRequested: false,
+  useJuceDecodeRequested: false,
+  activeDecodeBackendImpl: null,
   volume: 1,
   playbackRate: 1,
   playbackSpeedMode: 'nightcore',
@@ -123,7 +136,11 @@ const renderDrawer = (
 ): void => {
   window.echo = {
     app: {
-      getSettings: vi.fn().mockResolvedValue({ rememberedAudioOutput: { enabled: false } }),
+      getSettings: vi.fn().mockResolvedValue({
+        rememberedAudioOutput: { enabled: false },
+        audioUseJuceOutput: status.useJuceOutputRequested,
+        audioUseJuceDecode: status.useJuceDecodeRequested,
+      }),
       setSettings: vi.fn().mockResolvedValue({}),
     },
     audio: {
@@ -208,6 +225,115 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     expect(screen.getByRole('heading', { name: 'asioDevices' })).toBeTruthy();
     expect(screen.getByRole('checkbox', { name: /wasapiExclusive/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /TEAC ASIO/ })).toBeTruthy();
+  });
+
+  it('shows the active FFmpeg to JUCE output chain', () => {
+    renderDrawer({
+      ...baseStatus,
+      useJuceOutputRequested: true,
+      activeOutputBackendImpl: 'juce-wasapi-shared',
+    });
+
+    expect(screen.getByRole('checkbox', { name: /JUCE Main Output/ })).toHaveProperty('checked', true);
+    expect(screen.getByText('FFmpeg decode -> JUCE output')).toBeTruthy();
+  });
+
+  it('shows active JUCE decode only when the decode backend actually used JUCE', () => {
+    renderDrawer({
+      ...baseStatus,
+      useJuceOutputRequested: true,
+      useJuceDecodeRequested: true,
+      activeDecodeBackendImpl: 'juce-wav',
+      activeOutputBackendImpl: 'juce-wasapi-shared',
+    });
+
+    expect(screen.getByRole('checkbox', { name: /JUCE Decode Experiment/ })).toHaveProperty('checked', true);
+    expect(screen.getByText('JUCE decode -> JUCE output')).toBeTruthy();
+  });
+
+  it('shows JUCE decode fallback when requested decode degraded to FFmpeg', () => {
+    renderDrawer({
+      ...baseStatus,
+      useJuceOutputRequested: true,
+      useJuceDecodeRequested: true,
+      activeDecodeBackendImpl: 'ffmpeg',
+      activeOutputBackendImpl: 'juce-wasapi-shared',
+      warnings: ['juce_decode_fell_back_to_ffmpeg'],
+    });
+
+    expect(screen.getByText('JUCE decode fallback -> JUCE output')).toBeTruthy();
+    expect(screen.getByText('JUCE decode fallback')).toBeTruthy();
+  });
+
+  it('shows MP3 not supported when the opt-in decoder is enabled but MP3 stays on FFmpeg', () => {
+    renderDrawer({
+      ...baseStatus,
+      useJuceOutputRequested: true,
+      useJuceDecodeRequested: true,
+      activeDecodeBackendImpl: 'ffmpeg',
+      activeOutputBackendImpl: 'juce-wasapi-shared',
+      codec: 'MPEG 1 LAYER 3',
+      currentFilePath: 'D:\\Music\\song.mp3',
+    });
+
+    expect(screen.getByText('FFmpeg decode (MP3 not supported yet) -> JUCE output')).toBeTruthy();
+    expect(screen.getByText('MP3 not supported yet')).toBeTruthy();
+  });
+
+  it('shows JUCE decode not used for other non-pilot sources without a fallback warning', () => {
+    renderDrawer({
+      ...baseStatus,
+      useJuceOutputRequested: true,
+      useJuceDecodeRequested: true,
+      activeDecodeBackendImpl: 'ffmpeg',
+      activeOutputBackendImpl: 'juce-wasapi-shared',
+      codec: 'aac',
+    });
+
+    expect(screen.getByText('FFmpeg decode (JUCE decode not used) -> JUCE output')).toBeTruthy();
+    expect(screen.getByText('JUCE decode not used')).toBeTruthy();
+  });
+
+  it('shows JUCE fallback when the requested output degraded to native', () => {
+    renderDrawer({
+      ...baseStatus,
+      useJuceOutputRequested: true,
+      activeOutputBackendImpl: 'legacy-wasapi-shared',
+      warnings: ['juce_output_fell_back_to_native'],
+    });
+
+    expect(screen.getByText('FFmpeg decode -> JUCE fallback')).toBeTruthy();
+    expect(screen.getByText('JUCE fallback')).toBeTruthy();
+  });
+
+  it('persists manual JUCE output disablement', async () => {
+    const setOutput = vi.fn().mockResolvedValue({
+      ...baseStatus,
+      useJuceOutputRequested: false,
+    });
+    renderDrawer({
+      ...baseStatus,
+      useJuceOutputRequested: true,
+      activeOutputBackendImpl: 'juce-wasapi-shared',
+    }, setOutput);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /JUCE Main Output/ }));
+
+    await waitFor(() => expect(window.echo?.app?.setSettings).toHaveBeenCalledWith({ audioUseJuceOutput: false }));
+    await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ useJuceOutput: false }));
+  });
+
+  it('persists manual JUCE decode enablement', async () => {
+    const setOutput = vi.fn().mockResolvedValue({
+      ...baseStatus,
+      useJuceDecodeRequested: true,
+    });
+    renderDrawer(baseStatus, setOutput);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /JUCE Decode Experiment/ }));
+
+    await waitFor(() => expect(window.echo?.app?.setSettings).toHaveBeenCalledWith({ audioUseJuceDecode: true }));
+    await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ useJuceDecode: true }));
   });
 
   it('hides ASIO panel buttons until the bottom visibility setting is enabled', async () => {

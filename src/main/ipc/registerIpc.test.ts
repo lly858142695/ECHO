@@ -10,6 +10,13 @@ const setAppSettingsMock = vi.fn((patch) => ({ coverCacheDir: patch.coverCacheDi
 const getLibraryServiceMock = vi.fn();
 const ensureCoverCacheDirectoryMock = vi.fn();
 const fromWebContentsMock = vi.fn();
+const refreshGlobalShortcutRegistrationMock = vi.fn(() => null);
+const validateGlobalShortcutMock = vi.fn(() => ({
+  accelerator: 'Ctrl+Alt+Space',
+  available: true,
+  reason: 'available',
+  valid: true,
+}));
 
 vi.mock('electron', () => ({
   app: {
@@ -98,6 +105,11 @@ vi.mock('../app/autoUpdater', () => ({
   setAutoUpdateEnabled: vi.fn(),
 }));
 
+vi.mock('../app/backgroundPlaybackShortcuts', () => ({
+  refreshBackgroundSpaceRegistration: refreshGlobalShortcutRegistrationMock,
+  validateGlobalShortcut: validateGlobalShortcutMock,
+}));
+
 vi.mock('../library/CoverCacheManager', () => ({
   ensureCoverCacheDirectory: ensureCoverCacheDirectoryMock,
 }));
@@ -167,6 +179,8 @@ describe('app IPC cover cache directory', () => {
     getLibraryServiceMock.mockReset();
     ensureCoverCacheDirectoryMock.mockReset();
     fromWebContentsMock.mockReset();
+    refreshGlobalShortcutRegistrationMock.mockClear();
+    validateGlobalShortcutMock.mockClear();
     const module = await import('./registerIpc');
     module.registerIpc();
   });
@@ -259,5 +273,26 @@ describe('app IPC cover cache directory', () => {
     expect(window.isMaximized).not.toHaveBeenCalled();
     expect(window.maximize).not.toHaveBeenCalled();
     expect(window.unmaximize).not.toHaveBeenCalled();
+  });
+
+  it('refreshes global shortcuts when shortcut settings change', () => {
+    const shortcutPatch = {
+      globalShortcuts: {
+        playPause: { enabled: true, accelerator: 'Ctrl+Alt+Space' },
+      },
+    };
+    setAppSettingsMock.mockReturnValue({ ...shortcutPatch, coverCacheDir: null, hideToTrayOnClose: false });
+
+    handlers[IpcChannels.AppSetSettings]!(null, shortcutPatch);
+
+    expect(setAppSettingsMock).toHaveBeenCalledWith(shortcutPatch);
+    expect(refreshGlobalShortcutRegistrationMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('validates global shortcut accelerators through IPC', () => {
+    const result = handlers[IpcChannels.AppValidateGlobalShortcut]!(null, 'Ctrl+Alt+Space');
+
+    expect(validateGlobalShortcutMock).toHaveBeenCalledWith('Ctrl+Alt+Space');
+    expect(result).toMatchObject({ valid: true, available: true });
   });
 });

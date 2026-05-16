@@ -15,14 +15,14 @@ type Props = {
 };
 
 const fieldPairs: Array<['title' | 'artist' | 'album' | 'albumArtist' | 'year' | 'genre' | 'trackNo' | 'discNo', string]> = [
-  ['title', 'Title'],
-  ['artist', 'Artist'],
-  ['album', 'Album'],
-  ['albumArtist', 'Album artist'],
-  ['year', 'Year'],
-  ['genre', 'Genre'],
-  ['trackNo', 'Track'],
-  ['discNo', 'Disc'],
+  ['title', '标题'],
+  ['artist', '歌手'],
+  ['album', '专辑'],
+  ['albumArtist', '专辑艺人'],
+  ['year', '年份'],
+  ['genre', '流派'],
+  ['trackNo', '音轨号'],
+  ['discNo', '碟号'],
 ];
 
 const providerLabels: Record<string, string> = {
@@ -35,10 +35,26 @@ const providerLabels: Record<string, string> = {
 
 const valueText = (value: unknown): string => {
   if (value === null || value === undefined || value === '') {
-    return 'missing';
+    return '缺失';
   }
 
   return String(value);
+};
+
+const sourceLabels: Record<string, string> = {
+  manual: '手动编辑',
+  embedded: '内嵌标签',
+  sidecar: '旁车文件',
+  folder_structure: '文件夹结构',
+  network: '网络补全',
+  filename_fallback: '文件名猜测',
+  artist_fallback: '歌手兜底',
+  unknown: '未知',
+};
+
+const sourceText = (value: unknown): string => {
+  const source = typeof value === 'string' && value ? value : 'unknown';
+  return sourceLabels[source] ?? source;
 };
 
 export const NetworkCandidateCard = ({ candidate, feedback, track, onApplyMissingOnly, onApplySelected, onReject }: Props): JSX.Element => {
@@ -57,21 +73,21 @@ export const NetworkCandidateCard = ({ candidate, feedback, track, onApplyMissin
       </header>
       <div className="network-candidate-main">
         <div className="network-candidate-cover" data-empty={!candidateCoverUrl}>
-          {candidateCoverUrl ? <img alt="" src={candidateCoverUrl} /> : <span>No cover</span>}
+          {candidateCoverUrl ? <img alt="" src={candidateCoverUrl} /> : <span>无候选封面</span>}
         </div>
         <div className="network-candidate-summary">
           <span>
-            <em>Provider item</em>
+            <em>来源编号</em>
             <strong>{candidate.providerItemId}</strong>
           </span>
           <span>
-            <em>Cover URL</em>
-            <strong>{candidateCoverUrl ?? 'missing'}</strong>
+            <em>候选封面</em>
+            <strong>{candidateCoverUrl ? '可应用' : '缺失'}</strong>
           </span>
           <span>
-            <em>Current field sources</em>
+            <em>当前来源</em>
             <strong>
-              title:{track.fieldSources.title ?? 'unknown'} / artist:{track.fieldSources.artist ?? 'unknown'}
+              标题:{sourceText(track.fieldSources.title)} / 歌手:{sourceText(track.fieldSources.artist)}
             </strong>
           </span>
         </div>
@@ -80,9 +96,9 @@ export const NetworkCandidateCard = ({ candidate, feedback, track, onApplyMissin
         {visibleFields.map(([key, label]) => (
           <span key={key}>
             <em>{label}</em>
-            <small>local: {valueText(track[key])}</small>
-            <b>candidate: {valueText(candidate[key])}</b>
-            <strong>source: {track.fieldSources[key] ?? 'unknown'}</strong>
+            <small>本地：{valueText(track[key])}</small>
+            <b>候选：{valueText(candidate[key])}</b>
+            <strong>当前来源：{sourceText(track.fieldSources[key])}</strong>
           </span>
         ))}
       </div>

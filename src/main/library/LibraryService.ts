@@ -5,7 +5,7 @@ import { setTimeout } from 'node:timers';
 import { setImmediate as yieldToMainLoop } from 'node:timers/promises';
 import electron from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
-import { defaultSettings, getAppSettings } from '../app/appSettings';
+import { defaultSettings, getAppSettings, setAppSettings } from '../app/appSettings';
 import { createDatabase, type EchoDatabase } from '../database/createDatabase';
 import { AlbumService } from './AlbumService';
 import type { AlbumMergeStrategy } from './AlbumService';
@@ -64,6 +64,7 @@ import type {
   ArtistImageCacheClearResult,
   ArtistImageCacheEntry,
   ArtistImageCacheSummary,
+  ArtistImageJobStatus,
   ArtistImageQueueResult,
   ArtistImageRefreshResult,
 } from './libraryTypes';
@@ -74,7 +75,6 @@ import type {
   MissingMetadataScanResult,
   NetworkApplyOptions,
   NetworkMetadataScanJobStatus,
-  NetworkApplyResult,
   NetworkTagCandidate,
   NetworkTagCandidateSearchRequest,
 } from '../../shared/types/library';
@@ -90,6 +90,8 @@ import { TsMetadataReader } from './workers/TsMetadataReader';
 import { getRemoteSourceService } from './remote/RemoteSourceService';
 import { writeEmbeddedTrackTags } from './TagWriter';
 import { backupPlaylistIfEnabled, type PlaylistBackupReason } from './PlaylistBackup';
+import { NETWORK_AUTO_APPLY_THRESHOLD } from './network/matchScore';
+import type { NetworkApplyResult, StoredNetworkMetadataCandidate } from './network/networkTypes';
 
 type LibraryServiceDependencies = {
   fileScanner?: FileScanner;
@@ -124,7 +126,12 @@ export class LibraryService {
     private readonly artistImageCacheService: ArtistImageCacheService | null = null,
     private readonly readAppSettings: () => AppSettings = getAppSettingsSafe,
     private readonly scanConcurrency: ScanConcurrencyRecommendation = getRecommendedScanConcurrency(),
-  ) {}
+  ) {
+    const artistImageStartupTimer = setTimeout(() => {
+      this.syncArtistImageBackfillState();
+    }, 0);
+    artistImageStartupTimer.unref?.();
+  }
 
   addFolder(folderPath: string): LibraryFolder {
     const normalizedPath = resolve(folderPath);
@@ -419,6 +426,63 @@ export class LibraryService {
     }
 
     return this.artistImageCacheService.getSummary();
+  }
+
+  getArtistImageJobStatus(): ArtistImageJobStatus {
+    if (!this.artistImageCacheService) {
+      return {
+        paused: true,
+        running: false,
+        queued: 0,
+        active: 0,
+        lastQueued: { queued: 0, skipped: 0 },
+        summary: {
+          total: 0,
+          matched: 0,
+          pending: 0,
+          loading: 0,
+          notFound: 0,
+          error: 0,
+          rateLimited: 0,
+        },
+      };
+    }
+
+    const settings = this.readAppSettings();
+    this.artistImageCacheService.setPaused(settings.autoFetchArtistImages !== true || settings.artistImageFetchPaused === true);
+    return this.artistImageCacheService.getJobStatus();
+  }
+
+  setArtistImageJobsPaused(paused: boolean): ArtistImageJobStatus {
+    setAppSettings({ artistImageFetchPaused: paused });
+    return this.syncArtistImageBackfillState();
+  }
+
+  kickoffArtistImageBackfill(options: { force?: boolean; limit?: number } = {}): ArtistImageJobStatus {
+    if (!this.artistImagesNetworkEnabled() || !this.artistImageCacheService || this.readAppSettings().artistImageFetchPaused === true) {
+      return this.getArtistImageJobStatus();
+    }
+
+    return this.artistImageCacheService.kickoffBackfill({
+      force: options.force !== false,
+      limit: options.limit ?? 500,
+    });
+  }
+
+  syncArtistImageBackfillState(): ArtistImageJobStatus {
+    if (!this.artistImageCacheService) {
+      return this.getArtistImageJobStatus();
+    }
+
+    const settings = this.readAppSettings();
+    const paused = settings.autoFetchArtistImages !== true || settings.artistImageFetchPaused === true;
+    this.artistImageCacheService.setPaused(paused);
+
+    if (!paused) {
+      return this.artistImageCacheService.kickoffBackfill({ force: true, limit: 500 });
+    }
+
+    return this.artistImageCacheService.getJobStatus();
   }
 
   enqueueMissingArtistImages(
@@ -961,7 +1025,25 @@ export class LibraryService {
       throw new Error('Network metadata service is unavailable');
     }
 
-    return this.networkMetadataService.repairMissingMetadata(trackId, providerNames);
+    const result = await this.networkMetadataService.repairMissingMetadata(trackId, providerNames);
+    const coverApplications: NetworkApplyResult[] = [];
+
+    for (const candidate of result.metadata) {
+      const coverResult = await this.applyNetworkCandidateCover(candidate, { status: 'candidate_found', appliedFields: {} }, undefined, false);
+      if (Object.keys(coverResult.appliedFields).length > 0) {
+        coverApplications.push(coverResult);
+      }
+    }
+
+    const applied = [...result.applied, ...coverApplications];
+    return {
+      ...result,
+      applied,
+      diagnostics: {
+        ...result.diagnostics,
+        appliedCount: applied.length,
+      },
+    };
   }
 
   async scanMissingMetadata(
@@ -1012,12 +1094,14 @@ export class LibraryService {
     return this.networkMetadataService.searchNetworkTagCandidates(request);
   }
 
-  applyNetworkMissingOnly(candidateId: string, options?: NetworkApplyOptions): NetworkApplyResult {
+  async applyNetworkMissingOnly(candidateId: string, options?: NetworkApplyOptions): Promise<NetworkApplyResult> {
     if (!this.networkMetadataService) {
       throw new Error('Network metadata service is unavailable');
     }
 
-    return this.networkMetadataService.applyMissingOnly(candidateId, options);
+    const candidate = this.networkMetadataService.getMetadataCandidate(candidateId);
+    const result = this.networkMetadataService.applyMissingOnly(candidateId, options);
+    return this.applyNetworkCandidateCover(candidate, result, options, false);
   }
 
   async applyNetworkSelected(candidateId: string, options?: NetworkApplyOptions): Promise<NetworkApplyResult> {
@@ -1027,38 +1111,7 @@ export class LibraryService {
 
     const candidate = this.networkMetadataService.getMetadataCandidate(candidateId);
     const result = this.networkMetadataService.applySelected(candidateId, options);
-    if (!candidate?.coverUrl || (options?.fields?.length && !options.fields.includes('cover'))) {
-      return result;
-    }
-
-    const track = this.store.getTrack(candidate.trackId);
-    if (!track || track.coverId || track.embeddedCoverStatus === 'present' || track.embeddedCoverStatus === 'pending' || track.embeddedCoverStatus === 'reading') {
-      return result;
-    }
-
-    const coverData = await readCoverImageFromUrl(candidate.coverUrl, null).catch(() => null);
-    if (!coverData) {
-      return result;
-    }
-
-    const coverResult = await this.coverExtractor.extract(track.path, {
-      cacheRoot: this.coverCacheDir,
-      metadata: metadataWithEmbeddedCover(coverData.data, coverData.mimeType),
-    });
-    const coverId = this.store.transaction(() => {
-      const nextCoverId = this.store.upsertCover({ ...coverResult, source: 'network' });
-      this.store.updateTrackCover(track.id, nextCoverId);
-      this.store.refreshAlbums(this.albumService, undefined, this.albumRefreshOptions());
-      return nextCoverId;
-    });
-
-    return {
-      ...result,
-      appliedFields: {
-        ...result.appliedFields,
-        coverId,
-      },
-    };
+    return this.applyNetworkCandidateCover(candidate, result, options, true);
   }
 
   rejectNetworkCandidate(candidateId: string): NetworkApplyResult {
@@ -1067,6 +1120,109 @@ export class LibraryService {
     }
 
     return this.networkMetadataService.reject(candidateId);
+  }
+
+  private async applyNetworkCandidateCover(
+    candidate: StoredNetworkMetadataCandidate | null,
+    result: NetworkApplyResult,
+    options: NetworkApplyOptions | undefined,
+    force: boolean,
+  ): Promise<NetworkApplyResult> {
+    const shouldApplyCover = !options?.fields?.length || options.fields.includes('cover');
+    const withCoverSkipReason = (reason: string): NetworkApplyResult => {
+      if (Object.keys(result.appliedFields).length > 0) {
+        return result;
+      }
+
+      return {
+        ...result,
+        status: 'candidate_found',
+        reason,
+      };
+    };
+
+    if (
+      !this.networkMetadataService ||
+      !candidate?.coverUrl ||
+      result.status === 'rejected' ||
+      result.status === 'error' ||
+      !shouldApplyCover
+    ) {
+      return result;
+    }
+
+    if (!force && candidate.score < NETWORK_AUTO_APPLY_THRESHOLD) {
+      return withCoverSkipReason('score_below_auto_apply_threshold');
+    }
+
+    const row = this.database
+      .prepare<
+        [string],
+        {
+          id: string;
+          path: string;
+          cover_id: string | null;
+          embedded_cover_status: string | null;
+          source_type: string | null;
+        }
+      >(
+        `SELECT tracks.id, tracks.path, tracks.cover_id, tracks.embedded_cover_status, covers.source_type
+         FROM tracks
+         LEFT JOIN covers ON covers.id = tracks.cover_id
+         WHERE tracks.id = ? AND tracks.missing = 0`,
+      )
+      .get(candidate.trackId);
+
+    if (!row) {
+      return withCoverSkipReason('track_missing');
+    }
+
+    const embeddedCoverStatus = row.embedded_cover_status ?? 'pending';
+    if (embeddedCoverStatus === 'pending' || embeddedCoverStatus === 'reading') {
+      return withCoverSkipReason('embedded_cover_not_ready');
+    }
+    if (embeddedCoverStatus === 'present') {
+      return withCoverSkipReason('cover_source_embedded_protected');
+    }
+
+    const sourceType = row.source_type ?? (row.cover_id ? 'default' : null);
+    if (sourceType && sourceType !== 'default') {
+      return withCoverSkipReason(`cover_source_${sourceType}_protected`);
+    }
+
+    const coverData = await readCoverImageFromUrl(candidate.coverUrl, null).catch(() => null);
+    if (!coverData) {
+      return withCoverSkipReason('cover_download_failed');
+    }
+
+    const coverResult = await this.coverExtractor.extract(row.path, {
+      cacheRoot: this.coverCacheDir,
+      metadata: metadataWithEmbeddedCover(coverData.data, coverData.mimeType),
+    });
+    const coverId = this.store.transaction(() => {
+      const nextCoverId = this.store.upsertCover({ ...coverResult, source: 'network' });
+      this.store.updateTrackCover(row.id, nextCoverId);
+      this.store.refreshAlbums(this.albumService, undefined, this.albumRefreshOptions());
+      return nextCoverId;
+    });
+    if (!coverId) {
+      return result;
+    }
+    const appliedCoverId: string = coverId;
+
+    const appliedFields = {
+      ...result.appliedFields,
+      coverId: appliedCoverId,
+    };
+    if (Object.keys(result.appliedFields).length === 0) {
+      this.networkMetadataService.recordAccepted(candidate.id, { coverId: appliedCoverId });
+    }
+
+    return {
+      ...result,
+      status: 'applied_missing_only',
+      appliedFields,
+    };
   }
 
   deleteTrack(trackId: string): void {

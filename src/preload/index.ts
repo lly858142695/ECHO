@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels } from '../shared/constants/ipcChannels';
 import type { EchoApi } from './apiTypes';
+import type { GlobalShortcutAction } from '../shared/types/globalShortcuts';
 import type { SmtcCommand } from '../shared/types/smtc';
 import type { UpdateStatus } from '../shared/types/updates';
 
@@ -52,6 +53,14 @@ const echoApi: EchoApi = {
       return () => ipcRenderer.off(IpcChannels.AppUpdateStatusChanged, listener);
     },
     openRepository: () => ipcRenderer.invoke(IpcChannels.AppOpenRepository),
+    validateGlobalShortcut: (accelerator) => ipcRenderer.invoke(IpcChannels.AppValidateGlobalShortcut, accelerator),
+    onGlobalShortcutCommand: (handler) => {
+      const listener = (_event: Electron.IpcRendererEvent, action: unknown): void => {
+        handler(action as GlobalShortcutAction);
+      };
+      ipcRenderer.on(IpcChannels.AppGlobalShortcutCommand, listener);
+      return () => ipcRenderer.off(IpcChannels.AppGlobalShortcutCommand, listener);
+    },
   },
   library: {
     chooseFolder: () => ipcRenderer.invoke(IpcChannels.LibraryChooseFolder),
@@ -126,6 +135,9 @@ const echoApi: EchoApi = {
     refreshVisibleArtistImages: (artists) => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesRefreshVisible, artists),
     getArtistImageStatus: (artistId) => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesGetStatus, artistId),
     getArtistImageCacheSummary: () => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesGetSummary),
+    getArtistImageJobStatus: () => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesGetJobStatus),
+    setArtistImageJobsPaused: (paused) => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesSetPaused, paused),
+    kickoffArtistImageBackfill: (options) => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesKickoff, options),
     clearArtistImageCache: () => ipcRenderer.invoke(IpcChannels.LibraryArtistImagesClearCache),
     onArtistImagesUpdated: (handler) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: unknown): void => {

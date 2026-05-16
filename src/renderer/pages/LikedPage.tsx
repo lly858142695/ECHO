@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Cloud, Disc3, Heart, ListFilter, Play, RefreshCw, Search, Shuffle, Trash2 } from 'lucide-react';
+import { Cloud, Disc3, Heart, Play, RefreshCw, Search, Shuffle, Trash2 } from 'lucide-react';
 import type { LibraryAlbum, LibraryPage, LibraryPlaylistItem, LibrarySort, LibraryTrack, PlaylistSourceProvider } from '../../shared/types/library';
 import type { StreamingProviderName } from '../../shared/types/streaming';
 import { AlbumDetailView } from '../components/album/AlbumDetailView';
 import { TrackList } from '../components/library/TrackList';
 import { InfiniteScrollSentinel, readPageScrollTop, writePageScrollTop } from '../components/ui/InfiniteScrollSentinel';
 import { MediaWallScrollSpacer, useMediaWallScrollSpacer } from '../components/ui/MediaWallScrollSpacer';
+import { StyledSelect } from '../components/ui/StyledSelect';
 import { likedAlbumsChangedEvent, likedChangedEvent, likedTracksChangedEvent } from '../hooks/useLikedMedia';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 
@@ -444,14 +445,13 @@ export const LikedPage = (): JSX.Element => {
           <input type="search" placeholder="搜索喜欢的音乐" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} />
         </label>
 
-        <label className="sort-button sort-select">
-          <ListFilter size={15} />
-          <select value={sort} onChange={(event) => setSort(event.target.value as LibrarySort)}>
-            {sortOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
+        <StyledSelect
+          className="liked-sort-control"
+          value={sort}
+          options={sortOptions}
+          onChange={setSort}
+          ariaLabel="鍠滄鎺掑簭"
+        />
       </div>
 
       <div className="liked-actions">

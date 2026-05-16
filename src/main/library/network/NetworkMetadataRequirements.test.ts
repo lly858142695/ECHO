@@ -347,6 +347,7 @@ describe('Network metadata required guards', () => {
 
     expect(result.scannedCount).toBe(1);
     expect(result.candidateCount).toBe(1);
+    expect(result.diagnostics).toMatchObject({ targetCount: 1, noCandidateCount: 0, appliedCount: 0 });
     expect(result.items[0].reasons).toEqual(expect.arrayContaining(['missing_cover', 'unknown_artist']));
     expect(result.items[0].candidates.metadata[0].artist).toBe('Network Artist');
     expect(track(database).artist).toBe('Unknown Artist');
@@ -388,6 +389,7 @@ describe('Network metadata required guards', () => {
     const result = await new NetworkMetadataService(database, [provider]).scanMissingMetadata(10, ['mock']);
 
     expect(result.scannedCount).toBe(1);
+    expect(result.diagnostics).toMatchObject({ targetCount: 1, noCandidateCount: 0 });
     expect(result.items[0].reasons).toEqual(['missing_cover']);
     expect(result.items[0].candidates.metadata[0].coverUrl).toBe('https://example.invalid/cover.jpg');
     database.close();

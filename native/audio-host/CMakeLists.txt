@@ -36,6 +36,7 @@ set(ECHO_JUCE_DEFINITIONS
   JUCE_REPORT_APP_USAGE=0
   JUCE_USE_CURL=0
   JUCE_WEB_BROWSER=0
+  JUCE_USE_MP3AUDIOFORMAT=0
   JUCE_ASIO=$<BOOL:${ECHO_ENABLE_ASIO}>
   ECHO_ENABLE_ASIO=$<BOOL:${ECHO_ENABLE_ASIO}>
 )
@@ -43,6 +44,7 @@ set(ECHO_JUCE_DEFINITIONS
 set(ECHO_JUCE_LIBRARIES
   juce::juce_audio_basics
   juce::juce_audio_devices
+  juce::juce_audio_formats
   juce::juce_core
   juce::juce_gui_basics
   juce::juce_recommended_config_flags

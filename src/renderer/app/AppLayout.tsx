@@ -471,12 +471,13 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       window.echo?.app?.getSettings?.().catch(() => null) ?? Promise.resolve(null),
     ])
       .then(([remembered, settings]) => {
-        const useJuceOutput = settings?.audioUseJuceOutput === true;
+        const useJuceOutput = settings?.audioUseJuceOutput !== false;
+        const useJuceDecode = settings?.audioUseJuceDecode === true;
         const asioUnavailableFallbackEnabled = settings?.audioAsioUnavailableFallbackEnabled === true;
         const soxrFallbackEnabled = settings?.audioSoxrFallbackEnabled !== false;
         if (!remembered.enabled) {
           return audio
-            .setOutput({ useJuceOutput, asioUnavailableFallbackEnabled, soxrFallbackEnabled })
+            .setOutput({ useJuceOutput, useJuceDecode, asioUnavailableFallbackEnabled, soxrFallbackEnabled })
             .then(setAudioDrawerStatus);
         }
 
@@ -488,6 +489,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
             deviceIndex: remembered.deviceIndex,
             deviceName: remembered.deviceName,
             useJuceOutput,
+            useJuceDecode,
             asioUnavailableFallbackEnabled,
             soxrFallbackEnabled,
           })

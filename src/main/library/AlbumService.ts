@@ -3,6 +3,15 @@ import { dirname } from 'node:path';
 
 const normalizeKeyPart = (value: string): string => value.trim().toLocaleLowerCase().replace(/\s+/g, ' ');
 
+export const normalizeAlbumTitleForLooseMerge = (value: string): string =>
+  value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]+/gu, ' ')
+    .trim();
+
 export type AlbumMergeStrategy = 'standard' | 'sameTitleAndCover';
 
 export type AlbumKeyInput = {
@@ -22,20 +31,15 @@ const reliableAlbumArtistSources = new Set(['embedded', 'manual', 'network', 'si
 
 export class AlbumService {
   makeAlbumKey(input: AlbumKeyInput): string {
+    const normalizedLooseAlbum = normalizeAlbumTitleForLooseMerge(input.albumTitle);
     const normalizedAlbum = normalizeKeyPart(input.albumTitle);
 
-    if (normalizedAlbum.length === 0 || normalizedAlbum === 'unknown album') {
+    if (normalizedLooseAlbum.length === 0 || normalizedLooseAlbum === 'unknown album') {
       return `unknown:${input.trackId}`;
     }
 
     if (input.mergeStrategy === 'sameTitleAndCover') {
-      const coverSourceHash = input.coverSourceHash?.trim();
-
-      if (coverSourceHash) {
-        // In loose mode the user's explicit preference is to merge same-title,
-        // same-cover albums even when year tags differ or are partly missing.
-        return createAlbumKey(`cover:${coverSourceHash}`, normalizedAlbum, '');
-      }
+      return createAlbumKey('loose-title', normalizedLooseAlbum, '');
     }
 
     return this.makeStandardAlbumKey(input, normalizedAlbum);

@@ -39,12 +39,20 @@ describe('AlbumService', () => {
     expect(first).toBe(second);
   });
 
-  it('sameTitleAndCover strategy does not merge different covers', () => {
+  it('sameTitleAndCover strategy merges same title even when covers differ', () => {
     const service = new AlbumService();
     const first = service.makeAlbumKey(makeInput({ mergeStrategy: 'sameTitleAndCover', coverSourceHash: 'cover-a' }));
     const second = service.makeAlbumKey(makeInput({ mergeStrategy: 'sameTitleAndCover', coverSourceHash: 'cover-b' }));
 
-    expect(first).not.toBe(second);
+    expect(first).toBe(second);
+  });
+
+  it('sameTitleAndCover strategy treats normalized title punctuation as the same album', () => {
+    const service = new AlbumService();
+    const first = service.makeAlbumKey(makeInput({ mergeStrategy: 'sameTitleAndCover', albumTitle: '28／29', coverSourceHash: null }));
+    const second = service.makeAlbumKey(makeInput({ mergeStrategy: 'sameTitleAndCover', albumTitle: '28/29', coverSourceHash: null }));
+
+    expect(first).toBe(second);
   });
 
   it('sameTitleAndCover strategy does not merge different album titles', () => {
@@ -66,7 +74,7 @@ describe('AlbumService', () => {
     expect(unknownFirst).not.toBe(unknownSecond);
   });
 
-  it('sameTitleAndCover strategy falls back to standard when cover hash is missing', () => {
+  it('sameTitleAndCover strategy merges same title when cover hash is missing', () => {
     const service = new AlbumService();
     const first = service.makeAlbumKey(makeInput({ mergeStrategy: 'sameTitleAndCover', coverSourceHash: null }));
     const second = service.makeAlbumKey(
@@ -78,6 +86,6 @@ describe('AlbumService', () => {
       }),
     );
 
-    expect(first).not.toBe(second);
+    expect(first).toBe(second);
   });
 });

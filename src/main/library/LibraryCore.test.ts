@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../database/createDatabase';
 import { migrations } from '../database/migrations';
 import { MetadataService } from './MetadataService';
 import { createLibraryService } from './LibraryService';
+import { NetworkMetadataStore } from './network/NetworkMetadataStore';
 import type { AlbumMergeStrategy } from './AlbumService';
 import type {
   CoverCacheRepairOptions,
@@ -371,6 +372,8 @@ const createHarness = (
 };
 
 afterEach(() => {
+  vi.restoreAllMocks();
+
   for (const cleanup of cleanupCallbacks.splice(0)) {
     cleanup();
   }
@@ -881,6 +884,63 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
+  it('missing-only network repair applies a high-confidence cover candidate without recording ignored', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(validCoverPng() as unknown as BodyInit, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      }),
+    );
+    const coverExtractor = new FakeCoverExtractor({ sourceHash: 'network-repair-cover' });
+    const harness = createHarness({ coverExtractor });
+    writeAudioFile(harness.folder, 'Network - Cover Repair.flac');
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const track = harness.service.getTracks({ pageSize: 1 }).items[0];
+    const database = createDatabase(harness.databasePath);
+    const candidateId = new NetworkMetadataStore(database).upsertMetadataCandidate(
+      track.id,
+      null,
+      {
+        provider: 'mock',
+        providerItemId: 'network-cover-candidate',
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        albumArtist: track.albumArtist,
+        year: track.year,
+        genre: track.genre,
+        duration: track.duration,
+        trackNo: track.trackNo,
+        discNo: track.discNo,
+        coverUrl: 'https://example.test/cover.png',
+        raw: {},
+      },
+      0.96,
+    ).id;
+    database.close();
+
+    const result = await harness.service.applyNetworkMissingOnly(candidateId, { fields: ['cover'] });
+    const updated = harness.service.getTrack(track.id);
+    const verify = createDatabase(harness.databasePath);
+    const decisions = verify
+      .prepare<[], { decision: string }>('SELECT decision FROM network_metadata_decisions ORDER BY created_at ASC')
+      .all()
+      .map((row) => row.decision);
+    const cover = verify
+      .prepare<[string], { source_type: string }>('SELECT source_type FROM covers WHERE id = ?')
+      .get(String(updated?.coverId));
+    verify.close();
+
+    expect(result.appliedFields.coverId).toBeTruthy();
+    expect(updated?.coverId).toBe(result.appliedFields.coverId);
+    expect(cover?.source_type).toBe('network');
+    expect(decisions).toContain('accepted');
+    expect(decisions).not.toContain('ignored');
+    harness.cleanup();
+  });
+
   it('path + size + mtime unchanged with complete cover cache skips cover work', async () => {
     const coverExtractor = new FakeCoverExtractor();
     const harness = createHarness({ coverExtractor });
@@ -1240,7 +1300,47 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
-  it('sameTitleAndCover album grouping merges same cover when album titles are at least 90 percent similar', async () => {
+  it('sameTitleAndCover album grouping merges exact beatmania soundtrack titles across artists without matching covers', async () => {
+    const harness = createHarness({ coverExtractor: new FakeCoverExtractor() });
+    harness.setAlbumMergeStrategy('sameTitleAndCover');
+    const albumsUnderTest = [
+      {
+        title: 'beatmania IIDX 12 HAPPY SKY ORIGINAL SOUNDTRACK',
+        artists: ['BEMANI Sound Team', '石川貴之/清水達也'],
+      },
+      {
+        title: 'beatmania IIDX 25 CANNON BALLERS ORIGINAL SOUNDTRACK',
+        artists: ['BEMANI Sound Team', '中原龍太郎'],
+      },
+    ];
+
+    albumsUnderTest.forEach((album, albumIndex) => {
+      album.artists.forEach((artist, artistIndex) => {
+        const folder = join(harness.folder, `album-${albumIndex}`, `artist-${artistIndex}`);
+        mkdirSync(folder, { recursive: true });
+        const file = writeAudioFile(folder, `Track ${albumIndex}-${artistIndex}.flac`);
+        harness.metadataService.overrides.set(
+          file,
+          baseMetadata({
+            title: `Track ${albumIndex}-${artistIndex}`,
+            artist,
+            album: album.title,
+            albumArtist: artist,
+          }),
+        );
+      });
+    });
+    harness.addFolder();
+
+    await harness.scanFolder();
+    const albums = harness.service.getAlbums({ pageSize: 10 });
+
+    expect(albums.total).toBe(2);
+    expect(albums.items.map((album) => album.trackCount).sort((left, right) => left - right)).toEqual([2, 2]);
+    harness.cleanup();
+  });
+
+  it('sameTitleAndCover album grouping merges same cover when album titles are at least 85 percent similar', async () => {
     const coverExtractor = new FakeCoverExtractor({ sourceHash: 'same-cover-hash' });
     const harness = createHarness({ coverExtractor });
     harness.setAlbumMergeStrategy('sameTitleAndCover');
@@ -1358,7 +1458,7 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
-  it('sameTitleAndCover album grouping does not merge same title with different covers', async () => {
+  it('sameTitleAndCover album grouping merges same title even when covers differ', async () => {
     const harness = createHarness({ coverExtractor: new FakeCoverExtractor() });
     harness.setAlbumMergeStrategy('sameTitleAndCover');
     const first = writeAudioFile(harness.folder, 'A.flac');
@@ -1370,7 +1470,8 @@ describe('Library Core', () => {
     await harness.scanFolder();
     const albums = harness.service.getAlbums({ pageSize: 10 });
 
-    expect(albums.total).toBe(2);
+    expect(albums.total).toBe(1);
+    expect(albums.items[0].trackCount).toBe(2);
     harness.cleanup();
   });
 
@@ -1427,7 +1528,7 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
-  it('sameTitleAndCover album grouping falls back to standard when cover hash is missing', async () => {
+  it('sameTitleAndCover album grouping merges same title when cover hash is missing', async () => {
     const harness = createHarness({ coverExtractor: new ThrowingCoverExtractor() });
     harness.setAlbumMergeStrategy('sameTitleAndCover');
     const firstFolder = join(harness.folder, 'disc-a');
@@ -1449,7 +1550,8 @@ describe('Library Core', () => {
     await harness.scanFolder();
     const albums = harness.service.getAlbums({ pageSize: 10 });
 
-    expect(albums.total).toBe(2);
+    expect(albums.total).toBe(1);
+    expect(albums.items[0].trackCount).toBe(2);
     harness.cleanup();
   });
 

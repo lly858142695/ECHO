@@ -69,6 +69,8 @@ export type DecoderRun = {
   stream: Readable;
   stop: () => void;
   done: Promise<void>;
+  ready?: Promise<void>;
+  decoderBackendImpl?: string;
   resamplerEngine?: AudioResamplerEngine;
   resamplerFallbackActive?: boolean;
 };

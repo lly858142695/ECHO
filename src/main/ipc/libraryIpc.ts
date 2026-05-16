@@ -215,6 +215,19 @@ const normalizeArtistImageRefreshOneRequest = (value: unknown): { artistIdOrKey:
   };
 };
 
+const normalizeArtistImageBackfillOptions = (value: unknown): { force?: boolean; limit?: number } => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const input = value as Record<string, unknown>;
+  const limit = Number(input.limit);
+  return {
+    force: input.force === true,
+    limit: Number.isFinite(limit) && limit > 0 ? Math.round(limit) : undefined,
+  };
+};
+
 const normalizeDuplicateMode = (value: unknown): DuplicateTrackMode => (value === 'strict' ? 'strict' : 'strict');
 
 const normalizeFolderChildrenQuery = (value: unknown): LibraryFolderChildrenQuery => {
@@ -1147,6 +1160,13 @@ export const registerLibraryIpc = (): void => {
     getLibraryService().getArtistImage(requireText(artistIdOrKey, 'artistId')),
   );
   ipcMain.handle(IpcChannels.LibraryArtistImagesGetSummary, () => getLibraryService().getArtistImageCacheSummary());
+  ipcMain.handle(IpcChannels.LibraryArtistImagesGetJobStatus, () => getLibraryService().getArtistImageJobStatus());
+  ipcMain.handle(IpcChannels.LibraryArtistImagesSetPaused, (_event, paused: unknown) =>
+    getLibraryService().setArtistImageJobsPaused(paused === true),
+  );
+  ipcMain.handle(IpcChannels.LibraryArtistImagesKickoff, (_event, options: unknown) =>
+    getLibraryService().kickoffArtistImageBackfill(normalizeArtistImageBackfillOptions(options)),
+  );
   ipcMain.handle(IpcChannels.LibraryArtistImagesClearCache, () => getLibraryService().clearArtistImageCache());
   ipcMain.handle(IpcChannels.LibraryGetAlbumTracks, (_event, albumId: unknown, query: unknown) =>
     getLibraryService().getAlbumTracks(requireText(albumId, 'albumId'), normalizeQuery(query)),

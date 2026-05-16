@@ -3,6 +3,7 @@ import type { DuplicateTrackMode } from './library';
 import type { LibrarySort } from './library';
 import type { LyricsProviderId } from './lyrics';
 import type { MvMaxQuality, NetworkMvProviderId } from './mv';
+import type { GlobalShortcutSettings } from './globalShortcuts';
 
 export type ScanPerformanceMode = 'low' | 'balanced' | 'performance';
 export type LyricsBackgroundMode = 'theme' | 'cover' | 'customWallpaper';
@@ -44,12 +45,14 @@ export type AppSettings = {
   rememberedAudioOutput?: RememberedAudioOutput;
   hiddenAudioDeviceKeys?: string[];
   audioUseJuceOutput?: boolean;
+  audioUseJuceDecode?: boolean;
   audioAsioUnavailableFallbackEnabled?: boolean;
   audioSoxrFallbackEnabled?: boolean;
   albumMergeStrategy: 'standard' | 'sameTitleAndCover';
   chineseCrossScriptSearchEnabled?: boolean;
   artistWallAlbumArtwork: boolean;
   autoFetchArtistImages?: boolean;
+  artistImageFetchPaused?: boolean;
   autoUpdateEnabled?: boolean;
   autoAccountCheckOnStartup?: boolean;
   spotifyAutoLaunchOfficialPlayer?: boolean;
@@ -120,6 +123,7 @@ export type AppSettings = {
   channelBalance: ChannelBalanceState;
   playerVolume: number;
   backgroundSpacePauseEnabled?: boolean;
+  globalShortcuts?: GlobalShortcutSettings;
   playbackFollowCurrentTrack?: boolean;
   playbackSpeed: number;
   playbackSpeedMode: PlaybackSpeedMode;

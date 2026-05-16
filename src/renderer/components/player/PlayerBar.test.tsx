@@ -44,6 +44,8 @@ const audioStatus = (track: LibraryTrack): AudioStatus => ({
   activeOutputBackendImpl: null,
   outputMode: 'shared',
   useJuceOutputRequested: false,
+  useJuceDecodeRequested: false,
+  activeDecodeBackendImpl: null,
   volume: 1,
   playbackRate: 1,
   playbackSpeedMode: 'nightcore',
@@ -1054,6 +1056,93 @@ describe('PlayerBar', () => {
 
     await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: firstTrack.id })));
     smtcHandlers[0]?.('pause');
+
+    await waitFor(() => expect(pause).toHaveBeenCalledTimes(1));
+  });
+
+  it('routes global shortcut commands through the playback queue', async () => {
+    const firstTrack = makeTrack(1);
+    const secondTrack = makeTrack(2);
+    const globalShortcutHandlers: Array<(command: 'playPause' | 'previousTrack' | 'nextTrack' | 'stop') => void> = [];
+    const playLocalFile = vi.fn().mockImplementation(({ filePath, trackId }: { filePath: string; trackId?: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: trackId ?? null,
+        positionMs: 0,
+        durationMs: (trackId === secondTrack.id ? secondTrack.duration : firstTrack.duration) * 1000,
+        filePath,
+      }),
+    );
+    const pause = vi.fn().mockResolvedValue({
+      state: 'paused',
+      currentTrackId: secondTrack.id,
+      positionMs: 4000,
+      durationMs: secondTrack.duration * 1000,
+      filePath: secondTrack.path,
+    });
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: firstTrack.id,
+          positionMs: 4000,
+          durationMs: firstTrack.duration * 1000,
+          filePath: firstTrack.path,
+        }),
+        playLocalFile,
+        play: vi.fn(),
+        pause,
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
+        onGlobalShortcutCommand: vi.fn((handler) => {
+          globalShortcutHandlers[0] = handler as typeof globalShortcutHandlers[number];
+          return () => {
+            globalShortcutHandlers.length = 0;
+          };
+        }),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(audioStatus(firstTrack)),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getTracks: vi.fn(),
+        getAlbums: vi.fn(),
+        getAlbumTracks: vi.fn(),
+        getSummary: vi.fn(),
+        chooseFolder: vi.fn(),
+        addFolder: vi.fn(),
+        getFolders: vi.fn(),
+        removeFolder: vi.fn(),
+        scanFolder: vi.fn(),
+        getScanStatus: vi.fn(),
+        cancelScan: vi.fn(),
+        getDiagnostics: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <PlaybackCommandController />
+        <QueueSeed tracks={[firstTrack, secondTrack]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    expect(globalShortcutHandlers[0]).toBeTruthy();
+    globalShortcutHandlers[0]?.('nextTrack');
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: secondTrack.id })));
+    globalShortcutHandlers[0]?.('previousTrack');
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: firstTrack.id })));
+    globalShortcutHandlers[0]?.('playPause');
 
     await waitFor(() => expect(pause).toHaveBeenCalledTimes(1));
   });

@@ -170,6 +170,30 @@ const installLibraryService = () => {
     refreshVisibleArtistImages: vi.fn(() => ({ queued: 0, skipped: 0 })),
     getArtistImage: vi.fn(() => null),
     getArtistImageCacheSummary: vi.fn(() => ({ total: 0, matched: 0, pending: 0, loading: 0, notFound: 0, error: 0, rateLimited: 0 })),
+    getArtistImageJobStatus: vi.fn(() => ({
+      paused: false,
+      running: false,
+      queued: 0,
+      active: 0,
+      lastQueued: { queued: 0, skipped: 0 },
+      summary: { total: 0, matched: 0, pending: 0, loading: 0, notFound: 0, error: 0, rateLimited: 0 },
+    })),
+    setArtistImageJobsPaused: vi.fn(() => ({
+      paused: true,
+      running: false,
+      queued: 0,
+      active: 0,
+      lastQueued: { queued: 0, skipped: 0 },
+      summary: { total: 0, matched: 0, pending: 0, loading: 0, notFound: 0, error: 0, rateLimited: 0 },
+    })),
+    kickoffArtistImageBackfill: vi.fn(() => ({
+      paused: false,
+      running: true,
+      queued: 2,
+      active: 0,
+      lastQueued: { queued: 2, skipped: 0 },
+      summary: { total: 2, matched: 0, pending: 2, loading: 0, notFound: 0, error: 0, rateLimited: 0 },
+    })),
     clearArtistImageCache: vi.fn(() => ({ removedRows: 0, deletedFiles: 0, freedBytes: 0 })),
     getAlbumTracks: vi.fn(),
     getSummary: vi.fn(),
@@ -405,6 +429,9 @@ describe('library IPC', () => {
     await handlers[IpcChannels.LibraryArtistImagesRefreshOne]!(null, { artistId: 'artist-1', force: true });
     await handlers[IpcChannels.LibraryArtistImagesGetStatus]!(null, 'artist-1');
     await handlers[IpcChannels.LibraryArtistImagesGetSummary]!(null);
+    await handlers[IpcChannels.LibraryArtistImagesGetJobStatus]!(null);
+    await handlers[IpcChannels.LibraryArtistImagesSetPaused]!(null, true);
+    await handlers[IpcChannels.LibraryArtistImagesKickoff]!(null, { force: true, limit: 50 });
     await handlers[IpcChannels.LibraryArtistImagesClearCache]!();
 
     expect(service.enqueueMissingArtistImages).toHaveBeenCalledWith([{ id: 'artist-1', name: 'Suara', artistKey: undefined, artistName: undefined }], {
@@ -415,6 +442,9 @@ describe('library IPC', () => {
     expect(service.refreshArtistImage).toHaveBeenCalledWith('artist-1', true);
     expect(service.getArtistImage).toHaveBeenCalledWith('artist-1');
     expect(service.getArtistImageCacheSummary).toHaveBeenCalledTimes(1);
+    expect(service.getArtistImageJobStatus).toHaveBeenCalledTimes(1);
+    expect(service.setArtistImageJobsPaused).toHaveBeenCalledWith(true);
+    expect(service.kickoffArtistImageBackfill).toHaveBeenCalledWith({ force: true, limit: 50 });
     expect(service.clearArtistImageCache).toHaveBeenCalledTimes(1);
   });
 

@@ -4,6 +4,7 @@ import type {
   MissingMetadataScanItem,
   MissingMetadataScanResult,
   MissingMetadataField,
+  NetworkMetadataDiagnostics,
   NetworkMetadataScanJobStatus,
   NetworkApplyOptions,
   NetworkTagCandidate,
@@ -29,6 +30,7 @@ export type NetworkCandidateList = {
 export type NetworkRepairResult = NetworkCandidateList & {
   applied: NetworkApplyResult[];
   errors: string[];
+  diagnostics: NetworkMetadataDiagnostics;
 };
 
 type MutableNetworkMetadataScanJobStatus = NetworkMetadataScanJobStatus;
@@ -42,6 +44,26 @@ type MissingMetadataScanProgress = {
 };
 
 const NETWORK_TAG_EDITOR_VISIBLE_THRESHOLD = 0.45;
+
+const emptyDiagnostics = (overrides: Partial<NetworkMetadataDiagnostics> = {}): NetworkMetadataDiagnostics => ({
+  targetCount: 0,
+  providerErrors: 0,
+  noCandidateCount: 0,
+  protectedCount: 0,
+  appliedCount: 0,
+  ...overrides,
+});
+
+const hasCandidate = (item: MissingMetadataScanItem): boolean =>
+  item.candidates.metadata.length + item.candidates.covers.length > 0;
+
+const isProtectedApplyReason = (reason: string | undefined): boolean =>
+  Boolean(
+    reason === 'embedded_metadata_not_ready' ||
+      reason === 'embedded_metadata_present' ||
+      reason === 'no_missing_fields' ||
+      reason?.startsWith('cover_source_'),
+  );
 
 const sameStringSet = (left: string[], right: string[]): boolean => {
   if (left.length !== right.length) {
@@ -92,9 +114,16 @@ export class NetworkMetadataService {
       const track = this.store.getTrackLookup(trackId);
       const applied: NetworkApplyResult[] = [];
       const errors: string[] = [];
+      let protectedCount = 0;
 
       if (!track) {
-        return { metadata: [], covers: [], applied, errors: [`Unknown track ${trackId}`] };
+        return {
+          metadata: [],
+          covers: [],
+          applied,
+          errors: [`Unknown track ${trackId}`],
+          diagnostics: emptyDiagnostics({ providerErrors: 1 }),
+        };
       }
 
       const providers = this.providers.filter((provider) => !providerNames?.length || providerNames.includes(provider.name));
@@ -113,6 +142,8 @@ export class NetworkMetadataService {
             const result = this.merge.applyMissingOnly(stored.id);
             if (result.status === 'applied_missing_only') {
               applied.push(result);
+            } else if (isProtectedApplyReason(result.reason)) {
+              protectedCount += 1;
             }
           }
         } catch (error) {
@@ -121,11 +152,21 @@ export class NetworkMetadataService {
         }
       }
 
+      const metadata = this.store.listTrackMetadataCandidates(trackId);
+      const covers = this.store.listTrackCoverCandidates(trackId);
+      const candidateCount = metadata.length + covers.length;
       return {
-        metadata: this.store.listTrackMetadataCandidates(trackId),
-        covers: this.store.listTrackCoverCandidates(trackId),
+        metadata,
+        covers,
         applied,
         errors,
+        diagnostics: emptyDiagnostics({
+          targetCount: 1,
+          providerErrors: errors.length,
+          noCandidateCount: candidateCount > 0 ? 0 : 1,
+          protectedCount,
+          appliedCount: applied.length,
+        }),
       };
     });
   }
@@ -162,6 +203,7 @@ export class NetworkMetadataService {
       candidateCount: 0,
       items: [],
       errors: [],
+      diagnostics: emptyDiagnostics(),
       startedAt: timestamp,
       finishedAt: null,
       currentTrackTitle: null,
@@ -171,9 +213,16 @@ export class NetworkMetadataService {
     void this.queue
       .run(async () => {
         job.status = 'running';
-        await this.runMissingMetadataScan(limit, providerNames, fields, (progress) => {
+        const result = await this.runMissingMetadataScan(limit, providerNames, fields, (progress) => {
           this.updateScanJob(job, progress);
         });
+        job.items = result.items;
+        job.scannedCount = result.scannedCount;
+        job.candidateCount = result.candidateCount;
+        job.errors = result.errors;
+        job.diagnostics = result.diagnostics;
+        job.totalTracks = result.diagnostics.targetCount;
+        job.processedTracks = result.scannedCount;
         job.status = 'completed';
         job.currentTrackTitle = null;
         job.finishedAt = new Date().toISOString();
@@ -298,6 +347,27 @@ export class NetworkMetadataService {
     return this.merge.reject(candidateId);
   }
 
+  recordAccepted(candidateId: string, appliedFields: NetworkApplyResult['appliedFields']): void {
+    const candidate = this.store.getMetadataCandidate(candidateId);
+    if (!candidate) {
+      return;
+    }
+
+    this.store.recordDecision(candidate.trackId, candidate.id, 'accepted', appliedFields);
+    this.database
+      .prepare("UPDATE tracks SET network_metadata_status = 'applied_missing_only', updated_at = ? WHERE id = ?")
+      .run(new Date().toISOString(), candidate.trackId);
+  }
+
+  recordIgnored(candidateId: string): void {
+    const candidate = this.store.getMetadataCandidate(candidateId);
+    if (!candidate) {
+      return;
+    }
+
+    this.store.recordDecision(candidate.trackId, candidate.id, 'ignored', {});
+  }
+
   private async runMissingMetadataScan(
     limit = 25,
     providerNames?: NetworkProviderName[],
@@ -308,6 +378,7 @@ export class NetworkMetadataService {
     const providers = this.providers.filter((provider) => !providerNames?.length || providerNames.includes(provider.name));
     const items: MissingMetadataScanItem[] = [];
     const errors: string[] = [];
+    let protectedCount = 0;
 
     onProgress?.({ totalTracks: targets.length, processedTracks: 0 });
 
@@ -334,6 +405,8 @@ export class NetworkMetadataService {
             }
           }),
         );
+      } else {
+        protectedCount += 1;
       }
 
       const item = {
@@ -353,12 +426,20 @@ export class NetworkMetadataService {
       scannedCount: targets.length,
       candidateCount: items.reduce((total, item) => total + item.candidates.metadata.length + item.candidates.covers.length, 0),
       errors,
+      diagnostics: emptyDiagnostics({
+        targetCount: targets.length,
+        providerErrors: errors.length,
+        noCandidateCount: items.filter((item) => !hasCandidate(item)).length,
+        protectedCount,
+        appliedCount: 0,
+      }),
     };
   }
 
   private updateScanJob(job: MutableNetworkMetadataScanJobStatus, progress: MissingMetadataScanProgress): void {
     if (typeof progress.totalTracks === 'number') {
       job.totalTracks = progress.totalTracks;
+      job.diagnostics = { ...job.diagnostics, targetCount: progress.totalTracks };
     }
 
     if (typeof progress.processedTracks === 'number') {
@@ -373,10 +454,15 @@ export class NetworkMetadataService {
     if (progress.item) {
       job.items = [...job.items, progress.item];
       job.candidateCount += progress.item.candidates.metadata.length + progress.item.candidates.covers.length;
+      job.diagnostics = {
+        ...job.diagnostics,
+        noCandidateCount: job.diagnostics.noCandidateCount + (hasCandidate(progress.item) ? 0 : 1),
+      };
     }
 
     if (progress.error) {
       job.errors = [...job.errors, progress.error];
+      job.diagnostics = { ...job.diagnostics, providerErrors: job.errors.length };
     }
   }
 

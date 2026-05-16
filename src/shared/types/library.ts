@@ -53,6 +53,15 @@ export type ArtistImageCacheSummary = {
   rateLimited: number;
 };
 
+export type ArtistImageJobStatus = {
+  paused: boolean;
+  running: boolean;
+  queued: number;
+  active: number;
+  lastQueued: ArtistImageQueueResult;
+  summary: ArtistImageCacheSummary;
+};
+
 export type ArtistImageQueueResult = {
   queued: number;
   skipped: number;
@@ -656,9 +665,18 @@ export type NetworkApplyOptions = {
   fields?: MissingMetadataField[];
 };
 
+export type NetworkMetadataDiagnostics = {
+  targetCount: number;
+  providerErrors: number;
+  noCandidateCount: number;
+  protectedCount: number;
+  appliedCount: number;
+};
+
 export type NetworkRepairResult = NetworkCandidateList & {
   applied: NetworkApplyResult[];
   errors: string[];
+  diagnostics: NetworkMetadataDiagnostics;
 };
 
 export type MissingMetadataField =
@@ -702,6 +720,7 @@ export type MissingMetadataScanResult = {
   scannedCount: number;
   candidateCount: number;
   errors: string[];
+  diagnostics: NetworkMetadataDiagnostics;
 };
 
 export type NetworkMetadataScanJobStatus = MissingMetadataScanResult & {

@@ -1,5 +1,6 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_devices/juce_audio_devices.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_core/juce_core.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -156,10 +157,13 @@ struct Options
     bool startupPrebufferTimeoutMsSpecified = false;
     bool framedStdin = false;
     bool useJuceOutput = false;
+    bool decodePcm = false;
+    double decodeStartSeconds = 0.0;
     bool asioControlPanel = false;
     int eqControlPort = 0;
     double volume = 1.0;
     juce::String deviceName;
+    juce::String decodeFile;
     juce::String sharedBackend = "auto";
 };
 
@@ -324,10 +328,19 @@ Options parseOptions(const std::vector<juce::String>& args)
         {
             options.useJuceOutput = true;
         }
+        else if (arg == "-decode-pcm" && i + 1 < args.size())
+        {
+            options.decodePcm = true;
+            options.decodeFile = args[++i];
+        }
         else if (arg == "-asio-control-panel")
         {
             options.asioControlPanel = true;
             options.asio = true;
+        }
+        else if (arg == "-ss" && i + 1 < args.size())
+        {
+            options.decodeStartSeconds = std::max(0.0, parseDouble(args[++i], options.decodeStartSeconds));
         }
         else if (arg == "-sr" && i + 1 < args.size())
         {
@@ -2921,6 +2934,86 @@ int runLegacyAsioHost(const Options& options)
 #endif
 #endif
 
+int runJuceDecodePcm(const Options& options)
+{
+    if (options.decodeFile.isEmpty())
+        throw std::runtime_error("JUCE decode failed: missing input file");
+
+    juce::File file(options.decodeFile);
+    if (! file.existsAsFile())
+        throw std::runtime_error("JUCE decode failed: input file not found");
+
+    if (! file.hasFileExtension("wav;wave;flac"))
+        throw std::runtime_error("JUCE decode unsupported format: pilot only accepts WAV/FLAC");
+
+#if JUCE_WINDOWS
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+    if (reader == nullptr)
+        throw std::runtime_error("JUCE decode failed: reader could not open input");
+
+    const int sourceSampleRate = static_cast<int>(std::llround(reader->sampleRate));
+    if (sourceSampleRate <= 0)
+        throw std::runtime_error("JUCE decode failed: source sample rate unavailable");
+
+    if (sourceSampleRate != options.sampleRate)
+        throw std::runtime_error(
+            "JUCE decode resampling unsupported: source="
+            + std::to_string(sourceSampleRate)
+            + " requested="
+            + std::to_string(options.sampleRate));
+
+    const int sourceChannels = static_cast<int>(reader->numChannels);
+    if (sourceChannels <= 0 || sourceChannels > 2)
+        throw std::runtime_error("JUCE decode unsupported channel count: " + std::to_string(sourceChannels));
+
+    if (sourceChannels != options.channels)
+        throw std::runtime_error(
+            "JUCE decode channel remap unsupported: source="
+            + std::to_string(sourceChannels)
+            + " requested="
+            + std::to_string(options.channels));
+
+    const int64_t startSample = std::max<int64_t>(
+        0,
+        static_cast<int64_t>(std::floor(options.decodeStartSeconds * static_cast<double>(sourceSampleRate))));
+    if (startSample >= reader->lengthInSamples)
+        return 0;
+
+    constexpr int blockFrames = 4096;
+    juce::AudioBuffer<float> buffer(sourceChannels, blockFrames);
+    std::vector<float> interleaved(static_cast<size_t>(blockFrames * sourceChannels), 0.0f);
+    int64_t position = startSample;
+
+    while (position < reader->lengthInSamples)
+    {
+        const int frames = static_cast<int>(std::min<int64_t>(blockFrames, reader->lengthInSamples - position));
+        buffer.clear();
+
+        if (! reader->read(&buffer, 0, frames, position, true, true))
+            throw std::runtime_error("JUCE decode failed while reading PCM");
+
+        for (int frame = 0; frame < frames; ++frame)
+        {
+            for (int channel = 0; channel < sourceChannels; ++channel)
+                interleaved[static_cast<size_t>(frame * sourceChannels + channel)] = buffer.getSample(channel, frame);
+        }
+
+        const auto bytes = static_cast<std::streamsize>(frames * sourceChannels * static_cast<int>(sizeof(float)));
+        std::cout.write(reinterpret_cast<const char*>(interleaved.data()), bytes);
+        if (! std::cout.good())
+            throw std::runtime_error("JUCE decode failed while writing PCM");
+
+        position += frames;
+    }
+
+    return 0;
+}
+
 int runHost(const Options& options)
 {
     configureProcessPriority();
@@ -3119,14 +3212,21 @@ int runHost(const Options& options)
 #ifndef ECHO_AUDIO_HOST_TESTS
 int main(int argc, char* argv[])
 {
+    Options options;
+
     try
     {
         juce::ScopedJuceInitialiser_GUI juceInitialiser;
-        const auto options = parseOptions(getCommandLineArgs(argc, argv));
+        options = parseOptions(getCommandLineArgs(argc, argv));
 
         if (options.list)
         {
             return listDevices(options);
+        }
+
+        if (options.decodePcm)
+        {
+            return runJuceDecodePcm(options);
         }
 
         if (options.asioControlPanel)
@@ -3139,7 +3239,8 @@ int main(int argc, char* argv[])
     catch (const std::exception& error)
     {
         logLine(error.what());
-        writeErrorEvent(error.what());
+        if (! options.decodePcm)
+            writeErrorEvent(error.what());
         return 1;
     }
 }

@@ -68,20 +68,44 @@ const insertCache = (
     );
 };
 
-const createProvider = (searchArtistImage: ReturnType<typeof vi.fn>): ArtistImageProvider => ({
-  name: 'mock',
+const createProvider = (searchArtistImage: ReturnType<typeof vi.fn>, name = 'mock'): ArtistImageProvider => ({
+  name,
   minRequestIntervalMs: 0,
   searchArtistImage: searchArtistImage as (input: { artistName: string; artistKey: string }) => Promise<ArtistImageCandidate[]>,
 });
 
+const createDeferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } => {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitFor = async (predicate: () => boolean, timeoutMs = 250): Promise<void> => {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error('Timed out waiting for artist image test condition');
+    }
+    await delay(5);
+  }
+};
+
 const createService = (
   database: EchoDatabase,
-  provider: ArtistImageProvider,
+  providers: ArtistImageProvider | ArtistImageProvider[],
   root = makeTempRoot(),
+  options: { concurrency?: number } = {},
 ): ArtistImageCacheService =>
   new ArtistImageCacheService(database, {
     cacheRoot: join(root, 'artist-images'),
-    providers: [provider],
+    providers: Array.isArray(providers) ? providers : [providers],
+    concurrency: options.concurrency,
     fetchImage: async (url) => ({
       data: validPng(),
       mimeType: 'image/png',
@@ -165,9 +189,129 @@ describe('ArtistImageCacheService', () => {
       queued: true,
       entry: {
         status: 'not_found',
-        failureReason: 'no_result',
+        failureReason: 'all_providers_no_result',
       },
     });
+    database.close();
+  });
+
+  it('retries stale loading rows when background backfill starts', async () => {
+    const database = createDatabase(':memory:');
+    const artistKey = insertArtist(database, 'artist-1', 'Interrupted Artist');
+    insertCache(database, artistKey, 'loading');
+    const providerSearch = vi.fn().mockResolvedValue([]);
+    const service = createService(database, createProvider(providerSearch));
+
+    service.kickoffBackfill({ force: true, limit: 10 });
+    await waitFor(() => providerSearch.mock.calls.length === 1);
+
+    expect(service.getJobStatus()).toMatchObject({
+      running: false,
+      queued: 0,
+      active: 0,
+    });
+    database.close();
+  });
+
+  it('pauses queued artist image jobs until resumed', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Paused Artist');
+    const providerSearch = vi.fn().mockResolvedValue([]);
+    const service = createService(database, createProvider(providerSearch));
+
+    service.setPaused(true);
+    const result = service.enqueueMissingArtistImages([{ id: 'artist-1', name: 'Paused Artist' }], { force: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(result).toEqual({ queued: 1, skipped: 0 });
+    expect(service.getJobStatus()).toMatchObject({ paused: true, queued: 1, active: 0 });
+    expect(providerSearch).not.toHaveBeenCalled();
+
+    service.setPaused(false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(providerSearch).toHaveBeenCalledTimes(1);
+    database.close();
+  });
+
+  it('lets the active job finish while paused without starting the next queued job', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Active Artist');
+    insertArtist(database, 'artist-2', 'Queued Artist');
+    const firstSearch = createDeferred<ArtistImageCandidate[]>();
+    const providerSearch = vi.fn()
+      .mockReturnValueOnce(firstSearch.promise)
+      .mockResolvedValue([]);
+    const service = createService(database, createProvider(providerSearch), makeTempRoot(), { concurrency: 1 });
+
+    service.enqueueMissingArtistImages([
+      { id: 'artist-1', name: 'Active Artist' },
+      { id: 'artist-2', name: 'Queued Artist' },
+    ], { force: true });
+    await waitFor(() => providerSearch.mock.calls.length === 1);
+
+    service.setPaused(true);
+    expect(service.getJobStatus()).toMatchObject({ paused: true, queued: 1, active: 1 });
+
+    firstSearch.resolve([]);
+    await waitFor(() => service.getJobStatus().active === 0);
+
+    expect(providerSearch).toHaveBeenCalledTimes(1);
+    expect(service.getJobStatus()).toMatchObject({ paused: true, queued: 1, active: 0 });
+
+    service.setPaused(false);
+    await waitFor(() => providerSearch.mock.calls.length === 2);
+
+    database.close();
+  });
+
+  it('keeps refilling background batches until no missing artists remain', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Artist One');
+    insertArtist(database, 'artist-2', 'Artist Two');
+    insertArtist(database, 'artist-3', 'Artist Three');
+    const providerSearch = vi.fn().mockResolvedValue([]);
+    const service = createService(database, createProvider(providerSearch));
+
+    service.kickoffBackfill({ force: true, limit: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(providerSearch).toHaveBeenCalledTimes(3);
+    expect(service.getJobStatus()).toMatchObject({
+      running: false,
+      queued: 0,
+      active: 0,
+      lastQueued: { queued: 0, skipped: 0 },
+    });
+    database.close();
+  });
+
+  it('serializes same-provider searches while artist workers run concurrently', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Artist One');
+    insertArtist(database, 'artist-2', 'Artist Two');
+    const searches: Array<{ artistName: string; resolve: (candidates: ArtistImageCandidate[]) => void }> = [];
+    const providerSearch = vi.fn((input: { artistName: string }) => {
+      const search = createDeferred<ArtistImageCandidate[]>();
+      searches.push({ artistName: input.artistName, resolve: search.resolve });
+      return search.promise;
+    });
+    const service = createService(database, createProvider(providerSearch, 'limited'), makeTempRoot(), { concurrency: 2 });
+
+    service.enqueueMissingArtistImages([
+      { id: 'artist-1', name: 'Artist One' },
+      { id: 'artist-2', name: 'Artist Two' },
+    ], { force: true });
+    await waitFor(() => providerSearch.mock.calls.length === 1);
+
+    expect(service.getJobStatus()).toMatchObject({ active: 2, queued: 0 });
+
+    searches[0]!.resolve([]);
+    await waitFor(() => providerSearch.mock.calls.length === 2);
+
+    expect(searches.map((search) => search.artistName)).toEqual(['Artist One', 'Artist Two']);
+    searches[1]!.resolve([]);
+    await waitFor(() => service.getJobStatus().active === 0);
     database.close();
   });
 
@@ -222,6 +366,122 @@ describe('ArtistImageCacheService', () => {
       status: 'not_found',
       failureReason: 'low_confidence',
       confidence: 0.7,
+    });
+    database.close();
+  });
+
+  it('stores a NetEase match when QQ Music has no candidates', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Arika');
+    const qqSearch = vi.fn().mockResolvedValue([]);
+    const neteaseSearch = vi.fn().mockResolvedValue([
+      {
+        provider: 'netease',
+        providerArtistId: '55240314',
+        artistName: 'Arika',
+        imageUrl: 'https://p2.music.126.net/arika.jpg?param=500y500',
+        confidence: 0.96,
+        sourceUrl: 'https://music.163.com/#/artist?id=55240314',
+      },
+    ]);
+    const service = createService(database, [
+      createProvider(qqSearch, 'qqmusic'),
+      createProvider(neteaseSearch, 'netease'),
+    ]);
+
+    const result = await service.refreshArtistImage('artist-1', true);
+
+    expect(qqSearch).toHaveBeenCalledTimes(1);
+    expect(neteaseSearch).toHaveBeenCalledTimes(1);
+    expect(result.entry).toMatchObject({
+      status: 'matched',
+      provider: 'netease',
+      providerArtistId: '55240314',
+      confidence: 0.96,
+    });
+    database.close();
+  });
+
+  it('keeps searching other providers when one provider fails', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Arika');
+    const qqSearch = vi.fn().mockRejectedValue(new Error('qqmusic_down'));
+    const neteaseSearch = vi.fn().mockResolvedValue([
+      {
+        provider: 'netease',
+        providerArtistId: '55240314',
+        artistName: 'Arika',
+        imageUrl: 'https://p2.music.126.net/arika.jpg?param=500y500',
+        confidence: 0.96,
+      },
+    ]);
+    const service = createService(database, [
+      createProvider(qqSearch, 'qqmusic'),
+      createProvider(neteaseSearch, 'netease'),
+    ]);
+
+    const result = await service.refreshArtistImage('artist-1', true);
+
+    expect(result.entry).toMatchObject({
+      status: 'matched',
+      provider: 'netease',
+      confidence: 0.96,
+    });
+    database.close();
+  });
+
+  it('chooses the highest-confidence candidate across providers', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Arika');
+    const qqSearch = vi.fn().mockResolvedValue([
+      {
+        provider: 'qqmusic',
+        providerArtistId: 'qq-arika',
+        artistName: 'Arika Official',
+        imageUrl: 'https://y.gtimg.cn/arika.jpg',
+        confidence: 0.86,
+      },
+    ]);
+    const neteaseSearch = vi.fn().mockResolvedValue([
+      {
+        provider: 'netease',
+        providerArtistId: '55240314',
+        artistName: 'Arika',
+        imageUrl: 'https://p2.music.126.net/arika.jpg?param=500y500',
+        confidence: 0.96,
+      },
+    ]);
+    const service = createService(database, [
+      createProvider(qqSearch, 'qqmusic'),
+      createProvider(neteaseSearch, 'netease'),
+    ]);
+
+    const result = await service.refreshArtistImage('artist-1', true);
+
+    expect(result.entry).toMatchObject({
+      status: 'matched',
+      provider: 'netease',
+      providerArtistId: '55240314',
+      confidence: 0.96,
+    });
+    database.close();
+  });
+
+  it('stores not_found only when all providers return no candidates', async () => {
+    const database = createDatabase(':memory:');
+    insertArtist(database, 'artist-1', 'Missing Artist');
+    const qqSearch = vi.fn().mockResolvedValue([]);
+    const neteaseSearch = vi.fn().mockResolvedValue([]);
+    const service = createService(database, [
+      createProvider(qqSearch, 'qqmusic'),
+      createProvider(neteaseSearch, 'netease'),
+    ]);
+
+    const result = await service.refreshArtistImage('artist-1', true);
+
+    expect(result.entry).toMatchObject({
+      status: 'not_found',
+      failureReason: 'all_providers_no_result',
     });
     database.close();
   });

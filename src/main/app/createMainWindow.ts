@@ -144,7 +144,7 @@ export const createMainWindow = (): BrowserWindow => {
   }
 
   setMainWindow(window);
-  bindBackgroundPlaybackShortcutsToWindow(window);
+  bindBackgroundPlaybackShortcutsToWindow();
 
   return window;
 };

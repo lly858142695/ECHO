@@ -189,8 +189,9 @@ export const SongsPage = (): JSX.Element => {
   const ignoreNextLibraryChangedRef = useRef(false);
   const tagEditorCloseTimerRef = useRef<number | null>(null);
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
-  const { currentTrackId, playTrack, appendToQueue, playTrackNext, items: queueItems, removeQueueItem } = usePlaybackQueue();
+  const { currentTrackId, playTrack, appendToQueue, playTrackNext, removeTrackFromQueue } = usePlaybackQueue();
   const visibleTrackIdsKey = useMemo(() => visibleTrackIds.join('\0'), [visibleTrackIds]);
+  const loadedTrackIdsKey = useMemo(() => uniqueIds(tracks.map((track) => track.id)).join('\0'), [tracks]);
   const queueSource = useMemo(
     () => ({ type: 'songs' as const, label: '歌曲列表', search: search || undefined, sort, hideDuplicates }),
     [hideDuplicates, search, sort],
@@ -593,9 +594,9 @@ export const SongsPage = (): JSX.Element => {
   }, [mergeDuplicateHiddenCounts, visibleTrackIds, visibleTrackIdsKey]);
 
   useEffect(() => {
-    const loadVisibleLikedTracks = async (): Promise<void> => {
+    const loadLoadedTrackLikedStates = async (): Promise<void> => {
       const library = window.echo?.library;
-      const trackIds = uniqueIds(visibleTrackIds);
+      const trackIds = loadedTrackIdsKey ? loadedTrackIdsKey.split('\0') : [];
       const missingTrackIds = trackIds.filter((trackId) => likedTrackIdsRef.current[trackId] === undefined);
 
       if (missingTrackIds.length === 0) {
@@ -624,8 +625,8 @@ export const SongsPage = (): JSX.Element => {
       }
     };
 
-    void loadVisibleLikedTracks();
-  }, [likedRefreshVersion, mergeLikedTrackIds, visibleTrackIds, visibleTrackIdsKey]);
+    void loadLoadedTrackLikedStates();
+  }, [likedRefreshVersion, loadedTrackIdsKey, mergeLikedTrackIds]);
 
   useEffect(() => {
     const handleLikedTracksChanged = (): void => {
@@ -671,8 +672,26 @@ export const SongsPage = (): JSX.Element => {
     [appendToQueue, queueSource],
   );
 
+  const resolveTrackLikedBeforeToggle = useCallback(async (trackId: string): Promise<boolean> => {
+    const cached = likedTrackIdsRef.current[trackId];
+    if (cached !== undefined) {
+      return cached === true;
+    }
+
+    const result = await window.echo?.library?.getLikedTrackIds?.([trackId]);
+    const liked = result?.[trackId] === true;
+    mergeLikedTrackIds({ [trackId]: liked });
+    return liked;
+  }, [mergeLikedTrackIds]);
+
   const handleToggleLiked = useCallback(async (track: LibraryTrack): Promise<void> => {
-    const previousLiked = likedTrackIdsRef.current[track.id] === true;
+    const hadCachedLikedState = likedTrackIdsRef.current[track.id] !== undefined;
+    const previousLiked = await resolveTrackLikedBeforeToggle(track.id);
+
+    if (!hadCachedLikedState && previousLiked) {
+      return;
+    }
+
     mergeLikedTrackIds({ [track.id]: !previousLiked });
 
     try {
@@ -685,7 +704,7 @@ export const SongsPage = (): JSX.Element => {
       mergeLikedTrackIds({ [track.id]: previousLiked });
       setError(likeError instanceof Error ? likeError.message : String(likeError));
     }
-  }, [mergeLikedTrackIds]);
+  }, [mergeLikedTrackIds, resolveTrackLikedBeforeToggle]);
 
   const handleTrackMenuAction = useCallback(
     async (action: TrackMenuAction, track: LibraryTrack): Promise<void> => {
@@ -725,10 +744,12 @@ export const SongsPage = (): JSX.Element => {
             return;
           case 'remove-from-queue':
             {
-              const queuedItem = queueItems.find((item) => item.track.id === track.id);
-              if (queuedItem) {
-                removeQueueItem(queuedItem.queueId);
-              }
+              const removedCount = removeTrackFromQueue(track.id);
+              setStatusMessage(
+                removedCount > 0
+                  ? `已从播放队列移除：${track.title}`
+                  : `播放队列里没有这首歌：${track.title}`,
+              );
             }
             return;
           case 'open-osu-timing':
@@ -817,7 +838,7 @@ export const SongsPage = (): JSX.Element => {
         setError(actionError instanceof Error ? actionError.message : String(actionError));
       }
     },
-    [appendToQueue, handleToggleLiked, playTrackNext, queueItems, queueSource, removeQueueItem],
+    [appendToQueue, handleToggleLiked, playTrackNext, queueSource, removeTrackFromQueue],
   );
 
   const closeTagEditor = useCallback((): void => {

@@ -25,6 +25,7 @@ describe('app settings normalization', () => {
     expect(settings.chineseCrossScriptSearchEnabled).toBe(true);
     expect(settings.artistWallAlbumArtwork).toBe(false);
     expect(settings.autoFetchArtistImages).toBe(false);
+    expect(settings.artistImageFetchPaused).toBe(false);
     expect(settings.autoAccountCheckOnStartup).toBe(true);
     expect(settings.spotifyAutoLaunchOfficialPlayer).toBe(true);
     expect(settings.playlistBackupsEnabled).toBe(true);
@@ -39,6 +40,8 @@ describe('app settings normalization', () => {
     expect(settings.appWallpaperUnifiedOpacityEnabled).toBe(false);
     expect(settings.scanPerformanceMode).toBe('balanced');
     expect(settings.backgroundSpacePauseEnabled).toBe(false);
+    expect(settings.globalShortcuts?.playPause).toEqual({ enabled: false, accelerator: null });
+    expect(settings.globalShortcuts?.nextTrack).toEqual({ enabled: false, accelerator: null });
     expect(settings.playbackFollowCurrentTrack).toBe(false);
     expect(settings.hideToTrayOnClose).toBe(true);
     expect(settings.networkMetadataProviders).toEqual(['qq-music']);
@@ -139,6 +142,14 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).autoFetchArtistImages).toBe(false);
     expect(normalizeSettings({ autoFetchArtistImages: 'yes' as never }).autoFetchArtistImages).toBe(false);
     expect(normalizeSettings({ autoFetchArtistImages: true }).autoFetchArtistImages).toBe(true);
+  });
+
+  it('normalizes artist image fetching pause as disabled by default', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).artistImageFetchPaused).toBe(false);
+    expect(normalizeSettings({ artistImageFetchPaused: 'yes' as never }).artistImageFetchPaused).toBe(false);
+    expect(normalizeSettings({ artistImageFetchPaused: true }).artistImageFetchPaused).toBe(true);
   });
 
   it('keeps playlist backups enabled unless explicitly disabled', async () => {
@@ -285,12 +296,46 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ playbackFollowCurrentTrack: 'yes' as never }).playbackFollowCurrentTrack).toBe(false);
   });
 
-  it('normalizes the background space pause setting as opt-in', async () => {
+  it('migrates the legacy background space pause setting to disabled', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
     expect(normalizeSettings({}).backgroundSpacePauseEnabled).toBe(false);
-    expect(normalizeSettings({ backgroundSpacePauseEnabled: true }).backgroundSpacePauseEnabled).toBe(true);
+    expect(normalizeSettings({ backgroundSpacePauseEnabled: true }).backgroundSpacePauseEnabled).toBe(false);
     expect(normalizeSettings({ backgroundSpacePauseEnabled: 'yes' as never }).backgroundSpacePauseEnabled).toBe(false);
+  });
+
+  it('normalizes global shortcut settings as disabled by default', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    const shortcuts = normalizeSettings({}).globalShortcuts;
+
+    expect(shortcuts?.playPause).toEqual({ enabled: false, accelerator: null });
+    expect(shortcuts?.previousTrack).toEqual({ enabled: false, accelerator: null });
+    expect(shortcuts?.showMainWindow).toEqual({ enabled: false, accelerator: null });
+  });
+
+  it('keeps valid global shortcuts and removes invalid or duplicate bindings', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    const shortcuts = normalizeSettings({
+      globalShortcuts: {
+        playPause: { enabled: true, accelerator: 'ctrl + alt + space' },
+        previousTrack: { enabled: true, accelerator: 'Space' },
+        nextTrack: { enabled: true, accelerator: 'Ctrl+Alt+Space' },
+        stop: { enabled: true, accelerator: 'MediaStop' },
+        volumeUp: { enabled: true, accelerator: 'F13' },
+        volumeDown: { enabled: true, accelerator: 'MouseButton4' },
+        seekBackward: { enabled: true, accelerator: 'Ctrl+Alt+???' },
+      },
+    }).globalShortcuts;
+
+    expect(shortcuts?.playPause).toEqual({ enabled: true, accelerator: 'Ctrl+Alt+Space' });
+    expect(shortcuts?.previousTrack).toEqual({ enabled: true, accelerator: 'Space' });
+    expect(shortcuts?.nextTrack).toEqual({ enabled: false, accelerator: null });
+    expect(shortcuts?.stop).toEqual({ enabled: true, accelerator: 'MediaStop' });
+    expect(shortcuts?.volumeUp).toEqual({ enabled: true, accelerator: 'F13' });
+    expect(shortcuts?.volumeDown).toEqual({ enabled: true, accelerator: 'MouseButton4' });
+    expect(shortcuts?.seekBackward).toEqual({ enabled: false, accelerator: null });
   });
 
   it('preserves valid remembered audio output latency profiles', async () => {
@@ -357,13 +402,30 @@ describe('app settings normalization', () => {
     ).toBe(8192);
   });
 
-  it('normalizes JUCE output as an opt-in audio setting', async () => {
+  it('normalizes JUCE output as the default main audio output', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
-    expect(normalizeSettings({}).audioUseJuceOutput).toBe(false);
+    expect(normalizeSettings({}).audioUseJuceOutput).toBe(true);
     expect(normalizeSettings({ audioUseJuceOutput: true }).audioUseJuceOutput).toBe(true);
-    expect(normalizeSettings({ audioUseJuceOutput: false }).audioUseJuceOutput).toBe(false);
-    expect(normalizeSettings({ audioUseJuceOutput: 'yes' as never }).audioUseJuceOutput).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 2, audioUseJuceOutput: false }).audioUseJuceOutput).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 2, audioUseJuceOutput: 'yes' as never }).audioUseJuceOutput).toBe(true);
+  });
+
+  it('migrates older settings to JUCE main output once', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceOutput: false }).audioUseJuceOutput).toBe(true);
+    expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceOutput: false }).appMemoryVersion).toBe(2);
+  });
+
+  it('keeps JUCE decode disabled until explicitly enabled', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).audioUseJuceDecode).toBe(false);
+    expect(normalizeSettings({ audioUseJuceDecode: true }).audioUseJuceDecode).toBe(true);
+    expect(normalizeSettings({ audioUseJuceDecode: false }).audioUseJuceDecode).toBe(false);
+    expect(normalizeSettings({ audioUseJuceDecode: 'yes' as never }).audioUseJuceDecode).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceDecode: true }).audioUseJuceDecode).toBe(true);
   });
 
   it('normalizes ASIO unavailable fallback as an opt-in audio setting', async () => {

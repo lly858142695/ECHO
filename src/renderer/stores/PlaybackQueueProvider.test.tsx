@@ -990,4 +990,45 @@ describe('PlaybackQueueProvider playback modes', () => {
     expect(screen.getByLabelText('current-track').textContent).toBe('track-2');
     expect(screen.getByLabelText('current-title').textContent).toBe('Track 2');
   });
+
+  it('removes every queued instance of a track by track id', async () => {
+    const first = makeTrack(1);
+    const second = makeTrack(2);
+
+    const RemoveTrackProbe = (): JSX.Element => {
+      const queue = usePlaybackQueue();
+      const didSeedRef = useRef(false);
+
+      useEffect(() => {
+        if (didSeedRef.current) {
+          return;
+        }
+
+        didSeedRef.current = true;
+        queue.appendToQueue(first);
+        queue.appendToQueue(second);
+        queue.appendToQueue(first);
+      }, [queue]);
+
+      return (
+        <div>
+          <output aria-label="queue-track-ids">{queue.items.map((item) => item.track.id).join(',')}</output>
+          <button type="button" onClick={() => queue.removeTrackFromQueue(first.id)}>
+            remove first
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <RemoveTrackProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('queue-track-ids').textContent).toBe('track-1,track-2,track-1'));
+    fireEvent.click(screen.getByRole('button', { name: 'remove first' }));
+
+    await waitFor(() => expect(screen.getByLabelText('queue-track-ids').textContent).toBe('track-2'));
+  });
 });

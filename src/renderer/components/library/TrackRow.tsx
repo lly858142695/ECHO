@@ -1,6 +1,6 @@
 import { memo, useCallback, useState } from 'react';
 import type { KeyboardEvent, MouseEvent } from 'react';
-import { Download, Heart, ListPlus, Loader2, MoreHorizontal, Music2 } from 'lucide-react';
+import { Download, ListPlus, Loader2, MoreHorizontal, Music2 } from 'lucide-react';
 import type { LibraryTrack } from '../../../shared/types/library';
 
 export type HifiTagKind = 'flac' | 'lossless' | 'depth' | 'rate' | 'bitrate' | 'bpm' | 'dsf' | 'hires';
@@ -20,8 +20,6 @@ type TrackRowProps = {
   isDownloading?: boolean;
   downloadProgress?: number | null;
   onShowVersions?: (track: LibraryTrack) => void;
-  liked?: boolean;
-  onToggleLiked?: (track: LibraryTrack) => void;
   onOpenMenu?: (track: LibraryTrack, position: { x: number; y: number }) => void;
 };
 
@@ -88,7 +86,7 @@ const tagClassNameByKind: Record<HifiTagKind, string> = {
 };
 
 export const TrackRow = memo(
-  ({ track, isPlaying, duplicateHiddenCount = 0, onPlay, onAddToQueue, onDownload, isDownloading = false, downloadProgress = null, onShowVersions, liked = false, onToggleLiked, onOpenMenu }: TrackRowProps): JSX.Element => {
+  ({ track, isPlaying, duplicateHiddenCount = 0, onPlay, onAddToQueue, onDownload, isDownloading = false, downloadProgress = null, onShowVersions, onOpenMenu }: TrackRowProps): JSX.Element => {
     const tags = tagsFromTrack(track);
     const isUnavailable = track.unavailable === true;
     const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
@@ -150,13 +148,6 @@ export const TrackRow = memo(
         onDownload?.(track);
       },
       [onDownload, track],
-    );
-    const handleToggleLiked = useCallback(
-      (event: MouseEvent<HTMLButtonElement>): void => {
-        event.stopPropagation();
-        onToggleLiked?.(track);
-      },
-      [onToggleLiked, track],
     );
     const handleShowVersions = useCallback(
       (event: MouseEvent<HTMLButtonElement>): void => {
@@ -227,17 +218,6 @@ export const TrackRow = memo(
         <div className="track-duration">{formatDuration(track.duration)}</div>
 
         <div className="track-actions" aria-label={`${track.title} actions`} onClick={stopActionPropagation} onDoubleClick={stopActionPropagation}>
-          <button
-            className={`row-action ${liked ? 'is-liked' : ''}`}
-            type="button"
-            aria-label={`${liked ? 'Unlike' : 'Like'} ${track.title}`}
-            aria-pressed={liked}
-            title={liked ? 'Unlike' : 'Like'}
-            disabled={isUnavailable}
-            onClick={handleToggleLiked}
-          >
-            <Heart size={16} fill={liked ? 'currentColor' : 'none'} />
-          </button>
           <button className="row-action" type="button" aria-label={`Add to queue ${track.title}`} title="Add to queue" disabled={isUnavailable} onClick={handleAddToQueue}>
             <ListPlus size={16} />
           </button>
@@ -270,14 +250,12 @@ export const TrackRow = memo(
     previous.track === next.track &&
     previous.isPlaying === next.isPlaying &&
     previous.duplicateHiddenCount === next.duplicateHiddenCount &&
-    previous.liked === next.liked &&
     previous.onPlay === next.onPlay &&
     previous.onAddToQueue === next.onAddToQueue &&
     previous.onDownload === next.onDownload &&
     previous.isDownloading === next.isDownloading &&
     previous.downloadProgress === next.downloadProgress &&
     previous.onShowVersions === next.onShowVersions &&
-    previous.onToggleLiked === next.onToggleLiked &&
     previous.onOpenMenu === next.onOpenMenu,
 );
 

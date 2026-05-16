@@ -14,6 +14,12 @@ import type { LyricsProviderId } from '../../shared/types/lyrics';
 import type { LibrarySort } from '../../shared/types/library';
 import type { MvSettings, NetworkMvProviderId } from '../../shared/types/mv';
 import {
+  createDefaultGlobalShortcuts,
+  globalShortcutActions,
+  validateGlobalShortcutAccelerator,
+  type GlobalShortcutSettings,
+} from '../../shared/types/globalShortcuts';
+import {
   channelBalanceMaxBalance,
   channelBalanceMaxGainDb,
   channelBalanceMinBalance,
@@ -28,7 +34,7 @@ const defaultLyricsColor = '#314054';
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
 const lyricsProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'musixmatch', 'genius', 'manual'];
 const defaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
-const appMemoryVersion = 1;
+const appMemoryVersion = 2;
 const locales: AppLocale[] = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP'];
 const appThemeModes: AppThemeMode[] = ['light', 'dark', 'system'];
 const librarySorts: LibrarySort[] = [
@@ -131,13 +137,15 @@ export const defaultSettings: AppSettings = {
   songsSort: 'default',
   rememberedAudioOutput: { ...defaultRememberedAudioOutput },
   hiddenAudioDeviceKeys: [],
-  audioUseJuceOutput: false,
+  audioUseJuceOutput: true,
+  audioUseJuceDecode: false,
   audioAsioUnavailableFallbackEnabled: false,
   audioSoxrFallbackEnabled: true,
   albumMergeStrategy: 'standard',
   chineseCrossScriptSearchEnabled: true,
   artistWallAlbumArtwork: false,
   autoFetchArtistImages: false,
+  artistImageFetchPaused: false,
   autoUpdateEnabled: true,
   autoAccountCheckOnStartup: true,
   spotifyAutoLaunchOfficialPlayer: true,
@@ -208,6 +216,7 @@ export const defaultSettings: AppSettings = {
   channelBalance: defaultChannelBalanceSettings,
   playerVolume: 1,
   backgroundSpacePauseEnabled: false,
+  globalShortcuts: createDefaultGlobalShortcuts(),
   playbackFollowCurrentTrack: false,
   playbackSpeed: 1,
   playbackSpeedMode: 'nightcore',
@@ -353,6 +362,45 @@ const normalizeHiddenAudioDeviceKeys = (value: unknown): string[] => {
   return Array.from(new Set(value.filter((key): key is string => typeof key === 'string' && key.trim().length > 0)));
 };
 
+const normalizeGlobalShortcuts = (value: unknown): GlobalShortcutSettings => {
+  const shortcuts = createDefaultGlobalShortcuts();
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return shortcuts;
+  }
+
+  const input = value as Partial<Record<keyof GlobalShortcutSettings, Partial<GlobalShortcutSettings[keyof GlobalShortcutSettings]>>>;
+  const usedAccelerators = new Set<string>();
+
+  for (const action of globalShortcutActions) {
+    const binding = input[action];
+    if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
+      continue;
+    }
+
+    const validation = validateGlobalShortcutAccelerator(binding.accelerator);
+    if (!validation.valid || !validation.accelerator) {
+      shortcuts[action] = { enabled: false, accelerator: null };
+      continue;
+    }
+
+    const accelerator = validation.accelerator;
+    const acceleratorKey = accelerator.toLowerCase();
+    if (usedAccelerators.has(acceleratorKey)) {
+      shortcuts[action] = { enabled: false, accelerator: null };
+      continue;
+    }
+
+    usedAccelerators.add(acceleratorKey);
+    shortcuts[action] = {
+      enabled: binding.enabled === true,
+      accelerator,
+    };
+  }
+
+  return shortcuts;
+};
+
 const normalizeLyricsColor = (value: unknown): string => {
   if (typeof value !== 'string') {
     return defaultLyricsColor;
@@ -443,6 +491,9 @@ export const normalizeSettings = (value: unknown): AppSettings => {
 
   const settings = value as Partial<AppSettings>;
   const normalizedAppMemoryVersion = Number(settings.appMemoryVersion);
+  const sourceAppMemoryVersion = Number.isFinite(normalizedAppMemoryVersion)
+    ? Math.max(0, Math.round(normalizedAppMemoryVersion))
+    : 0;
   const playerVolume = Number(settings.playerVolume);
   const playbackSpeed = Number(settings.playbackSpeed);
   const albumMergeStrategy =
@@ -503,22 +554,22 @@ export const normalizeSettings = (value: unknown): AppSettings => {
   );
 
   return {
-    appMemoryVersion: Number.isFinite(normalizedAppMemoryVersion)
-      ? Math.max(0, Math.round(normalizedAppMemoryVersion))
-      : 0,
+    appMemoryVersion,
     locale: normalizeLocale(settings.locale),
     appearanceTheme: normalizeAppearanceTheme(settings.appearanceTheme),
     appearancePreferences: normalizeAppearancePreferences(settings.appearancePreferences),
     songsSort: normalizeSongsSort(settings.songsSort),
     rememberedAudioOutput: normalizeRememberedAudioOutput(settings.rememberedAudioOutput),
     hiddenAudioDeviceKeys: normalizeHiddenAudioDeviceKeys(settings.hiddenAudioDeviceKeys),
-    audioUseJuceOutput: settings.audioUseJuceOutput === true,
+    audioUseJuceOutput: sourceAppMemoryVersion < appMemoryVersion ? true : settings.audioUseJuceOutput !== false,
+    audioUseJuceDecode: settings.audioUseJuceDecode === true,
     audioAsioUnavailableFallbackEnabled: settings.audioAsioUnavailableFallbackEnabled === true,
     audioSoxrFallbackEnabled: settings.audioSoxrFallbackEnabled !== false,
     albumMergeStrategy,
     chineseCrossScriptSearchEnabled: settings.chineseCrossScriptSearchEnabled !== false,
     artistWallAlbumArtwork: settings.artistWallAlbumArtwork === true,
     autoFetchArtistImages: settings.autoFetchArtistImages === true,
+    artistImageFetchPaused: settings.artistImageFetchPaused === true,
     autoUpdateEnabled: settings.autoUpdateEnabled !== false,
     autoAccountCheckOnStartup: settings.autoAccountCheckOnStartup !== false,
     spotifyAutoLaunchOfficialPlayer: settings.spotifyAutoLaunchOfficialPlayer !== false,
@@ -644,7 +695,8 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     mvAllow60fps: settings.mvAllow60fps !== false,
     channelBalance: normalizeChannelBalanceSettings(settings.channelBalance),
     playerVolume: Number.isFinite(playerVolume) ? Math.max(0, Math.min(1, playerVolume)) : defaultSettings.playerVolume,
-    backgroundSpacePauseEnabled: settings.backgroundSpacePauseEnabled === true,
+    backgroundSpacePauseEnabled: false,
+    globalShortcuts: normalizeGlobalShortcuts(settings.globalShortcuts),
     playbackFollowCurrentTrack: settings.playbackFollowCurrentTrack === true,
     playbackSpeed: Number.isFinite(playbackSpeed)
       ? Math.max(0.5, Math.min(2, playbackSpeed))

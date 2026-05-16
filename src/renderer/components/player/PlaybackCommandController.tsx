@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { PlaybackStatus } from '../../../shared/types/playback';
+import type { GlobalShortcutAction } from '../../../shared/types/globalShortcuts';
 import type { SmtcCommand } from '../../../shared/types/smtc';
 import { isSpotifyTrack, pauseSpotifyPlayback, resumeSpotifyPlayback, seekSpotifyPlayback } from '../../integrations/spotify/spotifyPlayback';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
@@ -69,6 +70,30 @@ export const PlaybackCommandController = (): null => {
     void runPlaybackAction(queue.playNext);
   }, [queue.playNext, runPlaybackAction]);
 
+  const handleStop = useCallback((): void => {
+    const playback = window.echo?.playback;
+    if (!playback) {
+      return;
+    }
+
+    void runPlaybackAction(() => playback.stop());
+  }, [runPlaybackAction]);
+
+  const handleVolumeStep = useCallback(
+    async (delta: number): Promise<void> => {
+      const audio = window.echo?.audio;
+      if (!audio) {
+        return;
+      }
+
+      const latestStatus = audioStatus ?? (await audio.getStatus());
+      const nextVolume = Math.max(0, Math.min(1, (latestStatus.volume ?? 1) + delta));
+      await audio.setOutput({ volume: nextVolume });
+      await refreshPlaybackStatus();
+    },
+    [audioStatus],
+  );
+
   const handleSmtcCommand = useCallback(
     (command: SmtcCommand): void => {
       const playback = window.echo?.playback;
@@ -117,10 +142,10 @@ export const PlaybackCommandController = (): null => {
       }
 
       if (command === 'stop') {
-        void runPlaybackAction(() => playback.stop());
+        handleStop();
       }
     },
-    [handleNext, handlePlayPause, handlePrevious, isPlaying, isSpotifyCurrentTrack, queue, runPlaybackAction, state],
+    [handleNext, handlePlayPause, handlePrevious, handleStop, isPlaying, isSpotifyCurrentTrack, queue, runPlaybackAction, state],
   );
 
   const commitSeek = useCallback(
@@ -153,6 +178,50 @@ export const PlaybackCommandController = (): null => {
     [durationSeconds, isSpotifyCurrentTrack, queue.currentTrack, queue.currentTrackId],
   );
 
+  const handleGlobalShortcutCommand = useCallback(
+    (action: GlobalShortcutAction): void => {
+      if (action === 'playPause') {
+        void handlePlayPause();
+        return;
+      }
+
+      if (action === 'previousTrack') {
+        handlePrevious();
+        return;
+      }
+
+      if (action === 'nextTrack') {
+        handleNext();
+        return;
+      }
+
+      if (action === 'stop') {
+        handleStop();
+        return;
+      }
+
+      if (action === 'volumeUp') {
+        void handleVolumeStep(0.05);
+        return;
+      }
+
+      if (action === 'volumeDown') {
+        void handleVolumeStep(-0.05);
+        return;
+      }
+
+      if (action === 'seekBackward') {
+        void commitSeek(positionSeconds - 10);
+        return;
+      }
+
+      if (action === 'seekForward') {
+        void commitSeek(positionSeconds + 10);
+      }
+    },
+    [commitSeek, handleNext, handlePlayPause, handlePrevious, handleStop, handleVolumeStep, positionSeconds],
+  );
+
   useEffect(() => {
     let cancelled = false;
     const refreshSmtcSetting = (): void => {
@@ -183,6 +252,11 @@ export const PlaybackCommandController = (): null => {
     const unsubscribe = window.echo?.smtc?.onCommand(handleSmtcCommand);
     return () => unsubscribe?.();
   }, [handleSmtcCommand]);
+
+  useEffect(() => {
+    const unsubscribe = window.echo?.app?.onGlobalShortcutCommand?.(handleGlobalShortcutCommand);
+    return () => unsubscribe?.();
+  }, [handleGlobalShortcutCommand]);
 
   useEffect(() => {
     if (!smtcEnabled) {

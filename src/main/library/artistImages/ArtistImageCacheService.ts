@@ -9,6 +9,7 @@ import type {
   ArtistImageCacheEntry,
   ArtistImageCacheSummary,
   ArtistImageCacheStatus,
+  ArtistImageJobStatus,
   ArtistImageQueueResult,
   ArtistImageRefreshResult,
 } from '../../../shared/types/library';
@@ -16,6 +17,7 @@ import {
   ARTIST_IMAGE_AUTO_MATCH_MIN_CONFIDENCE,
   artistImageKeyForName,
 } from './ArtistImageMatching';
+import { NeteaseArtistImageProvider } from './NeteaseArtistImageProvider';
 import { QQMusicArtistImageProvider } from './QQMusicArtistImageProvider';
 import type { ArtistImageCandidate, ArtistImageLookupInput, ArtistImageProvider, ArtistImageUpdatedPayload } from './ArtistImageTypes';
 
@@ -38,6 +40,12 @@ type DownloadedImage = {
   data: Uint8Array;
   mimeType: string;
   sourceHash: string;
+};
+
+type ProviderLookupResult = {
+  provider: ArtistImageProvider;
+  candidates: ArtistImageCandidate[];
+  error: unknown | null;
 };
 
 type ArtistImageCacheServiceOptions = {
@@ -71,6 +79,11 @@ const statusOrPending = (value: unknown): ArtistImageCacheStatus =>
     : 'pending';
 
 const hashText = (value: string): string => createHash('sha256').update(value).digest('hex');
+
+const defaultArtistImageProviders = (): ArtistImageProvider[] => [
+  new QQMusicArtistImageProvider(),
+  new NeteaseArtistImageProvider(),
+];
 
 const isSupportedImageMimeType = (value: string | null | undefined): value is string => {
   const normalized = value?.split(';')[0]?.trim().toLocaleLowerCase();
@@ -112,14 +125,21 @@ export class ArtistImageCacheService {
   private readonly queue: QueueTask[] = [];
   private readonly queuedKeys = new Set<string>();
   private readonly lastProviderRequestAt = new Map<string, number>();
+  private readonly providerLocks = new Map<string, Promise<void>>();
+  private readonly backfillAttemptedKeys = new Set<string>();
+  private paused = false;
+  private backfillActive = false;
+  private backfillForce = true;
+  private backfillLimit = 500;
+  private lastQueued: ArtistImageQueueResult = { queued: 0, skipped: 0 };
   private activeCount = 0;
 
   constructor(
     private readonly database: EchoDatabase,
     options: ArtistImageCacheServiceOptions,
   ) {
-    this.providers = options.providers?.length ? options.providers : [new QQMusicArtistImageProvider()];
-    this.concurrency = Math.max(1, Math.min(2, Math.floor(options.concurrency ?? 1)));
+    this.providers = options.providers?.length ? options.providers : defaultArtistImageProviders();
+    this.concurrency = Math.max(1, Math.min(2, Math.floor(options.concurrency ?? 2)));
     this.fetchImage = options.fetchImage ?? this.downloadImage;
     this.onUpdated = options.onUpdated ?? null;
     this.cacheRoot = resolve(options.cacheRoot);
@@ -182,6 +202,47 @@ export class ArtistImageCacheService {
     return summary;
   }
 
+  getJobStatus(): ArtistImageJobStatus {
+    return {
+      paused: this.paused,
+      running: this.backfillActive && !this.paused && (this.queue.length > 0 || this.activeCount > 0),
+      queued: this.queue.length,
+      active: this.activeCount,
+      lastQueued: this.lastQueued,
+      summary: this.getSummary(),
+    };
+  }
+
+  setPaused(paused: boolean): ArtistImageJobStatus {
+    this.paused = paused;
+
+    if (!paused) {
+      this.drainQueue();
+      this.maybeContinueBackfill();
+    }
+
+    return this.getJobStatus();
+  }
+
+  kickoffBackfill(options: { force?: boolean; limit?: number } = {}): ArtistImageJobStatus {
+    if (this.paused) {
+      return this.getJobStatus();
+    }
+
+    this.backfillForce = options.force !== false;
+    this.backfillLimit = Math.max(1, Math.min(1000, Math.floor(options.limit ?? 500)));
+
+    if (!this.backfillActive) {
+      this.backfillAttemptedKeys.clear();
+    }
+
+    this.backfillActive = true;
+    this.enqueueBackfillBatch();
+    this.drainQueue();
+
+    return this.getJobStatus();
+  }
+
   enqueueMissingArtistImages(
     artists: ArtistImageLookupInput[],
     options: { force?: boolean; limit?: number } = {},
@@ -230,6 +291,11 @@ export class ArtistImageCacheService {
     const stats = directoryStats(this.cacheRoot);
     const removedRows = Number(this.database.prepare('DELETE FROM artist_image_cache').run().changes ?? 0);
     clearDirectoryContents(this.cacheRoot);
+    this.queue.splice(0);
+    this.queuedKeys.clear();
+    this.backfillAttemptedKeys.clear();
+    this.backfillActive = false;
+    this.lastQueued = { queued: 0, skipped: 0 };
 
     return {
       removedRows,
@@ -305,7 +371,7 @@ export class ArtistImageCacheService {
   }
 
   private drainQueue(): void {
-    while (this.activeCount < this.concurrency && this.queue.length > 0) {
+    while (!this.paused && this.activeCount < this.concurrency && this.queue.length > 0) {
       const task = this.queue.shift()!;
       this.activeCount += 1;
       void this.runTask(task)
@@ -316,8 +382,41 @@ export class ArtistImageCacheService {
           this.queuedKeys.delete(task.artist.artistKey);
           this.activeCount -= 1;
           this.drainQueue();
+          this.maybeContinueBackfill();
         });
     }
+  }
+
+  private maybeContinueBackfill(): void {
+    if (!this.backfillActive || this.paused || this.queue.length > 0 || this.activeCount > 0) {
+      return;
+    }
+
+    const result = this.enqueueBackfillBatch();
+    if (result.queued === 0) {
+      this.backfillActive = false;
+      return;
+    }
+
+    this.drainQueue();
+  }
+
+  private enqueueBackfillBatch(): ArtistImageQueueResult {
+    const artists = this.findMissingArtists(this.backfillLimit, this.backfillForce, this.backfillAttemptedKeys);
+    let queued = 0;
+    let skipped = 0;
+
+    for (const artist of artists) {
+      this.backfillAttemptedKeys.add(artist.artistKey);
+      if (this.enqueueArtist(artist, this.backfillForce)) {
+        queued += 1;
+      } else {
+        skipped += 1;
+      }
+    }
+
+    this.lastQueued = { queued, skipped };
+    return this.lastQueued;
   }
 
   private async runTask(task: QueueTask): Promise<void> {
@@ -336,47 +435,28 @@ export class ArtistImageCacheService {
   }
 
   private async fetchAndStore(artist: ResolvedArtist): Promise<ArtistImageCacheEntry> {
-    let bestLowConfidence: ArtistImageCandidate | null = null;
+    const results = await Promise.all(this.providers.map((provider) => this.searchProvider(provider, artist)));
+    const providerErrors = results.filter((result) => result.error);
+    const candidates = results
+      .flatMap((result) => result.candidates)
+      .sort((left, right) => right.confidence - left.confidence);
+    const bestLowConfidence = candidates.find((candidate) => candidate.confidence < ARTIST_IMAGE_AUTO_MATCH_MIN_CONFIDENCE) ?? null;
+    const autoMatchCandidates = candidates.filter((candidate) => candidate.confidence >= ARTIST_IMAGE_AUTO_MATCH_MIN_CONFIDENCE);
+    const downloadErrors: Array<{ candidate: ArtistImageCandidate; error: unknown }> = [];
 
-    for (const provider of this.providers) {
-      let candidates: ArtistImageCandidate[];
-
+    for (const candidate of autoMatchCandidates) {
       try {
-        await this.waitForProviderRateLimit(provider);
-        candidates = await provider.searchArtistImage({
-          artistKey: artist.artistKey,
-          artistName: artist.artistName,
-        });
-      } catch (error) {
-        return this.markStatus(artist, this.statusForProviderError(error), {
-          provider: provider.name,
-          failureReason: error instanceof Error ? error.message : String(error),
-        });
-      }
-
-      const sortedCandidates = [...candidates].sort((left, right) => right.confidence - left.confidence);
-      const best = sortedCandidates[0] ?? null;
-      if (!best) {
-        continue;
-      }
-
-      if (best.confidence < ARTIST_IMAGE_AUTO_MATCH_MIN_CONFIDENCE) {
-        bestLowConfidence = !bestLowConfidence || best.confidence > bestLowConfidence.confidence ? best : bestLowConfidence;
-        continue;
-      }
-
-      try {
-        const downloaded = await this.fetchImage(best.imageUrl);
+        const downloaded = await this.fetchImage(candidate.imageUrl);
         const paths = await this.writeImageVariants(artist.artistKey, downloaded.data);
         const entry = this.markStatus(artist, 'matched', {
-          provider: best.provider,
-          providerArtistId: best.providerArtistId,
-          sourceUrl: best.sourceUrl ?? best.imageUrl,
+          provider: candidate.provider,
+          providerArtistId: candidate.providerArtistId,
+          sourceUrl: candidate.sourceUrl ?? candidate.imageUrl,
           sourceHash: downloaded.sourceHash,
           thumbPath: paths.thumbPath,
           mediumPath: paths.mediumPath,
           largePath: paths.largePath,
-          confidence: best.confidence,
+          confidence: candidate.confidence,
           failureReason: null,
           fetchedAt: nowIso(),
         });
@@ -387,16 +467,21 @@ export class ArtistImageCacheService {
         });
         return entry;
       } catch (error) {
-        const status = error instanceof ArtistImageDownloadError ? error.status : 'error';
-        return this.markStatus(artist, status, {
-          provider: best.provider,
-          providerArtistId: best.providerArtistId,
-          sourceUrl: best.sourceUrl ?? best.imageUrl,
-          confidence: best.confidence,
-          failureReason: error instanceof Error ? error.message : String(error),
-          fetchedAt: nowIso(),
-        });
+        downloadErrors.push({ candidate, error });
       }
+    }
+
+    if (autoMatchCandidates.length > 0 && downloadErrors.length === autoMatchCandidates.length) {
+      const first = downloadErrors[0]!;
+      const status = first.error instanceof ArtistImageDownloadError ? first.error.status : 'error';
+      return this.markStatus(artist, status, {
+        provider: first.candidate.provider,
+        providerArtistId: first.candidate.providerArtistId,
+        sourceUrl: first.candidate.sourceUrl ?? first.candidate.imageUrl,
+        confidence: first.candidate.confidence,
+        failureReason: first.error instanceof Error ? first.error.message : String(first.error),
+        fetchedAt: nowIso(),
+      });
     }
 
     if (bestLowConfidence) {
@@ -410,12 +495,56 @@ export class ArtistImageCacheService {
       });
     }
 
+    if (providerErrors.length === this.providers.length && candidates.length === 0) {
+      const status = providerErrors.some((result) => this.statusForProviderError(result.error) === 'rate_limited')
+        ? 'rate_limited'
+        : 'error';
+      return this.markStatus(artist, status, {
+        provider: providerErrors.map((result) => result.provider.name).join(',') || this.providers[0]?.name || defaultProvider,
+        confidence: 0,
+        failureReason: `providers_failed:${providerErrors.map((result) => result.provider.name).join(',')}`,
+        fetchedAt: nowIso(),
+      });
+    }
+
     return this.markStatus(artist, 'not_found', {
       provider: this.providers[0]?.name ?? defaultProvider,
       confidence: 0,
-      failureReason: 'no_result',
+      failureReason: providerErrors.length > 0
+        ? `all_providers_no_result;providers_failed:${providerErrors.map((result) => result.provider.name).join(',')}`
+        : 'all_providers_no_result',
       fetchedAt: nowIso(),
     });
+  }
+
+  private async searchProvider(provider: ArtistImageProvider, artist: ResolvedArtist): Promise<ProviderLookupResult> {
+    const previous = this.providerLocks.get(provider.name) ?? Promise.resolve();
+    let lock: Promise<void> | null = null;
+
+    try {
+      const result = previous
+        .catch(() => undefined)
+        .then(async () => {
+          await this.waitForProviderRateLimit(provider);
+          return provider.searchArtistImage({
+            artistKey: artist.artistKey,
+            artistName: artist.artistName,
+          });
+        });
+      lock = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      this.providerLocks.set(provider.name, lock);
+      const candidates = await result;
+      return { provider, candidates, error: null };
+    } catch (error) {
+      return { provider, candidates: [], error };
+    } finally {
+      if (lock && this.providerLocks.get(provider.name) === lock) {
+        this.providerLocks.delete(provider.name);
+      }
+    }
   }
 
   private ensurePendingRow(artist: ResolvedArtist, force: boolean): void {
@@ -583,7 +712,10 @@ export class ArtistImageCacheService {
     };
   }
 
-  private findMissingArtists(limit: number, includeFailed = false): ResolvedArtist[] {
+  private findMissingArtists(limit: number, includeFailed = false, excludeKeys: Set<string> = new Set()): ResolvedArtist[] {
+    const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)));
+    const queryLimit = Math.max(safeLimit, Math.min(5000, safeLimit + excludeKeys.size));
+
     return this.database
       .prepare<[number, number], DbRow>(
         `SELECT artists.id, artists.artist_key, artists.name
@@ -596,12 +728,14 @@ export class ArtistImageCacheService {
          ORDER BY artists.track_count DESC, artists.album_count DESC, artists.name COLLATE NOCASE
          LIMIT ?`,
       )
-      .all(includeFailed ? 1 : 0, Math.max(1, Math.min(1000, Math.floor(limit))))
+      .all(includeFailed ? 1 : 0, queryLimit)
       .map((row) => ({
         artistId: String(row.id),
         artistKey: String(row.artist_key),
         artistName: String(row.name),
-      }));
+      }))
+      .filter((artist) => !excludeKeys.has(artist.artistKey))
+      .slice(0, safeLimit);
   }
 
   private async waitForProviderRateLimit(provider: ArtistImageProvider): Promise<void> {

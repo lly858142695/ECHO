@@ -23,7 +23,7 @@ Cover and album-wall pass sizes:
 3. Choose a folder and start scanning.
 4. Watch scan status for discovered, parsed, skipped, cover, and error counts.
 5. Open Folders and confirm the same folder panel is available for rescan/cancel/remove.
-6. Open Settings > Library in dev mode and confirm Library Diagnostics updates without starting a scan.
+6. Open Settings > Library and confirm the normal folder, cache, duplicate, and network metadata controls are available.
 
 Record:
 

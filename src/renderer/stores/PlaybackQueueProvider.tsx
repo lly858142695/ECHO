@@ -70,6 +70,7 @@ type PlaybackQueueContextValue = {
   appendTracksToQueue: (tracks: LibraryTrack[], source?: QueueSource) => void;
   playTrackNext: (track: LibraryTrack, source?: QueueSource) => void;
   removeQueueItem: (queueId: string) => void;
+  removeTrackFromQueue: (trackId: string) => number;
   clearQueue: () => void;
   moveQueueItem: (fromIndex: number, toIndex: number) => void;
   playQueueItem: (queueId: string) => Promise<PlaybackStatus>;
@@ -874,6 +875,26 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     [setCurrentQueueId, setHistory, setItems],
   );
 
+  const removeTrackFromQueue = useCallback(
+    (trackId: string): number => {
+      const queuedCount = itemsRef.current.filter((item) => item.track.id === trackId).length;
+      if (queuedCount === 0) {
+        return 0;
+      }
+
+      const wasCurrentTrack = findItemByQueueId(itemsRef.current, currentQueueIdRef.current)?.track.id === trackId;
+      setItems((current) => current.filter((item) => item.track.id !== trackId));
+      setHistory((current) => current.filter((item) => item.track.id !== trackId));
+
+      if (wasCurrentTrack) {
+        setCurrentQueueId(null);
+      }
+
+      return queuedCount;
+    },
+    [setCurrentQueueId, setHistory, setItems],
+  );
+
   const clearQueue = useCallback((): void => {
     setItems([]);
     setHistory([]);
@@ -1259,6 +1280,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       appendTracksToQueue,
       playTrackNext,
       removeQueueItem,
+      removeTrackFromQueue,
       clearQueue,
       moveQueueItem,
       playQueueItem,
@@ -1295,6 +1317,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       openTemporaryLocalFiles,
       playTrackNext,
       removeQueueItem,
+      removeTrackFromQueue,
       repeatMode,
       replaceQueue,
       setCurrentTrackId,

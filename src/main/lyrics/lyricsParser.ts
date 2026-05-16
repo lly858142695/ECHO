@@ -39,6 +39,39 @@ const cleanLyricText = (text: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const cleanBracketTimestampedLyricText = (text: string): string => cleanLyricText(text.replace(timestampPattern, ''));
+
+const looksLikeBracketEnhancedLine = (
+  line: string,
+  timestamps: RegExpMatchArray[],
+  leadingMatches: RegExpMatchArray[],
+): boolean => {
+  if (leadingMatches.length === 0 || timestamps.length < 4) {
+    return false;
+  }
+
+  const lastTimestamp = timestamps[timestamps.length - 1];
+  const lastTimestampEnd = (lastTimestamp.index ?? -1) + lastTimestamp[0].length;
+  if (lastTimestampEnd !== line.length) {
+    return false;
+  }
+
+  const timedSegments = timestamps
+    .map((match, index) => {
+      const textStart = (match.index ?? 0) + match[0].length;
+      const textEnd = timestamps[index + 1]?.index ?? line.length;
+      return cleanLyricText(line.slice(textStart, textEnd));
+    })
+    .filter((segment) => segment.length > 0);
+
+  if (timedSegments.length < 2) {
+    return false;
+  }
+
+  const shortSegments = timedSegments.filter((segment) => segment.length <= 12 && !/\s/u.test(segment));
+  return shortSegments.length / timedSegments.length >= 0.7;
+};
+
 const hasHan = (value: string): boolean => /\p{Script=Han}/u.test(value);
 const hasKana = (value: string): boolean => /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(value);
 const hasLatin = (value: string): boolean => /\p{Script=Latin}/u.test(value);
@@ -246,6 +279,24 @@ export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
     const leadingTimestamps = line.match(leadingTimestampsPattern)?.[0] ?? '';
     const leadingMatches = [...leadingTimestamps.matchAll(timestampPattern)];
     const hasOnlyLeadingTimestamps = timestamps.length === leadingMatches.length;
+
+    if (looksLikeBracketEnhancedLine(line, timestamps, leadingMatches)) {
+      const text = cleanBracketTimestampedLyricText(line.slice(leadingTimestamps.length));
+      if (!text) {
+        continue;
+      }
+
+      for (const match of leadingMatches) {
+        const timeMs = parseTimestamp(match);
+        if (timeMs === null) {
+          continue;
+        }
+
+        lines.push({ timeMs, ...splitInlineTranslation(text) });
+      }
+
+      continue;
+    }
 
     if (hasOnlyLeadingTimestamps) {
       const text = cleanLyricText(line.slice(leadingTimestamps.length));

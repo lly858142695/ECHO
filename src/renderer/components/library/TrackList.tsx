@@ -28,7 +28,7 @@ type TrackListProps = {
 const rowHeight = 76;
 const loadAheadRows = 12;
 
-export const TrackList = memo(({ tracks, currentTrackId, canLoadMore = false, totalCount, loadedCount = tracks.length, isLoadingMore = false, onEndReached, onPlay, onAddToQueue, onDownload, downloadingTrackIds = {}, downloadProgressByTrackId = {}, duplicateHiddenCounts = {}, onShowVersions, likedTrackIds = {}, onToggleLiked, onOpenTrackMenu, onVisibleTrackIdsChange, followCurrentTrack = false }: TrackListProps): JSX.Element => {
+export const TrackList = memo(({ tracks, currentTrackId, canLoadMore = false, totalCount, loadedCount = tracks.length, isLoadingMore = false, onEndReached, onPlay, onAddToQueue, onDownload, downloadingTrackIds = {}, downloadProgressByTrackId = {}, duplicateHiddenCounts = {}, onShowVersions, onOpenTrackMenu, onVisibleTrackIdsChange, followCurrentTrack = false }: TrackListProps): JSX.Element => {
   const scrollParentRef = useRef<HTMLDivElement | null>(null);
   const loadRequestedRef = useRef(false);
   const visibleTrackIdsKeyRef = useRef('');
@@ -160,7 +160,6 @@ export const TrackList = memo(({ tracks, currentTrackId, canLoadMore = false, to
                     <TrackRow
                       isPlaying={track.id === currentTrackId}
                       duplicateHiddenCount={duplicateHiddenCounts[track.id] ?? 0}
-                      liked={likedTrackIds[track.id] === true}
                       track={track}
                       onPlay={onPlay}
                       onAddToQueue={onAddToQueue}
@@ -168,7 +167,6 @@ export const TrackList = memo(({ tracks, currentTrackId, canLoadMore = false, to
                       isDownloading={downloadingTrackIds[track.id] === true}
                       downloadProgress={downloadProgressByTrackId[track.id]}
                       onShowVersions={onShowVersions}
-                      onToggleLiked={onToggleLiked}
                       onOpenMenu={onOpenTrackMenu}
                     />
                   ) : (

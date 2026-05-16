@@ -65,7 +65,7 @@ export const ArtistTrackList = ({
   onPlayNext,
   onPlayTrack,
 }: ArtistTrackListProps): JSX.Element => {
-  const { items: queueItems, removeQueueItem } = usePlaybackQueue();
+  const { removeTrackFromQueue } = usePlaybackQueue();
   const [tracks, setTracks] = useState<LibraryTrack[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -355,10 +355,12 @@ export const ArtistTrackList = ({
             return;
           case 'remove-from-queue':
             {
-              const queuedItem = queueItems.find((item) => item.track.id === track.id);
-              if (queuedItem) {
-                removeQueueItem(queuedItem.queueId);
-              }
+              const removedCount = removeTrackFromQueue(track.id);
+              setStatusMessage(
+                removedCount > 0
+                  ? `已从播放队列移除：${track.title}`
+                  : `播放队列里没有这首歌：${track.title}`,
+              );
             }
             return;
           case 'edit-tags':
@@ -439,7 +441,7 @@ export const ArtistTrackList = ({
         setError(actionError instanceof Error ? actionError.message : String(actionError));
       }
     },
-    [handleGoToAlbum, onAppendToQueue, onPlayNext, queueItems, removeQueueItem],
+    [handleGoToAlbum, onAppendToQueue, onPlayNext, removeTrackFromQueue],
   );
 
   return (

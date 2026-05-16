@@ -62,6 +62,7 @@ export type AudioOutputSettings = {
   latencyProfile?: AudioLatencyProfile;
   bufferSizeFrames?: number | null;
   useJuceOutput?: boolean;
+  useJuceDecode?: boolean;
   asioUnavailableFallbackEnabled?: boolean;
   soxrFallbackEnabled?: boolean;
   volume?: number;
@@ -80,6 +81,8 @@ export type AudioStatus = {
   outputMode: AudioOutputMode;
   sharedBackend?: AudioSharedBackend | null;
   useJuceOutputRequested: boolean;
+  useJuceDecodeRequested: boolean;
+  activeDecodeBackendImpl: string | null;
   volume: number;
   playbackRate: number;
   playbackSpeedMode: PlaybackSpeedMode;
@@ -147,6 +150,8 @@ export type AudioDiagnostics = Pick<
   | 'outputBackend'
   | 'activeOutputBackendImpl'
   | 'useJuceOutputRequested'
+  | 'useJuceDecodeRequested'
+  | 'activeDecodeBackendImpl'
   | 'outputDeviceName'
   | 'currentFilePath'
   | 'currentTrackId'

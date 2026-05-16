@@ -32,6 +32,8 @@ const baseStatus: AudioStatus = {
   activeOutputBackendImpl: null,
   outputMode: 'shared',
   useJuceOutputRequested: false,
+  useJuceDecodeRequested: false,
+  activeDecodeBackendImpl: null,
   volume: 1,
   playbackRate: 1,
   playbackSpeedMode: 'nightcore',
@@ -69,6 +71,8 @@ const diagnosticsFromStatus = (status: AudioStatus, overrides: Partial<AudioDiag
   outputBackend: status.outputBackend,
   activeOutputBackendImpl: status.activeOutputBackendImpl,
   useJuceOutputRequested: status.useJuceOutputRequested,
+  activeDecodeBackendImpl: status.activeDecodeBackendImpl,
+  useJuceDecodeRequested: status.useJuceDecodeRequested,
   outputDeviceName: status.outputDeviceName,
   currentFilePath: status.currentFilePath,
   currentTrackId: status.currentTrackId,
@@ -106,12 +110,18 @@ afterEach(() => {
   delete (window as Partial<Window>).echo;
 });
 
+const expandPanel = (): void => {
+  fireEvent.click(screen.getByRole('button', { expanded: false }));
+};
+
 describe('PlaybackStabilityDiagnosticsPanel', () => {
   it('renders without active playback', async () => {
     const getDiagnostics = vi.fn().mockResolvedValue(diagnosticsFromStatus(baseStatus));
     window.echo = { audio: { getDiagnostics } } as unknown as Window['echo'];
 
     render(<PlaybackStabilityDiagnosticsPanel />);
+    expect(getDiagnostics).not.toHaveBeenCalled();
+    expandPanel();
 
     await waitFor(() => expect(getDiagnostics).toHaveBeenCalledTimes(1));
     expect(screen.getByText('播放稳定性诊断')).toBeTruthy();
@@ -144,6 +154,7 @@ describe('PlaybackStabilityDiagnosticsPanel', () => {
     } as unknown as Window['echo'];
 
     render(<PlaybackStabilityDiagnosticsPanel />);
+    expandPanel();
 
     expect(await screen.findByText('playing')).toBeTruthy();
     expect(screen.getByText('wasapi-shared')).toBeTruthy();
@@ -172,6 +183,7 @@ describe('PlaybackStabilityDiagnosticsPanel', () => {
     } as unknown as Window['echo'];
 
     render(<PlaybackStabilityDiagnosticsPanel />);
+    expandPanel();
 
     expect(await screen.findByText('audio_watchdog_recovered_native_output:1')).toBeTruthy();
     expect(screen.getByText('audio_watchdog_recovery_limit_exceeded')).toBeTruthy();
@@ -210,6 +222,7 @@ describe('PlaybackStabilityDiagnosticsPanel', () => {
     } as unknown as Window['echo'];
 
     render(<PlaybackStabilityDiagnosticsPanel />);
+    expandPanel();
     await screen.findByText('track-copy');
     fireEvent.click(screen.getByRole('button', { name: /复制诊断信息/ }));
 
@@ -234,6 +247,7 @@ describe('PlaybackStabilityDiagnosticsPanel', () => {
     window.echo = { audio: { getStatus } } as unknown as Window['echo'];
 
     render(<PlaybackStabilityDiagnosticsPanel />);
+    expandPanel();
 
     await waitFor(() => expect(getStatus).toHaveBeenCalledTimes(1));
     expect(screen.getByText('playing')).toBeTruthy();

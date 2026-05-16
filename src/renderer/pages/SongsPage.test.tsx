@@ -15,11 +15,13 @@ vi.mock('../components/library/TrackList', () => ({
     canLoadMore,
     duplicateHiddenCounts,
     isLoadingMore,
+    likedTrackIds,
     loadedCount,
     onEndReached,
     onOpenTrackMenu,
     onPlay,
     onShowVersions,
+    onToggleLiked,
     onVisibleTrackIdsChange,
     totalCount,
   }: {
@@ -28,11 +30,13 @@ vi.mock('../components/library/TrackList', () => ({
     canLoadMore?: boolean;
     duplicateHiddenCounts?: Record<string, number>;
     isLoadingMore?: boolean;
+    likedTrackIds?: Record<string, boolean>;
     loadedCount?: number;
     onEndReached?: () => void;
     onOpenTrackMenu?: (track: LibraryTrack, position: { x: number; y: number }) => void;
     onPlay?: (track: LibraryTrack) => void;
     onShowVersions?: (track: LibraryTrack) => void;
+    onToggleLiked?: (track: LibraryTrack) => void;
     onVisibleTrackIdsChange?: (trackIds: string[]) => void;
     totalCount?: number;
   }) => (
@@ -67,6 +71,13 @@ vi.mock('../components/library/TrackList', () => ({
               有 {duplicateHiddenCounts[track.id] + 1} 个版本
             </button>
           ) : null}
+          <button
+            aria-pressed={likedTrackIds?.[track.id] === true}
+            type="button"
+            onClick={() => onToggleLiked?.(track)}
+          >
+            {likedTrackIds?.[track.id] ? `Unlike ${track.title}` : `Like ${track.title}`}
+          </button>
         </div>
       ))}
     </div>
@@ -172,6 +183,7 @@ const installEcho = (tracks: LibraryTrack[] = []) => {
         updatedAt: '',
       }),
       getLikedTrackIds: vi.fn().mockResolvedValue({}),
+      toggleTrackLiked: vi.fn().mockResolvedValue({ liked: true }),
       pruneInvalidTracks: vi.fn().mockResolvedValue({
         scannedCount: tracks.length,
         removedCount: 0,
@@ -308,6 +320,45 @@ describe('SongsPage', () => {
     await waitFor(() =>
       expect(window.echo.library.getTracks).toHaveBeenCalledWith(expect.objectContaining({ sort: 'artist' })),
     );
+  });
+
+  it('loads liked state for loaded tracks outside the visible virtual window', async () => {
+    const tracks = [
+      makeTrack({ id: 'track-1', title: 'Song One' }),
+      makeTrack({ id: 'track-2', title: 'Song Two' }),
+      makeTrack({ id: 'track-3', title: 'Song Three' }),
+    ];
+    installEcho(tracks);
+    vi.mocked(window.echo.library.getLikedTrackIds).mockResolvedValue({
+      'track-1': false,
+      'track-2': false,
+      'track-3': true,
+    });
+
+    await renderSongsPage();
+
+    await screen.findByText('Song Three');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Unlike Song Three' })).toBeTruthy());
+    expect(window.echo.library.getLikedTrackIds).toHaveBeenCalledWith(['track-1', 'track-2', 'track-3']);
+  });
+
+  it('checks an unknown liked state before toggling so a stale empty heart does not unlike the track', async () => {
+    const track = makeTrack({ id: 'track-3', title: 'Song Three' });
+    installEcho([track]);
+    let resolveLikedState!: (value: Record<string, boolean>) => void;
+    const likedState = new Promise<Record<string, boolean>>((resolve) => {
+      resolveLikedState = resolve;
+    });
+    vi.mocked(window.echo.library.getLikedTrackIds).mockReturnValue(likedState);
+    vi.mocked(window.echo.library.toggleTrackLiked).mockResolvedValue({ liked: false });
+
+    await renderSongsPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Like Song Three' }));
+    resolveLikedState({ 'track-3': true });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Unlike Song Three' })).toBeTruthy());
+    expect(window.echo.library.getLikedTrackIds).toHaveBeenCalledWith(['track-3']);
+    expect(window.echo.library.toggleTrackLiked).not.toHaveBeenCalled();
   });
 
   it('dispatches navigation from the import folder button', async () => {

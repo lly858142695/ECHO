@@ -1,12 +1,14 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = resolve(dirname(scriptPath), '..');
 const hostPath = join(projectRoot, 'electron-app', 'build', process.platform === 'win32' ? 'echo-audio-host.exe' : 'echo-audio-host');
+const ffmpegPath = join(projectRoot, 'electron-app', 'tools', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
 
 const fail = (message) => {
   console.error(`[smoke:audio-host] ${message}`);
@@ -77,6 +79,88 @@ const createPcm = ({ sampleRate = 48000, seconds = 0.1, channels = 2 } = {}) => 
   }
 
   return pcm;
+};
+
+const createWav = ({ sampleRate = 48000, seconds = 0.1, channels = 2 } = {}) => {
+  const frames = Math.floor(seconds * sampleRate);
+  const bitsPerSample = 16;
+  const bytesPerSample = bitsPerSample / 8;
+  const dataBytes = frames * channels * bytesPerSample;
+  const wav = Buffer.alloc(44 + dataBytes);
+
+  wav.write('RIFF', 0, 'ascii');
+  wav.writeUInt32LE(36 + dataBytes, 4);
+  wav.write('WAVE', 8, 'ascii');
+  wav.write('fmt ', 12, 'ascii');
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(channels, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * channels * bytesPerSample, 28);
+  wav.writeUInt16LE(channels * bytesPerSample, 32);
+  wav.writeUInt16LE(bitsPerSample, 34);
+  wav.write('data', 36, 'ascii');
+  wav.writeUInt32LE(dataBytes, 40);
+
+  for (let frame = 0; frame < frames; frame += 1) {
+    const sample = Math.round(Math.sin((frame / sampleRate) * Math.PI * 2 * 440) * 12000);
+    for (let channel = 0; channel < channels; channel += 1) {
+      wav.writeInt16LE(sample, 44 + (frame * channels + channel) * bytesPerSample);
+    }
+  }
+
+  return { wav, frames, channels };
+};
+
+const runDecodePcmFixture = ({ fixturePath, fixture, sampleRate, label }) => {
+  const result = spawnSync(hostPath, ['-decode-pcm', fixturePath, '-sr', String(sampleRate), '-ch', String(fixture.channels)], {
+    cwd: projectRoot,
+    encoding: 'buffer',
+    maxBuffer: fixture.frames * fixture.channels * Float32Array.BYTES_PER_ELEMENT + 4096,
+  });
+  const stderr = result.stderr?.toString('utf8') ?? '';
+  const stdout = result.stdout ?? Buffer.alloc(0);
+  const expectedBytes = fixture.frames * fixture.channels * Float32Array.BYTES_PER_ELEMENT;
+
+  if (result.status !== 0) {
+    fail(`JUCE ${label} decode smoke exited with ${result.status}; stderr=${stderr}; stdoutBytes=${stdout.length}`);
+  }
+
+  if (stdout.length !== expectedBytes) {
+    fail(`JUCE ${label} decode smoke returned ${stdout.length} bytes, expected ${expectedBytes}; stderr=${stderr}`);
+  }
+
+  console.log(`[smoke:audio-host] JUCE ${label} decode PCM OK`);
+};
+
+const runJuceDecodeSmoke = () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'echo-juce-decode-'));
+  const wavPath = join(tempDir, 'juce-decode-smoke.wav');
+  const flacPath = join(tempDir, 'juce-decode-smoke.flac');
+  const sampleRate = 48000;
+  const fixture = createWav({ sampleRate, seconds: 0.1, channels: 2 });
+
+  try {
+    writeFileSync(wavPath, fixture.wav);
+    runDecodePcmFixture({ fixturePath: wavPath, fixture, sampleRate, label: 'WAV' });
+
+    if (!existsSync(ffmpegPath)) {
+      fail(`Missing ffmpeg binary for FLAC fixture generation: ${ffmpegPath}`);
+    }
+
+    const flacEncode = spawnSync(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-y', '-i', wavPath, flacPath], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+    });
+
+    if (flacEncode.status !== 0) {
+      fail(`Failed to create FLAC decode fixture with ffmpeg; stderr=${flacEncode.stderr ?? ''}`);
+    }
+
+    runDecodePcmFixture({ fixturePath: flacPath, fixture, sampleRate, label: 'FLAC' });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 };
 
 const runPcmHost = async (args, { timeoutMs = 15000, sampleRate = 48000, seconds = 0.1, env = undefined } = {}) => {
@@ -248,6 +332,8 @@ if (devices.length === 0) {
 }
 
 console.log(`[smoke:audio-host] listed ${devices.length} output devices`);
+
+runJuceDecodeSmoke();
 
 if (process.platform === 'win32') {
   const initTimeoutResult = await runPcmHost(['-sr', '48000', '-ch', '2'], {

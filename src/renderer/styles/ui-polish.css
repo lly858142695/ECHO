@@ -253,6 +253,131 @@
   padding: 22px 26px;
 }
 
+.settings-page .settings-section {
+  color: var(--theme-page-text);
+  border: 1px solid var(--theme-panel-border);
+  border-radius: var(--radius-md);
+  background: var(--theme-panel-bg);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+.settings-page .section-title {
+  color: var(--theme-muted-text);
+  border-bottom-color: var(--theme-panel-border);
+}
+
+.settings-page .setting-row {
+  border-bottom-color: var(--theme-list-row-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-page .setting-row:hover {
+  background: var(--theme-list-row-bg-hover);
+}
+
+.settings-page .setting-info p {
+  color: var(--theme-muted-text);
+}
+
+.settings-page .list-filter-chip,
+.settings-page .settings-action-button,
+.settings-page .settings-icon-button,
+.settings-page .settings-danger-button,
+.settings-select-control .sort-button {
+  color: var(--theme-button-text);
+  border-color: var(--theme-button-border);
+  background: var(--theme-button-bg);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+.settings-page .list-filter-chip:hover,
+.settings-page .settings-action-button:hover,
+.settings-page .settings-icon-button:hover,
+.settings-page .settings-danger-button:hover,
+.settings-select-control .sort-button:hover,
+.settings-select-control .sort-button[aria-expanded="true"] {
+  color: var(--theme-heading-text);
+  border-color: var(--theme-panel-border-strong);
+  background: var(--theme-button-bg-hover);
+}
+
+.settings-page .list-filter-chip.active {
+  color: var(--theme-on-accent);
+  border-color: var(--theme-accent-border);
+  background: var(--theme-accent-solid-bg);
+}
+
+.settings-select-control {
+  width: min(540px, 100%);
+  max-width: none;
+  justify-self: end;
+}
+
+.settings-select-control .sort-button {
+  width: 100%;
+  max-width: none;
+  min-height: 38px;
+  padding-inline: 12px 10px;
+}
+
+.settings-select-control .sort-menu {
+  right: 0;
+  left: auto;
+  width: min(540px, max(100%, 320px));
+}
+
+.folder-toggle,
+.download-toggle-row {
+  color: var(--theme-button-text);
+}
+
+.folder-toggle input,
+.download-toggle-row input[type="checkbox"] {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  appearance: none;
+  border: 1px solid var(--theme-field-border);
+  border-radius: 3px;
+  background: var(--theme-field-bg);
+  box-shadow: inset 0 1px 1px var(--theme-panel-bg-muted);
+}
+
+.folder-toggle input::before,
+.download-toggle-row input[type="checkbox"]::before {
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--theme-on-accent);
+  border-width: 0 2px 2px 0;
+  content: '';
+  opacity: 0;
+  transform: rotate(45deg);
+}
+
+.folder-toggle input:checked,
+.download-toggle-row input[type="checkbox"]:checked {
+  border-color: var(--theme-accent-border);
+  background: var(--theme-accent-solid-bg);
+}
+
+.folder-toggle input:checked::before,
+.download-toggle-row input[type="checkbox"]:checked::before {
+  opacity: 1;
+}
+
+.folder-toggle input:focus-visible,
+.download-toggle-row input[type="checkbox"]:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--theme-focus-ring);
+}
+
 .settings-nav-item {
   border-radius: var(--radius-md);
 }

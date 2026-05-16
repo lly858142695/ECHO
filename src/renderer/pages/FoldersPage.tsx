@@ -28,6 +28,7 @@ import type { TrackMenuAction } from '../components/library/TrackContextMenu';
 import { OsuTimingPanel } from '../components/library/OsuTimingPanel';
 import { TrackList } from '../components/library/TrackList';
 import { TrackTagEditorDrawer } from '../components/library/TrackTagEditorDrawer';
+import { StyledSelect } from '../components/ui/StyledSelect';
 import {
   forgetLibraryScanStatus,
   getLibraryScanStatuses,
@@ -204,6 +205,10 @@ export const FoldersPage = (): JSX.Element => {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<LibrarySort>('default');
+  const localizedSortOptions = useMemo(
+    () => sortOptions.map((option) => ({ value: option.value, label: t(option.labelKey) })),
+    [t],
+  );
   const [recursive, setRecursive] = useState(true);
   const [folderPath, setFolderPath] = useState('');
   const [scanStatuses, setScanStatuses] = useState<ScanStatusByFolder>(getLibraryScanStatuses);
@@ -221,7 +226,7 @@ export const FoldersPage = (): JSX.Element => {
   const trackRequestIdRef = useRef(0);
   const bulkRequestIdRef = useRef(0);
   const tagEditorCloseTimerRef = useRef<number | null>(null);
-  const { currentTrackId, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, items: queueItems, removeQueueItem } = usePlaybackQueue();
+  const { currentTrackId, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeTrackFromQueue } = usePlaybackQueue();
 
   const selectedOverview = useMemo(
     () => (selected ? overviews.find((overview) => overview.id === selected.folderId) ?? null : null),
@@ -679,10 +684,12 @@ export const FoldersPage = (): JSX.Element => {
             return;
           case 'remove-from-queue':
             {
-              const queuedItem = queueItems.find((item) => item.track.id === track.id);
-              if (queuedItem) {
-                removeQueueItem(queuedItem.queueId);
-              }
+              const removedCount = removeTrackFromQueue(track.id);
+              setMessage(
+                removedCount > 0
+                  ? `已从播放队列移除：${track.title}`
+                  : `播放队列里没有这首歌：${track.title}`,
+              );
             }
             return;
           case 'open-osu-timing':
@@ -769,7 +776,7 @@ export const FoldersPage = (): JSX.Element => {
         setError(formatFolderError(actionError, t));
       }
     },
-    [appendToQueue, folderSource, playTrackNext, queueItems, refreshOverviews, removeQueueItem, t],
+    [appendToQueue, folderSource, playTrackNext, refreshOverviews, removeTrackFromQueue, t],
   );
 
   const closeTagEditor = useCallback((): void => {
@@ -982,13 +989,13 @@ export const FoldersPage = (): JSX.Element => {
             <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} />
             <span>{t('folders.filters.includeSubfolders')}</span>
           </label>
-          <select className="folder-sort-select" value={sort} onChange={(event) => setSort(event.target.value as LibrarySort)}>
-            {sortOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {t(option.labelKey)}
-              </option>
-            ))}
-          </select>
+          <StyledSelect
+            className="folder-sort-control"
+            value={sort}
+            options={localizedSortOptions}
+            onChange={setSort}
+            ariaLabel={t('folders.filters.label')}
+          />
         </section>
 
         <TrackList

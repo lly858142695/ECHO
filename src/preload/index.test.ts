@@ -179,6 +179,20 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppOpenRepository);
   });
 
+  it('exposes global shortcut validation and command events', async () => {
+    const handler = vi.fn();
+    await exposedApi!.app.validateGlobalShortcut('Ctrl+Alt+Space');
+    const unsubscribe = exposedApi!.app.onGlobalShortcutCommand(handler);
+    const listener = listeners.get(IpcChannels.AppGlobalShortcutCommand);
+
+    listener?.({}, 'playPause');
+    unsubscribe();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppValidateGlobalShortcut, 'Ctrl+Alt+Space');
+    expect(handler).toHaveBeenCalledWith('playPause');
+    expect(listeners.has(IpcChannels.AppGlobalShortcutCommand)).toBe(false);
+  });
+
   it('exposes duplicate track APIs through IPC', async () => {
     await exposedApi!.library.refreshDuplicateTracks('strict');
     await exposedApi!.library.getDuplicateTrackVersions('track-1');

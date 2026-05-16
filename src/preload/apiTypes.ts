@@ -11,6 +11,7 @@ import type { UpdateStatus } from '../shared/types/updates';
 import type { AccountLoginStartResult, AccountProvider, AccountStatus, YouTubeBrowser } from '../shared/types/accounts';
 import type { CoverCacheMigrationResult, SetCoverCacheDirectoryRequest } from '../shared/types/coverCache';
 import type { EqPreset, EqSavePresetRequest, EqSetBandFrequencyRequest, EqSetBandGainRequest, EqState } from '../shared/types/eq';
+import type { GlobalShortcutAction, GlobalShortcutValidationResult } from '../shared/types/globalShortcuts';
 import type {
   EmbeddedTrackTagsLoadResult,
   ImportPathClassification,
@@ -40,6 +41,7 @@ import type {
   ArtistImageCacheClearResult,
   ArtistImageCacheEntry,
   ArtistImageCacheSummary,
+  ArtistImageJobStatus,
   ArtistImageQueueResult,
   ArtistImageRefreshResult,
   MissingMetadataScanOptions,
@@ -151,6 +153,8 @@ export type EchoApi = {
     checkForUpdates: () => Promise<UpdateStatus>;
     onUpdateStatus: (handler: (status: UpdateStatus) => void) => () => void;
     openRepository: () => Promise<void>;
+    validateGlobalShortcut: (accelerator: string) => Promise<GlobalShortcutValidationResult>;
+    onGlobalShortcutCommand: (handler: (action: GlobalShortcutAction) => void) => () => void;
   };
   library: {
     chooseFolder: () => Promise<string | null>;
@@ -216,6 +220,9 @@ export type EchoApi = {
     refreshVisibleArtistImages: (artists: Array<Pick<LibraryArtist, 'id' | 'name'>>) => Promise<ArtistImageQueueResult>;
     getArtistImageStatus: (artistId: string) => Promise<ArtistImageCacheEntry | null>;
     getArtistImageCacheSummary: () => Promise<ArtistImageCacheSummary>;
+    getArtistImageJobStatus: () => Promise<ArtistImageJobStatus>;
+    setArtistImageJobsPaused: (paused: boolean) => Promise<ArtistImageJobStatus>;
+    kickoffArtistImageBackfill: (options?: { force?: boolean; limit?: number }) => Promise<ArtistImageJobStatus>;
     clearArtistImageCache: () => Promise<ArtistImageCacheClearResult>;
     onArtistImagesUpdated: (handler: (payload: { artistId: string | null; artistKey: string; status: string }) => void) => () => void;
     getAlbumTracks: (

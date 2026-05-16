@@ -78,6 +78,21 @@ describe('TrackList', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
+  it('does not render inline liked buttons in track rows', () => {
+    const tracks = [track(1)];
+
+    render(
+      <TrackList
+        currentTrackId={null}
+        likedTrackIds={{ 'track-1': true }}
+        tracks={tracks}
+        onToggleLiked={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: /Like Song 1|Unlike Song 1/ })).toBeNull();
+  });
+
   it('only requests one next page while the loaded boundary is still the same', () => {
     const onEndReached = vi.fn();
     const tracks = Array.from({ length: 2 }, (_, index) => track(index + 1));

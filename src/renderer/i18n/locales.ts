@@ -31,6 +31,7 @@ export type TranslationKey =
   | 'audioDrawer.asioRoutes.title'
   | 'audioDrawer.badge.bitPerfectReady'
   | 'audioDrawer.badge.dspActive'
+  | 'audioDrawer.badge.juceFallback'
   | 'audioDrawer.badge.juceOutput'
   | 'audioDrawer.badge.resampling'
   | 'audioDrawer.badge.soxrResampler'
@@ -59,6 +60,7 @@ export type TranslationKey =
   | 'audioDrawer.empty.systemDevices'
   | 'audioDrawer.error.desktopBridgeUnavailable'
   | 'audioDrawer.meter.direct'
+  | 'audioDrawer.meter.chain'
   | 'audioDrawer.meter.mode'
   | 'audioDrawer.meter.output'
   | 'audioDrawer.meter.rate'
@@ -84,7 +86,9 @@ export type TranslationKey =
   | 'audioDrawer.note.currentOutput'
   | 'audioDrawer.note.engine'
   | 'audioDrawer.note.juceOutput'
+  | 'audioDrawer.note.juceDecode'
   | 'audioDrawer.option.juceOutput'
+  | 'audioDrawer.option.juceDecode'
   | 'audioDrawer.option.active'
   | 'audioDrawer.option.set'
   | 'audioDrawer.option.rememberOutput'
@@ -108,6 +112,12 @@ export type TranslationKey =
   | 'audioDrawer.signal.dspOn'
   | 'audioDrawer.signal.eqOff'
   | 'audioDrawer.signal.eqOn'
+  | 'audioDrawer.signal.asioSdkOutput'
+  | 'audioDrawer.signal.ffmpegDecode'
+  | 'audioDrawer.signal.juceDecode'
+  | 'audioDrawer.signal.juceDecodeFallback'
+  | 'audioDrawer.signal.juceDecodeStandby'
+  | 'audioDrawer.signal.juceDecodeMp3Unsupported'
   | 'audioDrawer.signal.nativeRate'
   | 'audioDrawer.signal.noActiveSource'
   | 'audioDrawer.signal.pending'
@@ -717,6 +727,8 @@ export type TranslationKey =
   | 'settings.nav.playback.label'
   | 'settings.nav.remote.description'
   | 'settings.nav.remote.label'
+  | 'settings.nav.shortcuts.description'
+  | 'settings.nav.shortcuts.label'
   | 'settings.playback.audioStatus.description'
   | 'settings.playback.audioStatus.title'
   | 'settings.playback.followCurrent.description'
@@ -766,6 +778,38 @@ export type TranslationKey =
   | 'settings.playback.stability.value.unknown'
   | 'settings.playback.wireless.description'
   | 'settings.playback.wireless.title'
+  | 'settings.shortcuts.action.clear'
+  | 'settings.shortcuts.action.nextTrack.description'
+  | 'settings.shortcuts.action.nextTrack.title'
+  | 'settings.shortcuts.action.playPause.description'
+  | 'settings.shortcuts.action.playPause.title'
+  | 'settings.shortcuts.action.previousTrack.description'
+  | 'settings.shortcuts.action.previousTrack.title'
+  | 'settings.shortcuts.action.record'
+  | 'settings.shortcuts.action.restoreRecommended'
+  | 'settings.shortcuts.action.seekBackward.description'
+  | 'settings.shortcuts.action.seekBackward.title'
+  | 'settings.shortcuts.action.seekForward.description'
+  | 'settings.shortcuts.action.seekForward.title'
+  | 'settings.shortcuts.action.showMainWindow.description'
+  | 'settings.shortcuts.action.showMainWindow.title'
+  | 'settings.shortcuts.action.stop.description'
+  | 'settings.shortcuts.action.stop.title'
+  | 'settings.shortcuts.action.volumeDown.description'
+  | 'settings.shortcuts.action.volumeDown.title'
+  | 'settings.shortcuts.action.volumeUp.description'
+  | 'settings.shortcuts.action.volumeUp.title'
+  | 'settings.shortcuts.description'
+  | 'settings.shortcuts.empty'
+  | 'settings.shortcuts.message.duplicate'
+  | 'settings.shortcuts.message.empty'
+  | 'settings.shortcuts.message.invalid'
+  | 'settings.shortcuts.message.safe'
+  | 'settings.shortcuts.message.unavailable'
+  | 'settings.shortcuts.message.unsafe'
+  | 'settings.shortcuts.note'
+  | 'settings.shortcuts.recording'
+  | 'settings.shortcuts.title'
   | 'settings.remote.library.description'
   | 'settings.remote.library.title';
 
@@ -795,6 +839,7 @@ const zhCN: TranslationMap = {
   'audioDrawer.asioRoutes.title': 'ASIO 输出通道',
   'audioDrawer.badge.bitPerfectReady': 'Bit-perfect ready',
   'audioDrawer.badge.dspActive': 'DSP active',
+  'audioDrawer.badge.juceFallback': 'JUCE 已降级',
   'audioDrawer.badge.juceOutput': 'JUCE 输出',
   'audioDrawer.badge.resampling': 'Resampling',
   'audioDrawer.badge.soxrResampler': 'SOXR',
@@ -823,6 +868,7 @@ const zhCN: TranslationMap = {
   'audioDrawer.empty.systemDevices': '没有找到系统输出设备。',
   'audioDrawer.error.desktopBridgeUnavailable': '桌面桥接不可用',
   'audioDrawer.meter.direct': '直通',
+  'audioDrawer.meter.chain': '链路',
   'audioDrawer.meter.mode': '模式',
   'audioDrawer.meter.output': '输出',
   'audioDrawer.meter.rate': '采样率',
@@ -836,7 +882,7 @@ const zhCN: TranslationMap = {
   'audioDrawer.latency.balanced': '均衡',
   'audioDrawer.latency.balancedDetail': '2048 frames',
   'audioDrawer.latency.lowLatency': '低延迟',
-  'audioDrawer.latency.lowLatencyDetail': '~8 ms / 自适应',
+  'audioDrawer.latency.lowLatencyDetail': '切歌更快 / 不稳升均衡',
   'audioDrawer.latency.stable': '稳定',
   'audioDrawer.latency.stableDetail': '8192 frames',
   'audioDrawer.mode.exclusive': '独占',
@@ -847,8 +893,10 @@ const zhCN: TranslationMap = {
   'audioDrawer.note.asioWarning': '开启 ASIO 会占用您的音频通道；如果没有安装 ASIO 驱动，请不要使用。',
   'audioDrawer.note.currentOutput': '这里显示现在真正使用的输出路径；共享适合日常，ASIO 会以金色标出。',
   'audioDrawer.note.engine': '这里快速查看输出设备、模式、采样率、EQ 和重采样状态。',
-  'audioDrawer.note.juceOutput': '通常来说，JUCE 的输出最稳定；开启后会尝试接管当前输出，失败会自动回退。',
-  'audioDrawer.option.juceOutput': '使用 JUCE 输出',
+  'audioDrawer.note.juceOutput': '默认主输出。FFmpeg 继续负责解码；JUCE 负责输出，失败会自动回退到兼容路径。',
+  'audioDrawer.note.juceDecode': '默认关闭。本地 WAV/FLAC 在无需重采样时尝试 JUCE 解码；MP3 暂由 FFmpeg 负责；失败会自动回退 FFmpeg。',
+  'audioDrawer.option.juceOutput': 'JUCE 主输出',
+  'audioDrawer.option.juceDecode': 'JUCE 解码试验',
   'audioDrawer.option.active': '开启',
   'audioDrawer.option.set': '设置',
   'audioDrawer.option.rememberOutput': '保存输出设置',
@@ -872,6 +920,12 @@ const zhCN: TranslationMap = {
   'audioDrawer.signal.dspOn': 'DSP On',
   'audioDrawer.signal.eqOff': 'EQ Off',
   'audioDrawer.signal.eqOn': 'EQ On',
+  'audioDrawer.signal.asioSdkOutput': 'ASIO SDK 输出',
+  'audioDrawer.signal.ffmpegDecode': 'FFmpeg 解码',
+  'audioDrawer.signal.juceDecode': 'JUCE 解码',
+  'audioDrawer.signal.juceDecodeFallback': 'JUCE 解码已降级',
+  'audioDrawer.signal.juceDecodeStandby': 'JUCE 解码未适用',
+  'audioDrawer.signal.juceDecodeMp3Unsupported': 'MP3 暂不适用',
   'audioDrawer.signal.nativeRate': '原生采样率',
   'audioDrawer.signal.noActiveSource': '没有活跃音源',
   'audioDrawer.signal.pending': '等待中',
@@ -1266,7 +1320,7 @@ const zhCN: TranslationMap = {
   'settings.library.networkSources.description': '选择手动修复和缺失扫描使用的补全源。',
   'settings.library.networkSources.title': '网络补全来源',
   'settings.library.networkPanel.applyMissingOnly': '仅补缺失项',
-  'settings.library.networkPanel.applySelected': '应用所选',
+  'settings.library.networkPanel.applySelected': '应用所选候选',
   'settings.library.networkPanel.appliedCount': '已自动补全数量',
   'settings.library.networkPanel.artistField': '歌手',
   'settings.library.networkPanel.artistSource': '歌手来源',
@@ -1280,10 +1334,10 @@ const zhCN: TranslationMap = {
   'settings.library.networkPanel.noCandidates': '暂无网络候选。',
   'settings.library.networkPanel.providerErrors': '来源错误',
   'settings.library.networkPanel.reject': '拒绝',
-  'settings.library.networkPanel.repairMissing': '修复当前曲目',
+  'settings.library.networkPanel.repairMissing': '补全当前歌曲',
   'settings.library.networkPanel.repairThisTrack': '补全此曲',
   'settings.library.networkPanel.scanComplete': '扫描完成',
-  'settings.library.networkPanel.scanMissing': '扫描缺少元数据',
+  'settings.library.networkPanel.scanMissing': '扫描缺失信息',
   'settings.library.networkPanel.scanDone': '已扫描缺失曲目',
   'settings.library.networkPanel.scanPreparing': '准备扫描',
   'settings.library.networkPanel.scanProgress': '缺失元数据扫描进度',
@@ -1481,6 +1535,8 @@ const zhCN: TranslationMap = {
   'settings.nav.playback.label': '播放',
   'settings.nav.remote.description': 'NAS、WebDAV、Subsonic',
   'settings.nav.remote.label': '网盘 / 远程',
+  'settings.nav.shortcuts.description': '全局按键、播放暂停、上一首、下一首',
+  'settings.nav.shortcuts.label': '快捷键',
   'settings.playback.audioStatus.description': '采样率字段必须分开显示，避免旧 ECHO 独占模式 48k 锁死回归。',
   'settings.playback.audioStatus.title': '音频状态',
   'settings.playback.followCurrent.description': '开启后，切歌时会自动把左侧当前列表滚动到正在播放的歌曲位置。',
@@ -1530,6 +1586,38 @@ const zhCN: TranslationMap = {
   'settings.playback.stability.value.unknown': '未知',
   'settings.playback.wireless.description': '后续 HiFi 引擎阶段再接入；当前阶段不迁移 gapless / automix / 流媒体。',
   'settings.playback.wireless.title': '无线播放',
+  'settings.shortcuts.action.clear': '清除',
+  'settings.shortcuts.action.nextTrack.description': '切到当前播放队列里的下一首。',
+  'settings.shortcuts.action.nextTrack.title': '下一首',
+  'settings.shortcuts.action.playPause.description': '在全局范围切换播放和暂停。',
+  'settings.shortcuts.action.playPause.title': '播放 / 暂停',
+  'settings.shortcuts.action.previousTrack.description': '切到当前播放队列里的上一首。',
+  'settings.shortcuts.action.previousTrack.title': '上一首',
+  'settings.shortcuts.action.record': '录制',
+  'settings.shortcuts.action.restoreRecommended': '恢复推荐',
+  'settings.shortcuts.action.seekBackward.description': '当前歌曲向后退 10 秒。',
+  'settings.shortcuts.action.seekBackward.title': '快退 10 秒',
+  'settings.shortcuts.action.seekForward.description': '当前歌曲向前进 10 秒。',
+  'settings.shortcuts.action.seekForward.title': '快进 10 秒',
+  'settings.shortcuts.action.showMainWindow.description': '把 ECHO 主窗口带回前台。',
+  'settings.shortcuts.action.showMainWindow.title': '显示主窗口',
+  'settings.shortcuts.action.stop.description': '停止当前播放并释放播放状态。',
+  'settings.shortcuts.action.stop.title': '停止播放',
+  'settings.shortcuts.action.volumeDown.description': '把 ECHO 音量降低 5%。',
+  'settings.shortcuts.action.volumeDown.title': '音量降低',
+  'settings.shortcuts.action.volumeUp.description': '把 ECHO 音量提高 5%。',
+  'settings.shortcuts.action.volumeUp.title': '音量提高',
+  'settings.shortcuts.description': '快捷键默认全部关闭；可录制单键、组合键、媒体键或小键盘宏键，再打开右侧开关即可立即生效。',
+  'settings.shortcuts.empty': '未绑定',
+  'settings.shortcuts.message.duplicate': '这个快捷键已经绑定到其他动作。',
+  'settings.shortcuts.message.empty': '请先录制一个快捷键。',
+  'settings.shortcuts.message.invalid': '这个按键目前不能作为全局快捷键。',
+  'settings.shortcuts.message.safe': '这个快捷键可以使用。',
+  'settings.shortcuts.message.unavailable': '这个快捷键已被系统或其他应用占用，已保持关闭。',
+  'settings.shortcuts.message.unsafe': '这个按键目前不能作为全局快捷键；可以让小键盘输出标准键盘键或媒体键。',
+  'settings.shortcuts.note': '支持单键和组合键；鼠标侧键或宏键如果被系统/Electron 拒绝，会保持关闭并显示不可用。',
+  'settings.shortcuts.recording': '按下新的快捷键...',
+  'settings.shortcuts.title': '全局快捷键',
   'settings.remote.library.description': '本阶段禁止网盘 / 远程 / 流媒体，只保留设置分组占位。',
   'settings.remote.library.title': '远程音乐库',
 };
@@ -1585,6 +1673,7 @@ const zhTW: TranslationMap = {
   'audioDrawer.asioRoutes.title': 'ASIO 輸出通道',
   'audioDrawer.badge.bitPerfectReady': 'Bit-perfect 就緒',
   'audioDrawer.badge.dspActive': 'DSP 啟用',
+  'audioDrawer.badge.juceFallback': 'JUCE 已降級',
   'audioDrawer.badge.juceOutput': 'JUCE 輸出',
   'audioDrawer.badge.resampling': '重取樣',
   'audioDrawer.badge.soxrResampler': 'SOXR',
@@ -1613,6 +1702,7 @@ const zhTW: TranslationMap = {
   'audioDrawer.empty.systemDevices': '找不到系統輸出裝置。',
   'audioDrawer.error.desktopBridgeUnavailable': '桌面橋接不可用',
   'audioDrawer.meter.direct': '直通',
+  'audioDrawer.meter.chain': '鏈路',
   'audioDrawer.meter.mode': '模式',
   'audioDrawer.meter.output': '輸出',
   'audioDrawer.meter.rate': '取樣率',
@@ -1626,7 +1716,7 @@ const zhTW: TranslationMap = {
   'audioDrawer.latency.balanced': '均衡',
   'audioDrawer.latency.balancedDetail': '2048 frames',
   'audioDrawer.latency.lowLatency': '低延遲',
-  'audioDrawer.latency.lowLatencyDetail': '~8 ms / 自適應',
+  'audioDrawer.latency.lowLatencyDetail': '切歌更快 / 不穩升均衡',
   'audioDrawer.latency.stable': '穩定',
   'audioDrawer.latency.stableDetail': '8192 frames',
   'audioDrawer.mode.exclusive': '獨佔',
@@ -1637,8 +1727,10 @@ const zhTW: TranslationMap = {
   'audioDrawer.note.asioWarning': '開啟 ASIO 會占用您的音訊通道；如果沒有安裝 ASIO 驅動，請不要使用。',
   'audioDrawer.note.currentOutput': '這裡顯示現在真正使用的輸出路徑；共享適合日常，ASIO 會以金色標出。',
   'audioDrawer.note.engine': '這裡快速查看輸出裝置、模式、取樣率、EQ 和重取樣狀態。',
-  'audioDrawer.note.juceOutput': '通常來說，JUCE 的輸出最穩定；開啟後會嘗試接管目前輸出，失敗會自動退回。',
-  'audioDrawer.option.juceOutput': '使用 JUCE 輸出',
+  'audioDrawer.note.juceOutput': '預設主輸出。FFmpeg 繼續負責解碼；JUCE 負責輸出，失敗會自動退回相容路徑。',
+  'audioDrawer.note.juceDecode': '預設關閉。本機 WAV/FLAC 在不需重取樣時嘗試 JUCE 解碼；MP3 暫由 FFmpeg 負責；失敗會自動退回 FFmpeg。',
+  'audioDrawer.option.juceOutput': 'JUCE 主輸出',
+  'audioDrawer.option.juceDecode': 'JUCE 解碼試驗',
   'audioDrawer.option.active': '開啟',
   'audioDrawer.option.set': '設定',
   'audioDrawer.option.rememberOutput': '儲存輸出設定',
@@ -1662,6 +1754,12 @@ const zhTW: TranslationMap = {
   'audioDrawer.signal.dspOn': 'DSP 開啟',
   'audioDrawer.signal.eqOff': 'EQ 關閉',
   'audioDrawer.signal.eqOn': 'EQ 開啟',
+  'audioDrawer.signal.asioSdkOutput': 'ASIO SDK 輸出',
+  'audioDrawer.signal.ffmpegDecode': 'FFmpeg 解碼',
+  'audioDrawer.signal.juceDecode': 'JUCE 解碼',
+  'audioDrawer.signal.juceDecodeFallback': 'JUCE 解碼已降級',
+  'audioDrawer.signal.juceDecodeStandby': 'JUCE 解碼未適用',
+  'audioDrawer.signal.juceDecodeMp3Unsupported': 'MP3 暫不適用',
   'audioDrawer.signal.nativeRate': '原生取樣率',
   'audioDrawer.signal.noActiveSource': '沒有作用中的音源',
   'audioDrawer.signal.pending': '等待中',
@@ -2125,6 +2223,7 @@ const jaJP: TranslationMap = {
   'audioDrawer.asioRoutes.title': 'ASIO 出力チャンネル',
   'audioDrawer.badge.bitPerfectReady': 'Bit-perfect 対応',
   'audioDrawer.badge.dspActive': 'DSP 有効',
+  'audioDrawer.badge.juceFallback': 'JUCE フォールバック',
   'audioDrawer.badge.juceOutput': 'JUCE 出力',
   'audioDrawer.badge.resampling': 'リサンプル',
   'audioDrawer.badge.soxrResampler': 'SOXR',
@@ -2153,6 +2252,7 @@ const jaJP: TranslationMap = {
   'audioDrawer.empty.systemDevices': 'システム出力デバイスが見つかりません。',
   'audioDrawer.error.desktopBridgeUnavailable': 'デスクトップブリッジを利用できません',
   'audioDrawer.meter.direct': 'ダイレクト',
+  'audioDrawer.meter.chain': 'チェーン',
   'audioDrawer.meter.mode': 'モード',
   'audioDrawer.meter.output': '出力',
   'audioDrawer.meter.rate': 'レート',
@@ -2166,7 +2266,7 @@ const jaJP: TranslationMap = {
   'audioDrawer.latency.balanced': 'バランス',
   'audioDrawer.latency.balancedDetail': '2048 frames',
   'audioDrawer.latency.lowLatency': '低遅延',
-  'audioDrawer.latency.lowLatencyDetail': '~8 ms / 自動調整',
+  'audioDrawer.latency.lowLatencyDetail': '高速切替 / 不安定時は安定化',
   'audioDrawer.latency.stable': '安定',
   'audioDrawer.latency.stableDetail': '8192 frames',
   'audioDrawer.mode.exclusive': '排他',
@@ -2177,8 +2277,10 @@ const jaJP: TranslationMap = {
   'audioDrawer.note.asioWarning': 'ASIO を有効にすると音声チャンネルを占有します。ASIO ドライバーがない場合は使わないでください。',
   'audioDrawer.note.currentOutput': 'ここには実際に使っている出力経路が表示されます。共有は普段使い向け、ASIO は金色で表示されます。',
   'audioDrawer.note.engine': '出力デバイス、モード、レート、EQ、リサンプル状態をすばやく確認できます。',
-  'audioDrawer.note.juceOutput': '通常、JUCE 出力が最も安定します。有効にすると現在の出力を引き継ぎ、失敗時は自動で戻します。',
-  'audioDrawer.option.juceOutput': 'JUCE 出力を使う',
+  'audioDrawer.note.juceOutput': '既定のメイン出力です。FFmpeg はデコードを続け、JUCE が出力を担当し、失敗時は互換経路へ自動で戻します。',
+  'audioDrawer.note.juceDecode': '既定ではオフです。リサンプル不要のローカル WAV/FLAC で JUCE デコードを試します。MP3 は当面 FFmpeg が担当し、失敗時は FFmpeg に戻します。',
+  'audioDrawer.option.juceOutput': 'JUCE メイン出力',
+  'audioDrawer.option.juceDecode': 'JUCE デコード実験',
   'audioDrawer.option.active': 'オン',
   'audioDrawer.option.set': '設定',
   'audioDrawer.option.rememberOutput': '出力設定を保存',
@@ -2202,6 +2304,12 @@ const jaJP: TranslationMap = {
   'audioDrawer.signal.dspOn': 'DSP オン',
   'audioDrawer.signal.eqOff': 'EQ オフ',
   'audioDrawer.signal.eqOn': 'EQ オン',
+  'audioDrawer.signal.asioSdkOutput': 'ASIO SDK 出力',
+  'audioDrawer.signal.ffmpegDecode': 'FFmpeg デコード',
+  'audioDrawer.signal.juceDecode': 'JUCE デコード',
+  'audioDrawer.signal.juceDecodeFallback': 'JUCE デコード fallback',
+  'audioDrawer.signal.juceDecodeStandby': 'JUCE デコード未適用',
+  'audioDrawer.signal.juceDecodeMp3Unsupported': 'MP3 not supported yet',
   'audioDrawer.signal.nativeRate': 'ネイティブレート',
   'audioDrawer.signal.noActiveSource': 'アクティブなソースなし',
   'audioDrawer.signal.pending': '保留中',
@@ -2742,6 +2850,7 @@ const enUS: TranslationMap = {
   'audioDrawer.asioRoutes.title': 'ASIO output channels',
   'audioDrawer.badge.bitPerfectReady': 'Bit-perfect ready',
   'audioDrawer.badge.dspActive': 'DSP active',
+  'audioDrawer.badge.juceFallback': 'JUCE fallback',
   'audioDrawer.badge.juceOutput': 'JUCE output',
   'audioDrawer.badge.resampling': 'Resampling',
   'audioDrawer.badge.soxrResampler': 'SOXR',
@@ -2770,6 +2879,7 @@ const enUS: TranslationMap = {
   'audioDrawer.empty.systemDevices': 'No system output devices found.',
   'audioDrawer.error.desktopBridgeUnavailable': 'Desktop bridge unavailable',
   'audioDrawer.meter.direct': 'Direct',
+  'audioDrawer.meter.chain': 'Chain',
   'audioDrawer.meter.mode': 'Mode',
   'audioDrawer.meter.output': 'Output',
   'audioDrawer.meter.rate': 'Rate',
@@ -2783,7 +2893,7 @@ const enUS: TranslationMap = {
   'audioDrawer.latency.balanced': 'Balanced',
   'audioDrawer.latency.balancedDetail': '2048 frames',
   'audioDrawer.latency.lowLatency': 'Low latency',
-  'audioDrawer.latency.lowLatencyDetail': '~8 ms / adaptive',
+  'audioDrawer.latency.lowLatencyDetail': 'Fast skips / stable fallback',
   'audioDrawer.latency.stable': 'Stable',
   'audioDrawer.latency.stableDetail': '8192 frames',
   'audioDrawer.mode.exclusive': 'Exclusive',
@@ -2794,8 +2904,10 @@ const enUS: TranslationMap = {
   'audioDrawer.note.asioWarning': 'ASIO takes over your audio channels. Do not use it unless an ASIO driver is installed.',
   'audioDrawer.note.currentOutput': 'This shows the output path in use. Shared is for daily listening; ASIO is highlighted in gold.',
   'audioDrawer.note.engine': 'Quickly check the output device, mode, sample rate, EQ, and resampling state.',
-  'audioDrawer.note.juceOutput': 'JUCE output is usually the most stable. When enabled, it takes over the current output and falls back automatically if it fails.',
-  'audioDrawer.option.juceOutput': 'Use JUCE Output',
+  'audioDrawer.note.juceOutput': 'Default main output. FFmpeg keeps decoding; JUCE owns output and falls back to the compatibility path if it fails.',
+  'audioDrawer.note.juceDecode': 'Off by default. Tries JUCE decode for local WAV/FLAC files that need no resampling; MP3 stays on FFmpeg for now; falls back to FFmpeg on failure.',
+  'audioDrawer.option.juceOutput': 'JUCE Main Output',
+  'audioDrawer.option.juceDecode': 'JUCE Decode Experiment',
   'audioDrawer.option.active': 'On',
   'audioDrawer.option.set': 'Set',
   'audioDrawer.option.rememberOutput': 'Save Output Settings',
@@ -2819,6 +2931,12 @@ const enUS: TranslationMap = {
   'audioDrawer.signal.dspOn': 'DSP On',
   'audioDrawer.signal.eqOff': 'EQ Off',
   'audioDrawer.signal.eqOn': 'EQ On',
+  'audioDrawer.signal.asioSdkOutput': 'ASIO SDK output',
+  'audioDrawer.signal.ffmpegDecode': 'FFmpeg decode',
+  'audioDrawer.signal.juceDecode': 'JUCE decode',
+  'audioDrawer.signal.juceDecodeFallback': 'JUCE decode fallback',
+  'audioDrawer.signal.juceDecodeStandby': 'JUCE decode not used',
+  'audioDrawer.signal.juceDecodeMp3Unsupported': 'MP3 not supported yet',
   'audioDrawer.signal.nativeRate': 'Native Rate',
   'audioDrawer.signal.noActiveSource': 'No active source',
   'audioDrawer.signal.pending': 'Pending',
@@ -3104,6 +3222,8 @@ const enUS: TranslationMap = {
   'settings.nav.remote.description': 'NAS, WebDAV, Subsonic',
   'settings.nav.eq.label': 'EQ',
   'settings.nav.eq.description': 'Equalizer and output safety',
+  'settings.nav.shortcuts.label': 'Shortcuts',
+  'settings.nav.shortcuts.description': 'Global keys, play/pause, previous, next',
   'settings.eq.action.autoPreamp': 'Auto {value}',
   'settings.eq.action.bypass': 'Bypass',
   'settings.eq.action.delete': 'Delete',
@@ -3316,6 +3436,38 @@ const enUS: TranslationMap = {
   'settings.playback.wireless.description': 'This will connect in a later HiFi engine phase. The current phase does not migrate gapless / automix / streaming.',
   'settings.playback.followCurrent.title': 'Follow Current Track',
   'settings.playback.followCurrent.description': 'When enabled, the current list scrolls to the playing track after track changes.',
+  'settings.shortcuts.action.clear': 'Clear',
+  'settings.shortcuts.action.nextTrack.description': 'Jump to the next item in the active playback queue.',
+  'settings.shortcuts.action.nextTrack.title': 'Next Track',
+  'settings.shortcuts.action.playPause.description': 'Toggle play and pause globally.',
+  'settings.shortcuts.action.playPause.title': 'Play / Pause',
+  'settings.shortcuts.action.previousTrack.description': 'Jump to the previous item in the active playback queue.',
+  'settings.shortcuts.action.previousTrack.title': 'Previous Track',
+  'settings.shortcuts.action.record': 'Record',
+  'settings.shortcuts.action.restoreRecommended': 'Restore Recommended',
+  'settings.shortcuts.action.seekBackward.description': 'Seek the current track backward by 10 seconds.',
+  'settings.shortcuts.action.seekBackward.title': 'Seek Back 10s',
+  'settings.shortcuts.action.seekForward.description': 'Seek the current track forward by 10 seconds.',
+  'settings.shortcuts.action.seekForward.title': 'Seek Forward 10s',
+  'settings.shortcuts.action.showMainWindow.description': 'Bring the ECHO main window to the front.',
+  'settings.shortcuts.action.showMainWindow.title': 'Show Main Window',
+  'settings.shortcuts.action.stop.description': 'Stop current playback and clear the active playback state.',
+  'settings.shortcuts.action.stop.title': 'Stop Playback',
+  'settings.shortcuts.action.volumeDown.description': 'Lower ECHO volume by 5%.',
+  'settings.shortcuts.action.volumeDown.title': 'Volume Down',
+  'settings.shortcuts.action.volumeUp.description': 'Raise ECHO volume by 5%.',
+  'settings.shortcuts.action.volumeUp.title': 'Volume Up',
+  'settings.shortcuts.description': 'Shortcuts start disabled. Record a single key, combo, media key, or macro-pad key, then enable it on the right.',
+  'settings.shortcuts.empty': 'Not bound',
+  'settings.shortcuts.message.duplicate': 'That shortcut is already bound to another action.',
+  'settings.shortcuts.message.empty': 'Record a shortcut first.',
+  'settings.shortcuts.message.invalid': 'That key cannot be used as a global shortcut right now.',
+  'settings.shortcuts.message.safe': 'This shortcut is available.',
+  'settings.shortcuts.message.unavailable': 'That shortcut is used by the system or another app, so it stayed disabled.',
+  'settings.shortcuts.message.unsafe': 'That key cannot be used as a global shortcut right now. You can make the macro pad emit a standard keyboard or media key.',
+  'settings.shortcuts.note': 'Single keys and combinations are supported. If a mouse side button or macro key is rejected by the system/Electron, it stays disabled and shows unavailable.',
+  'settings.shortcuts.recording': 'Press a new shortcut...',
+  'settings.shortcuts.title': 'Global Shortcuts',
   'settings.playback.audioStatus.title': 'Audio Status',
   'settings.playback.audioStatus.description': 'Sample-rate fields stay separated to prevent the old ECHO exclusive-mode 48k lock regression.',
   'settings.playback.stability.action.copied': 'Copied',
@@ -3371,7 +3523,7 @@ const enUS: TranslationMap = {
   'settings.library.networkSources.description': 'Choose providers used by manual repair and missing-metadata scans.',
   'settings.library.networkSources.title': 'Network Completion Sources',
   'settings.library.networkPanel.applyMissingOnly': 'Apply missing only',
-  'settings.library.networkPanel.applySelected': 'Apply selected',
+  'settings.library.networkPanel.applySelected': 'Apply selected candidate',
   'settings.library.networkPanel.appliedCount': 'Auto-applied count',
   'settings.library.networkPanel.artistField': 'Artist',
   'settings.library.networkPanel.artistSource': 'Artist source',
@@ -3385,10 +3537,10 @@ const enUS: TranslationMap = {
   'settings.library.networkPanel.noCandidates': 'No network candidate yet.',
   'settings.library.networkPanel.providerErrors': 'Provider errors',
   'settings.library.networkPanel.reject': 'Reject',
-  'settings.library.networkPanel.repairMissing': 'Repair current track',
+  'settings.library.networkPanel.repairMissing': 'Repair current song',
   'settings.library.networkPanel.repairThisTrack': 'Repair this track',
   'settings.library.networkPanel.scanComplete': 'Scan complete',
-  'settings.library.networkPanel.scanMissing': 'Scan Missing Metadata',
+  'settings.library.networkPanel.scanMissing': 'Scan missing info',
   'settings.library.networkPanel.scanDone': 'Scanned missing tracks',
   'settings.library.networkPanel.scanPreparing': 'Preparing scan',
   'settings.library.networkPanel.scanProgress': 'Missing metadata scan progress',

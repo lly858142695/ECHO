@@ -42,6 +42,8 @@ const makeAudioStatus = (track: LibraryTrack | null): AudioStatus => ({
   activeOutputBackendImpl: null,
   outputMode: 'shared',
   useJuceOutputRequested: false,
+  useJuceDecodeRequested: false,
+  activeDecodeBackendImpl: null,
   volume: 1,
   playbackRate: 1,
   playbackSpeedMode: 'nightcore',

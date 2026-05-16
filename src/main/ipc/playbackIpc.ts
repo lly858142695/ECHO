@@ -110,6 +110,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings | undefine
     output.useJuceOutput = input.useJuceOutput;
   }
 
+  if (typeof input.useJuceDecode === 'boolean') {
+    output.useJuceDecode = input.useJuceDecode;
+  }
+
   if (typeof input.asioUnavailableFallbackEnabled === 'boolean') {
     output.asioUnavailableFallbackEnabled = input.asioUnavailableFallbackEnabled;
   }

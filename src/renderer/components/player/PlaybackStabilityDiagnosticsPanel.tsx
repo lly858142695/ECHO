@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Clipboard, RefreshCw } from 'lucide-react';
+import { ChevronDown, Clipboard, RefreshCw } from 'lucide-react';
 import type { AudioDiagnostics, AudioStatus } from '../../../shared/types/audio';
 import { useI18n } from '../../i18n/I18nProvider';
 import { getAudioBridge } from '../../utils/echoBridge';
@@ -163,6 +163,7 @@ export const formatPlaybackDiagnosticsText = (diagnostics: AudioDiagnosticsFallb
 export const PlaybackStabilityDiagnosticsPanel = (): JSX.Element => {
   const { t } = useI18n();
   const desktopBridgeUnavailable = t('settings.playback.stability.error.desktopBridgeUnavailable');
+  const [isExpanded, setIsExpanded] = useState(false);
   const [diagnostics, setDiagnostics] = useState<AudioDiagnosticsFallback>(() => createFallbackDiagnostics(null));
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -189,6 +190,10 @@ export const PlaybackStabilityDiagnosticsPanel = (): JSX.Element => {
   }, [desktopBridgeUnavailable]);
 
   useEffect(() => {
+    if (!isExpanded) {
+      return undefined;
+    }
+
     const cancelInitialRefresh = scheduleIdleDiagnosticsRefresh(() => {
       void refreshDiagnostics();
     });
@@ -200,7 +205,7 @@ export const PlaybackStabilityDiagnosticsPanel = (): JSX.Element => {
       cancelInitialRefresh();
       window.clearInterval(interval);
     };
-  }, [refreshDiagnostics]);
+  }, [isExpanded, refreshDiagnostics]);
 
   const rows = useMemo(
     () => [
@@ -258,39 +263,51 @@ export const PlaybackStabilityDiagnosticsPanel = (): JSX.Element => {
   }, [diagnostics]);
 
   return (
-    <section className="audio-dev-panel playback-stability-panel" aria-label={t('settings.playback.stability.title')}>
+    <section className="audio-dev-panel playback-stability-panel" aria-label={t('settings.playback.stability.title')} data-expanded={isExpanded}>
       <div className="audio-dev-header">
-        <div>
-          <span className="panel-kicker">Audio</span>
-          <h2>{t('settings.playback.stability.title')}</h2>
-        </div>
-        <div className="playback-stability-actions">
-          <button className="settings-action-button" type="button" onClick={() => void copyDiagnostics()}>
-            <Clipboard size={15} />
-            {copied ? t('settings.playback.stability.action.copied') : t('settings.playback.stability.action.copy')}
-          </button>
-          <button
-            className="tool-button"
-            type="button"
-            aria-label={t('settings.playback.stability.action.refresh')}
-            title={t('settings.playback.stability.action.refresh')}
-            onClick={() => void refreshDiagnostics()}
-          >
-            <RefreshCw size={17} />
-          </button>
-        </div>
+        <button
+          className="settings-collapse-toggle playback-stability-toggle"
+          type="button"
+          aria-expanded={isExpanded}
+          onClick={() => setIsExpanded((current) => !current)}
+        >
+          <span>
+            <span className="panel-kicker">Audio</span>
+            <strong>{t('settings.playback.stability.title')}</strong>
+          </span>
+          <ChevronDown size={17} />
+        </button>
+        {isExpanded ? (
+          <div className="playback-stability-actions">
+            <button className="settings-action-button" type="button" onClick={() => void copyDiagnostics()}>
+              <Clipboard size={15} />
+              {copied ? t('settings.playback.stability.action.copied') : t('settings.playback.stability.action.copy')}
+            </button>
+            <button
+              className="tool-button"
+              type="button"
+              aria-label={t('settings.playback.stability.action.refresh')}
+              title={t('settings.playback.stability.action.refresh')}
+              onClick={() => void refreshDiagnostics()}
+            >
+              <RefreshCw size={17} />
+            </button>
+          </div>
+        ) : null}
       </div>
 
-      <div className="settings-status-grid playback-stability-grid">
-        {rows.map(([label, value]) => (
-          <span key={String(label)}>
-            <em>{label}</em>
-            <strong title={formatValue(value, t('settings.playback.stability.value.unknown'))}>
-              {formatValue(value, t('settings.playback.stability.value.unknown'))}
-            </strong>
-          </span>
-        ))}
-      </div>
+      {isExpanded ? (
+        <div className="settings-status-grid playback-stability-grid">
+          {rows.map(([label, value]) => (
+            <span key={String(label)}>
+              <em>{label}</em>
+              <strong title={formatValue(value, t('settings.playback.stability.value.unknown'))}>
+                {formatValue(value, t('settings.playback.stability.value.unknown'))}
+              </strong>
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       {error ? <p className="settings-inline-error">{error}</p> : null}
     </section>
