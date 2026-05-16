@@ -33,6 +33,7 @@ export type LyricsProviderResult = {
   instrumental: boolean;
   plainLyrics: string | null;
   syncedLyrics: string | null;
+  karaokeLyrics?: string | null;
   translationLyrics?: string | null;
   romanizationLyrics?: string | null;
   sourceUrl?: string | null;
@@ -147,14 +148,18 @@ export const providerResultToTrackLyrics = (
   result: LyricsProviderResult,
   score: number | null,
 ): TrackLyrics | null => {
+  const syncedLyrics =
+    result.karaokeLyrics && parseSyncedLyrics(result.karaokeLyrics).length > 0
+      ? result.karaokeLyrics
+      : result.syncedLyrics;
   const kind = detectLyricsKind({
-    syncedLyrics: result.syncedLyrics,
+    syncedLyrics,
     plainLyrics: result.plainLyrics,
     instrumental: result.instrumental,
   });
   const lines =
     kind === 'synced'
-      ? normalizeSyncedLyricAlternates(parseSyncedLyrics(result.syncedLyrics ?? ''))
+      ? normalizeSyncedLyricAlternates(parseSyncedLyrics(syncedLyrics ?? ''))
       : kind === 'plain'
         ? parsePlainLyrics(result.plainLyrics ?? '')
         : [];
@@ -178,7 +183,7 @@ export const providerResultToTrackLyrics = (
     durationSeconds: result.durationSeconds,
     lines: linesWithSecondaryText,
     plainText: result.plainLyrics,
-    syncedText: result.syncedLyrics,
+    syncedText: syncedLyrics,
     offsetMs: 0,
     score,
     cachedAt: timestamp,

@@ -59,6 +59,7 @@ type LyricsDisplaySettings = Pick<
   | "lyricsCustomWallpaperPath"
   | "lyricsRomanizationEnabled"
   | "lyricsTranslationEnabled"
+  | "lyricsWordHighlightEnabled"
   | "lyricsAutoSearch"
   | "lyricsAutoAcceptScore"
   | "lyricsGlobalSyncOffsetMs"
@@ -93,6 +94,7 @@ const fallbackLyricsDisplaySettings: LyricsDisplaySettings = {
   lyricsCustomWallpaperPath: null,
   lyricsRomanizationEnabled: true,
   lyricsTranslationEnabled: true,
+  lyricsWordHighlightEnabled: true,
   lyricsAutoSearch: true,
   lyricsAutoAcceptScore: 0.5,
   lyricsGlobalSyncOffsetMs: 0,
@@ -383,6 +385,7 @@ const selectLyricsDisplaySettings = (
   lyricsCustomWallpaperPath: settings.lyricsCustomWallpaperPath,
   lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled,
   lyricsTranslationEnabled: settings.lyricsTranslationEnabled,
+  lyricsWordHighlightEnabled: settings.lyricsWordHighlightEnabled !== false,
   lyricsAutoSearch: settings.lyricsAutoSearch,
   lyricsAutoAcceptScore: settings.lyricsAutoAcceptScore,
   lyricsGlobalSyncOffsetMs: settings.lyricsGlobalSyncOffsetMs,
@@ -412,6 +415,7 @@ const lyricsDisplaySettingsKeys = [
   "lyricsCustomWallpaperPath",
   "lyricsRomanizationEnabled",
   "lyricsTranslationEnabled",
+  "lyricsWordHighlightEnabled",
   "lyricsAutoSearch",
   "lyricsAutoAcceptScore",
   "lyricsGlobalSyncOffsetMs",
@@ -463,7 +467,7 @@ const clampPlaybackPosition = (
 const useLyricsDisplayPosition = (
   audioStatus: AudioStatus | null,
   playbackStatus: PlaybackStatus | null,
-): { audioClock: MvAudioClock; displayPositionSeconds: number } => {
+): { audioClock: MvAudioClock } => {
   const sourcePositionSeconds =
     audioStatus?.positionSeconds ?? (playbackStatus?.positionMs ?? 0) / 1000;
   const sourceDurationSeconds =
@@ -474,9 +478,6 @@ const useLyricsDisplayPosition = (
     playbackStatus?.currentTrackId ?? audioStatus?.currentTrackId ?? null;
   const currentFilePath =
     playbackStatus?.filePath ?? audioStatus?.currentFilePath ?? null;
-  const [positionSeconds, setPositionSeconds] = useState(() =>
-    clampPlaybackPosition(sourcePositionSeconds, sourceDurationSeconds),
-  );
   const [audioClock, setAudioClock] = useState<MvAudioClock>(() => ({
     durationSeconds: sourceDurationSeconds,
     playbackRate,
@@ -582,7 +583,6 @@ const useLyricsDisplayPosition = (
       state,
       updatedAtMs,
     });
-    setPositionSeconds(nextPositionSeconds);
   }, [
     currentFilePath,
     currentTrackId,
@@ -591,30 +591,6 @@ const useLyricsDisplayPosition = (
     sourcePositionSeconds,
     state,
   ]);
-
-  useEffect(() => {
-    if (state !== "playing") {
-      return undefined;
-    }
-
-    let frame = 0;
-    const tick = (): void => {
-      const clock = clockRef.current;
-      const elapsedSeconds = Math.max(
-        0,
-        (performance.now() - clock.updatedAtMs) / 1000,
-      );
-      const nextPositionSeconds = clampPlaybackPosition(
-        clock.positionSeconds + elapsedSeconds * clock.playbackRate,
-        clock.durationSeconds,
-      );
-      setPositionSeconds(nextPositionSeconds);
-      frame = window.requestAnimationFrame(tick);
-    };
-
-    frame = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frame);
-  }, [state]);
 
   useEffect(() => {
     const handlePlaybackSeeked = (event: Event): void => {
@@ -648,14 +624,13 @@ const useLyricsDisplayPosition = (
         updatedAtMs,
       };
       setAudioClock(nextClock);
-      setPositionSeconds(nextPositionSeconds);
     };
 
     window.addEventListener(playbackSeekedEvent, handlePlaybackSeeked);
     return () => window.removeEventListener(playbackSeekedEvent, handlePlaybackSeeked);
   }, [currentFilePath, currentTrackId, playbackRate, sourceDurationSeconds, state]);
 
-  return { audioClock, displayPositionSeconds: positionSeconds };
+  return { audioClock };
 };
 
 export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
@@ -824,11 +799,11 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     [],
   );
 
-  const { audioClock: mvAudioClock, displayPositionSeconds } = useLyricsDisplayPosition(
+  const { audioClock: mvAudioClock } = useLyricsDisplayPosition(
     audioStatus,
     playbackStatus,
   );
-  const lyricsPositionSeconds = seekPreviewSeconds ?? displayPositionSeconds;
+  const lyricsPositionSeconds = seekPreviewSeconds ?? mvAudioClock.positionSeconds;
   const activeSearchProviders = useMemo<LyricsProviderId[]>(() => {
     const enabled = (lyricsDisplaySettings.lyricsEnabledProviders?.length
       ? lyricsDisplaySettings.lyricsEnabledProviders
@@ -1979,6 +1954,10 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
             hideEmptyState={lyricsDisplaySettings.lyricsEmptyStateHidden}
             lyrics={lyrics}
             positionMs={lyricsPositionSeconds * 1000 + lyricsDisplaySettings.lyricsGlobalSyncOffsetMs}
+            playbackRate={mvAudioClock.playbackRate}
+            playbackState={seekPreviewSeconds === null ? mvAudioClock.state : "paused"}
+            positionUpdatedAtMs={seekPreviewSeconds === null ? mvAudioClock.updatedAtMs : performance.now()}
+            wordHighlightEnabled={lyricsDisplaySettings.lyricsWordHighlightEnabled !== false}
             showRomanization={lyricsDisplaySettings.lyricsRomanizationEnabled}
             showTranslation={lyricsDisplaySettings.lyricsTranslationEnabled}
             onSeek={(timeMs) => void handleLyricSeek(timeMs)}

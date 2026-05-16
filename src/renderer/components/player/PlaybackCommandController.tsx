@@ -9,6 +9,10 @@ import { shouldSuppressAudioHostError } from './audioErrorFormat';
 import { bindMediaSessionActions, clearMediaSession } from './mediaSession';
 
 const playbackSeekedEvent = 'playback:seeked';
+const clampPlaybackRate = (value: number): number => Math.max(0.5, Math.min(2, value));
+const openAudioSettingsEvent = 'app:open-audio-settings';
+const openMvSettingsEvent = 'app:open-mv-settings';
+const openLyricsSettingsEvent = 'app:open-lyrics-settings';
 
 const dispatchPlaybackSeeked = (positionSeconds: number, trackId: string | null): void => {
   window.dispatchEvent(new CustomEvent(playbackSeekedEvent, { detail: { positionSeconds, trackId } }));
@@ -93,6 +97,33 @@ export const PlaybackCommandController = (): null => {
     },
     [audioStatus],
   );
+
+  const handleSpeedStep = useCallback(
+    async (delta: number): Promise<void> => {
+      const audio = window.echo?.audio;
+      if (!audio) {
+        return;
+      }
+
+      const latestStatus = audioStatus ?? (await audio.getStatus());
+      const nextRate = clampPlaybackRate(Math.round(((latestStatus.playbackRate ?? 1) + delta) * 10) / 10);
+      const playbackSpeedMode = latestStatus.playbackSpeedMode ?? 'nightcore';
+      await audio.setOutput({ playbackRate: nextRate, playbackSpeedMode });
+      await window.echo?.app?.setSettings?.({ playbackSpeed: nextRate, playbackSpeedMode }).catch(() => undefined);
+      await refreshPlaybackStatus();
+    },
+    [audioStatus],
+  );
+
+  const handleBossKey = useCallback(async (): Promise<void> => {
+    const audio = window.echo?.audio;
+    if (!audio) {
+      return;
+    }
+
+    await audio.setOutput({ volume: 0 });
+    await refreshPlaybackStatus();
+  }, []);
 
   const handleSmtcCommand = useCallback(
     (command: SmtcCommand): void => {
@@ -210,6 +241,36 @@ export const PlaybackCommandController = (): null => {
         return;
       }
 
+      if (action === 'speedUp') {
+        void handleSpeedStep(0.1);
+        return;
+      }
+
+      if (action === 'speedDown') {
+        void handleSpeedStep(-0.1);
+        return;
+      }
+
+      if (action === 'bossKey') {
+        void handleBossKey();
+        return;
+      }
+
+      if (action === 'openAudioSettings') {
+        window.dispatchEvent(new Event(openAudioSettingsEvent));
+        return;
+      }
+
+      if (action === 'openMvSettings') {
+        window.dispatchEvent(new Event(openMvSettingsEvent));
+        return;
+      }
+
+      if (action === 'openLyricsSettings') {
+        window.dispatchEvent(new Event(openLyricsSettingsEvent));
+        return;
+      }
+
       if (action === 'seekBackward') {
         void commitSeek(positionSeconds - 10);
         return;
@@ -219,7 +280,7 @@ export const PlaybackCommandController = (): null => {
         void commitSeek(positionSeconds + 10);
       }
     },
-    [commitSeek, handleNext, handlePlayPause, handlePrevious, handleStop, handleVolumeStep, positionSeconds],
+    [commitSeek, handleBossKey, handleNext, handlePlayPause, handlePrevious, handleSpeedStep, handleStop, handleVolumeStep, positionSeconds],
   );
 
   useEffect(() => {

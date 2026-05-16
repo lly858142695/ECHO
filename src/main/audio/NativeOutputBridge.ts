@@ -280,6 +280,7 @@ const frameTypePcmF32Le = 2;
 const frameTypeEndSession = 3;
 const frameTypeShutdown = 4;
 const frameTypeSetVolume = 5;
+const frameTypeDop24Le = 6;
 
 const createFrameHeader = (type: number, sessionId: number, payloadBytes: number): Buffer => {
   const header = Buffer.alloc(16);
@@ -340,6 +341,7 @@ const createReuseKey = (options: NativeOutputStartOptions): string => {
     bufferSizeFrames,
     latencyProfile: options.latencyProfile ?? null,
     playbackSpeedMode: options.playbackSpeedMode ?? null,
+    inputFormat: options.inputFormat ?? 'pcm-f32le',
   });
 };
 
@@ -356,6 +358,11 @@ class FramedSessionWritable extends Writable {
   override _write(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
     if (this.sessionClosed) {
       callback();
+      return;
+    }
+
+    if (this.owner.inputFormat === 'dop24le') {
+      this.owner.writeDopFrame(this.sessionId, chunk, callback);
       return;
     }
 
@@ -415,6 +422,7 @@ export class NativeOutputBridge extends EventEmitter {
   private pendingGracefulStop: PendingGracefulStop | null = null;
   private shutdownAckReceived = false;
   private lastOutputMode: NativeOutputMode | null = null;
+  inputFormat: NativeOutputStartOptions['inputFormat'] = 'pcm-f32le';
 
   constructor(dependencies: NativeOutputBridgeDependencies = {}) {
     super();
@@ -488,6 +496,7 @@ export class NativeOutputBridge extends EventEmitter {
       this.readyMessage = null;
       this.eqControlPort = getEqBridge().reserveControlPort();
       this.shutdownAckReceived = false;
+      this.inputFormat = options.inputFormat ?? 'pcm-f32le';
 
       const args = this.createSpawnArgs(options);
       const stderrLines: string[] = [];
@@ -713,6 +722,19 @@ export class NativeOutputBridge extends EventEmitter {
     this.writeFrame(frameTypePcmF32Le, sessionId, chunk, callback);
   }
 
+  writeDopFrame(sessionId: number, chunk: Buffer, callback: (error?: Error | null) => void): void {
+    if (!chunk.length) {
+      callback();
+      return;
+    }
+
+    if (sessionId === this.currentSessionId) {
+      this.currentSessionHasPcm = true;
+    }
+
+    this.writeFrame(frameTypeDop24Le, sessionId, chunk, callback);
+  }
+
   stop(): void {
     this.clearReadyTimer();
     this.stopRequested = true;
@@ -893,6 +915,10 @@ export class NativeOutputBridge extends EventEmitter {
 
     if (options.useJuceOutput === true) {
       args.push('-juce-output');
+    }
+
+    if (options.inputFormat === 'dop24le') {
+      args.push('-dop-output');
     }
 
     const sharedBackend = normalizeSharedBackendForHost(options.sharedBackend);

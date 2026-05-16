@@ -329,6 +329,44 @@ const trackLyricsToProviderResult = (lyrics: TrackLyrics): LyricsProviderResult 
   raw: lyrics,
 });
 
+const normalizeLineIdentity = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+const restoreWordTimingsFromSyncedText = (lines: TrackLyrics['lines'], syncedText: string | null): TrackLyrics['lines'] => {
+  if (!syncedText || lines.some((line) => line.words?.length)) {
+    return lines;
+  }
+
+  const reparsedLines = normalizeSyncedLyricAlternates(parseSyncedLyrics(syncedText));
+  const reparsedByTime = new Map<number, TrackLyrics['lines'][number][]>();
+  for (const line of reparsedLines) {
+    if (!line.words?.length) {
+      continue;
+    }
+
+    const bucket = reparsedByTime.get(line.timeMs) ?? [];
+    bucket.push(line);
+    reparsedByTime.set(line.timeMs, bucket);
+  }
+
+  let changed = false;
+  const nextLines = lines.map((line) => {
+    if (line.words?.length || line.timeMs < 0) {
+      return line;
+    }
+
+    const candidates = reparsedByTime.get(line.timeMs) ?? [];
+    const match = candidates.find((candidate) => normalizeLineIdentity(candidate.text) === normalizeLineIdentity(line.text));
+    if (!match?.words?.length) {
+      return line;
+    }
+
+    changed = true;
+    return { ...line, words: match.words };
+  });
+
+  return changed ? nextLines : lines;
+};
+
 const lrclibRecordToProviderResult = (record: LrclibRecord, fallback: LyricsQuery): LyricsProviderResult => ({
   provider: 'lrclib',
   providerLyricsId: record.id == null ? null : String(record.id),
@@ -1030,6 +1068,7 @@ export class LyricsService {
       instrumental: record.instrumental === true,
       plainLyrics: textOrNull(record.plainLyrics),
       syncedLyrics: textOrNull(record.syncedLyrics),
+      karaokeLyrics: textOrNull(record.karaokeLyrics),
       translationLyrics: textOrNull(record.translationLyrics),
       romanizationLyrics: textOrNull(record.romanizationLyrics),
       sourceUrl: textOrNull(record.sourceUrl),
@@ -1085,10 +1124,22 @@ export class LyricsService {
       ? normalizeSyncedLyricAlternates(deserializeLyricLines(row.lines_json))
       : deserializeLyricLines(row.lines_json);
     const hasCachedLineEnhancements = cachedLines.some((line) => line.romanization || line.translation);
-    const lines =
-      provider === 'local' && kind === 'synced' && row.synced_lyrics && !hasCachedLineEnhancements
-        ? normalizeSyncedLyricAlternates(parseSyncedLyrics(row.synced_lyrics))
-        : cachedLines;
+    const hasCachedWordTimings = cachedLines.some((line) => line.words?.length);
+    let lines = cachedLines;
+
+    if (kind === 'synced' && row.synced_lyrics) {
+      const reparsedLines = normalizeSyncedLyricAlternates(parseSyncedLyrics(row.synced_lyrics));
+      const reparsedHasWordTimings = reparsedLines.some((line) => line.words?.length);
+      if (
+        !hasCachedLineEnhancements &&
+        !hasCachedWordTimings &&
+        (provider === 'local' || reparsedHasWordTimings)
+      ) {
+        lines = reparsedLines;
+      } else {
+        lines = restoreWordTimingsFromSyncedText(cachedLines, row.synced_lyrics);
+      }
+    }
 
     return {
       id: row.id,

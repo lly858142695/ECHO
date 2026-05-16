@@ -1,4 +1,4 @@
-import type { AudioLatencyProfile, AudioOutputMode, AudioSharedBackend, ChannelBalanceState, PlaybackSpeedMode } from './audio';
+import type { AudioDsdOutputMode, AudioLatencyProfile, AudioOutputMode, AudioSharedBackend, ChannelBalanceState, PlaybackSpeedMode } from './audio';
 import type { DuplicateTrackMode } from './library';
 import type { LibrarySort } from './library';
 import type { LyricsProviderId } from './lyrics';
@@ -46,6 +46,7 @@ export type AppSettings = {
   hiddenAudioDeviceKeys?: string[];
   audioUseJuceOutput?: boolean;
   audioUseJuceDecode?: boolean;
+  audioDsdOutputMode?: AudioDsdOutputMode;
   audioAsioUnavailableFallbackEnabled?: boolean;
   audioSoxrFallbackEnabled?: boolean;
   albumMergeStrategy: 'standard' | 'sameTitleAndCover';
@@ -91,6 +92,7 @@ export type AppSettings = {
   lyricsPlayerBarDrawerEnabled?: boolean;
   lyricsRomanizationEnabled: boolean;
   lyricsTranslationEnabled: boolean;
+  lyricsWordHighlightEnabled?: boolean;
   lyricsFontSizePx: number;
   lyricsSecondaryFontSizePx?: number;
   lyricsLineSpacingPercent?: number;

@@ -121,6 +121,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
     output.useJuceDecode = input.useJuceDecode;
   }
 
+  if (input.dsdOutputMode === 'dop' || input.dsdOutputMode === 'pcm') {
+    output.dsdOutputMode = input.dsdOutputMode;
+  }
+
   if (typeof input.asioUnavailableFallbackEnabled === 'boolean') {
     output.asioUnavailableFallbackEnabled = input.asioUnavailableFallbackEnabled;
   }

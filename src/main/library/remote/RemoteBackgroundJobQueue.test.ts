@@ -149,7 +149,7 @@ describe('RemoteBackgroundJobQueue', () => {
   });
 
   it('honors global pause and playback-aware concurrency limits', async () => {
-    const source = { ...makeSource(), config: { metadataConcurrency: 4 } };
+    const source = { ...makeSource(), config: { metadataConcurrency: 8 } };
     const track = makeTrack();
     const readMetadata = vi.fn().mockResolvedValue(makeMetadata());
     const store = {
@@ -167,6 +167,11 @@ describe('RemoteBackgroundJobQueue', () => {
 
     queue.setPlaybackActive(true);
     expect(queue.getStatus(source.id).concurrency.metadata).toBe(1);
+    expect(queue.getStatus(source.id).concurrency.cover).toBe(1);
+    queue.setPlaybackActive(false);
+    expect(queue.getStatus(source.id).concurrency.cover).toBe(8);
+    expect(queue.getStatus(source.id).concurrency.metadata).toBe(8);
+    queue.setPlaybackActive(true);
 
     queue.setGlobalPaused(true);
     queue.enqueueSource(source.id, ['metadata']);

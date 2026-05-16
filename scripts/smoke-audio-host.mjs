@@ -112,22 +112,27 @@ const createWav = ({ sampleRate = 48000, seconds = 0.1, channels = 2 } = {}) => 
   return { wav, frames, channels };
 };
 
-const runDecodePcmFixture = ({ fixturePath, fixture, sampleRate, label }) => {
+const runDecodePcmFixture = ({ fixturePath, fixture, sampleRate, label, exactBytes = true }) => {
+  const frameBytes = fixture.channels * Float32Array.BYTES_PER_ELEMENT;
+  const expectedBytes = fixture.frames * frameBytes;
   const result = spawnSync(hostPath, ['-decode-pcm', fixturePath, '-sr', String(sampleRate), '-ch', String(fixture.channels)], {
     cwd: projectRoot,
     encoding: 'buffer',
-    maxBuffer: fixture.frames * fixture.channels * Float32Array.BYTES_PER_ELEMENT + 4096,
+    maxBuffer: expectedBytes + sampleRate * frameBytes,
   });
   const stderr = result.stderr?.toString('utf8') ?? '';
   const stdout = result.stdout ?? Buffer.alloc(0);
-  const expectedBytes = fixture.frames * fixture.channels * Float32Array.BYTES_PER_ELEMENT;
 
   if (result.status !== 0) {
     fail(`JUCE ${label} decode smoke exited with ${result.status}; stderr=${stderr}; stdoutBytes=${stdout.length}`);
   }
 
-  if (stdout.length !== expectedBytes) {
+  if (exactBytes && stdout.length !== expectedBytes) {
     fail(`JUCE ${label} decode smoke returned ${stdout.length} bytes, expected ${expectedBytes}; stderr=${stderr}`);
+  }
+
+  if (!exactBytes && (stdout.length <= 0 || stdout.length % frameBytes !== 0)) {
+    fail(`JUCE ${label} decode smoke returned invalid f32le byte count ${stdout.length}; frameBytes=${frameBytes}; stderr=${stderr}`);
   }
 
   console.log(`[smoke:audio-host] JUCE ${label} decode PCM OK`);
@@ -137,6 +142,7 @@ const runJuceDecodeSmoke = () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'echo-juce-decode-'));
   const wavPath = join(tempDir, 'juce-decode-smoke.wav');
   const flacPath = join(tempDir, 'juce-decode-smoke.flac');
+  const mp3Path = join(tempDir, 'juce-decode-smoke.mp3');
   const sampleRate = 48000;
   const fixture = createWav({ sampleRate, seconds: 0.1, channels: 2 });
 
@@ -145,7 +151,7 @@ const runJuceDecodeSmoke = () => {
     runDecodePcmFixture({ fixturePath: wavPath, fixture, sampleRate, label: 'WAV' });
 
     if (!existsSync(ffmpegPath)) {
-      fail(`Missing ffmpeg binary for FLAC fixture generation: ${ffmpegPath}`);
+      fail(`Missing ffmpeg binary for compressed decode fixture generation: ${ffmpegPath}`);
     }
 
     const flacEncode = spawnSync(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-y', '-i', wavPath, flacPath], {
@@ -158,6 +164,17 @@ const runJuceDecodeSmoke = () => {
     }
 
     runDecodePcmFixture({ fixturePath: flacPath, fixture, sampleRate, label: 'FLAC' });
+
+    const mp3Encode = spawnSync(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-y', '-i', wavPath, '-codec:a', 'libmp3lame', '-b:a', '128k', mp3Path], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+    });
+
+    if (mp3Encode.status !== 0) {
+      fail(`Failed to create MP3 decode fixture with ffmpeg; stderr=${mp3Encode.stderr ?? ''}`);
+    }
+
+    runDecodePcmFixture({ fixturePath: mp3Path, fixture, sampleRate, label: 'MP3', exactBytes: false });
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

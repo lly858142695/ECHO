@@ -79,6 +79,23 @@ describe('LyricsMatchEngine', () => {
     expect(matched.accepted?.decision.autoAccept).toBe(true);
   });
 
+  it('treats karaoke-only provider results as synced candidates', async () => {
+    const engine = new LyricsMatchEngine([
+      provider('netease', [
+        result({
+          provider: 'netease',
+          syncedLyrics: null,
+          plainLyrics: null,
+          karaokeLyrics: '[00:01.00]<00:01.00>Hello <00:01.50>world',
+        }),
+      ]),
+    ]);
+
+    const matched = await engine.match(query, { enabledProviders: ['netease'] });
+
+    expect(matched.candidates[0].hasSynced).toBe(true);
+  });
+
   it('accepts exact cover matches instead of leaving them as candidates only', async () => {
     const engine = new LyricsMatchEngine([
       provider('lrclib', [result({ title: 'Echo Song Cover', album: null, durationSeconds: 121 })]),

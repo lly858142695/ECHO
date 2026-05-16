@@ -718,6 +718,45 @@ describe('Library Core', () => {
     harness.cleanup();
   }, 20000);
 
+  it('switches matching streaming playlist items to the downloaded local track', async () => {
+    const harness = createHarness();
+    const filePath = writeAudioFile(harness.folder, 'Downloaded Stream.flac');
+    const playlist = harness.service.createPlaylist({ name: 'Streaming Mix' });
+    const streamingItem = harness.service.addStreamingTrackToPlaylist(playlist.id, {
+      id: 'streaming:netease:123',
+      provider: 'netease',
+      providerTrackId: '123',
+      stableKey: 'streaming:netease:123',
+      title: 'Cloud Song',
+      artist: 'Cloud Artist',
+      album: 'Cloud Album',
+      duration: 180,
+      unavailable: false,
+    });
+    harness.metadataService.overrides.set(filePath, baseMetadata({ title: 'Downloaded Song', artist: 'Local Artist', album: 'Local Album' }));
+
+    const localTrack = await harness.service.importAudioFile(filePath);
+    const result = harness.service.linkDownloadedStreamingTrack({
+      provider: 'netease',
+      providerTrackId: '123',
+      stableKey: 'streaming:netease:123',
+      trackId: localTrack.id,
+    });
+    const [linkedItem] = harness.service.getPlaylistItems(playlist.id, { pageSize: 10 }).items;
+
+    expect(result.updatedItems).toBe(1);
+    expect(linkedItem.id).toBe(streamingItem.id);
+    expect(linkedItem.mediaType).toBe('track');
+    expect(linkedItem.mediaId).toBe(localTrack.id);
+    expect(linkedItem.sourceProvider).toBe('local');
+    expect(linkedItem.sourceItemId).toBeNull();
+    expect(linkedItem.track?.id).toBe(localTrack.id);
+    expect(linkedItem.track?.mediaType).toBeUndefined();
+    expect(linkedItem.unavailable).toBe(false);
+    expect(linkedItem.titleSnapshot).toBe('Cloud Song');
+    harness.cleanup();
+  }, 20000);
+
   it('cascades playlist items when deleting a playlist', async () => {
     const harness = createHarness();
     writeAudioFile(harness.folder, 'Cascade Playlist Track.flac');

@@ -1,8 +1,9 @@
-import type { LyricLine, LyricsKind } from '../../shared/types/lyrics';
+import type { LyricLine, LyricWordTiming, LyricsKind } from '../../shared/types/lyrics';
 
 const metadataTagPattern = /^\s*\[(ar|ti|al|by|offset|length|re|ve):[^\]]*\]\s*$/i;
 const timestampPattern = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
 const leadingTimestampsPattern = /^\s*(?:(?:\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\])\s*)+/;
+const angleTimestampPattern = /<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>/g;
 const enhancedTimestampPattern = /<\d{1,2}:\d{2}(?:[.:]\d{1,3})?>/g;
 
 const fractionToMs = (fraction: string | undefined): number => {
@@ -40,6 +41,134 @@ const cleanLyricText = (text: string): string =>
     .trim();
 
 const cleanBracketTimestampedLyricText = (text: string): string => cleanLyricText(text.replace(timestampPattern, ''));
+const normalizeTimedSegmentText = (text: string): string => text.replace(/\s+/g, ' ');
+
+type TimedSegment = {
+  text: string;
+  startMs: number;
+  endMs: number | null;
+};
+
+const normalizeWordTimings = (segments: TimedSegment[]): LyricWordTiming[] | undefined => {
+  const words: LyricWordTiming[] = [];
+
+  for (const segment of segments) {
+    const text = normalizeTimedSegmentText(segment.text);
+    if (!text.trim()) {
+      continue;
+    }
+
+    if (!Number.isFinite(segment.startMs) || segment.startMs < 0) {
+      return undefined;
+    }
+
+    if (segment.endMs !== null && (!Number.isFinite(segment.endMs) || segment.endMs <= segment.startMs)) {
+      return undefined;
+    }
+
+    const previous = words[words.length - 1];
+    if (previous && segment.startMs <= previous.startMs) {
+      return undefined;
+    }
+
+    words.push({
+      text,
+      startMs: Math.round(segment.startMs),
+      endMs: segment.endMs === null ? null : Math.round(segment.endMs),
+    });
+  }
+
+  return words.length >= 2 ? words : undefined;
+};
+
+const normalizedTextIdentity = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+const attachWordTimings = (
+  line: Pick<LyricLine, 'text' | 'translation'>,
+  words: LyricWordTiming[] | undefined,
+): Pick<LyricLine, 'text' | 'translation' | 'words'> => {
+  if (!words?.length) {
+    return line;
+  }
+
+  const wordText = normalizedTextIdentity(words.map((word) => word.text).join(''));
+  if (wordText !== normalizedTextIdentity(line.text)) {
+    return line;
+  }
+
+  return { ...line, words };
+};
+
+const parseAngleEnhancedWordTimings = (content: string): LyricWordTiming[] | undefined => {
+  const matches = [...content.matchAll(angleTimestampPattern)];
+  if (matches.length < 2) {
+    return undefined;
+  }
+
+  const firstIndex = matches[0].index ?? 0;
+  if (content.slice(0, firstIndex).trim()) {
+    return undefined;
+  }
+
+  const segments: TimedSegment[] = [];
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    const startMs = parseTimestamp(match);
+    if (startMs === null || match.index === undefined) {
+      return undefined;
+    }
+
+    const textStart = match.index + match[0].length;
+    const textEnd = matches[index + 1]?.index ?? content.length;
+    const endMs = matches[index + 1] ? parseTimestamp(matches[index + 1]) : null;
+    if (endMs === null && matches[index + 1]) {
+      return undefined;
+    }
+
+    segments.push({
+      text: content.slice(textStart, textEnd),
+      startMs,
+      endMs,
+    });
+  }
+
+  return normalizeWordTimings(segments);
+};
+
+const parseBracketEnhancedWordTimings = (
+  line: string,
+  timestamps: RegExpMatchArray[],
+  leadingMatches: RegExpMatchArray[],
+): LyricWordTiming[] | undefined => {
+  if (leadingMatches.length !== 1 || timestamps.length < 3) {
+    return undefined;
+  }
+
+  const lastTimestamp = timestamps[timestamps.length - 1];
+  const lastTimestampEnd = (lastTimestamp.index ?? -1) + lastTimestamp[0].length;
+  if (lastTimestampEnd !== line.length) {
+    return undefined;
+  }
+
+  const segments: TimedSegment[] = [];
+  for (let index = 0; index < timestamps.length - 1; index += 1) {
+    const match = timestamps[index];
+    const nextMatch = timestamps[index + 1];
+    const startMs = parseTimestamp(match);
+    const endMs = parseTimestamp(nextMatch);
+    if (startMs === null || endMs === null || match.index === undefined || nextMatch.index === undefined) {
+      return undefined;
+    }
+
+    segments.push({
+      text: line.slice(match.index + match[0].length, nextMatch.index),
+      startMs,
+      endMs,
+    });
+  }
+
+  return normalizeWordTimings(segments);
+};
 
 const looksLikeBracketEnhancedLine = (
   line: string,
@@ -285,6 +414,7 @@ export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
       if (!text) {
         continue;
       }
+      const words = parseBracketEnhancedWordTimings(line, timestamps, leadingMatches);
 
       for (const match of leadingMatches) {
         const timeMs = parseTimestamp(match);
@@ -292,17 +422,19 @@ export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
           continue;
         }
 
-        lines.push({ timeMs, ...splitInlineTranslation(text) });
+        lines.push({ timeMs, ...attachWordTimings(splitInlineTranslation(text), words) });
       }
 
       continue;
     }
 
     if (hasOnlyLeadingTimestamps) {
-      const text = cleanLyricText(line.slice(leadingTimestamps.length));
+      const content = line.slice(leadingTimestamps.length);
+      const text = cleanLyricText(content);
       if (!text) {
         continue;
       }
+      const words = parseAngleEnhancedWordTimings(content);
 
       for (const match of timestamps) {
         const timeMs = parseTimestamp(match);
@@ -310,7 +442,7 @@ export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
           continue;
         }
 
-        lines.push({ timeMs, ...splitInlineTranslation(text) });
+        lines.push({ timeMs, ...attachWordTimings(splitInlineTranslation(text), words) });
       }
 
       continue;
@@ -327,7 +459,8 @@ export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
       const textEnd = timestamps[index + 1]?.index ?? line.length;
       const text = cleanLyricText(line.slice(textStart, textEnd));
       if (text) {
-        lines.push({ timeMs, ...splitInlineTranslation(text) });
+        const words = parseAngleEnhancedWordTimings(line.slice(textStart, textEnd));
+        lines.push({ timeMs, ...attachWordTimings(splitInlineTranslation(text), words) });
       }
     }
   }
@@ -371,6 +504,30 @@ export const detectLyricsKind = ({
 
 export const serializeLyricLines = (lines: LyricLine[]): string => JSON.stringify(lines);
 
+const deserializeWordTimings = (value: unknown, lineText: string): LyricWordTiming[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const words = normalizeWordTimings(
+    value
+      .filter((word): word is Record<string, unknown> => Boolean(word && typeof word === 'object' && !Array.isArray(word)))
+      .map((word) => ({
+        text: typeof word.text === 'string' ? word.text : '',
+        startMs: Number(word.startMs),
+        endMs: word.endMs === null || word.endMs === undefined ? null : Number(word.endMs),
+      })),
+  );
+
+  if (!words?.length) {
+    return undefined;
+  }
+
+  return normalizedTextIdentity(words.map((word) => word.text).join('')) === normalizedTextIdentity(lineText)
+    ? words
+    : undefined;
+};
+
 export const deserializeLyricLines = (linesJson: string): LyricLine[] => {
   try {
     const parsed = JSON.parse(linesJson) as unknown;
@@ -380,12 +537,17 @@ export const deserializeLyricLines = (linesJson: string): LyricLine[] => {
 
     return parsed
       .filter((line): line is Record<string, unknown> => line && typeof line === 'object' && !Array.isArray(line))
-      .map((line) => ({
-        timeMs: Number(line.timeMs),
-        text: typeof line.text === 'string' ? line.text : '',
-        ...(typeof line.translation === 'string' ? { translation: line.translation } : {}),
-        ...(typeof line.romanization === 'string' ? { romanization: line.romanization } : {}),
-      }))
+      .map((line) => {
+        const text = typeof line.text === 'string' ? line.text : '';
+        const words = deserializeWordTimings(line.words, text);
+        return {
+          timeMs: Number(line.timeMs),
+          text,
+          ...(words ? { words } : {}),
+          ...(typeof line.translation === 'string' ? { translation: line.translation } : {}),
+          ...(typeof line.romanization === 'string' ? { romanization: line.romanization } : {}),
+        };
+      })
       .filter((line) => Number.isFinite(line.timeMs) && line.text.trim().length > 0);
   } catch {
     return [];

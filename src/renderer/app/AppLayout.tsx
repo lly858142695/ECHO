@@ -70,6 +70,10 @@ const selectAppWallpaperSettings = (settings: AppSettings): AppWallpaperSettings
   appWallpaperUnifiedOpacityEnabled: settings.appWallpaperUnifiedOpacityEnabled,
 });
 
+const openAudioSettingsEvent = 'app:open-audio-settings';
+const openMvSettingsEvent = 'app:open-mv-settings';
+const openLyricsSettingsEvent = 'app:open-lyrics-settings';
+
 export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const { t } = useI18n();
   const playbackQueue = usePlaybackQueue();
@@ -182,7 +186,6 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     } as CSSProperties;
   }, [
     appWallpaperRawUiAlpha,
-    appWallpaperSettings.appWallpaperUiOpacityPercent,
     appWallpaperSettings.appWallpaperVisualProtectionEnabled,
     appWallpaperSettings.appWallpaperUnifiedOpacityEnabled,
     isAppWallpaperReady,
@@ -460,6 +463,21 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [activeRouteId, navigateRoute]);
 
   useEffect(() => {
+    const handleOpenAudioSettings = (): void => setIsAudioDrawerOpen(true);
+    const handleOpenMvSettings = (): void => setIsMvDrawerOpen(true);
+    const handleOpenLyricsSettings = (): void => setIsLyricsDrawerOpen(true);
+
+    window.addEventListener(openAudioSettingsEvent, handleOpenAudioSettings);
+    window.addEventListener(openMvSettingsEvent, handleOpenMvSettings);
+    window.addEventListener(openLyricsSettingsEvent, handleOpenLyricsSettings);
+    return () => {
+      window.removeEventListener(openAudioSettingsEvent, handleOpenAudioSettings);
+      window.removeEventListener(openMvSettingsEvent, handleOpenMvSettings);
+      window.removeEventListener(openLyricsSettingsEvent, handleOpenLyricsSettings);
+    };
+  }, []);
+
+  useEffect(() => {
     const audio = window.echo?.audio;
 
     if (!audio) {
@@ -473,11 +491,12 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       .then(([remembered, settings]) => {
         const useJuceOutput = settings?.audioUseJuceOutput !== false;
         const useJuceDecode = settings?.audioUseJuceDecode === true;
+        const dsdOutputMode = settings?.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm';
         const asioUnavailableFallbackEnabled = settings?.audioAsioUnavailableFallbackEnabled === true;
         const soxrFallbackEnabled = settings?.audioSoxrFallbackEnabled !== false;
         if (!remembered.enabled) {
           return audio
-            .setOutput({ useJuceOutput, useJuceDecode, asioUnavailableFallbackEnabled, soxrFallbackEnabled })
+            .setOutput({ useJuceOutput, useJuceDecode, dsdOutputMode, asioUnavailableFallbackEnabled, soxrFallbackEnabled })
             .then(setAudioDrawerStatus);
         }
 
@@ -490,6 +509,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
             deviceName: remembered.deviceName,
             useJuceOutput,
             useJuceDecode,
+            dsdOutputMode,
             asioUnavailableFallbackEnabled,
             soxrFallbackEnabled,
           })
@@ -543,6 +563,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       if (importedNewTrack) {
         clearSongsFirstPageSnapshot();
         window.dispatchEvent(new Event('library:changed'));
+        window.dispatchEvent(new Event('library:playlists-changed'));
       }
     });
   }, []);

@@ -219,9 +219,12 @@
 .album-detail-track-console {
   display: grid;
   gap: 22px;
-  width: min(100%, 1760px);
+  width: 100%;
+  max-width: none;
   padding-top: 4px;
   border-top: 1px solid rgba(37, 62, 92, 0.08);
+  background: transparent;
+  background-color: transparent;
 }
 
 .album-detail-tabs {
@@ -230,6 +233,8 @@
   gap: 34px;
   min-height: 54px;
   border-bottom: 1px solid rgba(37, 62, 92, 0.07);
+  background: transparent;
+  background-color: transparent;
 }
 
 .album-detail-tab {
@@ -336,6 +341,13 @@
   font: inherit;
 }
 
+.album-detail-page .album-track-row {
+  border-color: var(--echo-polish-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .album-track-row:hover {
   background: rgba(236, 244, 252, 0.7);
   border-top-color: transparent;
@@ -344,6 +356,20 @@
 
 .album-track-row[data-playing='true'] {
   color: #102033;
+}
+
+.album-detail-page .album-track-row:hover,
+.album-detail-page .album-track-row[data-playing='true'] {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.album-detail-page .album-track-row:hover {
+  background: var(--echo-polish-row-bg-hover);
+}
+
+.album-detail-page .album-track-row[data-playing='true'] {
+  background: var(--echo-polish-row-bg-active);
 }
 
 .album-track-number,

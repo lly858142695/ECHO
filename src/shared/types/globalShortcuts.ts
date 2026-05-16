@@ -8,6 +8,12 @@ export const globalShortcutActions = [
   'seekBackward',
   'seekForward',
   'showMainWindow',
+  'bossKey',
+  'speedUp',
+  'speedDown',
+  'openAudioSettings',
+  'openMvSettings',
+  'openLyricsSettings',
 ] as const;
 
 export type GlobalShortcutAction = (typeof globalShortcutActions)[number];
@@ -44,6 +50,12 @@ export const recommendedGlobalShortcuts: GlobalShortcutSettings = {
   seekBackward: { enabled: false, accelerator: 'Ctrl+Alt+Shift+Left' },
   seekForward: { enabled: false, accelerator: 'Ctrl+Alt+Shift+Right' },
   showMainWindow: { enabled: false, accelerator: 'Ctrl+Alt+E' },
+  bossKey: { enabled: false, accelerator: 'Ctrl+Alt+B' },
+  speedUp: { enabled: false, accelerator: 'Ctrl+Alt+=' },
+  speedDown: { enabled: false, accelerator: 'Ctrl+Alt+Shift+-' },
+  openAudioSettings: { enabled: false, accelerator: 'Ctrl+Alt+A' },
+  openMvSettings: { enabled: false, accelerator: 'Ctrl+Alt+M' },
+  openLyricsSettings: { enabled: false, accelerator: 'Ctrl+Alt+L' },
 };
 
 const modifierAliases = new Map<string, string>([
@@ -189,6 +201,9 @@ export const validateGlobalShortcutAccelerator = (value: unknown): GlobalShortcu
 
   return { valid: true, available: true, accelerator, reason: 'available' };
 };
+
+export const isMouseButtonAccelerator = (accelerator: string | null | undefined): accelerator is string =>
+  typeof accelerator === 'string' && /^MouseButton[3-5]$/u.test(accelerator);
 
 export const createDefaultGlobalShortcuts = (): GlobalShortcutSettings =>
   Object.fromEntries(globalShortcutActions.map((action) => [action, { enabled: false, accelerator: null }])) as GlobalShortcutSettings;

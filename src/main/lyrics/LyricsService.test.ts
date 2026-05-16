@@ -53,6 +53,7 @@ const settings = (patch: Partial<AppSettings> = {}): AppSettings => ({
   lyricsEmptyStateHidden: true,
   lyricsRomanizationEnabled: true,
   lyricsTranslationEnabled: true,
+  lyricsWordHighlightEnabled: true,
   lyricsFontSizePx: 40,
   lyricsSecondaryFontSizePx: 22,
   lyricsLineSpacingPercent: 110,
@@ -175,7 +176,9 @@ const createHarness = ({
 
 describe('LyricsService', () => {
   it('returns cached lyrics without requesting providers', async () => {
-    const { database, local, online, service } = createHarness();
+    const { database, local, online, service } = createHarness({
+      appSettings: settings({ lyricsRomanizationEnabled: false, lyricsTranslationEnabled: false }),
+    });
     database
       .prepare(
         `INSERT INTO lyrics_cache (
@@ -286,6 +289,104 @@ describe('LyricsService', () => {
     ]);
   });
 
+  it('restores cached word timings from synced source text without replacing secondary fields', async () => {
+    const { database, service } = createHarness();
+    database
+      .prepare(
+        `INSERT INTO lyrics_cache (
+          id, cache_key, track_id, provider, provider_lyrics_id, title, artist, album,
+          duration_seconds, kind, plain_lyrics, synced_lyrics, lines_json, offset_ms, score,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'cached-word-restore-1',
+        'lrclib|echo song|echo artist|echo album|120',
+        'track-1',
+        'lrclib',
+        'lrclib-word-1',
+        'Echo Song',
+        'Echo Artist',
+        'Echo Album',
+        120,
+        'synced',
+        null,
+        '[00:01.00]<00:01.00>Hello <00:01.50>world',
+        JSON.stringify([{ timeMs: 1000, text: 'Hello world', romanization: 'hello world' }]),
+        0,
+        1,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      );
+
+    const lyrics = await service.getLyricsForTrack('track-1');
+
+    expect(lyrics?.lines).toEqual([
+      {
+        timeMs: 1000,
+        text: 'Hello world',
+        romanization: 'hello world',
+        words: [
+          { text: 'Hello ', startMs: 1000, endMs: 1500 },
+          { text: 'world', startMs: 1500, endMs: null },
+        ],
+      },
+    ]);
+  });
+
+  it('rebuilds old cached bracket-style word lyrics from synced source text', async () => {
+    const { database, service } = createHarness({
+      appSettings: settings({ lyricsRomanizationEnabled: false, lyricsTranslationEnabled: false }),
+    });
+    database
+      .prepare(
+        `INSERT INTO lyrics_cache (
+          id, cache_key, track_id, provider, provider_lyrics_id, title, artist, album,
+          duration_seconds, kind, plain_lyrics, synced_lyrics, lines_json, offset_ms, score,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'cached-word-rebuild-1',
+        'qqmusic|echo song|echo artist|echo album|120',
+        'track-1',
+        'qqmusic',
+        'qq-word-1',
+        'Echo Song',
+        'Echo Artist',
+        'Echo Album',
+        120,
+        'synced',
+        null,
+        "[00:05.340]I'm [00:05.760]a [00:05.940]big [00:06.660]girl[00:07.320]",
+        JSON.stringify([
+          { timeMs: 5340, text: "I'm" },
+          { timeMs: 5760, text: 'a' },
+          { timeMs: 5940, text: 'big' },
+          { timeMs: 6660, text: 'girl' },
+        ]),
+        0,
+        1,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      );
+
+    const lyrics = await service.getLyricsForTrack('track-1');
+
+    expect(lyrics?.lines).toEqual([
+      {
+        timeMs: 5340,
+        text: "I'm a big girl",
+        words: [
+          { text: "I'm ", startMs: 5340, endMs: 5760 },
+          { text: 'a ', startMs: 5760, endMs: 5940 },
+          { text: 'big ', startMs: 5940, endMs: 6660 },
+          { text: 'girl', startMs: 6660, endMs: 7320 },
+        ],
+      },
+    ]);
+  });
+
   it('prefers local lrc over network', async () => {
     const root = makeTempRoot();
     const audioPath = join(root, 'Echo Song.flac');
@@ -334,6 +435,41 @@ describe('LyricsService', () => {
 
     expect(lyrics?.kind).toBe('synced');
     expect(lyrics?.lines).toEqual([{ timeMs: 1000, text: 'Line' }]);
+  });
+
+  it('keeps provider word timings after cache write and read', async () => {
+    const { online, service } = createHarness({
+      appSettings: settings({ lyricsRomanizationEnabled: false, lyricsTranslationEnabled: false }),
+      onlineProvider: {
+        getLyrics: vi.fn(async () =>
+          trackLyrics({
+            lines: [
+              {
+                timeMs: 1000,
+                text: 'Hello world',
+                words: [
+                  { text: 'Hello ', startMs: 1000, endMs: 1500 },
+                  { text: 'world', startMs: 1500, endMs: null },
+                ],
+              },
+            ],
+            plainText: 'Hello world',
+            syncedText: '[00:01.00]<00:01.00>Hello <00:01.50>world',
+          }),
+        ),
+        searchCandidates: vi.fn(async () => []),
+      },
+    });
+
+    const first = await service.getLyricsForTrack('track-1');
+    const second = await service.getLyricsForTrack('track-1');
+
+    expect(first?.lines[0].words).toEqual([
+      { text: 'Hello ', startMs: 1000, endMs: 1500 },
+      { text: 'world', startMs: 1500, endMs: null },
+    ]);
+    expect(second?.lines[0].words).toEqual(first?.lines[0].words);
+    expect(online.getLyrics).toHaveBeenCalledTimes(1);
   });
 
   it('resets corrupt lyrics cache tables and retries provider lyrics caching', async () => {

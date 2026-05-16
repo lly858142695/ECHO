@@ -92,6 +92,7 @@ import { writeEmbeddedTrackTags } from './TagWriter';
 import { backupPlaylistIfEnabled, type PlaylistBackupReason } from './PlaylistBackup';
 import { NETWORK_AUTO_APPLY_THRESHOLD } from './network/matchScore';
 import type { NetworkApplyResult, StoredNetworkMetadataCandidate } from './network/networkTypes';
+import type { StreamingProviderName } from '../../shared/types/streaming';
 
 type LibraryServiceDependencies = {
   fileScanner?: FileScanner;
@@ -278,6 +279,17 @@ export class LibraryService {
     track: Pick<LibraryTrack, 'id' | 'provider' | 'providerTrackId' | 'stableKey' | 'title' | 'artist' | 'album' | 'duration' | 'unavailable'>,
   ): LibraryPlaylistItem {
     return this.store.addStreamingTrackToPlaylist(playlistId, track);
+  }
+
+  linkDownloadedStreamingTrack(input: {
+    provider: StreamingProviderName;
+    providerTrackId: string;
+    stableKey?: string | null;
+    trackId: string;
+  }): { updatedItems: number } {
+    return {
+      updatedItems: this.store.linkStreamingPlaylistItemsToLocalTrack(input),
+    };
   }
 
   addTracksToPlaylist(playlistId: string, trackIds: string[]): LibraryPlaylistItem[] {

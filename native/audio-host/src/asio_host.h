@@ -11,6 +11,12 @@ typedef unsigned int (*asio_render_callback)(
     unsigned int frameCount,
     unsigned int channels);
 
+typedef unsigned int (*asio_dop_render_callback)(
+    void* userData,
+    uint32_t* output,
+    unsigned int frameCount,
+    unsigned int channels);
+
 typedef struct asio_device_info {
     char name[512];
     int isDefault;
@@ -47,6 +53,20 @@ int asio_start(
     uint32_t requestedBufferFrames,
     uint32_t outputChannelStart,
     asio_render_callback callback,
+    void* userData,
+    asio_runtime** outRuntime,
+    asio_ready_info* outInfo,
+    char* error,
+    size_t errorLen);
+
+int asio_start_dop(
+    const char* targetDeviceName,
+    int targetDeviceIndex,
+    uint32_t requestedSampleRate,
+    uint32_t sourceChannels,
+    uint32_t requestedBufferFrames,
+    uint32_t outputChannelStart,
+    asio_dop_render_callback callback,
     void* userData,
     asio_runtime** outRuntime,
     asio_ready_info* outInfo,

@@ -51,9 +51,12 @@ struct asio_runtime
     ASIOBool postOutput = ASIOFalse;
     uint32_t sourceChannels = 0;
     float* scratch = nullptr;
+    uint32_t* dopScratch = nullptr;
     HWND sysRefWindow = nullptr;
     asio_render_callback callback = nullptr;
+    asio_dop_render_callback dopCallback = nullptr;
     void* userData = nullptr;
+    bool dopMode = false;
     bool initialized = false;
     bool buffersCreated = false;
     bool started = false;
@@ -319,6 +322,36 @@ void write_asio_sample(void* buffer, ASIOSampleType type, long frameIndex, float
     }
 }
 
+void write_asio_dop_sample(void* buffer, ASIOSampleType type, long frameIndex, uint32_t sample24)
+{
+    auto* bytes = static_cast<unsigned char*>(buffer);
+    const uint32_t payload = sample24 & 0x00ffffffu;
+
+    switch (type)
+    {
+        case ASIOSTInt24LSB:
+            bytes[frameIndex * 3 + 0] = static_cast<unsigned char>(payload & 0xff);
+            bytes[frameIndex * 3 + 1] = static_cast<unsigned char>((payload >> 8) & 0xff);
+            bytes[frameIndex * 3 + 2] = static_cast<unsigned char>((payload >> 16) & 0xff);
+            break;
+        case ASIOSTInt24MSB:
+            bytes[frameIndex * 3 + 0] = static_cast<unsigned char>((payload >> 16) & 0xff);
+            bytes[frameIndex * 3 + 1] = static_cast<unsigned char>((payload >> 8) & 0xff);
+            bytes[frameIndex * 3 + 2] = static_cast<unsigned char>(payload & 0xff);
+            break;
+        case ASIOSTInt32LSB24:
+        case ASIOSTInt32LSB:
+            reinterpret_cast<uint32_t*>(buffer)[frameIndex] = payload << 8;
+            break;
+        case ASIOSTInt32MSB24:
+        case ASIOSTInt32MSB:
+            write_u32_be(bytes + frameIndex * 4, payload << 8);
+            break;
+        default:
+            break;
+    }
+}
+
 bool asio_sample_type_supported(ASIOSampleType type)
 {
     switch (type)
@@ -341,6 +374,22 @@ bool asio_sample_type_supported(ASIOSampleType type)
         case ASIOSTInt32MSB18:
         case ASIOSTInt32MSB20:
         case ASIOSTInt32MSB24:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool asio_dop_sample_type_supported(ASIOSampleType type)
+{
+    switch (type)
+    {
+        case ASIOSTInt24LSB:
+        case ASIOSTInt24MSB:
+        case ASIOSTInt32LSB24:
+        case ASIOSTInt32MSB24:
+        case ASIOSTInt32LSB:
+        case ASIOSTInt32MSB:
             return true;
         default:
             return false;
@@ -805,11 +854,42 @@ bool resolve_device_name(
 void render_asio_output(long bufferIndex)
 {
     asio_runtime* runtime = activeRuntime;
-    if (runtime == nullptr || runtime->scratch == nullptr)
+    if (runtime == nullptr)
         return;
 
     const auto frames = static_cast<uint32_t>(std::max<long>(1, runtime->bufferSize));
     const auto sourceChannels = static_cast<uint32_t>(std::max<uint32_t>(1, runtime->sourceChannels));
+
+    if (runtime->dopMode)
+    {
+        if (runtime->dopScratch == nullptr)
+            return;
+
+        memset(runtime->dopScratch, 0, static_cast<size_t>(frames) * sourceChannels * sizeof(uint32_t));
+        if (runtime->dopCallback != nullptr)
+            runtime->dopCallback(runtime->userData, runtime->dopScratch, frames, sourceChannels);
+
+        for (long channel = 0; channel < runtime->outputChannelCount; ++channel)
+        {
+            const long asioIndex = runtime->outputChannelOffset + channel;
+            void* output = runtime->bufferInfos[asioIndex].buffers[bufferIndex];
+            const ASIOSampleType sampleType = runtime->channelInfos[asioIndex].type;
+            const auto sourceChannel = static_cast<uint32_t>(std::min<long>(channel, static_cast<long>(sourceChannels) - 1));
+
+            for (long frame = 0; frame < runtime->bufferSize; ++frame)
+            {
+                const uint32_t sample = runtime->dopScratch[static_cast<size_t>(frame) * sourceChannels + sourceChannel];
+                write_asio_dop_sample(output, sampleType, frame, sample);
+            }
+        }
+
+        if (runtime->postOutput)
+            ASIOOutputReady();
+        return;
+    }
+
+    if (runtime->scratch == nullptr)
+        return;
 
     memset(runtime->scratch, 0, static_cast<size_t>(frames) * sourceChannels * sizeof(float));
     if (runtime->callback != nullptr)
@@ -934,16 +1014,20 @@ bool populate_channel_infos(asio_runtime* runtime, char* error, size_t errorLen)
             return false;
         }
 
-        if (! runtime->channelInfos[i].isInput && ! asio_sample_type_supported(runtime->channelInfos[i].type))
+        const bool supportedOutputSampleType = runtime->dopMode
+            ? asio_dop_sample_type_supported(runtime->channelInfos[i].type)
+            : asio_sample_type_supported(runtime->channelInfos[i].type);
+        if (! runtime->channelInfos[i].isInput && ! supportedOutputSampleType)
         {
             char message[256] {};
             snprintf(
                 message,
                 sizeof(message),
-                "unsupported ASIO output sample type driver=\"%s\" channel=%ld type=%ld",
+                "unsupported ASIO output sample type driver=\"%s\" channel=%ld type=%ld dop=%d",
                 runtime->selectedName,
                 i,
-                static_cast<long>(runtime->channelInfos[i].type));
+                static_cast<long>(runtime->channelInfos[i].type),
+                runtime->dopMode ? 1 : 0);
             set_error(error, errorLen, message);
             return false;
         }
@@ -1250,7 +1334,7 @@ int asio_open_control_panel(
     return 0;
 }
 
-int asio_start(
+static int asio_start_impl(
     const char* targetDeviceName,
     int targetDeviceIndex,
     uint32_t requestedSampleRate,
@@ -1258,13 +1342,17 @@ int asio_start(
     uint32_t requestedBufferFrames,
     uint32_t outputChannelStart,
     asio_render_callback callback,
+    asio_dop_render_callback dopCallback,
+    bool dopMode,
     void* userData,
     asio_runtime** outRuntime,
     asio_ready_info* outInfo,
     char* error,
     size_t errorLen)
 {
-    if (outRuntime == nullptr || outInfo == nullptr || callback == nullptr)
+    if (outRuntime == nullptr || outInfo == nullptr)
+        return -1;
+    if ((! dopMode && callback == nullptr) || (dopMode && dopCallback == nullptr))
         return -1;
 
     *outRuntime = nullptr;
@@ -1312,6 +1400,8 @@ int asio_start(
     runtime->outputChannelStart = static_cast<long>(std::min<uint32_t>(outputChannelStart, static_cast<uint32_t>(maxAsioOutputChannels)));
     runtime->requestedSampleRate = requestedSampleRate;
     runtime->callback = callback;
+    runtime->dopCallback = dopCallback;
+    runtime->dopMode = dopMode;
     runtime->userData = userData;
     runtime->driverInfo.asioVersion = 2;
     runtime->sysRefWindow = create_asio_host_window();
@@ -1435,15 +1525,31 @@ int asio_start(
     }
     fprintf(stderr, "[echo-audio-host] ASIOCreateBuffers completed: buffer=%ld\n", runtime->bufferSize);
 
-    runtime->scratch = static_cast<float*>(calloc(
-        static_cast<size_t>(runtime->bufferSize) * runtime->sourceChannels,
-        sizeof(float)));
-    if (runtime->scratch == nullptr)
+    if (runtime->dopMode)
     {
-        set_error(error, errorLen, "failed to allocate ASIO render scratch buffer");
-        activeRuntime = nullptr;
-        asio_stop(runtime);
-        return -1;
+        runtime->dopScratch = static_cast<uint32_t*>(calloc(
+            static_cast<size_t>(runtime->bufferSize) * runtime->sourceChannels,
+            sizeof(uint32_t)));
+        if (runtime->dopScratch == nullptr)
+        {
+            set_error(error, errorLen, "failed to allocate ASIO DoP render scratch buffer");
+            activeRuntime = nullptr;
+            asio_stop(runtime);
+            return -1;
+        }
+    }
+    else
+    {
+        runtime->scratch = static_cast<float*>(calloc(
+            static_cast<size_t>(runtime->bufferSize) * runtime->sourceChannels,
+            sizeof(float)));
+        if (runtime->scratch == nullptr)
+        {
+            set_error(error, errorLen, "failed to allocate ASIO render scratch buffer");
+            activeRuntime = nullptr;
+            asio_stop(runtime);
+            return -1;
+        }
     }
 
     fprintf(stderr, "[echo-audio-host] ASIOStart starting: %s\n", selectedUtf8);
@@ -1480,6 +1586,68 @@ int asio_start(
     return 0;
 }
 
+int asio_start(
+    const char* targetDeviceName,
+    int targetDeviceIndex,
+    uint32_t requestedSampleRate,
+    uint32_t sourceChannels,
+    uint32_t requestedBufferFrames,
+    uint32_t outputChannelStart,
+    asio_render_callback callback,
+    void* userData,
+    asio_runtime** outRuntime,
+    asio_ready_info* outInfo,
+    char* error,
+    size_t errorLen)
+{
+    return asio_start_impl(
+        targetDeviceName,
+        targetDeviceIndex,
+        requestedSampleRate,
+        sourceChannels,
+        requestedBufferFrames,
+        outputChannelStart,
+        callback,
+        nullptr,
+        false,
+        userData,
+        outRuntime,
+        outInfo,
+        error,
+        errorLen);
+}
+
+int asio_start_dop(
+    const char* targetDeviceName,
+    int targetDeviceIndex,
+    uint32_t requestedSampleRate,
+    uint32_t sourceChannels,
+    uint32_t requestedBufferFrames,
+    uint32_t outputChannelStart,
+    asio_dop_render_callback callback,
+    void* userData,
+    asio_runtime** outRuntime,
+    asio_ready_info* outInfo,
+    char* error,
+    size_t errorLen)
+{
+    return asio_start_impl(
+        targetDeviceName,
+        targetDeviceIndex,
+        requestedSampleRate,
+        sourceChannels,
+        requestedBufferFrames,
+        outputChannelStart,
+        nullptr,
+        callback,
+        true,
+        userData,
+        outRuntime,
+        outInfo,
+        error,
+        errorLen);
+}
+
 void asio_stop(asio_runtime* runtime)
 {
     if (runtime == nullptr)
@@ -1514,6 +1682,8 @@ void asio_stop(asio_runtime* runtime)
 
     free(runtime->scratch);
     runtime->scratch = nullptr;
+    free(runtime->dopScratch);
+    runtime->dopScratch = nullptr;
     free(runtime);
 }
 

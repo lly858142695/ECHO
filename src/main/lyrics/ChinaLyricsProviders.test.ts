@@ -106,6 +106,43 @@ describe('China lyrics providers', () => {
     expect(candidate.plainLyrics).toBeNull();
   });
 
+  it('keeps NetEase karaoke lyrics even when ordinary lyrics are missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          mockJsonResponse({
+            result: {
+              songs: [
+                {
+                  id: 789,
+                  name: 'Echo Song',
+                  duration: 120000,
+                  artists: [{ name: 'Echo Artist' }],
+                  album: { name: 'Echo Album' },
+                },
+              ],
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockJsonResponse({
+            klyric: { lyric: '[00:01.00]<00:01.00>Hello <00:01.50>world' },
+          }),
+        ),
+    );
+
+    const [candidate] = await new NeteaseLyricsProvider().search(request);
+
+    expect(candidate).toMatchObject({
+      provider: 'netease',
+      providerLyricsId: 'netease:789',
+      syncedLyrics: null,
+      karaokeLyrics: '[00:01.00]<00:01.00>Hello <00:01.50>world',
+    });
+  });
+
   it('maps QQ Music search and plain lyric responses', async () => {
     vi.stubGlobal(
       'fetch',
@@ -193,6 +230,49 @@ describe('China lyrics providers', () => {
     const [candidate] = await new QQMusicLyricsProvider().search(request);
 
     expect(candidate.plainLyrics).toBe('Plain line');
+  });
+
+  it('keeps QQ Music qrc lyrics even when ordinary lyrics are missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          mockJsonResponse({
+            req_1: {
+              data: {
+                body: {
+                  song: {
+                    list: [
+                      {
+                        mid: 'song-mid',
+                        name: 'Echo Song',
+                        interval: 120,
+                        singer: [{ name: 'Echo Artist' }],
+                        album: { name: 'Echo Album' },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockJsonResponse({
+            qrc: '[00:01.00]<00:01.00>Hello <00:01.50>world',
+          }),
+        ),
+    );
+
+    const [candidate] = await new QQMusicLyricsProvider().search(request);
+
+    expect(candidate).toMatchObject({
+      provider: 'qqmusic',
+      providerLyricsId: 'qqmusic:song-mid',
+      syncedLyrics: null,
+      karaokeLyrics: '[00:01.00]<00:01.00>Hello <00:01.50>world',
+    });
   });
 
   it('falls back to the legacy QQ Music search response shape', async () => {

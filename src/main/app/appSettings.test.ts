@@ -62,6 +62,7 @@ describe('app settings normalization', () => {
     expect(settings.lyricsPlayerBarDrawerEnabled).toBe(false);
     expect(settings.lyricsRomanizationEnabled).toBe(true);
     expect(settings.lyricsTranslationEnabled).toBe(true);
+    expect(settings.lyricsWordHighlightEnabled).toBe(true);
     expect(settings.lyricsFontSizePx).toBe(40);
     expect(settings.lyricsSecondaryFontSizePx).toBe(22);
     expect(settings.lyricsLineSpacingPercent).toBe(110);
@@ -489,6 +490,7 @@ describe('app settings normalization', () => {
         lyricsPlayerBarDrawerEnabled: true,
         lyricsRomanizationEnabled: false,
         lyricsTranslationEnabled: false,
+        lyricsWordHighlightEnabled: false,
         lyricsFontSizePx: 999,
         lyricsLineSpacingPercent: 999,
         lyricsContextOpacityPercent: 1000,
@@ -521,6 +523,7 @@ describe('app settings normalization', () => {
       lyricsPlayerBarDrawerEnabled: true,
       lyricsRomanizationEnabled: false,
       lyricsTranslationEnabled: false,
+      lyricsWordHighlightEnabled: false,
       lyricsFontSizePx: 56,
       lyricsLineSpacingPercent: 150,
       lyricsContextOpacityPercent: 100,
@@ -560,6 +563,7 @@ describe('app settings normalization', () => {
       lyricsBackgroundScalePercent: 70,
       lyricsRomanizationEnabled: true,
       lyricsTranslationEnabled: true,
+      lyricsWordHighlightEnabled: true,
     });
   });
 

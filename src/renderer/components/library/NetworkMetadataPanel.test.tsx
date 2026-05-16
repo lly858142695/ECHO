@@ -152,7 +152,7 @@ describe('NetworkMetadataPanel', () => {
 
     await waitFor(() => expect(startMissingMetadataScan).toHaveBeenCalledWith({ limit: 500, fields: [] }));
     expect(await screen.findByText(/来源错误 1/)).toBeTruthy();
-    expect(screen.getByText('缺封面')).toBeTruthy();
+    expect(screen.getAllByText('缺封面').length).toBeGreaterThan(0);
     expect(screen.getByText('未知')).toBeTruthy();
     expect(screen.getByText('已读取')).toBeTruthy();
   });

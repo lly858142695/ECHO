@@ -1,6 +1,13 @@
+export type LyricWordTiming = {
+  text: string;
+  startMs: number;
+  endMs: number | null;
+};
+
 export type LyricLine = {
   timeMs: number;
   text: string;
+  words?: LyricWordTiming[];
   translation?: string | null;
   romanization?: string | null;
 };

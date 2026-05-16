@@ -55,6 +55,7 @@ type LyricsDrawerSettings = Pick<
   | 'lyricsPlayerBarDrawerEnabled'
   | 'lyricsRomanizationEnabled'
   | 'lyricsTranslationEnabled'
+  | 'lyricsWordHighlightEnabled'
   | 'lyricsFontSizePx'
   | 'lyricsSecondaryFontSizePx'
   | 'lyricsLineSpacingPercent'
@@ -86,6 +87,7 @@ const fallbackSettings: LyricsDrawerSettings = {
   lyricsPlayerBarDrawerEnabled: false,
   lyricsRomanizationEnabled: true,
   lyricsTranslationEnabled: true,
+  lyricsWordHighlightEnabled: true,
   lyricsFontSizePx: 40,
   lyricsSecondaryFontSizePx: 22,
   lyricsLineSpacingPercent: 110,
@@ -202,6 +204,7 @@ const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
   lyricsPlayerBarDrawerEnabled: settings.lyricsPlayerBarDrawerEnabled === true,
   lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled,
   lyricsTranslationEnabled: settings.lyricsTranslationEnabled,
+  lyricsWordHighlightEnabled: settings.lyricsWordHighlightEnabled !== false,
   lyricsFontSizePx: settings.lyricsFontSizePx,
   lyricsSecondaryFontSizePx: settings.lyricsSecondaryFontSizePx ?? fallbackSettings.lyricsSecondaryFontSizePx,
   lyricsLineSpacingPercent: settings.lyricsLineSpacingPercent ?? fallbackSettings.lyricsLineSpacingPercent,
@@ -1086,6 +1089,20 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
             />
           </label>
           <p>优先显示歌词源提供的中文翻译；没有翻译时不显示额外文本。</p>
+
+          <label className="audio-toggle-row">
+            <span>
+              <Captions size={17} />
+              <strong>逐字歌词高亮</strong>
+            </span>
+            <input
+              type="checkbox"
+              checked={effectiveSettings.lyricsWordHighlightEnabled !== false}
+              disabled={isBusy || !effectiveSettings.lyricsEnabled}
+              onChange={(event) => void patchSettings({ lyricsWordHighlightEnabled: event.currentTarget.checked })}
+            />
+          </label>
+          <p>仅在歌词文件含真实逐字时间戳时启用；否则保持整行高亮。</p>
 
           {showFullControls ? (
           <>

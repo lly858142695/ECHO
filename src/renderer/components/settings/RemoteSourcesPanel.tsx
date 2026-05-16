@@ -119,6 +119,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
     syncMode: 'index' as RemoteSourceSyncMode,
     scanConcurrency: 3,
     metadataConcurrency: 2,
+    coverConcurrency: 2,
     apiVersion: '1.16.1',
     authMode: 'token',
   });
@@ -221,6 +222,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       const config: Record<string, unknown> = {
         scanConcurrency: form.scanConcurrency,
         metadataConcurrency: form.metadataConcurrency,
+        coverConcurrency: form.coverConcurrency,
       };
 
       if (provider === 'webdav' || provider === 'smb' || provider === 'sshfs') {
@@ -400,11 +402,15 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       </label>
       <label>
         扫描并发
-        <input type="number" min={1} max={6} value={form.scanConcurrency} onChange={(event) => updateForm({ scanConcurrency: Number(event.target.value) })} />
+        <input type="number" min={1} max={8} value={form.scanConcurrency} onChange={(event) => updateForm({ scanConcurrency: Number(event.target.value) })} />
       </label>
       <label>
         元数据并发
-        <input type="number" min={1} max={4} value={form.metadataConcurrency} onChange={(event) => updateForm({ metadataConcurrency: Number(event.target.value) })} />
+        <input type="number" min={1} max={8} value={form.metadataConcurrency} onChange={(event) => updateForm({ metadataConcurrency: Number(event.target.value) })} />
+      </label>
+      <label>
+        封面并发
+        <input type="number" min={1} max={8} value={form.coverConcurrency} onChange={(event) => updateForm({ coverConcurrency: Number(event.target.value) })} />
       </label>
       <div className="remote-source-actions">
         <button type="button" disabled={busy === 'test'} onClick={() => void runFormAction('test')}>
@@ -471,7 +477,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                 <span><em>已索引歌曲</em><strong>{source.indexedTrackCount}</strong></span>
                 <span><em>上次测试</em><strong>{formatDate(source.lastTestAt)}</strong></span>
                 <span><em>上次同步</em><strong>{formatDate(source.lastSyncAt)}</strong></span>
-                <span><em>后台并发</em><strong>scan {readConfigNumber(source, 'scanConcurrency', 3)} / metadata {readConfigNumber(source, 'metadataConcurrency', 2)}</strong></span>
+                <span><em>后台并发</em><strong>scan {readConfigNumber(source, 'scanConcurrency', 3)} / metadata {readConfigNumber(source, 'metadataConcurrency', 2)} / cover {readConfigNumber(source, 'coverConcurrency', readConfigNumber(source, 'metadataConcurrency', 2))}</strong></span>
               </div>
               {source.lastError ? <p className="settings-inline-note">错误：{source.lastError}</p> : null}
               <div className="remote-sync-status">

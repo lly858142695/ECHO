@@ -646,6 +646,9 @@ export const PlaylistsPage = (): JSX.Element => {
           directAudio: true,
           directAudioMimeType: source.mimeType,
           directAudioExtension: source.codec,
+          streamingProvider: provider,
+          streamingProviderTrackId: track.providerTrackId,
+          streamingStableKey: track.stableKey ?? undefined,
         });
         setDownloadJobs((current) => (current.some((item) => item.id === job.id) ? current : [job, ...current]));
         setDownloadJobIdsByTrackId((current) => ({ ...current, [track.id]: job.id }));

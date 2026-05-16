@@ -28,6 +28,7 @@ static const GUID ECHO_SUBTYPE_IEEE_FLOAT = {
 
 typedef enum wasapi_sample_format {
     WASAPI_FORMAT_FLOAT32 = 0,
+    WASAPI_FORMAT_PCM24_PACKED,
     WASAPI_FORMAT_PCM24_IN_32,
     WASAPI_FORMAT_PCM32,
     WASAPI_FORMAT_PCM16
@@ -38,6 +39,11 @@ typedef struct wasapi_format_desc {
     wasapi_sample_format kind;
     const char* name;
 } wasapi_format_desc;
+
+typedef enum wasapi_render_mode {
+    WASAPI_RENDER_PCM = 0,
+    WASAPI_RENDER_DOP
+} wasapi_render_mode;
 
 class DeviceWatcher;
 class SessionWatcher;
@@ -57,7 +63,9 @@ struct wasapi_exclusive_runtime {
     uint32_t bufferFrameCount;
     wasapi_format_desc format;
     wasapi_render_callback callback;
+    wasapi_dop_render_callback dopCallback;
     void* userData;
+    wasapi_render_mode renderMode;
     wasapi_host_notification_callback notificationCallback;
     void* notificationUserData;
     wchar_t deviceId[512];
@@ -529,6 +537,12 @@ static void make_format(uint32_t sampleRate, uint32_t channels, wasapi_sample_fo
             wave->SubFormat = ECHO_SUBTYPE_PCM;
             out->name = "pcm24in32";
             break;
+        case WASAPI_FORMAT_PCM24_PACKED:
+            wave->Format.wBitsPerSample = 24;
+            wave->Samples.wValidBitsPerSample = 24;
+            wave->SubFormat = ECHO_SUBTYPE_PCM;
+            out->name = "pcm24";
+            break;
         case WASAPI_FORMAT_PCM32:
             wave->Format.wBitsPerSample = 32;
             wave->Samples.wValidBitsPerSample = 32;
@@ -564,6 +578,35 @@ static int choose_exact_format(
         WASAPI_FORMAT_FLOAT32,
         WASAPI_FORMAT_PCM24_IN_32,
         WASAPI_FORMAT_PCM16,
+        WASAPI_FORMAT_PCM32
+    };
+
+    if (audioClient == NULL || outFormat == NULL) return 0;
+
+    for (size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); ++i) {
+        wasapi_format_desc candidate;
+        make_format(sampleRate, channels, kinds[i], &candidate);
+        HRESULT hr = audioClient->IsFormatSupported(
+            AUDCLNT_SHAREMODE_EXCLUSIVE,
+            (WAVEFORMATEX*)&candidate.wave,
+            NULL);
+        if (hr == S_OK) {
+            *outFormat = candidate;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int choose_exact_dop_format(
+    IAudioClient* audioClient,
+    uint32_t sampleRate,
+    uint32_t channels,
+    wasapi_format_desc* outFormat) {
+    static const wasapi_sample_format kinds[] = {
+        WASAPI_FORMAT_PCM24_PACKED,
+        WASAPI_FORMAT_PCM24_IN_32,
         WASAPI_FORMAT_PCM32
     };
 
@@ -908,6 +951,16 @@ static void convert_float_to_endpoint(
             }
             break;
         }
+        case WASAPI_FORMAT_PCM24_PACKED: {
+            for (uint32_t i = 0; i < total; ++i) {
+                float s = clamp_sample(input[i]);
+                int32_t v = (int32_t)(s * 8388607.0f);
+                output[i * 3 + 0] = (BYTE)(v & 0xff);
+                output[i * 3 + 1] = (BYTE)((v >> 8) & 0xff);
+                output[i * 3 + 2] = (BYTE)((v >> 16) & 0xff);
+            }
+            break;
+        }
         case WASAPI_FORMAT_PCM32: {
             int32_t* dst = (int32_t*)output;
             for (uint32_t i = 0; i < total; ++i) {
@@ -928,9 +981,41 @@ static void convert_float_to_endpoint(
     }
 }
 
+static void convert_dop_to_endpoint(
+    const uint32_t* input,
+    BYTE* output,
+    uint32_t frames,
+    uint32_t channels,
+    wasapi_sample_format kind) {
+    const uint32_t total = frames * channels;
+
+    switch (kind) {
+        case WASAPI_FORMAT_PCM24_PACKED:
+            for (uint32_t i = 0; i < total; ++i) {
+                const uint32_t sample = input[i] & 0x00ffffffu;
+                output[i * 3 + 0] = (BYTE)(sample & 0xff);
+                output[i * 3 + 1] = (BYTE)((sample >> 8) & 0xff);
+                output[i * 3 + 2] = (BYTE)((sample >> 16) & 0xff);
+            }
+            break;
+        case WASAPI_FORMAT_PCM24_IN_32:
+        case WASAPI_FORMAT_PCM32: {
+            uint32_t* dst = (uint32_t*)output;
+            for (uint32_t i = 0; i < total; ++i) {
+                dst[i] = input[i] << 8;
+            }
+            break;
+        }
+        default:
+            memset(output, 0, (size_t)total * 3);
+            break;
+    }
+}
+
 static DWORD WINAPI render_thread_proc(void* param) {
     wasapi_exclusive_runtime* runtime = (wasapi_exclusive_runtime*)param;
     std::vector<float> scratch;
+    std::vector<uint32_t> dopScratch;
     DWORD taskIndex = 0;
     HANDLE avrtHandle = NULL;
     HANDLE waits[2];
@@ -941,7 +1026,10 @@ static DWORD WINAPI render_thread_proc(void* param) {
         return 1;
     }
 
-    scratch.resize((size_t)runtime->bufferFrameCount * runtime->channels);
+    if (runtime->renderMode == WASAPI_RENDER_DOP)
+        dopScratch.resize((size_t)runtime->bufferFrameCount * runtime->channels);
+    else
+        scratch.resize((size_t)runtime->bufferFrameCount * runtime->channels);
     avrtHandle = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
     waits[0] = runtime->stopEvent;
     waits[1] = runtime->renderEvent;
@@ -964,16 +1052,29 @@ static DWORD WINAPI render_thread_proc(void* param) {
             break;
         }
 
-        memset(scratch.data(), 0, (size_t)framesAvailable * runtime->channels * sizeof(float));
-        if (runtime->callback != NULL) {
-            runtime->callback(runtime->userData, scratch.data(), framesAvailable, runtime->channels);
+        if (runtime->renderMode == WASAPI_RENDER_DOP) {
+            memset(dopScratch.data(), 0, (size_t)framesAvailable * runtime->channels * sizeof(uint32_t));
+            if (runtime->dopCallback != NULL) {
+                runtime->dopCallback(runtime->userData, dopScratch.data(), framesAvailable, runtime->channels);
+            }
+            convert_dop_to_endpoint(
+                dopScratch.data(),
+                endpointBuffer,
+                framesAvailable,
+                runtime->channels,
+                runtime->format.kind);
+        } else {
+            memset(scratch.data(), 0, (size_t)framesAvailable * runtime->channels * sizeof(float));
+            if (runtime->callback != NULL) {
+                runtime->callback(runtime->userData, scratch.data(), framesAvailable, runtime->channels);
+            }
+            convert_float_to_endpoint(
+                scratch.data(),
+                endpointBuffer,
+                framesAvailable,
+                runtime->channels,
+                runtime->format.kind);
         }
-        convert_float_to_endpoint(
-            scratch.data(),
-            endpointBuffer,
-            framesAvailable,
-            runtime->channels,
-            runtime->format.kind);
 
         hr = runtime->renderClient->ReleaseBuffer(framesAvailable, 0);
         if (FAILED(hr)) {
@@ -1003,20 +1104,22 @@ static int classify_initialize_failure(HRESULT hr) {
     return -1;
 }
 
-int wasapi_exclusive_start(
+static int wasapi_exclusive_start_impl(
     const char* targetDeviceName,
     int targetDeviceIndex,
     uint32_t sampleRate,
     uint32_t channels,
     uint32_t requestedBufferFrames,
     wasapi_render_callback callback,
+    wasapi_dop_render_callback dopCallback,
     void* userData,
     wasapi_host_notification_callback notificationCallback,
     void* notificationUserData,
     wasapi_exclusive_runtime** outRuntime,
     wasapi_exclusive_ready_info* outInfo,
     char* error,
-    size_t errorLen) {
+    size_t errorLen,
+    wasapi_render_mode renderMode) {
     com_scope com = com_scope_enter();
     std::vector<wasapi_exclusive_device_info> devices;
     IMMDevice* device = NULL;
@@ -1029,7 +1132,9 @@ int wasapi_exclusive_start(
     HRESULT hr;
     int result = -1;
 
-    if (outRuntime == NULL || outInfo == NULL || callback == NULL) return -1;
+    if (outRuntime == NULL || outInfo == NULL) return -1;
+    if (renderMode == WASAPI_RENDER_DOP && dopCallback == NULL) return -1;
+    if (renderMode == WASAPI_RENDER_PCM && callback == NULL) return -1;
     *outRuntime = NULL;
     memset(outInfo, 0, sizeof(*outInfo));
     if (error != NULL && errorLen > 0) error[0] = '\0';
@@ -1062,7 +1167,9 @@ int wasapi_exclusive_start(
         goto done;
     }
 
-    if (!choose_exact_format(audioClient, sampleRate, channels, &format)) {
+    if (!(renderMode == WASAPI_RENDER_DOP
+        ? choose_exact_dop_format(audioClient, sampleRate, channels, &format)
+        : choose_exact_format(audioClient, sampleRate, channels, &format))) {
         set_error(error, errorLen, "WASAPI exclusive format unsupported", S_OK);
         result = -4;
         goto done;
@@ -1108,7 +1215,9 @@ int wasapi_exclusive_start(
         (unsigned int)channels,
         (unsigned int)requestedBufferFrames);
     runtime->callback = callback;
+    runtime->dopCallback = dopCallback;
     runtime->userData = userData;
+    runtime->renderMode = renderMode;
     runtime->notificationCallback = notificationCallback;
     runtime->notificationUserData = notificationUserData;
     runtime->followsDefaultDevice = (targetDeviceIndex < 0 && (targetDeviceName == NULL || targetDeviceName[0] == '\0')) ? 1 : 0;
@@ -1183,6 +1292,70 @@ done:
     if (device != NULL) device->Release();
     if (result != echo_audio_host::kExitDeviceInitializeTimeout) com_scope_leave(&com);
     return result;
+}
+
+int wasapi_exclusive_start(
+    const char* targetDeviceName,
+    int targetDeviceIndex,
+    uint32_t sampleRate,
+    uint32_t channels,
+    uint32_t requestedBufferFrames,
+    wasapi_render_callback callback,
+    void* userData,
+    wasapi_host_notification_callback notificationCallback,
+    void* notificationUserData,
+    wasapi_exclusive_runtime** outRuntime,
+    wasapi_exclusive_ready_info* outInfo,
+    char* error,
+    size_t errorLen) {
+    return wasapi_exclusive_start_impl(
+        targetDeviceName,
+        targetDeviceIndex,
+        sampleRate,
+        channels,
+        requestedBufferFrames,
+        callback,
+        NULL,
+        userData,
+        notificationCallback,
+        notificationUserData,
+        outRuntime,
+        outInfo,
+        error,
+        errorLen,
+        WASAPI_RENDER_PCM);
+}
+
+int wasapi_exclusive_start_dop(
+    const char* targetDeviceName,
+    int targetDeviceIndex,
+    uint32_t sampleRate,
+    uint32_t channels,
+    uint32_t requestedBufferFrames,
+    wasapi_dop_render_callback callback,
+    void* userData,
+    wasapi_host_notification_callback notificationCallback,
+    void* notificationUserData,
+    wasapi_exclusive_runtime** outRuntime,
+    wasapi_exclusive_ready_info* outInfo,
+    char* error,
+    size_t errorLen) {
+    return wasapi_exclusive_start_impl(
+        targetDeviceName,
+        targetDeviceIndex,
+        sampleRate,
+        channels,
+        requestedBufferFrames,
+        NULL,
+        callback,
+        userData,
+        notificationCallback,
+        notificationUserData,
+        outRuntime,
+        outInfo,
+        error,
+        errorLen,
+        WASAPI_RENDER_DOP);
 }
 
 void wasapi_exclusive_stop(wasapi_exclusive_runtime* runtime) {

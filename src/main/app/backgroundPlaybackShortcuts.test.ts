@@ -1,8 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 import type { AppSettings } from '../../shared/types/appSettings';
 import { createDefaultGlobalShortcuts } from '../../shared/types/globalShortcuts';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 
+const spawnedProcesses: Array<{
+  stdout: EventEmitter & { setEncoding: ReturnType<typeof vi.fn> };
+  stderr: EventEmitter;
+  killed: boolean;
+  kill: ReturnType<typeof vi.fn>;
+  once: EventEmitter['once'];
+}> = [];
+const spawnMock = vi.fn(() => {
+  const emitter = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter & { setEncoding: ReturnType<typeof vi.fn> };
+    stderr: EventEmitter;
+    killed: boolean;
+    kill: ReturnType<typeof vi.fn>;
+  };
+  emitter.stdout = new EventEmitter() as EventEmitter & { setEncoding: ReturnType<typeof vi.fn> };
+  emitter.stdout.setEncoding = vi.fn();
+  emitter.stderr = new EventEmitter();
+  emitter.killed = false;
+  emitter.kill = vi.fn(() => {
+    emitter.killed = true;
+    emitter.emit('exit', 0);
+    return true;
+  });
+  spawnedProcesses.push(emitter);
+  return emitter;
+});
 const callbacks = new Map<string, () => void>();
 const unavailableAccelerators = new Set<string>();
 const registerMock = vi.fn((accelerator: string, callback: () => void) => {
@@ -19,6 +46,7 @@ const unregisterMock = vi.fn((accelerator: string) => {
 const isRegisteredMock = vi.fn((accelerator: string) => callbacks.has(accelerator));
 const sendMock = vi.fn();
 const showMock = vi.fn();
+const hideMock = vi.fn();
 const focusMock = vi.fn();
 const restoreMock = vi.fn();
 let minimized = false;
@@ -43,6 +71,7 @@ vi.mock('electron', () => ({
     getAllWindows: () => [
       {
         focus: focusMock,
+        hide: hideMock,
         isDestroyed: () => destroyed,
         isMinimized: () => minimized,
         restore: restoreMock,
@@ -60,6 +89,10 @@ vi.mock('electron', () => ({
   },
 }));
 
+vi.mock('node:child_process', () => ({
+  spawn: spawnMock,
+}));
+
 vi.mock('./appSettings', () => ({
   getAppSettings: () => currentSettings,
   setAppSettings: setAppSettingsMock,
@@ -71,14 +104,18 @@ vi.mock('./windowManager', () => ({
 
 describe('global playback shortcuts', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.resetModules();
     callbacks.clear();
+    spawnedProcesses.length = 0;
+    spawnMock.mockClear();
     unavailableAccelerators.clear();
     registerMock.mockClear();
     unregisterMock.mockClear();
     isRegisteredMock.mockClear();
     sendMock.mockClear();
     showMock.mockClear();
+    hideMock.mockClear();
     focusMock.mockClear();
     restoreMock.mockClear();
     setAppSettingsMock.mockClear();
@@ -129,7 +166,7 @@ describe('global playback shortcuts', () => {
     currentSettings = createSettings({
       globalShortcuts: {
         ...createDefaultGlobalShortcuts(),
-        nextTrack: { enabled: true, accelerator: 'MouseButton4' },
+        nextTrack: { enabled: true, accelerator: 'Ctrl+Alt+X' },
       },
     });
     registerMock.mockImplementationOnce(() => {
@@ -143,7 +180,7 @@ describe('global playback shortcuts', () => {
     expect(setAppSettingsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         globalShortcuts: expect.objectContaining({
-          nextTrack: { enabled: false, accelerator: 'MouseButton4' },
+          nextTrack: { enabled: false, accelerator: 'Ctrl+Alt+X' },
         }),
       }),
     );
@@ -155,12 +192,43 @@ describe('global playback shortcuts', () => {
     });
     const shortcuts = await import('./backgroundPlaybackShortcuts');
 
-    expect(shortcuts.validateGlobalShortcut('MouseButton4')).toEqual({
-      accelerator: 'MouseButton4',
+    expect(shortcuts.validateGlobalShortcut('Ctrl+Alt+X')).toEqual({
+      accelerator: 'Ctrl+Alt+X',
       available: false,
       reason: 'unavailable',
       valid: true,
     });
+  });
+
+  it('routes mouse side buttons through the Windows mouse hook helper', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    currentSettings = createSettings({
+      globalShortcuts: {
+        ...createDefaultGlobalShortcuts(),
+        nextTrack: { enabled: true, accelerator: 'MouseButton4' },
+      },
+    });
+    const shortcuts = await import('./backgroundPlaybackShortcuts');
+
+    shortcuts.refreshBackgroundSpaceRegistration();
+    spawnedProcesses[0]?.stdout.emit('data', 'ready\r\nMouseButton4\r\n');
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect(registerMock).not.toHaveBeenCalledWith('MouseButton4', expect.any(Function));
+    expect(sendMock).toHaveBeenCalledWith(IpcChannels.AppGlobalShortcutCommand, 'nextTrack');
+  });
+
+  it('validates mouse side buttons without Electron globalShortcut registration on Windows', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    const shortcuts = await import('./backgroundPlaybackShortcuts');
+
+    expect(shortcuts.validateGlobalShortcut('MouseButton5')).toEqual({
+      accelerator: 'MouseButton5',
+      available: true,
+      reason: 'available',
+      valid: true,
+    });
+    expect(registerMock).not.toHaveBeenCalledWith('MouseButton5', expect.any(Function));
   });
 
   it('shows the main window directly for showMainWindow', async () => {
@@ -180,6 +248,22 @@ describe('global playback shortcuts', () => {
     expect(showMock).toHaveBeenCalledTimes(1);
     expect(focusMock).toHaveBeenCalledTimes(1);
     expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('hides the main window after dispatching the boss key command', async () => {
+    currentSettings = createSettings({
+      globalShortcuts: {
+        ...createDefaultGlobalShortcuts(),
+        bossKey: { enabled: true, accelerator: 'Ctrl+Alt+B' },
+      },
+    });
+    const shortcuts = await import('./backgroundPlaybackShortcuts');
+
+    shortcuts.refreshBackgroundSpaceRegistration();
+    callbacks.get('Ctrl+Alt+B')?.();
+
+    expect(sendMock).toHaveBeenCalledWith(IpcChannels.AppGlobalShortcutCommand, 'bossKey');
+    expect(hideMock).toHaveBeenCalledTimes(1);
   });
 
   it('unregisters managed shortcuts on dispose', async () => {

@@ -35,6 +35,7 @@ const makeSettings = (overrides: Partial<AppSettings> = {}): AppSettings => ({
   lyricsEmptyStateHidden: true,
   lyricsRomanizationEnabled: true,
   lyricsTranslationEnabled: true,
+  lyricsWordHighlightEnabled: true,
   lyricsFontSizePx: 40,
   lyricsSecondaryFontSizePx: 22,
   lyricsLineSpacingPercent: 110,
@@ -350,6 +351,24 @@ describe('LyricsSettingsDrawer', () => {
     fireEvent.click(toggle);
 
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsTranslationEnabled: false }));
+  });
+
+  it('lets users toggle word highlight display', async () => {
+    const setSettings = vi.fn().mockResolvedValue(makeSettings({ lyricsWordHighlightEnabled: false }));
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue(makeSettings()),
+        setSettings,
+        chooseLyricsWallpaper: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+
+    const toggle = (await screen.findByRole('checkbox', { name: /逐字歌词高亮/ })) as HTMLInputElement;
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsWordHighlightEnabled: false }));
   });
 
   it('lets users enable the lyrics player bar drawer', async () => {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { LyricsView } from './LyricsView';
 import type { LyricsState } from './lyricsTypes';
 
@@ -27,12 +27,128 @@ const lyrics: LyricsState = {
   ],
 };
 
+const wordLyrics: LyricsState = {
+  kind: 'synced',
+  source: 'placeholder',
+  offsetMs: 0,
+  lines: [
+    {
+      timeMs: 1000,
+      text: 'Hello world',
+      words: [
+        { text: 'Hello ', startMs: 1000, endMs: 1500 },
+        { text: 'world', startMs: 1500, endMs: 2000 },
+      ],
+    },
+  ],
+};
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
 
 describe('LyricsView', () => {
+  it('aligns word highlight immediately after seeking', async () => {
+    const { container } = render(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={wordLyrics}
+        playbackState="paused"
+        positionMs={1250}
+        positionUpdatedAtMs={0}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      const currentWord = container.querySelector<HTMLElement>('.lyrics-word[data-word-state="current"]');
+      expect(currentWord?.textContent).toBe('Hello ');
+      expect(currentWord?.style.getPropertyValue('--lyrics-word-progress')).toBe('0.5000');
+    });
+  });
+
+  it('does not advance word highlight while paused', async () => {
+    vi.spyOn(performance, 'now').mockReturnValue(1750);
+
+    const { container } = render(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={wordLyrics}
+        playbackState="paused"
+        positionMs={1250}
+        positionUpdatedAtMs={0}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      const currentWord = container.querySelector<HTMLElement>('.lyrics-word[data-word-state="current"]');
+      expect(currentWord?.style.getPropertyValue('--lyrics-word-progress')).toBe('0.5000');
+    });
+  });
+
+  it('keeps ordinary line rendering when word highlight is disabled', () => {
+    const { container } = render(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={wordLyrics}
+        positionMs={1250}
+        wordHighlightEnabled={false}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('.lyrics-word')).toBeNull();
+    expect(container.textContent).toContain('Hello world');
+  });
+
+  it('updates word progress through animation frames while keeping the active line mounted', async () => {
+    let frameId = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frameId += 1;
+      frames.set(frameId, callback);
+      return frameId;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(id);
+    });
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+
+    const { container } = render(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={wordLyrics}
+        playbackRate={1}
+        playbackState="playing"
+        positionMs={1000}
+        positionUpdatedAtMs={1000}
+        onSeek={vi.fn()}
+      />,
+    );
+    const activeLine = container.querySelector('.lyrics-line[data-active="true"]');
+
+    vi.mocked(performance.now).mockReturnValue(1250);
+    act(() => {
+      const callbacks = Array.from(frames.entries());
+      frames.clear();
+      for (const [, callback] of callbacks) {
+        callback(1250);
+      }
+    });
+
+    await waitFor(() => {
+      const currentWord = container.querySelector<HTMLElement>('.lyrics-word[data-word-state="current"]');
+      expect(currentWord?.style.getPropertyValue('--lyrics-word-progress')).toBe('0.5000');
+    });
+    expect(container.querySelector('.lyrics-line[data-active="true"]')).toBe(activeLine);
+  });
+
   it('preserves the active lyric screen position when display settings change', () => {
     let frameId = 0;
     const frames = new Map<number, FrameRequestCallback>();

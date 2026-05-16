@@ -87,8 +87,10 @@ export type TranslationKey =
   | 'audioDrawer.note.engine'
   | 'audioDrawer.note.juceOutput'
   | 'audioDrawer.note.juceDecode'
+  | 'audioDrawer.note.dsdDop'
   | 'audioDrawer.option.juceOutput'
   | 'audioDrawer.option.juceDecode'
+  | 'audioDrawer.option.dsdDop'
   | 'audioDrawer.option.active'
   | 'audioDrawer.option.set'
   | 'audioDrawer.option.rememberOutput'
@@ -114,10 +116,12 @@ export type TranslationKey =
   | 'audioDrawer.signal.eqOn'
   | 'audioDrawer.signal.asioSdkOutput'
   | 'audioDrawer.signal.ffmpegDecode'
+  | 'audioDrawer.signal.dsdDop'
+  | 'audioDrawer.signal.dsdDopFallback'
+  | 'audioDrawer.signal.dsdDopStandby'
   | 'audioDrawer.signal.juceDecode'
   | 'audioDrawer.signal.juceDecodeFallback'
   | 'audioDrawer.signal.juceDecodeStandby'
-  | 'audioDrawer.signal.juceDecodeMp3Unsupported'
   | 'audioDrawer.signal.nativeRate'
   | 'audioDrawer.signal.noActiveSource'
   | 'audioDrawer.signal.pending'
@@ -175,6 +179,22 @@ export type TranslationKey =
   | 'library.sort.fileModifiedDesc'
   | 'library.sort.random'
   | 'library.sort.recent'
+  | 'trackMenu.action.addToPlaylist'
+  | 'trackMenu.action.playNext'
+  | 'trackMenu.action.addToQueue'
+  | 'trackMenu.action.like'
+  | 'trackMenu.action.unlike'
+  | 'trackMenu.action.removeFromQueue'
+  | 'trackMenu.action.openOsuTiming'
+  | 'trackMenu.action.editTags'
+  | 'trackMenu.action.goToAlbum'
+  | 'trackMenu.action.showInFolder'
+  | 'trackMenu.action.copyPath'
+  | 'trackMenu.action.openSystem'
+  | 'trackMenu.action.copyNameArtist'
+  | 'trackMenu.action.copyCover'
+  | 'trackMenu.action.saveCover'
+  | 'trackMenu.action.deleteSong'
   | 'folders.action.addScan'
   | 'folders.action.browse'
   | 'folders.action.cancel'
@@ -779,8 +799,16 @@ export type TranslationKey =
   | 'settings.playback.wireless.description'
   | 'settings.playback.wireless.title'
   | 'settings.shortcuts.action.clear'
+  | 'settings.shortcuts.action.bossKey.description'
+  | 'settings.shortcuts.action.bossKey.title'
   | 'settings.shortcuts.action.nextTrack.description'
   | 'settings.shortcuts.action.nextTrack.title'
+  | 'settings.shortcuts.action.openAudioSettings.description'
+  | 'settings.shortcuts.action.openAudioSettings.title'
+  | 'settings.shortcuts.action.openLyricsSettings.description'
+  | 'settings.shortcuts.action.openLyricsSettings.title'
+  | 'settings.shortcuts.action.openMvSettings.description'
+  | 'settings.shortcuts.action.openMvSettings.title'
   | 'settings.shortcuts.action.playPause.description'
   | 'settings.shortcuts.action.playPause.title'
   | 'settings.shortcuts.action.previousTrack.description'
@@ -793,6 +821,10 @@ export type TranslationKey =
   | 'settings.shortcuts.action.seekForward.title'
   | 'settings.shortcuts.action.showMainWindow.description'
   | 'settings.shortcuts.action.showMainWindow.title'
+  | 'settings.shortcuts.action.speedDown.description'
+  | 'settings.shortcuts.action.speedDown.title'
+  | 'settings.shortcuts.action.speedUp.description'
+  | 'settings.shortcuts.action.speedUp.title'
   | 'settings.shortcuts.action.stop.description'
   | 'settings.shortcuts.action.stop.title'
   | 'settings.shortcuts.action.volumeDown.description'
@@ -894,9 +926,11 @@ const zhCN: TranslationMap = {
   'audioDrawer.note.currentOutput': '这里显示现在真正使用的输出路径；共享适合日常，ASIO 会以金色标出。',
   'audioDrawer.note.engine': '这里快速查看输出设备、模式、采样率、EQ 和重采样状态。',
   'audioDrawer.note.juceOutput': '默认主输出。FFmpeg 继续负责解码；JUCE 负责输出，失败会自动回退到兼容路径。',
-  'audioDrawer.note.juceDecode': '默认关闭。本地 WAV/FLAC 在无需重采样时尝试 JUCE 解码；MP3 暂由 FFmpeg 负责；失败会自动回退 FFmpeg。',
+  'audioDrawer.note.juceDecode': '默认关闭。本地 WAV/FLAC/MP3 在无需重采样时尝试 JUCE 解码；MP3 走 Windows Media，失败会自动回退 FFmpeg。',
+  'audioDrawer.note.dsdDop': '默认关闭。本地 DSF 在独占或 ASIO 下尝试 DoP 直出；失败会自动回退 FFmpeg PCM，最终以 DAC 显示为准。',
   'audioDrawer.option.juceOutput': 'JUCE 主输出',
   'audioDrawer.option.juceDecode': 'JUCE 解码试验',
+  'audioDrawer.option.dsdDop': 'DSD DoP 直出试验',
   'audioDrawer.option.active': '开启',
   'audioDrawer.option.set': '设置',
   'audioDrawer.option.rememberOutput': '保存输出设置',
@@ -922,10 +956,12 @@ const zhCN: TranslationMap = {
   'audioDrawer.signal.eqOn': 'EQ On',
   'audioDrawer.signal.asioSdkOutput': 'ASIO SDK 输出',
   'audioDrawer.signal.ffmpegDecode': 'FFmpeg 解码',
+  'audioDrawer.signal.dsdDop': 'DSF bitstream -> DoP',
+  'audioDrawer.signal.dsdDopFallback': 'DSD DoP 已降级',
+  'audioDrawer.signal.dsdDopStandby': 'DoP 未适用',
   'audioDrawer.signal.juceDecode': 'JUCE 解码',
   'audioDrawer.signal.juceDecodeFallback': 'JUCE 解码已降级',
   'audioDrawer.signal.juceDecodeStandby': 'JUCE 解码未适用',
-  'audioDrawer.signal.juceDecodeMp3Unsupported': 'MP3 暂不适用',
   'audioDrawer.signal.nativeRate': '原生采样率',
   'audioDrawer.signal.noActiveSource': '没有活跃音源',
   'audioDrawer.signal.pending': '等待中',
@@ -983,6 +1019,22 @@ const zhCN: TranslationMap = {
   'library.sort.fileModifiedDesc': '文件修改最新',
   'library.sort.random': '随机',
   'library.sort.recent': '最近',
+  'trackMenu.action.addToPlaylist': '加入歌单...',
+  'trackMenu.action.playNext': '下一首播放',
+  'trackMenu.action.addToQueue': '加入队列',
+  'trackMenu.action.like': '喜欢',
+  'trackMenu.action.unlike': '取消喜欢',
+  'trackMenu.action.removeFromQueue': '从播放队列移除',
+  'trackMenu.action.openOsuTiming': 'osu! Timing',
+  'trackMenu.action.editTags': '编辑标签',
+  'trackMenu.action.goToAlbum': '定位到专辑',
+  'trackMenu.action.showInFolder': '在文件夹中显示',
+  'trackMenu.action.copyPath': '复制文件路径',
+  'trackMenu.action.openSystem': '使用系统默认应用打开',
+  'trackMenu.action.copyNameArtist': '复制歌名与艺术家',
+  'trackMenu.action.copyCover': '复制歌曲卡片图片',
+  'trackMenu.action.saveCover': '保存歌曲卡片图片',
+  'trackMenu.action.deleteSong': '删除歌曲',
   'folders.action.addScan': '添加并扫描',
   'folders.action.browse': '浏览',
   'folders.action.cancel': '取消',
@@ -1587,8 +1639,16 @@ const zhCN: TranslationMap = {
   'settings.playback.wireless.description': '后续 HiFi 引擎阶段再接入；当前阶段不迁移 gapless / automix / 流媒体。',
   'settings.playback.wireless.title': '无线播放',
   'settings.shortcuts.action.clear': '清除',
+  'settings.shortcuts.action.bossKey.description': '立即隐藏窗口，并把 ECHO 音量降到 0。',
+  'settings.shortcuts.action.bossKey.title': '老板键',
   'settings.shortcuts.action.nextTrack.description': '切到当前播放队列里的下一首。',
   'settings.shortcuts.action.nextTrack.title': '下一首',
+  'settings.shortcuts.action.openAudioSettings.description': '打开底部播放器的音频设置抽屉。',
+  'settings.shortcuts.action.openAudioSettings.title': '打开音频设置',
+  'settings.shortcuts.action.openLyricsSettings.description': '打开歌词设置抽屉。',
+  'settings.shortcuts.action.openLyricsSettings.title': '打开歌词设置',
+  'settings.shortcuts.action.openMvSettings.description': '打开 MV 设置抽屉。',
+  'settings.shortcuts.action.openMvSettings.title': '打开 MV 设置',
   'settings.shortcuts.action.playPause.description': '在全局范围切换播放和暂停。',
   'settings.shortcuts.action.playPause.title': '播放 / 暂停',
   'settings.shortcuts.action.previousTrack.description': '切到当前播放队列里的上一首。',
@@ -1601,6 +1661,10 @@ const zhCN: TranslationMap = {
   'settings.shortcuts.action.seekForward.title': '快进 10 秒',
   'settings.shortcuts.action.showMainWindow.description': '把 ECHO 主窗口带回前台。',
   'settings.shortcuts.action.showMainWindow.title': '显示主窗口',
+  'settings.shortcuts.action.speedDown.description': '每次把播放速度降低 0.1x。',
+  'settings.shortcuts.action.speedDown.title': '播放减速',
+  'settings.shortcuts.action.speedUp.description': '每次把播放速度提高 0.1x。',
+  'settings.shortcuts.action.speedUp.title': '播放加速',
   'settings.shortcuts.action.stop.description': '停止当前播放并释放播放状态。',
   'settings.shortcuts.action.stop.title': '停止播放',
   'settings.shortcuts.action.volumeDown.description': '把 ECHO 音量降低 5%。',
@@ -1615,7 +1679,7 @@ const zhCN: TranslationMap = {
   'settings.shortcuts.message.safe': '这个快捷键可以使用。',
   'settings.shortcuts.message.unavailable': '这个快捷键已被系统或其他应用占用，已保持关闭。',
   'settings.shortcuts.message.unsafe': '这个按键目前不能作为全局快捷键；可以让小键盘输出标准键盘键或媒体键。',
-  'settings.shortcuts.note': '支持单键和组合键；鼠标侧键或宏键如果被系统/Electron 拒绝，会保持关闭并显示不可用。',
+  'settings.shortcuts.note': '支持单键、组合键、媒体键、宏键盘键和鼠标侧键；鼠标侧键在 Windows 会走独立全局监听。',
   'settings.shortcuts.recording': '按下新的快捷键...',
   'settings.shortcuts.title': '全局快捷键',
   'settings.remote.library.description': '本阶段禁止网盘 / 远程 / 流媒体，只保留设置分组占位。',
@@ -1728,9 +1792,11 @@ const zhTW: TranslationMap = {
   'audioDrawer.note.currentOutput': '這裡顯示現在真正使用的輸出路徑；共享適合日常，ASIO 會以金色標出。',
   'audioDrawer.note.engine': '這裡快速查看輸出裝置、模式、取樣率、EQ 和重取樣狀態。',
   'audioDrawer.note.juceOutput': '預設主輸出。FFmpeg 繼續負責解碼；JUCE 負責輸出，失敗會自動退回相容路徑。',
-  'audioDrawer.note.juceDecode': '預設關閉。本機 WAV/FLAC 在不需重取樣時嘗試 JUCE 解碼；MP3 暫由 FFmpeg 負責；失敗會自動退回 FFmpeg。',
+  'audioDrawer.note.juceDecode': '預設關閉。本機 WAV/FLAC/MP3 在不需重取樣時嘗試 JUCE 解碼；MP3 走 Windows Media，失敗會自動退回 FFmpeg。',
+  'audioDrawer.note.dsdDop': '預設關閉。本機 DSF 在獨占或 ASIO 下嘗試 DoP 直出；失敗會自動退回 FFmpeg PCM，最終以 DAC 顯示為準。',
   'audioDrawer.option.juceOutput': 'JUCE 主輸出',
   'audioDrawer.option.juceDecode': 'JUCE 解碼試驗',
+  'audioDrawer.option.dsdDop': 'DSD DoP 直出試驗',
   'audioDrawer.option.active': '開啟',
   'audioDrawer.option.set': '設定',
   'audioDrawer.option.rememberOutput': '儲存輸出設定',
@@ -1756,10 +1822,12 @@ const zhTW: TranslationMap = {
   'audioDrawer.signal.eqOn': 'EQ 開啟',
   'audioDrawer.signal.asioSdkOutput': 'ASIO SDK 輸出',
   'audioDrawer.signal.ffmpegDecode': 'FFmpeg 解碼',
+  'audioDrawer.signal.dsdDop': 'DSF bitstream -> DoP',
+  'audioDrawer.signal.dsdDopFallback': 'DSD DoP 已降級',
+  'audioDrawer.signal.dsdDopStandby': 'DoP 未適用',
   'audioDrawer.signal.juceDecode': 'JUCE 解碼',
   'audioDrawer.signal.juceDecodeFallback': 'JUCE 解碼已降級',
   'audioDrawer.signal.juceDecodeStandby': 'JUCE 解碼未適用',
-  'audioDrawer.signal.juceDecodeMp3Unsupported': 'MP3 暫不適用',
   'audioDrawer.signal.nativeRate': '原生取樣率',
   'audioDrawer.signal.noActiveSource': '沒有作用中的音源',
   'audioDrawer.signal.pending': '等待中',
@@ -1772,6 +1840,22 @@ const zhTW: TranslationMap = {
   'audioDrawer.title': '音訊設定',
   'audioDrawer.todo.outputControls': '目標取樣率與緩衝控制',
   'audioDrawer.todo.outputControlsDescription': 'TODO：等 DeviceService 暴露安全控制後接入真實音訊設定。',
+  'trackMenu.action.addToPlaylist': '加入播放清單...',
+  'trackMenu.action.playNext': '下一首播放',
+  'trackMenu.action.addToQueue': '加入佇列',
+  'trackMenu.action.like': '喜歡',
+  'trackMenu.action.unlike': '取消喜歡',
+  'trackMenu.action.removeFromQueue': '從播放佇列移除',
+  'trackMenu.action.openOsuTiming': 'osu! Timing',
+  'trackMenu.action.editTags': '編輯標籤',
+  'trackMenu.action.goToAlbum': '定位到專輯',
+  'trackMenu.action.showInFolder': '在資料夾中顯示',
+  'trackMenu.action.copyPath': '複製檔案路徑',
+  'trackMenu.action.openSystem': '使用系統預設應用程式打開',
+  'trackMenu.action.copyNameArtist': '複製歌名與演出者',
+  'trackMenu.action.copyCover': '複製歌曲卡片圖片',
+  'trackMenu.action.saveCover': '儲存歌曲卡片圖片',
+  'trackMenu.action.deleteSong': '刪除歌曲',
   'folders.action.addScan': '加入並掃描',
   'folders.action.browse': '瀏覽',
   'folders.action.cancel': '取消',
@@ -2278,9 +2362,11 @@ const jaJP: TranslationMap = {
   'audioDrawer.note.currentOutput': 'ここには実際に使っている出力経路が表示されます。共有は普段使い向け、ASIO は金色で表示されます。',
   'audioDrawer.note.engine': '出力デバイス、モード、レート、EQ、リサンプル状態をすばやく確認できます。',
   'audioDrawer.note.juceOutput': '既定のメイン出力です。FFmpeg はデコードを続け、JUCE が出力を担当し、失敗時は互換経路へ自動で戻します。',
-  'audioDrawer.note.juceDecode': '既定ではオフです。リサンプル不要のローカル WAV/FLAC で JUCE デコードを試します。MP3 は当面 FFmpeg が担当し、失敗時は FFmpeg に戻します。',
+  'audioDrawer.note.juceDecode': '既定ではオフです。リサンプル不要のローカル WAV/FLAC/MP3 で JUCE デコードを試します。MP3 は Windows Media 経由で、失敗時は FFmpeg に戻します。',
+  'audioDrawer.note.dsdDop': '既定ではオフです。ローカル DSF を排他または ASIO で DoP 直出し、失敗時は FFmpeg PCM に戻します。最終確認は DAC 表示で行います。',
   'audioDrawer.option.juceOutput': 'JUCE メイン出力',
   'audioDrawer.option.juceDecode': 'JUCE デコード実験',
+  'audioDrawer.option.dsdDop': 'DSD DoP 直出実験',
   'audioDrawer.option.active': 'オン',
   'audioDrawer.option.set': '設定',
   'audioDrawer.option.rememberOutput': '出力設定を保存',
@@ -2306,10 +2392,12 @@ const jaJP: TranslationMap = {
   'audioDrawer.signal.eqOn': 'EQ オン',
   'audioDrawer.signal.asioSdkOutput': 'ASIO SDK 出力',
   'audioDrawer.signal.ffmpegDecode': 'FFmpeg デコード',
+  'audioDrawer.signal.dsdDop': 'DSF bitstream -> DoP',
+  'audioDrawer.signal.dsdDopFallback': 'DSD DoP fallback',
+  'audioDrawer.signal.dsdDopStandby': 'DoP not used',
   'audioDrawer.signal.juceDecode': 'JUCE デコード',
   'audioDrawer.signal.juceDecodeFallback': 'JUCE デコード fallback',
   'audioDrawer.signal.juceDecodeStandby': 'JUCE デコード未適用',
-  'audioDrawer.signal.juceDecodeMp3Unsupported': 'MP3 not supported yet',
   'audioDrawer.signal.nativeRate': 'ネイティブレート',
   'audioDrawer.signal.noActiveSource': 'アクティブなソースなし',
   'audioDrawer.signal.pending': '保留中',
@@ -2532,6 +2620,22 @@ const jaJP: TranslationMap = {
   'mvSettings.status.off': 'オフ',
   'mvSettings.status.on': 'オン',
   'mvSettings.title': 'MV 設定',
+  'trackMenu.action.addToPlaylist': 'プレイリストに追加...',
+  'trackMenu.action.playNext': '次に再生',
+  'trackMenu.action.addToQueue': 'キューに追加',
+  'trackMenu.action.like': 'お気に入り',
+  'trackMenu.action.unlike': 'お気に入りを解除',
+  'trackMenu.action.removeFromQueue': '再生キューから削除',
+  'trackMenu.action.openOsuTiming': 'osu! Timing',
+  'trackMenu.action.editTags': 'タグを編集',
+  'trackMenu.action.goToAlbum': 'アルバムへ移動',
+  'trackMenu.action.showInFolder': 'フォルダで表示',
+  'trackMenu.action.copyPath': 'ファイルパスをコピー',
+  'trackMenu.action.openSystem': 'システム既定のアプリで開く',
+  'trackMenu.action.copyNameArtist': '曲名とアーティストをコピー',
+  'trackMenu.action.copyCover': '曲カード画像をコピー',
+  'trackMenu.action.saveCover': '曲カード画像を保存',
+  'trackMenu.action.deleteSong': '曲を削除',
   'route.playlists.description': 'ユーザープレイリスト。',
   'route.playlists.label': 'プレイリスト',
   'route.queue.description': '再生キュー。',
@@ -2905,9 +3009,11 @@ const enUS: TranslationMap = {
   'audioDrawer.note.currentOutput': 'This shows the output path in use. Shared is for daily listening; ASIO is highlighted in gold.',
   'audioDrawer.note.engine': 'Quickly check the output device, mode, sample rate, EQ, and resampling state.',
   'audioDrawer.note.juceOutput': 'Default main output. FFmpeg keeps decoding; JUCE owns output and falls back to the compatibility path if it fails.',
-  'audioDrawer.note.juceDecode': 'Off by default. Tries JUCE decode for local WAV/FLAC files that need no resampling; MP3 stays on FFmpeg for now; falls back to FFmpeg on failure.',
+  'audioDrawer.note.juceDecode': 'Off by default. Tries JUCE decode for local WAV/FLAC/MP3 files that need no resampling; MP3 uses Windows Media and falls back to FFmpeg on failure.',
+  'audioDrawer.note.dsdDop': 'Off by default. Tries DoP direct output for local DSF in Exclusive or ASIO; falls back to FFmpeg PCM on failure. Trust the DAC display.',
   'audioDrawer.option.juceOutput': 'JUCE Main Output',
   'audioDrawer.option.juceDecode': 'JUCE Decode Experiment',
+  'audioDrawer.option.dsdDop': 'DSD DoP Direct Experiment',
   'audioDrawer.option.active': 'On',
   'audioDrawer.option.set': 'Set',
   'audioDrawer.option.rememberOutput': 'Save Output Settings',
@@ -2933,10 +3039,12 @@ const enUS: TranslationMap = {
   'audioDrawer.signal.eqOn': 'EQ On',
   'audioDrawer.signal.asioSdkOutput': 'ASIO SDK output',
   'audioDrawer.signal.ffmpegDecode': 'FFmpeg decode',
+  'audioDrawer.signal.dsdDop': 'DSF bitstream -> DoP',
+  'audioDrawer.signal.dsdDopFallback': 'DSD DoP fallback',
+  'audioDrawer.signal.dsdDopStandby': 'DoP not used',
   'audioDrawer.signal.juceDecode': 'JUCE decode',
   'audioDrawer.signal.juceDecodeFallback': 'JUCE decode fallback',
   'audioDrawer.signal.juceDecodeStandby': 'JUCE decode not used',
-  'audioDrawer.signal.juceDecodeMp3Unsupported': 'MP3 not supported yet',
   'audioDrawer.signal.nativeRate': 'Native Rate',
   'audioDrawer.signal.noActiveSource': 'No active source',
   'audioDrawer.signal.pending': 'Pending',
@@ -3159,6 +3267,22 @@ const enUS: TranslationMap = {
   'mvSettings.status.off': 'Off',
   'mvSettings.status.on': 'On',
   'mvSettings.title': 'MV Settings',
+  'trackMenu.action.addToPlaylist': 'Add to playlist...',
+  'trackMenu.action.playNext': 'Play next',
+  'trackMenu.action.addToQueue': 'Add to queue',
+  'trackMenu.action.like': 'Like',
+  'trackMenu.action.unlike': 'Unlike',
+  'trackMenu.action.removeFromQueue': 'Remove from playback queue',
+  'trackMenu.action.openOsuTiming': 'osu! Timing',
+  'trackMenu.action.editTags': 'Edit tags',
+  'trackMenu.action.goToAlbum': 'Go to album',
+  'trackMenu.action.showInFolder': 'Show in folder',
+  'trackMenu.action.copyPath': 'Copy file path',
+  'trackMenu.action.openSystem': 'Open with system default app',
+  'trackMenu.action.copyNameArtist': 'Copy title and artist',
+  'trackMenu.action.copyCover': 'Copy song card image',
+  'trackMenu.action.saveCover': 'Save song card image',
+  'trackMenu.action.deleteSong': 'Delete song',
   'route.playlists.description': 'User playlists.',
   'route.playlists.label': 'Playlists',
   'route.queue.description': 'Playback queue.',
@@ -3437,8 +3561,16 @@ const enUS: TranslationMap = {
   'settings.playback.followCurrent.title': 'Follow Current Track',
   'settings.playback.followCurrent.description': 'When enabled, the current list scrolls to the playing track after track changes.',
   'settings.shortcuts.action.clear': 'Clear',
+  'settings.shortcuts.action.bossKey.description': 'Hide the window immediately and lower ECHO volume to 0.',
+  'settings.shortcuts.action.bossKey.title': 'Boss Key',
   'settings.shortcuts.action.nextTrack.description': 'Jump to the next item in the active playback queue.',
   'settings.shortcuts.action.nextTrack.title': 'Next Track',
+  'settings.shortcuts.action.openAudioSettings.description': 'Open the player audio settings drawer.',
+  'settings.shortcuts.action.openAudioSettings.title': 'Open Audio Settings',
+  'settings.shortcuts.action.openLyricsSettings.description': 'Open the lyrics settings drawer.',
+  'settings.shortcuts.action.openLyricsSettings.title': 'Open Lyrics Settings',
+  'settings.shortcuts.action.openMvSettings.description': 'Open the MV settings drawer.',
+  'settings.shortcuts.action.openMvSettings.title': 'Open MV Settings',
   'settings.shortcuts.action.playPause.description': 'Toggle play and pause globally.',
   'settings.shortcuts.action.playPause.title': 'Play / Pause',
   'settings.shortcuts.action.previousTrack.description': 'Jump to the previous item in the active playback queue.',
@@ -3451,6 +3583,10 @@ const enUS: TranslationMap = {
   'settings.shortcuts.action.seekForward.title': 'Seek Forward 10s',
   'settings.shortcuts.action.showMainWindow.description': 'Bring the ECHO main window to the front.',
   'settings.shortcuts.action.showMainWindow.title': 'Show Main Window',
+  'settings.shortcuts.action.speedDown.description': 'Lower playback speed by 0.1x each time.',
+  'settings.shortcuts.action.speedDown.title': 'Speed Down',
+  'settings.shortcuts.action.speedUp.description': 'Raise playback speed by 0.1x each time.',
+  'settings.shortcuts.action.speedUp.title': 'Speed Up',
   'settings.shortcuts.action.stop.description': 'Stop current playback and clear the active playback state.',
   'settings.shortcuts.action.stop.title': 'Stop Playback',
   'settings.shortcuts.action.volumeDown.description': 'Lower ECHO volume by 5%.',
@@ -3465,7 +3601,7 @@ const enUS: TranslationMap = {
   'settings.shortcuts.message.safe': 'This shortcut is available.',
   'settings.shortcuts.message.unavailable': 'That shortcut is used by the system or another app, so it stayed disabled.',
   'settings.shortcuts.message.unsafe': 'That key cannot be used as a global shortcut right now. You can make the macro pad emit a standard keyboard or media key.',
-  'settings.shortcuts.note': 'Single keys and combinations are supported. If a mouse side button or macro key is rejected by the system/Electron, it stays disabled and shows unavailable.',
+  'settings.shortcuts.note': 'Single keys, combinations, media keys, macro-pad keys, and mouse side buttons are supported. Mouse side buttons use a dedicated Windows global listener.',
   'settings.shortcuts.recording': 'Press a new shortcut...',
   'settings.shortcuts.title': 'Global Shortcuts',
   'settings.playback.audioStatus.title': 'Audio Status',

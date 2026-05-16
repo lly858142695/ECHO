@@ -26,6 +26,7 @@ const testTranslations: Record<string, string> = {
   'audioDrawer.option.active': 'On',
   'audioDrawer.option.juceDecode': 'JUCE Decode Experiment',
   'audioDrawer.option.juceOutput': 'JUCE Main Output',
+  'audioDrawer.option.dsdDop': 'DSD DoP Direct Pilot',
   'audioDrawer.option.set': 'Set',
   'audioDrawer.option.showAsioPanelSettings': 'Show ASIO panel settings',
   'audioDrawer.option.showAsioPanelSettingsDescription': 'Show ASIO panel buttons',
@@ -37,7 +38,9 @@ const testTranslations: Record<string, string> = {
   'audioDrawer.signal.juceDecode': 'JUCE decode',
   'audioDrawer.signal.juceDecodeFallback': 'JUCE decode fallback',
   'audioDrawer.signal.juceDecodeStandby': 'JUCE decode not used',
-  'audioDrawer.signal.juceDecodeMp3Unsupported': 'MP3 not supported yet',
+  'audioDrawer.signal.dsdDop': 'DSF bitstream -> DoP',
+  'audioDrawer.signal.dsdDopFallback': 'DSD DoP fallback',
+  'audioDrawer.signal.dsdDopStandby': 'DSD DoP not used',
 };
 
 vi.mock('../../i18n/I18nProvider', () => ({
@@ -140,6 +143,7 @@ const renderDrawer = (
         rememberedAudioOutput: { enabled: false },
         audioUseJuceOutput: status.useJuceOutputRequested,
         audioUseJuceDecode: status.useJuceDecodeRequested,
+        audioDsdOutputMode: status.dsdOutputModeRequested ?? 'pcm',
       }),
       setSettings: vi.fn().mockResolvedValue({}),
     },
@@ -251,6 +255,21 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     expect(screen.getByText('JUCE decode -> JUCE output')).toBeTruthy();
   });
 
+  it('shows active JUCE decode for the Windows Media MP3 backend', () => {
+    renderDrawer({
+      ...baseStatus,
+      useJuceOutputRequested: true,
+      useJuceDecodeRequested: true,
+      activeDecodeBackendImpl: 'juce-windows-media-mp3',
+      activeOutputBackendImpl: 'juce-wasapi-shared',
+      codec: 'MPEG 1 LAYER 3',
+      currentFilePath: 'D:\\Music\\song.mp3',
+    });
+
+    expect(screen.getByText('JUCE decode -> JUCE output')).toBeTruthy();
+    expect(screen.getByText('JUCE decode')).toBeTruthy();
+  });
+
   it('shows JUCE decode fallback when requested decode degraded to FFmpeg', () => {
     renderDrawer({
       ...baseStatus,
@@ -265,7 +284,7 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     expect(screen.getByText('JUCE decode fallback')).toBeTruthy();
   });
 
-  it('shows MP3 not supported when the opt-in decoder is enabled but MP3 stays on FFmpeg', () => {
+  it('shows JUCE decode not used when a remote MP3 stays on FFmpeg without a fallback warning', () => {
     renderDrawer({
       ...baseStatus,
       useJuceOutputRequested: true,
@@ -273,11 +292,11 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
       activeDecodeBackendImpl: 'ffmpeg',
       activeOutputBackendImpl: 'juce-wasapi-shared',
       codec: 'MPEG 1 LAYER 3',
-      currentFilePath: 'D:\\Music\\song.mp3',
+      currentFilePath: 'https://cdn.example.test/song.mp3',
     });
 
-    expect(screen.getByText('FFmpeg decode (MP3 not supported yet) -> JUCE output')).toBeTruthy();
-    expect(screen.getByText('MP3 not supported yet')).toBeTruthy();
+    expect(screen.getByText('FFmpeg decode (JUCE decode not used) -> JUCE output')).toBeTruthy();
+    expect(screen.getByText('JUCE decode not used')).toBeTruthy();
   });
 
   it('shows JUCE decode not used for other non-pilot sources without a fallback warning', () => {
@@ -304,6 +323,54 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
 
     expect(screen.getByText('FFmpeg decode -> JUCE fallback')).toBeTruthy();
     expect(screen.getByText('JUCE fallback')).toBeTruthy();
+  });
+
+  it('shows the active DSF DoP direct chain only when DoP is actually active', () => {
+    renderDrawer({
+      ...baseStatus,
+      outputMode: 'exclusive',
+      outputBackend: 'wasapi-exclusive',
+      activeOutputBackendImpl: 'legacy-wasapi-exclusive-dop',
+      codec: 'DSF',
+      currentFilePath: 'D:\\Music\\native.dsf',
+      dsdOutputModeRequested: 'dop',
+      activeDsdOutputMode: 'dop',
+      dsdNativeSampleRate: 2822400,
+      dsdTransportSampleRate: 176400,
+    });
+
+    expect(screen.getByRole('checkbox', { name: /DSD DoP Direct Pilot/ })).toHaveProperty('checked', true);
+    expect(screen.getByText('DSF bitstream -> DoP -> exclusive')).toBeTruthy();
+    expect(screen.getByText('DSF bitstream -> DoP')).toBeTruthy();
+  });
+
+  it('shows DSD DoP fallback as PCM fallback rather than direct output', () => {
+    renderDrawer({
+      ...baseStatus,
+      useJuceOutputRequested: true,
+      activeOutputBackendImpl: 'juce-wasapi-shared',
+      codec: 'DSF',
+      currentFilePath: 'D:\\Music\\native.dsf',
+      dsdOutputModeRequested: 'dop',
+      activeDsdOutputMode: null,
+      warnings: ['dsd_dop_fell_back_to_pcm:device_format'],
+    });
+
+    expect(screen.getByText('DSD DoP fallback -> JUCE output')).toBeTruthy();
+    expect(screen.getByText('DSD DoP fallback')).toBeTruthy();
+  });
+
+  it('persists manual DSD DoP enablement', async () => {
+    const setOutput = vi.fn().mockResolvedValue({
+      ...baseStatus,
+      dsdOutputModeRequested: 'dop',
+    });
+    renderDrawer(baseStatus, setOutput);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /DSD DoP Direct Pilot/ }));
+
+    await waitFor(() => expect(window.echo?.app?.setSettings).toHaveBeenCalledWith({ audioDsdOutputMode: 'dop' }));
+    await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ dsdOutputMode: 'dop' }));
   });
 
   it('persists manual JUCE output disablement', async () => {

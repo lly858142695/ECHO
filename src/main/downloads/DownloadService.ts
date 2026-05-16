@@ -20,6 +20,7 @@ import type {
   DownloadToolsStatus,
 } from '../../shared/types/downloads';
 import type { AccountCredentials, AccountProvider } from '../../shared/types/accounts';
+import { streamingProviderNames, type StreamingProviderName } from '../../shared/types/streaming';
 import { isSupportedAudioExtension } from '../../shared/constants/audioExtensions';
 import { getAccountService } from '../accounts/AccountService';
 import { resolveFfmpegToolchain, type FfmpegToolchainInfo } from '../audio/FfmpegToolchain';
@@ -144,6 +145,9 @@ type DownloadJobOptions = Required<Pick<DownloadSettings, 'importToLibrary' | 'b
   directAudio: boolean;
   directAudioMimeType: string | null;
   directAudioExtension: string | null;
+  streamingProvider: StreamingProviderName | null;
+  streamingProviderTrackId: string | null;
+  streamingStableKey: string | null;
 };
 
 type DownloadServiceDependencies = {
@@ -162,6 +166,7 @@ type DownloadServiceDependencies = {
     },
   ) => Promise<{ id: string }>;
   bindMvUrl?: (trackId: string, url: string) => unknown;
+  linkDownloadedStreamingTrack?: (input: { provider: StreamingProviderName; providerTrackId: string; stableKey?: string | null; trackId: string }) => unknown;
   streamingCommandRunner?: StreamingCommandRunner;
   fetch?: typeof fetch;
   loadSettings?: () => Partial<DownloadSettings> | null;
@@ -319,6 +324,9 @@ const extensionFromUrl = (url: string): string | null => {
     return null;
   }
 };
+
+const sanitizeStreamingProvider = (value: unknown): StreamingProviderName | null =>
+  typeof value === 'string' && streamingProviderNames.includes(value as StreamingProviderName) ? (value as StreamingProviderName) : null;
 
 const supportedCoverMimeType = (value: string | null | undefined): string | null => {
   const normalized = value?.split(';')[0]?.trim().toLocaleLowerCase();
@@ -515,6 +523,9 @@ export class DownloadService extends EventEmitter {
     const webpageUrl = sanitizeTextOption(options.webpageUrl, 2048);
     const directAudioMimeType = sanitizeTextOption(options.directAudioMimeType, 128);
     const directAudioExtension = sanitizeExtension(options.directAudioExtension);
+    const streamingProvider = sanitizeStreamingProvider(options.streamingProvider);
+    const streamingProviderTrackId = sanitizeTextOption(options.streamingProviderTrackId, 512);
+    const streamingStableKey = sanitizeTextOption(options.streamingStableKey, 768);
     const now = new Date().toISOString();
     const job: DownloadJob = {
       id: randomUUID(),
@@ -552,6 +563,9 @@ export class DownloadService extends EventEmitter {
       directAudio: options.directAudio === true,
       directAudioMimeType,
       directAudioExtension,
+      streamingProvider,
+      streamingProviderTrackId,
+      streamingStableKey,
     });
     this.jobs = [job, ...this.jobs];
     this.queuedJobIds.push(job.id);
@@ -1446,6 +1460,9 @@ export class DownloadService extends EventEmitter {
       directAudio: false,
       directAudioMimeType: null,
       directAudioExtension: null,
+      streamingProvider: null,
+      streamingProviderTrackId: null,
+      streamingStableKey: null,
     };
 
     if (!options.importToLibrary) {
@@ -1475,6 +1492,17 @@ export class DownloadService extends EventEmitter {
       coverUrl: options.directAudio ? options.suggestedCoverUrl : undefined,
     });
     this.updateJob(jobId, { importedTrackId: track.id });
+    if (options.streamingProvider && options.streamingProviderTrackId) {
+      const linkDownloadedStreamingTrack =
+        this.dependencies.linkDownloadedStreamingTrack ??
+        ((input) => getLibraryService().linkDownloadedStreamingTrack(input));
+      linkDownloadedStreamingTrack({
+        provider: options.streamingProvider,
+        providerTrackId: options.streamingProviderTrackId,
+        stableKey: options.streamingStableKey,
+        trackId: track.id,
+      });
+    }
 
     if (!options.bindMvAfterImport) {
       return;

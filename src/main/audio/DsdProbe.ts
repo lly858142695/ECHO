@@ -20,6 +20,8 @@ export const defaultDsdNativeSampleRate = 2_822_400;
 export const dsdPcmDecimationFactor = 16;
 export const maxDsdPcmOutputSampleRate = 352_800;
 export const dsdPcmOutputSampleRates = [44_100, 88_200, 176_400, 352_800] as const;
+export const dsdDopDecimationFactor = 16;
+export const dsdDopTransportSampleRates = [176_400, 352_800, 705_600] as const;
 
 const normalizePositiveInteger = (value: unknown): number | null => {
   const numberValue = Number(value);
@@ -47,6 +49,9 @@ export const isDsdFilePath = (filePath: string | null | undefined): boolean => {
   const extension = extname(filePath ?? '').toLowerCase();
   return extension === '.dsf' || extension === '.dff';
 };
+
+export const isDsfFilePath = (filePath: string | null | undefined): boolean =>
+  extname(filePath ?? '').toLowerCase() === '.dsf';
 
 export const isDsdCodec = (codec: string | null | undefined): boolean => {
   const normalized = typeof codec === 'string' ? codec.toLowerCase() : '';
@@ -92,6 +97,23 @@ export const resolveDsdPcmOutputSampleRate = (probe: DsdProbeLike): number | nul
   }
 
   return selectedRate;
+};
+
+export const resolveDsdDopTransportSampleRate = (probe: DsdProbeLike): number | null => {
+  if (!isDsfFilePath(probe.filePath) && !isDsdCodec(probe.codec)) {
+    return null;
+  }
+
+  const fileSampleRate = normalizePositiveInteger(probe.fileSampleRate);
+  const nativeSampleRate =
+    fileSampleRate !== null && fileSampleRate >= dsdSampleRateFloor
+      ? fileSampleRate
+      : defaultDsdNativeSampleRate;
+  const transportRate = nativeSampleRate / dsdDopDecimationFactor;
+
+  return dsdDopTransportSampleRates.some((rate) => Math.abs(rate - transportRate) < 1)
+    ? Math.round(transportRate)
+    : null;
 };
 
 const parseDsfSampleRate = (buffer: Buffer): number | null => {

@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { LibraryTrack } from '../../../shared/types/library';
+import { useI18n } from '../../i18n/I18nProvider';
+import type { TranslationKey } from '../../i18n/locales';
 
 export type TrackMenuAction =
   | 'add-to-playlist'
@@ -47,7 +49,7 @@ type TrackContextMenuProps = {
 
 type MenuItem = {
   action: TrackMenuAction;
-  label: string;
+  labelKey: TranslationKey;
   icon: LucideIcon;
   danger?: boolean;
   disabled?: boolean;
@@ -60,6 +62,7 @@ const remoteHiddenActions = new Set<TrackMenuAction>(['edit-tags', 'open-osu-tim
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(value, max));
 
 export const TrackContextMenu = ({ track, position, liked = false, onAction, onClose }: TrackContextMenuProps): JSX.Element => {
+  const { t } = useI18n();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [menuPosition, setMenuPosition] = useState(() => ({
     x: position.x + pointerOffset,
@@ -98,21 +101,21 @@ export const TrackContextMenu = ({ track, position, liked = false, onAction, onC
   }, [onClose]);
 
   const allItems: MenuItem[] = [
-    { action: 'add-to-playlist', label: '加入歌单...', icon: Plus },
-    { action: 'play-next', label: '下一首播放', icon: Play },
-    { action: 'add-to-queue', label: '加入队列', icon: ListEnd },
-    { action: 'toggle-liked', label: liked ? '取消喜欢' : '喜欢', icon: Heart },
-    { action: 'remove-from-queue', label: '从播放队列移除', icon: Minus },
-    { action: 'open-osu-timing', label: 'osu! Timing', icon: Timer },
-    { action: 'edit-tags', label: '编辑标签', icon: Tag },
-    { action: 'go-to-album', label: '定位到专辑', icon: Disc3 },
-    { action: 'show-in-folder', label: '在文件夹中显示', icon: FolderOpen },
-    { action: 'copy-path', label: '复制文件路径', icon: Copy },
-    { action: 'open-system', label: '使用系统默认应用打开', icon: PanelTopOpen },
-    { action: 'copy-name-artist', label: '复制歌名与艺术家', icon: ListMusic },
-    { action: 'copy-cover', label: '复制歌曲卡片图片', icon: FileImage },
-    { action: 'save-cover', label: '保存歌曲卡片图片', icon: Download },
-    { action: 'delete-song', label: '删除歌曲', icon: Trash2, danger: true },
+    { action: 'add-to-playlist', labelKey: 'trackMenu.action.addToPlaylist', icon: Plus },
+    { action: 'play-next', labelKey: 'trackMenu.action.playNext', icon: Play },
+    { action: 'add-to-queue', labelKey: 'trackMenu.action.addToQueue', icon: ListEnd },
+    { action: 'toggle-liked', labelKey: liked ? 'trackMenu.action.unlike' : 'trackMenu.action.like', icon: Heart },
+    { action: 'remove-from-queue', labelKey: 'trackMenu.action.removeFromQueue', icon: Minus },
+    { action: 'open-osu-timing', labelKey: 'trackMenu.action.openOsuTiming', icon: Timer },
+    { action: 'edit-tags', labelKey: 'trackMenu.action.editTags', icon: Tag },
+    { action: 'go-to-album', labelKey: 'trackMenu.action.goToAlbum', icon: Disc3 },
+    { action: 'show-in-folder', labelKey: 'trackMenu.action.showInFolder', icon: FolderOpen },
+    { action: 'copy-path', labelKey: 'trackMenu.action.copyPath', icon: Copy },
+    { action: 'open-system', labelKey: 'trackMenu.action.openSystem', icon: PanelTopOpen },
+    { action: 'copy-name-artist', labelKey: 'trackMenu.action.copyNameArtist', icon: ListMusic },
+    { action: 'copy-cover', labelKey: 'trackMenu.action.copyCover', icon: FileImage },
+    { action: 'save-cover', labelKey: 'trackMenu.action.saveCover', icon: Download },
+    { action: 'delete-song', labelKey: 'trackMenu.action.deleteSong', icon: Trash2, danger: true },
   ];
   const items = allItems.filter((item) => track.mediaType !== 'remote' || !remoteHiddenActions.has(item.action));
 
@@ -138,7 +141,7 @@ export const TrackContextMenu = ({ track, position, liked = false, onAction, onC
               onClick={() => onAction(item.action, track)}
             >
               <Icon size={16} />
-              <span>{item.label}</span>
+              <span>{t(item.labelKey)}</span>
             </button>
           );
         })}

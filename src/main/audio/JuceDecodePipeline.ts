@@ -40,6 +40,10 @@ const getDecoderBackendImpl = (filePath: string): string => {
     return 'juce-flac';
   }
 
+  if (extension === '.mp3') {
+    return 'juce-windows-media-mp3';
+  }
+
   if (extension === '.wav' || extension === '.wave') {
     return 'juce-wav';
   }
@@ -165,7 +169,7 @@ export class JuceDecodePipeline {
         settleReady(() => reject(error));
       });
       proc.once('close', (code, signal) => {
-        if (sawPcm || stopped || code === 0) {
+        if (sawPcm || stopped) {
           settleReady(resolve);
           return;
         }

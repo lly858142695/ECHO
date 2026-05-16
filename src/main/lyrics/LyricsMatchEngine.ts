@@ -243,7 +243,7 @@ export class LyricsMatchEngine {
       album: result.album,
       durationSeconds: result.durationSeconds,
       instrumental: result.instrumental,
-      hasSynced: Boolean(result.syncedLyrics || result.instrumental),
+      hasSynced: Boolean(result.karaokeLyrics || result.syncedLyrics || result.instrumental),
       hasPlain: Boolean(result.plainLyrics),
       sourceLabel: result.sourceLabel ?? provider.label,
     };

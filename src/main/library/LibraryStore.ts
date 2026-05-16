@@ -3309,6 +3309,52 @@ export class LibraryStore {
     });
   }
 
+  linkStreamingPlaylistItemsToLocalTrack(input: {
+    provider: string;
+    providerTrackId: string;
+    stableKey?: string | null;
+    trackId: string;
+  }, timestamp = nowIso()): number {
+    const provider = textOrNull(input.provider);
+    const providerTrackId = textOrNull(input.providerTrackId);
+    const track = this.getTrack(input.trackId);
+    if (!provider || !providerTrackId || !track) {
+      return 0;
+    }
+
+    return this.transaction(() => {
+      const rows = this.allRows(
+        `SELECT id, playlist_id
+         FROM playlist_items
+         WHERE media_type = 'stream_track'
+           AND source_provider = ?
+           AND source_item_id = ?`,
+        provider,
+        providerTrackId,
+      );
+
+      for (const row of rows) {
+        this.run(
+          `UPDATE playlist_items SET
+            media_type = 'track',
+            media_id = ?,
+            source_provider = 'local',
+            source_item_id = NULL,
+            cover_id = COALESCE(cover_id, ?),
+            unavailable = 0,
+            added_from = 'streaming-download'
+           WHERE id = ?`,
+          track.id,
+          track.coverId,
+          row.id,
+        );
+        this.run('UPDATE playlists SET updated_at = ? WHERE id = ?', timestamp, row.playlist_id);
+      }
+
+      return rows.length;
+    });
+  }
+
   addTracksToPlaylist(playlistId: string, trackIds: string[], timestamp = nowIso()): LibraryPlaylistItem[] {
     return this.transaction(() => {
       const playlist = this.getPlaylist(playlistId);

@@ -433,6 +433,9 @@ export const StreamingSearchPage = (): JSX.Element => {
         directAudio: true,
         directAudioMimeType: source.mimeType,
         directAudioExtension: source.codec,
+        streamingProvider: track.provider,
+        streamingProviderTrackId: track.providerTrackId,
+        streamingStableKey: track.stableKey,
       });
       setDownloadJobs((current) => (current.some((item) => item.id === job.id) ? current : [job, ...current]));
       setDownloadJobIdsByTrackKey((current) => ({ ...current, [track.stableKey]: job.id }));

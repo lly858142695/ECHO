@@ -589,6 +589,13 @@
   box-shadow: var(--echo-polish-shadow-player);
 }
 
+.app-shell:has(.lyrics-page) .player-bar {
+  border-top-color: var(--echo-polish-border);
+  background: var(--theme-panel-bg-strong);
+  box-shadow: var(--echo-polish-shadow-player);
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
 .player-now {
   min-width: 0;
 }
@@ -607,6 +614,26 @@
 .output-status > span,
 .progress-row {
   color: var(--theme-muted-text);
+}
+
+.app-shell:has(.lyrics-page) .player-track-copy strong {
+  color: var(--theme-heading-text);
+}
+
+.app-shell:has(.lyrics-page) .player-track-copy > span,
+.app-shell:has(.lyrics-page) .progress-row,
+.app-shell:has(.lyrics-page) .output-status > span {
+  color: var(--theme-page-text);
+}
+
+.app-shell:has(.lyrics-page) .player-tags .hifi-tag {
+  color: var(--theme-button-text);
+}
+
+.app-shell:has(.lyrics-page) .player-track-copy strong,
+.app-shell:has(.lyrics-page) .player-track-copy > span,
+.app-shell:has(.lyrics-page) .progress-row {
+  text-shadow: 0 1px 0 var(--theme-panel-bg-strong);
 }
 
 .player-bar .icon-button {

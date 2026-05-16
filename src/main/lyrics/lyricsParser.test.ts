@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectLyricsKind, parsePlainLyrics, parseSyncedLyrics } from './lyricsParser';
+import { detectLyricsKind, deserializeLyricLines, parsePlainLyrics, parseSyncedLyrics, serializeLyricLines } from './lyricsParser';
 import { providerResultToTrackLyrics } from './LyricsProvider';
 
 describe('lyricsParser', () => {
@@ -27,14 +27,58 @@ describe('lyricsParser', () => {
 
   it('removes enhanced word timestamps from local LRC text', () => {
     expect(parseSyncedLyrics('[00:01.00]<00:01.00>Hello <00:01.50>world')).toEqual([
-      { timeMs: 1000, text: 'Hello world' },
+      {
+        timeMs: 1000,
+        text: 'Hello world',
+        words: [
+          { text: 'Hello ', startMs: 1000, endMs: 1500 },
+          { text: 'world', startMs: 1500, endMs: null },
+        ],
+      },
     ]);
   });
 
   it('collapses bracket-style enhanced word timestamps into one lyric line', () => {
     expect(parseSyncedLyrics("[00:05.340]I'm [00:05.760]a [00:05.940]big [00:06.660]big [00:07.320]girl[00:08.220]")).toEqual([
-      { timeMs: 5340, text: "I'm a big big girl" },
+      {
+        timeMs: 5340,
+        text: "I'm a big big girl",
+        words: [
+          { text: "I'm ", startMs: 5340, endMs: 5760 },
+          { text: 'a ', startMs: 5760, endMs: 5940 },
+          { text: 'big ', startMs: 5940, endMs: 6660 },
+          { text: 'big ', startMs: 6660, endMs: 7320 },
+          { text: 'girl', startMs: 7320, endMs: 8220 },
+        ],
+      },
     ]);
+  });
+
+  it('drops word timings with non-increasing timestamps but keeps the lyric line', () => {
+    expect(parseSyncedLyrics('[00:01.00]<00:01.50>Hello <00:01.20>world')).toEqual([
+      { timeMs: 1000, text: 'Hello world' },
+    ]);
+  });
+
+  it('does not add word timings to ordinary synced lyrics', () => {
+    expect(parseSyncedLyrics('[00:01.00]Hello world')).toEqual([
+      { timeMs: 1000, text: 'Hello world' },
+    ]);
+  });
+
+  it('preserves word timings through line serialization', () => {
+    const lines = [
+      {
+        timeMs: 1000,
+        text: 'Hello world',
+        words: [
+          { text: 'Hello ', startMs: 1000, endMs: 1500 },
+          { text: 'world', startMs: 1500, endMs: null },
+        ],
+      },
+    ];
+
+    expect(deserializeLyricLines(serializeLyricLines(lines))).toEqual(lines);
   });
 
   it('splits inline Chinese translations from synced lyrics', () => {
@@ -163,6 +207,37 @@ describe('lyricsParser', () => {
 
   expect(lyrics?.lines).toEqual([
       { timeMs: 1000, text: 'Hello', romanization: 'hello', translation: '你好' },
+    ]);
+  });
+
+  it('uses provider karaoke lyrics before ordinary synced lyrics', () => {
+    const lyrics = providerResultToTrackLyrics(
+      { title: 'Song', artist: 'Artist' },
+      {
+        provider: 'netease',
+        providerLyricsId: 'netease:karaoke',
+        title: 'Song',
+        artist: 'Artist',
+        album: null,
+        durationSeconds: null,
+        instrumental: false,
+        plainLyrics: null,
+        syncedLyrics: '[00:01.00]Plain synced',
+        karaokeLyrics: '[00:01.00]<00:01.00>Hello <00:01.50>world',
+      },
+      1,
+    );
+
+    expect(lyrics?.syncedText).toBe('[00:01.00]<00:01.00>Hello <00:01.50>world');
+    expect(lyrics?.lines).toEqual([
+      {
+        timeMs: 1000,
+        text: 'Hello world',
+        words: [
+          { text: 'Hello ', startMs: 1000, endMs: 1500 },
+          { text: 'world', startMs: 1500, endMs: null },
+        ],
+      },
     ]);
   });
 

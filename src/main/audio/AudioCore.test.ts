@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events';
 import type { ChildProcessWithoutNullStreams, execFile as nodeExecFile, execFileSync as nodeExecFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { PassThrough, Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AudioSession, type AudioSessionDependencies } from './AudioSession';
@@ -49,6 +51,35 @@ const dsdProbe = (filePath: string, fileSampleRate = 2_822_400): AudioProbeResul
   bitDepth: 1,
   bitrate: 5_645_000,
 });
+
+const createDsfDopFixture = (): Buffer => {
+  const data = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]);
+  const buffer = Buffer.alloc(28 + 52 + 12 + data.length);
+
+  buffer.write('DSD ', 0, 'ascii');
+  buffer.writeBigUInt64LE(28n, 4);
+  buffer.writeBigUInt64LE(BigInt(buffer.length), 12);
+  buffer.writeBigUInt64LE(0n, 20);
+
+  const fmtOffset = 28;
+  buffer.write('fmt ', fmtOffset, 'ascii');
+  buffer.writeBigUInt64LE(52n, fmtOffset + 4);
+  buffer.writeUInt32LE(1, fmtOffset + 12);
+  buffer.writeUInt32LE(0, fmtOffset + 16);
+  buffer.writeUInt32LE(2, fmtOffset + 20);
+  buffer.writeUInt32LE(2, fmtOffset + 24);
+  buffer.writeUInt32LE(2_822_400, fmtOffset + 28);
+  buffer.writeUInt32LE(1, fmtOffset + 32);
+  buffer.writeBigUInt64LE(32n, fmtOffset + 36);
+  buffer.writeUInt32LE(4, fmtOffset + 44);
+
+  const dataOffset = 28 + 52;
+  buffer.write('data', dataOffset, 'ascii');
+  buffer.writeBigUInt64LE(BigInt(12 + data.length), dataOffset + 4);
+  data.copy(buffer, dataOffset + 12);
+
+  return buffer;
+};
 
 const pcmBuffer = (samples: number[]): Buffer => {
   const buffer = Buffer.alloc(samples.length * 4);
@@ -125,7 +156,11 @@ class FakeJuceDecoder {
       stop,
       done: Promise.resolve(),
       ready: Promise.resolve(),
-      decoderBackendImpl: lowerPath.endsWith('.flac') ? 'juce-flac' : 'juce-wav',
+      decoderBackendImpl: lowerPath.endsWith('.flac')
+        ? 'juce-flac'
+        : lowerPath.endsWith('.mp3')
+          ? 'juce-windows-media-mp3'
+          : 'juce-wav',
     };
   }
 }
@@ -1741,6 +1776,23 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
   });
 
+  it('keeps JUCE decode disabled by default even for local MP3', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([{ ...probe('pilot.mp3', 48000), codec: 'MP3' }], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'pilot.mp3',
+      output: { outputMode: 'shared' },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(false);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+  });
+
   it('uses JUCE decode for opt-in local WAV when no resampling is required', async () => {
     const juceDecoder = new FakeJuceDecoder();
     const { decoder, session } = createSessionHarness([{ ...probe('pilot.wav', 48000), codec: 'WAV' }], [48000], [], {
@@ -1775,6 +1827,23 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.activeDecodeBackendImpl).toBe('juce-flac');
   });
 
+  it('uses JUCE Windows Media decode for opt-in local MP3 when no resampling is required', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const { decoder, session } = createSessionHarness([{ ...probe('pilot.mp3', 48000), codec: 'MP3' }], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'pilot.mp3',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests).toHaveLength(0);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('juce-windows-media-mp3');
+  });
+
   it('falls back to FFmpeg when opt-in JUCE FLAC decode fails before PCM starts', async () => {
     const juceDecoder = new FakeJuceDecoder(new Error('juce flac open failed'));
     const { decoder, session } = createSessionHarness([probe('pilot.flac', 48000)], [48000], [], {
@@ -1793,8 +1862,8 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.warnings).toContain('juce_decode_fell_back_to_ffmpeg');
   });
 
-  it('keeps FFmpeg decode for local MP3 even when JUCE decode is enabled', async () => {
-    const juceDecoder = new FakeJuceDecoder();
+  it('falls back to FFmpeg when opt-in JUCE MP3 decode fails before PCM starts', async () => {
+    const juceDecoder = new FakeJuceDecoder(new Error('juce windows media mp3 open failed'));
     const { decoder, session } = createSessionHarness([{ ...probe('song.mp3', 48000), codec: 'MP3' }], [48000], [], {
       juceDecoder,
     });
@@ -1804,11 +1873,11 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'shared', useJuceDecode: true },
     });
 
-    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
     expect(decoder.decodeRequests).toHaveLength(1);
     expect(status.useJuceDecodeRequested).toBe(true);
     expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
-    expect(status.warnings).not.toContain('juce_decode_fell_back_to_ffmpeg');
+    expect(status.warnings).toContain('juce_decode_fell_back_to_ffmpeg');
   });
 
   it('keeps FFmpeg decode for non-pilot local files even when JUCE decode is enabled', async () => {
@@ -1845,6 +1914,26 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(decoder.decodeRequests).toHaveLength(1);
     expect(status.useJuceDecodeRequested).toBe(true);
     expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+  });
+
+  it('keeps FFmpeg decode for HTTP MP3 streams even when JUCE decode is enabled', async () => {
+    const juceDecoder = new FakeJuceDecoder();
+    const url = 'https://cdn.example.test/song.mp3';
+    const { decoder, session } = createSessionHarness([], [48000], [], {
+      juceDecoder,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: url,
+      probe: { ...probe(url, 48000), codec: 'MP3' },
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+    expect(status.warnings).not.toContain('juce_decode_fell_back_to_ffmpeg');
   });
 
   it('starts DirectSound compatibility output as shared mode without carrying WASAPI device index', async () => {
@@ -1999,6 +2088,102 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.resampling).toBe(true);
     expect(status.bitPerfectCandidate).toBe(false);
     expect(status.warnings).toContain('dsd_source_decoded_to_pcm:2822400->176400');
+  });
+
+  it('uses DSF bitstream DoP over WASAPI exclusive when explicitly enabled', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'echo-dop-'));
+    const filePath = join(tempDir, 'native-dop.dsf');
+    await writeFile(filePath, createDsfDopFixture());
+    const { bridges, decoder, session } = createSessionHarness([dsdProbe(filePath)]);
+
+    try {
+      const status = await session.playLocalFile({
+        filePath,
+        output: { outputMode: 'exclusive', dsdOutputMode: 'dop', useJuceOutput: true },
+      });
+      for (let attempt = 0; attempt < 10 && bridges[0].sessionChunks.length === 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+
+      expect(bridges[0].startOptions).toMatchObject({
+        exclusive: true,
+        useJuceOutput: false,
+        inputFormat: 'dop24le',
+        requestedOutputSampleRate: 176400,
+      });
+      expect(decoder.decodeRequests).toHaveLength(0);
+      expect(bridges[0].sessionChunks.map((item) => [...item.chunk])).toEqual([
+        [1, 2, 0x05, 5, 6, 0x05, 3, 4, 0xfa, 7, 8, 0xfa],
+      ]);
+      expect(status.activeDecodeBackendImpl).toBe('dsf-bitstream-dop');
+      expect(status.dsdOutputModeRequested).toBe('dop');
+      expect(status.activeDsdOutputMode).toBe('dop');
+      expect(status.dsdNativeSampleRate).toBe(2822400);
+      expect(status.dsdTransportSampleRate).toBe(176400);
+      expect(status.warnings).not.toContain('dsd_source_decoded_to_pcm:2822400->176400');
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+      session.dispose();
+    }
+  });
+
+  it('keeps DoP disabled in shared mode and falls back to PCM with a visible warning', async () => {
+    const sharedDevice: AudioDeviceInfo = {
+      id: 'shared:0',
+      index: 0,
+      name: 'Speakers',
+      outputMode: 'shared',
+      sampleRate: 48000,
+      sharedDeviceSampleRate: 48000,
+      isDefault: true,
+    };
+    const { bridges, decoder, session } = createSessionHarness([dsdProbe('shared-dop-disabled.dsf')], [48000], [sharedDevice]);
+
+    const status = await session.playLocalFile({
+      filePath: 'shared-dop-disabled.dsf',
+      output: { outputMode: 'shared', dsdOutputMode: 'dop' },
+    });
+
+    expect(bridges[0].startOptions).toMatchObject({
+      inputFormat: 'pcm-f32le',
+      requestedOutputSampleRate: 48000,
+    });
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({
+      filePath: 'shared-dop-disabled.dsf',
+      decoderOutputSampleRate: 48000,
+    });
+    expect(status.dsdOutputModeRequested).toBe('dop');
+    expect(status.activeDsdOutputMode).toBeNull();
+    expect(status.warnings).toContain('dsd_dop_requires_exclusive_or_asio');
+    expect(status.warnings).toContain('dsd_source_decoded_to_pcm:2822400->48000');
+  });
+
+  it('falls back to FFmpeg PCM when DSF DoP preparation fails after opening the output', async () => {
+    const missingPath = join(tmpdir(), `missing-dop-${Date.now()}.dsf`);
+    const { bridges, decoder, session } = createSessionHarness([dsdProbe(missingPath)]);
+
+    const status = await session.playLocalFile({
+      filePath: missingPath,
+      output: { outputMode: 'exclusive', dsdOutputMode: 'dop' },
+    });
+
+    expect(bridges).toHaveLength(2);
+    expect(bridges[0].startOptions).toMatchObject({
+      inputFormat: 'dop24le',
+      requestedOutputSampleRate: 176400,
+    });
+    expect(bridges[1].startOptions).toMatchObject({
+      inputFormat: 'pcm-f32le',
+      requestedOutputSampleRate: 176400,
+    });
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({
+      filePath: missingPath,
+      decoderOutputSampleRate: 176400,
+    });
+    expect(status.dsdOutputModeRequested).toBe('dop');
+    expect(status.activeDsdOutputMode).toBeNull();
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
+    expect(status.warnings.some((warning) => warning.startsWith('dsd_dop_fell_back_to_pcm:'))).toBe(true);
   });
 
   it('refreshes DSF probe hints that were reported as 44.1 kHz before planning output', async () => {

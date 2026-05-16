@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { LyricLine as LyricLineType } from './lyricsTypes';
 
 type LyricsLineProps = {
@@ -8,6 +9,7 @@ type LyricsLineProps = {
   seekable?: boolean;
   showRomanization?: boolean;
   showTranslation?: boolean;
+  wordHighlightEnabled?: boolean;
   focusDistance?: number;
 };
 
@@ -45,12 +47,14 @@ export const LyricsLine = ({
   seekable = true,
   showRomanization = true,
   showTranslation = true,
+  wordHighlightEnabled = true,
   focusDistance = 4,
 }: LyricsLineProps): JSX.Element => {
   const density = getLyricDensity(line, showRomanization, showTranslation);
   const visibleSecondaryLines =
     (showRomanization && line.romanization ? 1 : 0) +
     (showTranslation && line.translation ? 1 : 0);
+  const hasWordHighlight = wordHighlightEnabled && Boolean(line.words?.length && line.words.length >= 2);
 
   return (
     <button
@@ -61,6 +65,7 @@ export const LyricsLine = ({
       data-past={past}
       data-seekable={seekable}
       data-secondary-lines={visibleSecondaryLines}
+      data-word-highlight={hasWordHighlight}
       type="button"
       onClick={() => {
         if (seekable) {
@@ -68,7 +73,21 @@ export const LyricsLine = ({
         }
       }}
     >
-      <span>{line.text}</span>
+      <span>
+        {hasWordHighlight
+          ? line.words?.map((word, index) => (
+            <mark
+              className="lyrics-word"
+              data-word-index={index}
+              data-word-state="future"
+              key={`${word.startMs}-${index}-${word.text}`}
+              style={{ '--lyrics-word-progress': '0' } as CSSProperties}
+            >
+              {word.text}
+            </mark>
+          ))
+          : line.text}
+      </span>
       {showRomanization && line.romanization ? <small>{line.romanization}</small> : null}
       {showTranslation && line.translation ? <em>{line.translation}</em> : null}
     </button>

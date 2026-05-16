@@ -115,9 +115,10 @@ export class NeteaseLyricsProvider implements LyricsProvider {
         await fetchJsonWithTimeout(`https://music.163.com/api/song/lyric?${params.toString()}`, request.signal, neteaseHeaders, request.timeoutMs),
       );
       const providerText = splitLyricsByKind(lyricText(data.lrc));
+      const karaokeLyrics = lyricText(data.klyric) ?? lyricText(data.yrc);
       const instrumental = data.nolyric === true || data.needDesc === true;
 
-      if (!instrumental && !providerText.syncedLyrics && !providerText.plainLyrics) {
+      if (!instrumental && !providerText.syncedLyrics && !providerText.plainLyrics && !karaokeLyrics) {
         return null;
       }
 
@@ -131,6 +132,7 @@ export class NeteaseLyricsProvider implements LyricsProvider {
         instrumental,
         plainLyrics: providerText.plainLyrics,
         syncedLyrics: providerText.syncedLyrics,
+        karaokeLyrics,
         translationLyrics: lyricText(data.tlyric),
         romanizationLyrics: lyricText(data.romalrc),
         sourceUrl: `https://music.163.com/#/song?id=${encodeURIComponent(song.id)}`,

@@ -256,8 +256,9 @@ export class QQMusicLyricsProvider implements LyricsProvider {
         await fetchJsonWithTimeout(`https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?${params.toString()}`, request.signal, qqHeaders, request.timeoutMs),
       );
       const providerText = splitLyricsByKind(maybeDecodeBase64(data.lyric));
+      const karaokeLyrics = maybeDecodeBase64(data.qrc) ?? maybeDecodeBase64(data.karaoke);
 
-      if (!providerText.syncedLyrics && !providerText.plainLyrics) {
+      if (!providerText.syncedLyrics && !providerText.plainLyrics && !karaokeLyrics) {
         return null;
       }
 
@@ -271,6 +272,7 @@ export class QQMusicLyricsProvider implements LyricsProvider {
         instrumental: false,
         plainLyrics: providerText.plainLyrics,
         syncedLyrics: providerText.syncedLyrics,
+        karaokeLyrics,
         translationLyrics: maybeDecodeBase64(data.trans),
         romanizationLyrics: maybeDecodeBase64(data.roma),
         sourceUrl: `https://y.qq.com/n/ryqq/songDetail/${encodeURIComponent(song.mid)}`,

@@ -1,7 +1,9 @@
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { BrowserWindow, globalShortcut } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import {
   globalShortcutActions,
+  isMouseButtonAccelerator,
   validateGlobalShortcutAccelerator,
   type GlobalShortcutBinding,
   type GlobalShortcutAction,
@@ -21,7 +23,123 @@ type RegistrationStatus = {
 
 let initialized = false;
 const registeredAccelerators = new Map<GlobalShortcutAction, string>();
+const registeredMouseAccelerators = new Map<string, GlobalShortcutAction>();
+let mouseHookProcess: ChildProcessWithoutNullStreams | null = null;
 let lastRegistrationStatuses: RegistrationStatus[] = [];
+
+const windowsMouseHookScript = `
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class EchoMouseShortcutHook
+{
+    private const int WH_MOUSE_LL = 14;
+    private const int WM_XBUTTONDOWN = 0x020B;
+    private const int WM_QUIT = 0x0012;
+    private static LowLevelMouseProc _proc = HookCallback;
+    private static IntPtr _hookID = IntPtr.Zero;
+
+    private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSLLHOOKSTRUCT
+    {
+        public POINT pt;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public UIntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public POINT pt;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern sbyte GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [DllImport("user32.dll")]
+    private static extern bool TranslateMessage([In] ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr DispatchMessage([In] ref MSG lpMsg);
+
+    public static void Run()
+    {
+        _hookID = SetWindowsHookEx(WH_MOUSE_LL, _proc, IntPtr.Zero, 0);
+        if (_hookID == IntPtr.Zero)
+        {
+            Console.Error.WriteLine("hook-failed");
+            Environment.Exit(2);
+            return;
+        }
+
+        Console.WriteLine("ready");
+        Console.Out.Flush();
+
+        MSG msg;
+        while (GetMessage(out msg, IntPtr.Zero, 0, 0) != 0)
+        {
+            if (msg.message == WM_QUIT)
+            {
+                break;
+            }
+            TranslateMessage(ref msg);
+            DispatchMessage(ref msg);
+        }
+
+        UnhookWindowsHookEx(_hookID);
+    }
+
+    private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && wParam == (IntPtr)WM_XBUTTONDOWN)
+        {
+            MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+            int xButton = (int)((hookStruct.mouseData >> 16) & 0xffff);
+            if (xButton == 1)
+            {
+                Console.WriteLine("MouseButton4");
+                Console.Out.Flush();
+            }
+            else if (xButton == 2)
+            {
+                Console.WriteLine("MouseButton5");
+                Console.Out.Flush();
+            }
+        }
+
+        return CallNextHookEx(_hookID, nCode, wParam, lParam);
+    }
+}
+"@
+[EchoMouseShortcutHook]::Run()
+`;
 
 const createStatus = (
   action: GlobalShortcutAction,
@@ -42,6 +160,67 @@ const unregisterManagedShortcuts = (): void => {
   }
 
   registeredAccelerators.clear();
+  registeredMouseAccelerators.clear();
+};
+
+const stopMouseShortcutHook = (): void => {
+  if (!mouseHookProcess) {
+    return;
+  }
+
+  mouseHookProcess.kill();
+  mouseHookProcess = null;
+};
+
+const dispatchMouseShortcutLine = (line: string): void => {
+  const action = registeredMouseAccelerators.get(line.trim());
+  if (action) {
+    dispatchGlobalShortcutCommand(action);
+  }
+};
+
+const ensureMouseShortcutHook = (): boolean => {
+  if (process.platform !== 'win32') {
+    return false;
+  }
+
+  if (mouseHookProcess && !mouseHookProcess.killed) {
+    return true;
+  }
+
+  const encodedScript = Buffer.from(windowsMouseHookScript, 'utf16le').toString('base64');
+  const nextProcess = spawn('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-EncodedCommand',
+    encodedScript,
+  ], { windowsHide: true });
+  mouseHookProcess = nextProcess;
+
+  let pending = '';
+  nextProcess.stdout.setEncoding('utf8');
+  nextProcess.stdout.on('data', (chunk: string) => {
+    pending += chunk;
+    const lines = pending.split(/\r?\n/u);
+    pending = lines.pop() ?? '';
+    for (const line of lines) {
+      dispatchMouseShortcutLine(line);
+    }
+  });
+  nextProcess.once('exit', () => {
+    if (mouseHookProcess === nextProcess) {
+      mouseHookProcess = null;
+    }
+  });
+  nextProcess.once('error', () => {
+    if (mouseHookProcess === nextProcess) {
+      mouseHookProcess = null;
+    }
+  });
+
+  return true;
 };
 
 const getCommandWindow = (): BrowserWindow | null => getMainWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
@@ -60,6 +239,15 @@ const showMainWindow = (): void => {
   window.focus();
 };
 
+const hideMainWindow = (): void => {
+  const window = getCommandWindow();
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+
+  window.hide();
+};
+
 const dispatchGlobalShortcutCommand = (action: GlobalShortcutAction): void => {
   if (action === 'showMainWindow') {
     showMainWindow();
@@ -72,6 +260,9 @@ const dispatchGlobalShortcutCommand = (action: GlobalShortcutAction): void => {
   }
 
   window.webContents.send(IpcChannels.AppGlobalShortcutCommand, action);
+  if (action === 'bossKey') {
+    hideMainWindow();
+  }
 };
 
 const registerActionShortcut = (
@@ -79,6 +270,18 @@ const registerActionShortcut = (
   accelerator: string,
   binding: GlobalShortcutBinding,
 ): RegistrationStatus => {
+  if (isMouseButtonAccelerator(accelerator)) {
+    if (!ensureMouseShortcutHook()) {
+      return createStatus(action, binding, {
+        registered: false,
+        error: 'unavailable',
+      });
+    }
+
+    registeredMouseAccelerators.set(accelerator, action);
+    return createStatus(action, binding, { registered: true });
+  }
+
   let registered = false;
   try {
     registered = globalShortcut.register(accelerator, () => dispatchGlobalShortcutCommand(action));
@@ -115,6 +318,7 @@ const disableUnavailableShortcuts = (settings: AppSettings, failedActions: Globa
 
 export const refreshBackgroundSpaceRegistration = (): AppSettings | null => {
   unregisterManagedShortcuts();
+  stopMouseShortcutHook();
 
   const settings = getAppSettings();
   const statuses: RegistrationStatus[] = [];
@@ -149,6 +353,7 @@ export const refreshBackgroundSpaceRegistration = (): AppSettings | null => {
 
   const nextSettings = disableUnavailableShortcuts(settings, failedActions);
   unregisterManagedShortcuts();
+  stopMouseShortcutHook();
 
   for (const action of globalShortcutActions) {
     const binding = nextSettings.globalShortcuts?.[action];
@@ -184,6 +389,7 @@ export const bindBackgroundPlaybackShortcutsToWindow = (): void => {
 
 export const disposeBackgroundPlaybackShortcuts = (): void => {
   unregisterManagedShortcuts();
+  stopMouseShortcutHook();
   lastRegistrationStatuses = [];
 };
 
@@ -195,6 +401,16 @@ export const validateGlobalShortcut = (accelerator: unknown): GlobalShortcutVali
 
   if (globalShortcut.isRegistered(validation.accelerator)) {
     return validation;
+  }
+
+  if (isMouseButtonAccelerator(validation.accelerator)) {
+    return process.platform === 'win32'
+      ? validation
+      : {
+          ...validation,
+          available: false,
+          reason: 'unavailable',
+        };
   }
 
   let available = false;

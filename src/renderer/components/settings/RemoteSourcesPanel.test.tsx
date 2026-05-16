@@ -44,7 +44,7 @@ const remoteSource = (overrides: Partial<RemoteSource> = {}): RemoteSource => ({
   baseUrl: 'http://127.0.0.1:18080/dav',
   username: 'user',
   authType: 'basic',
-  config: { rootPath: '/音乐 Space/', scanConcurrency: 2, metadataConcurrency: 1 },
+  config: { rootPath: '/音乐 Space/', scanConcurrency: 2, metadataConcurrency: 1, coverConcurrency: 3 },
   syncMode: 'index',
   lastTestAt: null,
   lastSyncAt: null,
@@ -180,7 +180,7 @@ describe('RemoteSourcesPanel', () => {
       baseUrl: 'http://127.0.0.1:18080/dav',
       username: 'user',
       secret: 'secret',
-      config: expect.objectContaining({ rootPath: '/音乐 Space/' }),
+      config: expect.objectContaining({ rootPath: '/音乐 Space/', coverConcurrency: 2 }),
     }));
 
     fireEvent.click(screen.getByRole('button', { name: /保存并同步/u }));

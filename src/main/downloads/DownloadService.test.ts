@@ -737,6 +737,55 @@ describe('DownloadService', () => {
     expect(bindMvUrl).not.toHaveBeenCalled();
   });
 
+  it('links imported direct streaming audio back to matching playlist entries', async () => {
+    const ytDlpPath = makeToolPath();
+    const outputDirectory = makeTempRoot();
+    const importAudioFile = vi.fn(async () => ({ id: 'track-local' }));
+    const linkDownloadedStreamingTrack = vi.fn();
+    const service = new DownloadService(
+      vi.fn(() => ({
+        promise: Promise.resolve({ stdout: '', stderr: 'should not run', exitCode: 1 }),
+        kill: vi.fn(),
+      })),
+      () => ytDlpPath,
+      {
+        fetch: vi.fn(async () => {
+          return new Response(new Uint8Array([1, 2, 3, 4]), {
+            status: 200,
+            headers: { 'content-type': 'audio/mpeg' },
+          });
+        }) as unknown as typeof fetch,
+        importAudioFile,
+        linkDownloadedStreamingTrack,
+        getAccountCredentials: (provider) => ({ provider }),
+        writeEmbeddedTrackTags: vi.fn(async () => undefined),
+      },
+    );
+    service.setSettings({ outputDirectory, importToLibrary: true, bindMvAfterImport: false });
+
+    const job = service.createUrlJob('https://m801.music.126.net/audio.mp3', {
+      title: 'Streaming Song',
+      artist: 'Artist',
+      webpageUrl: 'https://music.163.com/#/song?id=123',
+      directAudio: true,
+      directAudioMimeType: 'audio/mpeg',
+      directAudioExtension: 'mp3',
+      streamingProvider: 'netease',
+      streamingProviderTrackId: '123',
+      streamingStableKey: 'streaming:netease:123',
+    });
+    const completedJob = await waitForJob(service, job.id);
+
+    expect(completedJob.status).toBe('completed');
+    expect(completedJob.importedTrackId).toBe('track-local');
+    expect(linkDownloadedStreamingTrack).toHaveBeenCalledWith({
+      provider: 'netease',
+      providerTrackId: '123',
+      stableKey: 'streaming:netease:123',
+      trackId: 'track-local',
+    });
+  });
+
   it('marks the job failed when yt-dlp probe fails', async () => {
     const ytDlpPath = makeToolPath();
     const service = new DownloadService(

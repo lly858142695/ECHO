@@ -9,6 +9,8 @@ export type ChannelBalanceMonoMode = 'off' | 'sum' | 'left' | 'right';
 export type SharedStabilityTier = 'standard' | 'recovery' | 'emergency';
 export type AudioResamplerEngine = 'default' | 'soxr';
 export type FfmpegToolchainSource = 'explicit' | 'bundled' | 'dev-bundled' | 'system';
+export type AudioDsdOutputMode = 'pcm' | 'dop';
+export type ActiveDsdOutputMode = 'pcm' | 'dop' | null;
 
 export type ChannelBalanceState = {
   enabled: boolean;
@@ -63,6 +65,7 @@ export type AudioOutputSettings = {
   bufferSizeFrames?: number | null;
   useJuceOutput?: boolean;
   useJuceDecode?: boolean;
+  dsdOutputMode?: AudioDsdOutputMode;
   asioUnavailableFallbackEnabled?: boolean;
   soxrFallbackEnabled?: boolean;
   volume?: number;
@@ -83,6 +86,10 @@ export type AudioStatus = {
   useJuceOutputRequested: boolean;
   useJuceDecodeRequested: boolean;
   activeDecodeBackendImpl: string | null;
+  dsdOutputModeRequested?: AudioDsdOutputMode;
+  activeDsdOutputMode?: ActiveDsdOutputMode;
+  dsdNativeSampleRate?: number | null;
+  dsdTransportSampleRate?: number | null;
   volume: number;
   playbackRate: number;
   playbackSpeedMode: PlaybackSpeedMode;
@@ -152,6 +159,10 @@ export type AudioDiagnostics = Pick<
   | 'useJuceOutputRequested'
   | 'useJuceDecodeRequested'
   | 'activeDecodeBackendImpl'
+  | 'dsdOutputModeRequested'
+  | 'activeDsdOutputMode'
+  | 'dsdNativeSampleRate'
+  | 'dsdTransportSampleRate'
   | 'outputDeviceName'
   | 'currentFilePath'
   | 'currentTrackId'

@@ -139,6 +139,7 @@ export const defaultSettings: AppSettings = {
   hiddenAudioDeviceKeys: [],
   audioUseJuceOutput: true,
   audioUseJuceDecode: false,
+  audioDsdOutputMode: 'pcm',
   audioAsioUnavailableFallbackEnabled: false,
   audioSoxrFallbackEnabled: true,
   albumMergeStrategy: 'standard',
@@ -184,6 +185,7 @@ export const defaultSettings: AppSettings = {
   lyricsPlayerBarDrawerEnabled: false,
   lyricsRomanizationEnabled: true,
   lyricsTranslationEnabled: true,
+  lyricsWordHighlightEnabled: true,
   lyricsFontSizePx: 40,
   lyricsSecondaryFontSizePx: 22,
   lyricsLineSpacingPercent: 110,
@@ -563,6 +565,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     hiddenAudioDeviceKeys: normalizeHiddenAudioDeviceKeys(settings.hiddenAudioDeviceKeys),
     audioUseJuceOutput: sourceAppMemoryVersion < appMemoryVersion ? true : settings.audioUseJuceOutput !== false,
     audioUseJuceDecode: settings.audioUseJuceDecode === true,
+    audioDsdOutputMode: settings.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm',
     audioAsioUnavailableFallbackEnabled: settings.audioAsioUnavailableFallbackEnabled === true,
     audioSoxrFallbackEnabled: settings.audioSoxrFallbackEnabled !== false,
     albumMergeStrategy,
@@ -631,6 +634,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     lyricsPlayerBarDrawerEnabled: settings.lyricsPlayerBarDrawerEnabled === true,
     lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled !== false,
     lyricsTranslationEnabled: settings.lyricsTranslationEnabled !== false,
+    lyricsWordHighlightEnabled: settings.lyricsWordHighlightEnabled !== false,
     lyricsFontSizePx: Number.isFinite(lyricsFontSizePx)
       ? Math.round(clamp(lyricsFontSizePx, 22, 56))
       : defaultSettings.lyricsFontSizePx,

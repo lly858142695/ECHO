@@ -589,9 +589,13 @@ export class RemoteBackgroundJobQueue {
 
     for (const kind of jobKinds) {
       const configKey = limitKeys[kind];
-      const configured = sourceConfig?.[configKey];
+      const configured =
+        kind === 'cover' && sourceConfig?.coverConcurrency === undefined
+          ? sourceConfig?.metadataConcurrency
+          : sourceConfig?.[configKey];
       const runtime = runtimeLimits?.[configKey];
-      concurrency[kind] = this.clampLimit(runtime ?? configured, concurrency[kind]);
+      const max = kind === 'metadata' || kind === 'cover' ? 8 : 6;
+      concurrency[kind] = this.clampLimit(runtime ?? configured, concurrency[kind], 1, max);
     }
 
     if (this.playbackActive) {
@@ -604,9 +608,9 @@ export class RemoteBackgroundJobQueue {
 
   private normalizeRuntimeLimits(limits: RemoteRuntimeLimits): RemoteRuntimeLimits {
     return {
-      scanConcurrency: limits.scanConcurrency === undefined ? undefined : this.clampLimit(limits.scanConcurrency, 3, 1, 6),
-      metadataConcurrency: limits.metadataConcurrency === undefined ? undefined : this.clampLimit(limits.metadataConcurrency, defaultConcurrency.metadata),
-      coverConcurrency: limits.coverConcurrency === undefined ? undefined : this.clampLimit(limits.coverConcurrency, defaultConcurrency.cover),
+      scanConcurrency: limits.scanConcurrency === undefined ? undefined : this.clampLimit(limits.scanConcurrency, 3, 1, 8),
+      metadataConcurrency: limits.metadataConcurrency === undefined ? undefined : this.clampLimit(limits.metadataConcurrency, defaultConcurrency.metadata, 1, 8),
+      coverConcurrency: limits.coverConcurrency === undefined ? undefined : this.clampLimit(limits.coverConcurrency, defaultConcurrency.cover, 1, 8),
       lyricsConcurrency: limits.lyricsConcurrency === undefined ? undefined : this.clampLimit(limits.lyricsConcurrency, defaultConcurrency.lyrics),
       mvConcurrency: limits.mvConcurrency === undefined ? undefined : this.clampLimit(limits.mvConcurrency, defaultConcurrency.mv),
     };

@@ -1,3 +1,5 @@
+import type { StreamingProviderName } from './streaming';
+
 export type DownloadJobStatus =
   | 'queued'
   | 'probing'
@@ -58,6 +60,9 @@ export type CreateDownloadUrlJobOptions = Partial<Pick<DownloadSettings, 'import
   directAudio?: boolean;
   directAudioMimeType?: string | null;
   directAudioExtension?: string | null;
+  streamingProvider?: StreamingProviderName;
+  streamingProviderTrackId?: string;
+  streamingStableKey?: string;
 };
 
 export type DownloadSearchRequest = {

@@ -358,6 +358,10 @@ const statusRows = (
   { label: 'useJuceOutputRequested', value: formatBool(status?.useJuceOutputRequested ?? false) },
   { label: 'activeDecodeBackendImpl', value: status?.activeDecodeBackendImpl ?? 'n/a' },
   { label: 'useJuceDecodeRequested', value: formatBool(status?.useJuceDecodeRequested ?? false) },
+  { label: 'dsdOutputModeRequested', value: status?.dsdOutputModeRequested ?? 'pcm' },
+  { label: 'activeDsdOutputMode', value: status?.activeDsdOutputMode ?? 'n/a' },
+  { label: 'dsdNativeSampleRate', value: formatRate(status?.dsdNativeSampleRate ?? null) },
+  { label: 'dsdTransportSampleRate', value: formatRate(status?.dsdTransportSampleRate ?? null) },
   { label: 'fileSampleRate', value: formatRate(status?.fileSampleRate ?? null) },
   { label: 'decoderOutputSampleRate', value: formatRate(status?.decoderOutputSampleRate ?? null) },
   { label: 'requestedOutputSampleRate', value: formatRate(status?.requestedOutputSampleRate ?? null) },
@@ -1188,6 +1192,7 @@ export const SettingsPage = (): JSX.Element => {
         latencyProfile: 'lowLatency',
         useJuceOutput: appSettings?.audioUseJuceOutput !== false,
         useJuceDecode: appSettings?.audioUseJuceDecode === true,
+        dsdOutputMode: appSettings?.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm',
         asioUnavailableFallbackEnabled: appSettings?.audioAsioUnavailableFallbackEnabled === true,
         soxrFallbackEnabled: appSettings?.audioSoxrFallbackEnabled !== false,
       };
@@ -1211,6 +1216,7 @@ export const SettingsPage = (): JSX.Element => {
     [
       appSettings?.audioAsioUnavailableFallbackEnabled,
       appSettings?.audioSoxrFallbackEnabled,
+      appSettings?.audioDsdOutputMode,
       appSettings?.audioUseJuceDecode,
       appSettings?.audioUseJuceOutput,
       devices,
@@ -1273,6 +1279,23 @@ export const SettingsPage = (): JSX.Element => {
 
     try {
       setStatus(await audio.setOutput({ useJuceDecode: nextUseJuceDecode }));
+    } catch (audioError) {
+      setError(audioError instanceof Error ? audioError.message : String(audioError));
+    }
+  };
+
+  const handleDsdDopToggle = async (): Promise<void> => {
+    const nextDsdOutputMode = appSettings?.audioDsdOutputMode === 'dop' ? 'pcm' : 'dop';
+    patchAppSettings({ audioDsdOutputMode: nextDsdOutputMode });
+
+    const audio = getAudioBridge();
+    if (!audio) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to change audio output.');
+      return;
+    }
+
+    try {
+      setStatus(await audio.setOutput({ dsdOutputMode: nextDsdOutputMode }));
     } catch (audioError) {
       setError(audioError instanceof Error ? audioError.message : String(audioError));
     }
@@ -2775,11 +2798,18 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() => void handleJuceOutputToggle()}
                 />
               </SettingRow>
-              <SettingRow title="JUCE 解码试验" description="默认关闭。本地 WAV/FLAC 在无需重采样时尝试 JUCE 解码；MP3 暂由 FFmpeg 负责；失败会自动回退 FFmpeg。">
+              <SettingRow title="JUCE 解码试验" description="默认关闭。本地 WAV/FLAC/MP3 在无需重采样时尝试 JUCE 解码；MP3 走 Windows Media，不承诺比 FFmpeg 更 HiFi；失败会自动回退 FFmpeg。">
                 <ToggleButton
                   active={appSettings?.audioUseJuceDecode ?? false}
                   disabled={!appSettings}
                   onClick={() => void handleJuceDecodeToggle()}
+                />
+              </SettingRow>
+              <SettingRow title="DSD DoP 直出试验" description="默认关闭。本地 DSF 在独占或 ASIO 下尝试 DoP 直出；失败会自动回退 FFmpeg PCM，最终以 DAC 显示为准。">
+                <ToggleButton
+                  active={appSettings?.audioDsdOutputMode === 'dop'}
+                  disabled={!appSettings}
+                  onClick={() => void handleDsdDopToggle()}
                 />
               </SettingRow>
               <SettingRow title="ASIO unavailable guard" description="Default off. When enabled, ECHO skips the same ASIO device briefly after the driver says No device found, then uses safe shared output.">

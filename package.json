@@ -14,6 +14,7 @@
     "verify:ffmpeg": "node scripts/verify-ffmpeg-toolchain.mjs",
     "test:audio-engine": "node scripts/test-audio-engine.mjs",
     "smoke:audio-host": "node scripts/smoke-audio-host.mjs",
+    "smoke:dsd-direct": "node scripts/smoke-dsd-direct.mjs",
     "smoke:smtc-host": "node scripts/smoke-smtc-host.mjs",
     "ensure:native:electron": "node scripts/ensure-native-abi.mjs electron",
     "ensure:native:node": "node scripts/ensure-native-abi.mjs node",
