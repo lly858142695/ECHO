@@ -125,6 +125,44 @@ describe('global playback shortcuts', () => {
     );
   });
 
+  it('treats Electron accelerator parser throws as unavailable', async () => {
+    currentSettings = createSettings({
+      globalShortcuts: {
+        ...createDefaultGlobalShortcuts(),
+        nextTrack: { enabled: true, accelerator: 'MouseButton4' },
+      },
+    });
+    registerMock.mockImplementationOnce(() => {
+      throw new Error('invalid accelerator');
+    });
+    const shortcuts = await import('./backgroundPlaybackShortcuts');
+
+    const nextSettings = shortcuts.refreshBackgroundSpaceRegistration();
+
+    expect(nextSettings?.globalShortcuts?.nextTrack.enabled).toBe(false);
+    expect(setAppSettingsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        globalShortcuts: expect.objectContaining({
+          nextTrack: { enabled: false, accelerator: 'MouseButton4' },
+        }),
+      }),
+    );
+  });
+
+  it('returns unavailable when validation registration throws', async () => {
+    registerMock.mockImplementationOnce(() => {
+      throw new Error('invalid accelerator');
+    });
+    const shortcuts = await import('./backgroundPlaybackShortcuts');
+
+    expect(shortcuts.validateGlobalShortcut('MouseButton4')).toEqual({
+      accelerator: 'MouseButton4',
+      available: false,
+      reason: 'unavailable',
+      valid: true,
+    });
+  });
+
   it('shows the main window directly for showMainWindow', async () => {
     currentSettings = createSettings({
       globalShortcuts: {
