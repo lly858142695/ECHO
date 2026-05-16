@@ -49,6 +49,10 @@ const streamingPlaylistUrl = (playlist: LibraryPlaylist): string | null => {
     return `https://y.qq.com/n/ryqq/playlist/${encodeURIComponent(playlist.sourcePlaylistId)}`;
   }
 
+  if (playlist.sourceProvider === 'spotify') {
+    return `https://open.spotify.com/playlist/${encodeURIComponent(playlist.sourcePlaylistId)}`;
+  }
+
   return null;
 };
 
@@ -65,11 +69,21 @@ const streamingTrackWebUrl = (track: LibraryTrack): string | null => {
     return `https://y.qq.com/n/ryqq/songDetail/${encodeURIComponent(track.providerTrackId)}`;
   }
 
+  if (track.provider === 'spotify') {
+    return `https://open.spotify.com/track/${encodeURIComponent(track.providerTrackId)}`;
+  }
+
   return null;
 };
 
 const streamingProviderFromTrack = (track: LibraryTrack): StreamingProviderName | null =>
-  track.provider === 'netease' || track.provider === 'qqmusic' || track.provider === 'mock' || track.provider === 'bilibili' ? track.provider : null;
+  track.provider === 'netease' ||
+  track.provider === 'qqmusic' ||
+  track.provider === 'mock' ||
+  track.provider === 'bilibili' ||
+  track.provider === 'spotify'
+    ? track.provider
+    : null;
 
 const emptyItemsPage = (): LibraryPage<LibraryPlaylistItem> => ({
   items: [],
@@ -572,6 +586,12 @@ export const PlaylistsPage = (): JSX.Element => {
       const provider = streamingProviderFromTrack(track);
       if (track.mediaType !== 'streaming' || !provider || !track.providerTrackId) {
         setError('只有网络歌单中的流媒体歌曲可以直接下载。');
+        setStatusMessage(null);
+        return;
+      }
+
+      if (provider === 'spotify') {
+        setError('Spotify 由官方播放器播放，下载功能不适用于 Spotify。');
         setStatusMessage(null);
         return;
       }
@@ -1153,7 +1173,7 @@ export const PlaylistsPage = (): JSX.Element => {
               canLoadMore={itemsPage.hasMore && !isLoading}
               onEndReached={handleLoadMore}
               onAddToQueue={handleAddTrackToQueue}
-              onDownload={isSelectedPlaylistRemote ? handleDownloadTrack : undefined}
+              onDownload={isSelectedPlaylistRemote && selectedPlaylist?.sourceProvider !== 'spotify' ? handleDownloadTrack : undefined}
               downloadingTrackIds={downloadingTrackIds}
               downloadProgressByTrackId={downloadProgressByTrackId}
               likedTrackIds={likedTrackIds}

@@ -1009,7 +1009,7 @@ describe("LyricsPage", () => {
     );
 
     await waitFor(() => expect(container.querySelector(".lyrics-candidate-list")).toBeTruthy());
-    expect(screen.queryByRole("button", { name: "鏍囪涓虹函闊充箰" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "标记为纯音乐" })).toBeNull();
 
     act(() => {
       window.dispatchEvent(

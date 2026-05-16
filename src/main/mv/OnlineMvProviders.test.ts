@@ -120,6 +120,57 @@ describe('BilibiliMvProvider', () => {
     expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('order=click'), expect.anything());
   });
 
+  it('uses signed WBI search when Bilibili exposes WBI keys', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes('/x/web-interface/nav')) {
+        return jsonResponse({
+          data: {
+            wbi_img: {
+              img_url: 'https://i0.hdslb.com/bfs/wbi/abcdefghijklmnopqrstuvwxyzABCDEF.png',
+              sub_url: 'https://i0.hdslb.com/bfs/wbi/0123456789abcdefghijklmnopqrstuvwxyzABCDEF.png',
+            },
+          },
+        });
+      }
+
+      return jsonResponse({
+        data: {
+          result: [
+            {
+              bvid: 'BV1wbi',
+              title: 'Echo Song Official MV',
+              author: 'Echo Channel',
+              pic: '//i.example/wbi.jpg',
+              play: '1.2万',
+            },
+          ],
+        },
+      });
+    }) as typeof fetch;
+    const provider = new BilibiliMvProvider({
+      fetchImpl,
+      getCredentials: () => ({ provider: 'bilibili' }),
+    });
+
+    const candidates = await provider.search(track, settings);
+
+    expect(candidates[0]).toMatchObject({
+      provider: 'bilibili',
+      title: 'Echo Song Official MV',
+      providerUrl: 'https://www.bilibili.com/video/BV1wbi',
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('/x/web-interface/nav'), expect.anything());
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringMatching(new RegExp('api\\.bilibili\\.com/x/web-interface/wbi/search/type.*w_rid=')),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Referer: 'https://search.bilibili.com/video?keyword=Echo%20Song%20Echo%20Artist%20MV',
+          Origin: 'https://search.bilibili.com',
+        }),
+      }),
+    );
+  });
+
   it('sorts Bilibili search results by match score first and play count second', async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({

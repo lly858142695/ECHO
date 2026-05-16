@@ -113,6 +113,13 @@ export const registerStreamingIpc = (): void => {
       throw friendlyError(error, 'NetEase daily recommendations refresh failed.');
     }
   });
+  ipcMain.handle(IpcChannels.StreamingSyncLikedSongs, async () => {
+    try {
+      return await getStreamingService().syncLikedSongs();
+    } catch (error) {
+      throw friendlyError(error, 'Streaming liked songs sync failed.');
+    }
+  });
   ipcMain.handle(IpcChannels.StreamingSearch, async (_event, request: unknown) => {
     try {
       return await getStreamingService().search(normalizeSearchRequest(request));

@@ -8,7 +8,13 @@ import { getLibraryService } from '../library/LibraryService';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { LyricsMatchRisk, LyricsProviderId, LyricsQuery, LyricsSearchCandidate, LyricsSource, TrackLyrics } from '../../shared/types/lyrics';
-import { deserializeLyricLines, parsePlainLyrics, parseSyncedLyrics, serializeLyricLines } from './lyricsParser';
+import {
+  deserializeLyricLines,
+  normalizeSyncedLyricAlternates,
+  parsePlainLyrics,
+  parseSyncedLyrics,
+  serializeLyricLines,
+} from './lyricsParser';
 import { normalizeText, normalizeTextForIdentity } from './lyricsScoring';
 import { LocalLyricsProvider } from './LocalLyricsProvider';
 import { LrclibProvider, mapLrclibRecordToTrackLyrics, type LrclibRecord } from './LrclibProvider';
@@ -97,6 +103,73 @@ type StoredCandidate = LyricsSearchCandidate & {
 
 const nowIso = (): string => new Date().toISOString();
 const clampOffset = (value: number): number => Math.max(-10000, Math.min(10000, Math.round(value)));
+
+const isSqliteCorruptionError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code) : '';
+  return code === 'SQLITE_CORRUPT' || /database disk image is malformed|database disk image malformed|SQLITE_CORRUPT/i.test(message);
+};
+
+const lyricsStorageSql = `
+CREATE TABLE IF NOT EXISTS lyrics_cache (
+  id TEXT PRIMARY KEY,
+  cache_key TEXT NOT NULL UNIQUE,
+  track_id TEXT,
+  provider TEXT NOT NULL,
+  provider_lyrics_id TEXT,
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL,
+  album TEXT,
+  duration_seconds REAL,
+  kind TEXT NOT NULL,
+  plain_lyrics TEXT,
+  synced_lyrics TEXT,
+  lines_json TEXT NOT NULL,
+  offset_ms INTEGER NOT NULL DEFAULT 0,
+  score REAL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lyrics_candidates (
+  id TEXT PRIMARY KEY,
+  track_id TEXT,
+  provider TEXT NOT NULL,
+  provider_lyrics_id TEXT,
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL,
+  album TEXT,
+  duration_seconds REAL,
+  instrumental INTEGER NOT NULL DEFAULT 0,
+  has_synced INTEGER NOT NULL DEFAULT 0,
+  has_plain INTEGER NOT NULL DEFAULT 0,
+  score REAL NOT NULL,
+  risk TEXT,
+  reasons_json TEXT,
+  title_score REAL,
+  artist_score REAL,
+  album_score REAL,
+  duration_score REAL,
+  version_score REAL,
+  source_label TEXT NOT NULL,
+  raw_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_lyrics_cache_track_provider ON lyrics_cache(track_id, provider);
+CREATE INDEX IF NOT EXISTS idx_lyrics_cache_cache_key ON lyrics_cache(cache_key);
+CREATE INDEX IF NOT EXISTS idx_lyrics_candidates_track_provider_status ON lyrics_candidates(track_id, provider, status);
+`;
+
+const resetLyricsStorage = (database: EchoDatabase): void => {
+  database.exec(`
+    DROP TABLE IF EXISTS lyrics_candidates;
+    DROP TABLE IF EXISTS lyrics_cache;
+    ${lyricsStorageSql}
+  `);
+};
 
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
 
@@ -415,7 +488,7 @@ export class LyricsService {
     }
 
     const query = toQuery(track);
-    const cached = this.findCachedLyrics(query);
+    const cached = this.findCachedLyricsWithRepair(query);
     if (cached) {
       return this.fillCachedRomanization(query, cached);
     }
@@ -438,12 +511,12 @@ export class LyricsService {
       if (result.accepted) {
         const lyrics = providerResultToTrackLyrics(query, result.accepted.providerResult, result.accepted.score);
         if (lyrics) {
-          return this.writeLyricsCache(query, await this.fillLyricsRomanization(lyrics));
+          return this.writeLyricsCacheWithRepair(query, await this.fillLyricsRomanization(lyrics));
         }
       }
 
       for (const candidate of result.candidates) {
-        this.upsertCandidate(trackId, candidate, this.matchedCandidateToRaw(candidate));
+        this.upsertCandidateWithRepair(trackId, candidate, this.matchedCandidateToRaw(candidate));
       }
     } catch {
       return null;
@@ -477,7 +550,7 @@ export class LyricsService {
       });
 
       for (const candidate of result.candidates) {
-        const stored = this.upsertCandidate(trackId, candidate, this.matchedCandidateToRaw(candidate));
+        const stored = this.upsertCandidateWithRepair(trackId, candidate, this.matchedCandidateToRaw(candidate));
         if (stored.status !== 'rejected') {
           storedCandidates.push(stored);
         }
@@ -546,7 +619,7 @@ export class LyricsService {
       throw new Error('Lyrics candidate is no longer available');
     }
 
-    const cached = this.writeLyricsCache(query, await this.fillLyricsRomanization(lyrics));
+    const cached = this.writeLyricsCacheWithRepair(query, await this.fillLyricsRomanization(lyrics));
     this.database
       .prepare('UPDATE lyrics_candidates SET status = ?, updated_at = ? WHERE id = ?')
       .run('accepted', nowIso(), candidateId);
@@ -590,7 +663,7 @@ export class LyricsService {
       updatedAt: nowIso(),
     };
 
-    return this.writeLyricsCache(query, await this.fillLyricsRomanization(lyrics));
+    return this.writeLyricsCacheWithRepair(query, await this.fillLyricsRomanization(lyrics));
   }
 
   async markTrackInstrumental(trackId: string): Promise<TrackLyrics> {
@@ -620,7 +693,7 @@ export class LyricsService {
       updatedAt: timestamp,
     };
 
-    const cached = this.writeLyricsCache(query, lyrics);
+    const cached = this.writeLyricsCacheWithRepair(query, lyrics);
     this.database
       .prepare('UPDATE lyrics_candidates SET status = ?, updated_at = ? WHERE track_id = ?')
       .run('rejected', timestamp, trackId);
@@ -649,11 +722,32 @@ export class LyricsService {
       return null;
     }
 
-    return this.findCachedLyrics(toQuery(track));
+    return this.findCachedLyricsWithRepair(toQuery(track));
   }
 
   async clearLyricsCache(trackId: string): Promise<void> {
-    this.database.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(trackId);
+    try {
+      this.database.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(trackId);
+    } catch (error) {
+      if (!isSqliteCorruptionError(error)) {
+        throw error;
+      }
+
+      this.repairLyricsStorage(error);
+    }
+  }
+
+  private findCachedLyricsWithRepair(query: LyricsQuery): TrackLyrics | null {
+    try {
+      return this.findCachedLyrics(query);
+    } catch (error) {
+      if (!isSqliteCorruptionError(error)) {
+        throw error;
+      }
+
+      this.repairLyricsStorage(error);
+      return null;
+    }
   }
 
   private findCachedLyrics(query: LyricsQuery): TrackLyrics | null {
@@ -689,6 +783,19 @@ export class LyricsService {
       .get(...keys);
 
     return row ? this.mapCacheRow(row) : null;
+  }
+
+  private writeLyricsCacheWithRepair(query: LyricsQuery, lyrics: TrackLyrics): TrackLyrics {
+    try {
+      return this.writeLyricsCache(query, lyrics);
+    } catch (error) {
+      if (!isSqliteCorruptionError(error)) {
+        throw error;
+      }
+
+      this.repairLyricsStorage(error);
+      return this.writeLyricsCache(query, lyrics);
+    }
   }
 
   private writeLyricsCache(query: LyricsQuery, lyrics: TrackLyrics): TrackLyrics {
@@ -748,6 +855,19 @@ export class LyricsService {
 
     const row = this.database.prepare<[string], LyricsCacheRow>('SELECT * FROM lyrics_cache WHERE cache_key = ?').get(cacheKey);
     return this.mapCacheRow(row!);
+  }
+
+  private upsertCandidateWithRepair(trackId: string, candidate: LyricsSearchCandidate, raw: unknown): StoredCandidate {
+    try {
+      return this.upsertCandidate(trackId, candidate, raw);
+    } catch (error) {
+      if (!isSqliteCorruptionError(error)) {
+        throw error;
+      }
+
+      this.repairLyricsStorage(error);
+      return this.upsertCandidate(trackId, candidate, raw);
+    }
   }
 
   private upsertCandidate(trackId: string, candidate: LyricsSearchCandidate, raw: unknown): StoredCandidate {
@@ -832,15 +952,30 @@ export class LyricsService {
       return false;
     }
 
-    const row = this.database
-      .prepare<[string, string, string], { id: string }>(
-        `SELECT id FROM lyrics_candidates
-         WHERE track_id = ? AND provider = ? AND provider_lyrics_id = ? AND status = 'rejected'
-         LIMIT 1`,
-      )
-      .get(trackId, provider, providerLyricsId);
+    let row: { id: string } | undefined;
+    try {
+      row = this.database
+        .prepare<[string, string, string], { id: string }>(
+          `SELECT id FROM lyrics_candidates
+           WHERE track_id = ? AND provider = ? AND provider_lyrics_id = ? AND status = 'rejected'
+           LIMIT 1`,
+        )
+        .get(trackId, provider, providerLyricsId);
+    } catch (error) {
+      if (!isSqliteCorruptionError(error)) {
+        throw error;
+      }
+
+      this.repairLyricsStorage(error);
+      return false;
+    }
 
     return Boolean(row);
+  }
+
+  private repairLyricsStorage(error: unknown): void {
+    console.warn('[lyrics] SQLite lyrics storage is corrupt; resetting lyrics cache tables.', error);
+    resetLyricsStorage(this.database);
   }
 
   private matchedCandidateToRaw(candidate: MatchedLyricsCandidate): unknown {
@@ -932,11 +1067,13 @@ export class LyricsService {
   private mapCacheRow(row: LyricsCacheRow): TrackLyrics {
     const provider = providerName(row.provider);
     const kind = lyricsKind(row.kind);
-    const cachedLines = deserializeLyricLines(row.lines_json);
+    const cachedLines = kind === 'synced'
+      ? normalizeSyncedLyricAlternates(deserializeLyricLines(row.lines_json))
+      : deserializeLyricLines(row.lines_json);
     const hasCachedLineEnhancements = cachedLines.some((line) => line.romanization || line.translation);
     const lines =
       provider === 'local' && kind === 'synced' && row.synced_lyrics && !hasCachedLineEnhancements
-        ? parseSyncedLyrics(row.synced_lyrics)
+        ? normalizeSyncedLyricAlternates(parseSyncedLyrics(row.synced_lyrics))
         : cachedLines;
 
     return {

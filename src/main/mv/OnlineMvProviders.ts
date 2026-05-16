@@ -409,13 +409,22 @@ export class BilibiliMvProvider extends ProviderBase implements MainMvOnlineProv
 
   async search(track: LibraryTrack, _settings: MvSettings, queryOverride?: string): Promise<MvMatchCandidate[]> {
     const query = queryOverride?.trim() || [track.title, track.artist || track.albumArtist, 'MV'].filter(Boolean).join(' ');
-    const url = new URL('https://api.bilibili.com/x/web-interface/search/type');
+    const headers = bilibiliSearchHeaders(query, this.cookieHeaders(this.id));
+    const wbiMixinKey = await this.bilibiliWbiMixinKey(headers);
+    const url = new URL(
+      wbiMixinKey
+        ? 'https://api.bilibili.com/x/web-interface/wbi/search/type'
+        : 'https://api.bilibili.com/x/web-interface/search/type',
+    );
     url.searchParams.set('search_type', 'video');
     url.searchParams.set('keyword', query);
     url.searchParams.set('page', '1');
     url.searchParams.set('order', 'click');
+    if (wbiMixinKey) {
+      appendWbiSignature(url, wbiMixinKey);
+    }
 
-    const payload = await withTimeout(this.fetchImpl, url.toString(), bilibiliSearchHeaders(query, this.cookieHeaders(this.id)));
+    const payload = await withTimeout(this.fetchImpl, url.toString(), headers);
     const data = isRecord(payload) ? payload.data : null;
     const results = isRecord(data) ? asArray(data.result) : [];
 

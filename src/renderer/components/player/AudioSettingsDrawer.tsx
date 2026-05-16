@@ -22,10 +22,10 @@ import {
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { AudioDeviceInfo, AudioDiagnostics, AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, AudioStatus } from '../../../shared/types/audio';
+import type { AudioDeviceInfo, AudioDiagnostics, AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, AudioSharedBackend, AudioStatus } from '../../../shared/types/audio';
 import { detectRendererPlatform, isAdvancedNativeOutputPlatform } from '../../../shared/utils/audioPlatformCapabilities';
 import { useI18n } from '../../i18n/I18nProvider';
-import { createOutputSettings, readRememberedAudioOutput, resolveSupportedLatencyProfile, writeRememberedAudioOutput } from './audioOutputMemory';
+import { createOutputSettings, normalizeSharedBackend, readRememberedAudioOutput, resolveSupportedLatencyProfile, writeRememberedAudioOutput } from './audioOutputMemory';
 
 type AudioSettingsDrawerProps = {
   isOpen: boolean;
@@ -62,6 +62,7 @@ type AudioDrawerCopy = {
   ratePending: string;
   resampling: string;
   shared: string;
+  directSound: string;
   sharedMixer: string;
   speedUp: string;
   standardPath: string;
@@ -418,6 +419,7 @@ const formatAudioDiagnostics = (diagnostics: AudioDiagnostics): string => {
     ['state', diagnostics.state],
     ['host', diagnostics.host],
     ['outputMode', diagnostics.outputMode],
+    ['sharedBackend', diagnostics.sharedBackend],
     ['latencyProfile', diagnostics.latencyProfile],
     ['outputBackend', diagnostics.outputBackend],
     ['activeOutputBackendImpl', diagnostics.activeOutputBackendImpl],
@@ -489,6 +491,7 @@ export const AudioSettingsDrawer = ({
       ratePending: t('audioDrawer.status.ratePending'),
       resampling: t('audioDrawer.badge.resampling'),
       shared: t('audioDrawer.mode.shared'),
+      directSound: t('audioDrawer.mode.directSound'),
       sharedMixer: t('audioDrawer.signal.sharedMixer'),
       speedUp: t('audioDrawer.badge.speedUp'),
       standardPath: t('audioDrawer.signal.standardPath'),
@@ -499,12 +502,14 @@ export const AudioSettingsDrawer = ({
   );
   const [devices, setDevices] = useState<AudioDeviceInfo[]>([]);
   const [outputMode, setOutputMode] = useState<AudioOutputMode>(status?.outputMode ?? 'shared');
+  const [sharedBackend, setSharedBackend] = useState<AudioSharedBackend>(() => readRememberedAudioOutput().sharedBackend ?? 'auto');
   const [rememberOutput, setRememberOutput] = useState(() => readRememberedAudioOutput().enabled);
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isMotionOpen, setIsMotionOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [useJuceOutput, setUseJuceOutput] = useState(status?.useJuceOutputRequested === true);
+  const [asioUnavailableFallbackEnabled, setAsioUnavailableFallbackEnabled] = useState(false);
   const [hiddenDeviceKeys, setHiddenDeviceKeys] = useState<string[]>(() => readHiddenDeviceKeys());
   const [hiddenDeviceMenu, setHiddenDeviceMenu] = useState<HiddenDeviceMenu>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
@@ -564,6 +569,10 @@ export const AudioSettingsDrawer = ({
 
     if (status?.resampling || status?.sampleRateMismatch) {
       badges.push({ label: copy.resampling, tone: 'warning' });
+    }
+
+    if (status?.outputBackend === 'directsound-shared' || status?.sharedBackend === 'directsound') {
+      badges.push({ label: copy.directSound, tone: 'warning' });
     }
 
     if (isActiveJuceBackend(status)) {
@@ -672,12 +681,16 @@ export const AudioSettingsDrawer = ({
       return;
     }
 
-    setRememberOutput(readRememberedAudioOutput().enabled);
+    const remembered = readRememberedAudioOutput();
+    setRememberOutput(remembered.enabled);
+    setSharedBackend(remembered.sharedBackend ?? 'auto');
     void window.echo?.app
       .getSettings()
       .then((settings) => {
         setRememberOutput(settings.rememberedAudioOutput?.enabled === true);
+        setSharedBackend(settings.rememberedAudioOutput?.sharedBackend ?? remembered.sharedBackend ?? 'auto');
         setUseJuceOutput(settings.audioUseJuceOutput === true);
+        setAsioUnavailableFallbackEnabled(settings.audioAsioUnavailableFallbackEnabled === true);
       })
       .catch(() => undefined);
     void loadPersistedHiddenDeviceKeys().then(setHiddenDeviceKeys).catch(() => setHiddenDeviceKeys(readHiddenDeviceKeys()));
@@ -688,8 +701,11 @@ export const AudioSettingsDrawer = ({
     if (status?.outputMode) {
       setOutputMode(status.outputMode);
     }
+    if (status?.sharedBackend || status?.outputBackend === 'directsound-shared') {
+      setSharedBackend(status.outputBackend === 'directsound-shared' ? 'directsound' : normalizeSharedBackend(status.sharedBackend));
+    }
     setUseJuceOutput(status?.useJuceOutputRequested === true);
-  }, [status?.outputMode, status?.useJuceOutputRequested]);
+  }, [status?.outputBackend, status?.outputMode, status?.sharedBackend, status?.useJuceOutputRequested]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -726,11 +742,16 @@ export const AudioSettingsDrawer = ({
       const remembered = readRememberedAudioOutput();
       const isDeviceSelection = settings.outputMode !== undefined;
       const hasBufferSize = Object.prototype.hasOwnProperty.call(settings, 'bufferSizeFrames');
+      const nextOutputMode = settings.outputMode ?? remembered.outputMode ?? status?.outputMode ?? outputMode ?? 'shared';
+      const nextSharedBackend = nextOutputMode === 'shared'
+        ? normalizeSharedBackend(settings.sharedBackend ?? remembered.sharedBackend ?? sharedBackend)
+        : 'auto';
       writeRememberedAudioOutput({
         enabled,
-        outputMode: settings.outputMode ?? remembered.outputMode ?? status?.outputMode ?? outputMode ?? 'shared',
+        outputMode: nextOutputMode,
+        sharedBackend: nextSharedBackend,
         latencyProfile: resolveSupportedLatencyProfile(
-          settings.outputMode ?? remembered.outputMode ?? status?.outputMode ?? outputMode ?? 'shared',
+          nextOutputMode,
           settings.latencyProfile ?? remembered.latencyProfile ?? status?.latencyProfile ?? 'lowLatency',
         ),
         deviceIndex: isDeviceSelection ? settings.deviceIndex : remembered.deviceIndex,
@@ -740,7 +761,7 @@ export const AudioSettingsDrawer = ({
           : remembered.bufferSizeFrames,
       });
     },
-    [outputMode, rememberOutput, status?.latencyProfile, status?.outputMode],
+    [outputMode, rememberOutput, sharedBackend, status?.latencyProfile, status?.outputMode],
   );
 
   const applyOutput = useCallback(
@@ -756,17 +777,33 @@ export const AudioSettingsDrawer = ({
       setError(null);
       const previousMode = outputMode;
       try {
-        if (rememberOutput) {
-          persistOutput(settings);
+        const settingsWithFallback: AudioOutputSettings = { ...settings };
+        if (settings.asioUnavailableFallbackEnabled !== undefined) {
+          settingsWithFallback.asioUnavailableFallbackEnabled = settings.asioUnavailableFallbackEnabled;
+        } else if (asioUnavailableFallbackEnabled) {
+          settingsWithFallback.asioUnavailableFallbackEnabled = true;
         }
-        const nextStatus = await withTimeout(audio.setOutput(settings), outputApplyTimeoutMs, 'Audio output switch timed out');
+        if (rememberOutput) {
+          persistOutput(settingsWithFallback);
+        }
+        const nextStatus = await withTimeout(audio.setOutput(settingsWithFallback), outputApplyTimeoutMs, 'Audio output switch timed out');
         setOutputMode(nextStatus.outputMode);
+        setSharedBackend(
+          nextStatus.outputBackend === 'directsound-shared'
+            ? 'directsound'
+            : normalizeSharedBackend(nextStatus.sharedBackend ?? settings.sharedBackend ?? sharedBackend),
+        );
         onStatusChange(nextStatus);
       } catch (applyError) {
         setError(applyError instanceof Error ? applyError.message : String(applyError));
         try {
           const latestStatus = await withTimeout(audio.getStatus(), 2_500, 'Audio status refresh timed out');
           setOutputMode(latestStatus.outputMode);
+          setSharedBackend(
+            latestStatus.outputBackend === 'directsound-shared'
+              ? 'directsound'
+              : normalizeSharedBackend(latestStatus.sharedBackend ?? sharedBackend),
+          );
           onStatusChange(latestStatus);
         } catch {
           setOutputMode(status?.outputMode ?? previousMode);
@@ -775,7 +812,7 @@ export const AudioSettingsDrawer = ({
         setIsBusy(false);
       }
     },
-    [copy.desktopBridgeUnavailable, onStatusChange, outputMode, persistOutput, rememberOutput, status?.outputMode],
+    [asioUnavailableFallbackEnabled, copy.desktopBridgeUnavailable, onStatusChange, outputMode, persistOutput, rememberOutput, sharedBackend, status?.outputMode],
   );
 
   const applyDevice = (mode: AudioOutputMode, device: AudioDeviceInfo | null): void => {
@@ -785,11 +822,27 @@ export const AudioSettingsDrawer = ({
       nextMode,
       device,
       status?.latencyProfile ?? remembered.latencyProfile ?? 'balanced',
+      nextMode === 'shared' ? sharedBackend : 'auto',
     );
     if (nextMode === 'asio' && remembered.bufferSizeFrames) {
       settings.bufferSizeFrames = remembered.bufferSizeFrames;
     }
     setOutputMode(nextMode);
+    void applyOutput(settings);
+  };
+
+  const applySharedBackend = (nextSharedBackend: AudioSharedBackend): void => {
+    const remembered = readRememberedAudioOutput();
+    const currentDevice = allSharedDevices.find((device) => deviceMatchesStatus(device, status, 'shared')) ?? defaultSharedDevice;
+    const settings = createOutputSettings(
+      'shared',
+      currentDevice,
+      status?.latencyProfile ?? remembered.latencyProfile ?? 'balanced',
+      nextSharedBackend,
+    );
+
+    setOutputMode('shared');
+    setSharedBackend(nextSharedBackend);
     void applyOutput(settings);
   };
 
@@ -808,6 +861,7 @@ export const AudioSettingsDrawer = ({
     persistOutput(
       {
         outputMode: status?.outputMode ?? outputMode,
+        sharedBackend: status?.sharedBackend ?? sharedBackend,
         latencyProfile: resolveSupportedLatencyProfile(status?.outputMode ?? outputMode, status?.latencyProfile ?? currentLatencyProfile),
         deviceIndex: statusDevice?.index,
         deviceName: status?.outputDeviceName ?? statusDevice?.name,
@@ -823,6 +877,15 @@ export const AudioSettingsDrawer = ({
     void window.echo?.app.setSettings({ audioUseJuceOutput: enabled }).catch(() => undefined);
     void applyOutput({ useJuceOutput: enabled }).catch(() => {
       setUseJuceOutput(previous);
+    });
+  };
+
+  const toggleAsioUnavailableFallback = (enabled: boolean): void => {
+    const previous = asioUnavailableFallbackEnabled;
+    setAsioUnavailableFallbackEnabled(enabled);
+    void window.echo?.app.setSettings({ audioAsioUnavailableFallbackEnabled: enabled }).catch(() => undefined);
+    void applyOutput({ asioUnavailableFallbackEnabled: enabled }).catch(() => {
+      setAsioUnavailableFallbackEnabled(previous);
     });
   };
 
@@ -1100,6 +1163,42 @@ export const AudioSettingsDrawer = ({
                 />
               </label>
               <p>{t('audioDrawer.note.juceOutput')}</p>
+
+              <label className="audio-toggle-row">
+                <span>
+                  <Zap size={17} />
+                  <strong>ASIO unavailable guard</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={asioUnavailableFallbackEnabled}
+                  disabled={isBusy}
+                  onChange={(event) => toggleAsioUnavailableFallback(event.currentTarget.checked)}
+                />
+              </label>
+              <p>Default off. Skips the same ASIO device briefly after No device found, then uses safe shared output.</p>
+
+              <div className="audio-drawer-mini-grid" aria-label={t('audioDrawer.option.sharedBackend')}>
+                {([
+                  ['auto', t('audioDrawer.option.wasapiShared'), t('audioDrawer.option.wasapiSharedDescription')],
+                  ['directsound', t('audioDrawer.option.directSound'), t('audioDrawer.option.directSoundDescription')],
+                ] as Array<[AudioSharedBackend, string, string]>).map(([backend, label, detail]) => (
+                  <button
+                    className={`audio-device-pill ${outputMode === 'shared' && sharedBackend === backend ? 'active' : ''}`}
+                    type="button"
+                    key={backend}
+                    disabled={isBusy}
+                    onClick={() => applySharedBackend(backend)}
+                  >
+                    <Waves size={15} />
+                    <span>
+                      <strong>{label}</strong>
+                      <small>{detail}</small>
+                    </span>
+                    <em>{outputMode === 'shared' && sharedBackend === backend ? 'On' : 'Set'}</em>
+                  </button>
+                ))}
+              </div>
 
               <label className="audio-toggle-row">
                 <span>

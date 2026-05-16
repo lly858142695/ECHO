@@ -8,7 +8,7 @@ const storageKey = 'echo-next:appearance-theme';
 const systemThemeQuery = '(prefers-color-scheme: dark)';
 const validThemeModes: AppThemeMode[] = ['light', 'dark', 'system'];
 
-export const defaultThemeMode: AppThemeMode = 'light';
+export const defaultThemeMode: AppThemeMode = 'dark';
 
 export const normalizeThemeMode = (value: unknown): AppThemeMode =>
   validThemeModes.includes(value as AppThemeMode) ? (value as AppThemeMode) : defaultThemeMode;

@@ -123,7 +123,7 @@ Packaging still needs an explicit check before release: `ffmpeg-static` binaries
 
 - lists audio devices
 - supports native WASAPI Shared, WASAPI Exclusive, and ASIO device discovery on Windows
-- does not use the legacy DirectSound/JUCE device backend for playback
+- keeps DirectSound out of default device discovery and automatic recovery, but can launch it for explicit compatibility-mode selection
 
 `PlaybackClock`
 

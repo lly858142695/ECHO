@@ -435,7 +435,7 @@ bool shouldIncludeSharedBackendType(const juce::String& typeName, const juce::St
         return isPreferredSharedType(typeName);
 
     if (sharedBackend == "directsound")
-        return false;
+        return isDirectSoundType(typeName);
 
     return ! isDirectSoundType(typeName);
 }
@@ -453,7 +453,7 @@ DeviceListMode getHostOutputMode(const Options& options)
 
 bool isDisabledSharedBackend(const Options& options)
 {
-    return ! options.exclusive && ! options.asio && options.sharedBackend == "directsound";
+    return false;
 }
 
 std::string getBackendName(const Options& options, const juce::String& typeName)
@@ -467,7 +467,7 @@ std::string getBackendName(const Options& options, const juce::String& typeName)
 #if ! JUCE_WINDOWS
     return "linux-shared";
 #else
-    return "wasapi-shared";
+    return isDirectSoundType(typeName) ? "directsound-shared" : "wasapi-shared";
 #endif
 }
 
@@ -482,7 +482,7 @@ std::string getBackendImplName(const Options& options, const juce::String& typeN
 #if ! JUCE_WINDOWS
     return "juce-linux-shared";
 #else
-    return "juce-wasapi-shared";
+    return isDirectSoundType(typeName) ? "juce-directsound-shared" : "juce-wasapi-shared";
 #endif
 }
 
@@ -933,9 +933,6 @@ std::vector<DeviceDescriptor> enumerateDevices(
 #if JUCE_WINDOWS
     if (! useJuceOutput)
     {
-        if (mode == DeviceListMode::Shared && sharedBackend == "directsound")
-            return {};
-
         if (mode == DeviceListMode::Asio)
             return enumerateLegacyAsioDevices();
 
@@ -1029,12 +1026,6 @@ std::vector<DeviceDescriptor> enumerateDevices(
 int listDevices(const Options& options)
 {
     const auto mode = getHostOutputMode(options);
-
-    if (isDisabledSharedBackend(options))
-    {
-        logLine("DirectSound shared backend is disabled; JUCE device backend is not available");
-        return 2;
-    }
 
     if (mode == DeviceListMode::Asio && ! ECHO_ENABLE_ASIO)
     {
@@ -2824,9 +2815,6 @@ int runHost(const Options& options)
 
     if (! options.exclusive && ! options.asio)
         logLine("Shared backend preference: " + options.sharedBackend.toStdString());
-
-    if (isDisabledSharedBackend(options))
-        throw std::runtime_error("DirectSound shared backend is disabled; JUCE device backend is not available");
 
     if (! options.useJuceOutput && options.exclusive && ! options.asio)
     {

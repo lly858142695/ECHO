@@ -439,6 +439,18 @@ describe('MvSettingsDrawer', () => {
     await waitFor(() => expect(window.echo.mv.searchNetworkCandidates).toHaveBeenCalledWith('track-1', 'Roselia HEROIC ADVENT'));
   });
 
+  it('shows an empty network search result as a neutral status', async () => {
+    renderDrawer();
+
+    await screen.findByRole('textbox', { name: /MV search keywords/ });
+    fireEvent.click(screen.getAllByRole('button', { name: /Search network MV/ })[1]);
+
+    const notice = await screen.findByText('No network MV candidates found');
+    expect(notice.className).toContain('mv-settings-search-empty');
+    expect(notice.className).not.toContain('mv-settings-search-error');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('waits for the selected MV refresh before enabling searched candidates', async () => {
     let resolveSelectedAfterSearch: (video: TrackVideo | null) => void = () => undefined;
     const firstCandidate = { ...makeCandidate(), id: 'candidate-auto', title: 'Auto Selected MV' };

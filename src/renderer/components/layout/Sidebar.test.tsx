@@ -78,8 +78,8 @@ describe('Sidebar direct import actions', () => {
     onOpenLyricsSettings?: () => void;
     onImportFolder: () => void;
     onImportFile: () => void;
-  }): void => {
-    render(
+  }): ReturnType<typeof render> => {
+    return render(
       <I18nProvider>
         <Sidebar
           routes={routes}
@@ -153,6 +153,13 @@ describe('Sidebar direct import actions', () => {
 
     expect(screen.queryByRole('button', { name: 'Lyrics' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Songs' })).toBeTruthy();
+  });
+
+  it('renders one icon shell for each visible route', () => {
+    const { container } = renderSidebar({ onRouteChange: vi.fn(), onImportFolder: vi.fn(), onImportFile: vi.fn() });
+    const visibleRouteCount = routes.filter((route) => !route.hideFromSidebar).length;
+
+    expect(container.querySelectorAll('.nav-icon-shell')).toHaveLength(visibleRouteCount);
   });
 
   it('opens the audio file picker from Import File without navigating', async () => {

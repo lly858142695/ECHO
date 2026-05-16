@@ -62,6 +62,7 @@ export const defaultAppearancePreferences: AppearancePreferences = {
 const defaultRememberedAudioOutput: RememberedAudioOutput = {
   enabled: false,
   outputMode: 'shared',
+  sharedBackend: 'auto',
   latencyProfile: 'balanced',
 };
 
@@ -107,17 +108,19 @@ export const defaultChannelBalanceSettings: ChannelBalanceState = {
 export const defaultSettings: AppSettings = {
   appMemoryVersion,
   locale: 'zh-CN',
-  appearanceTheme: 'light',
+  appearanceTheme: 'dark',
   appearancePreferences: { ...defaultAppearancePreferences },
   songsSort: 'default',
   rememberedAudioOutput: { ...defaultRememberedAudioOutput },
   hiddenAudioDeviceKeys: [],
   audioUseJuceOutput: false,
+  audioAsioUnavailableFallbackEnabled: false,
   albumMergeStrategy: 'standard',
   chineseCrossScriptSearchEnabled: true,
   artistWallAlbumArtwork: false,
   autoUpdateEnabled: true,
   autoAccountCheckOnStartup: true,
+  spotifyAutoLaunchOfficialPlayer: true,
   playlistBackupsEnabled: true,
   coverCacheDir: null,
   hideToTrayOnClose: false,
@@ -128,6 +131,7 @@ export const defaultSettings: AppSettings = {
   appWallpaperBlurPx: 0,
   appWallpaperBrightnessPercent: 100,
   appWallpaperUiOpacityPercent: 100,
+  appWallpaperVisualProtectionEnabled: true,
   appWallpaperUnifiedOpacityEnabled: false,
   networkMetadataEnabled: false,
   networkMetadataProviders: ['netease-cloud-music', 'qq-music'],
@@ -289,6 +293,10 @@ const normalizeRememberedAudioOutput = (value: unknown): RememberedAudioOutput =
 
   const input = value as Partial<RememberedAudioOutput>;
   const outputMode = input.outputMode === 'exclusive' || input.outputMode === 'asio' ? input.outputMode : 'shared';
+  const sharedBackend =
+    input.sharedBackend === 'directsound' || input.sharedBackend === 'windows'
+      ? input.sharedBackend
+      : defaultRememberedAudioOutput.sharedBackend;
   const latencyProfile =
     input.latencyProfile === 'stable' || input.latencyProfile === 'balanced' || input.latencyProfile === 'lowLatency'
       ? input.latencyProfile
@@ -299,6 +307,7 @@ const normalizeRememberedAudioOutput = (value: unknown): RememberedAudioOutput =
   const normalized: RememberedAudioOutput = {
     enabled: input.enabled === true,
     outputMode,
+    sharedBackend,
     latencyProfile,
     deviceIndex: Number.isInteger(deviceIndex) ? deviceIndex : undefined,
     deviceName,
@@ -479,11 +488,13 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     rememberedAudioOutput: normalizeRememberedAudioOutput(settings.rememberedAudioOutput),
     hiddenAudioDeviceKeys: normalizeHiddenAudioDeviceKeys(settings.hiddenAudioDeviceKeys),
     audioUseJuceOutput: settings.audioUseJuceOutput === true,
+    audioAsioUnavailableFallbackEnabled: settings.audioAsioUnavailableFallbackEnabled === true,
     albumMergeStrategy,
     chineseCrossScriptSearchEnabled: settings.chineseCrossScriptSearchEnabled !== false,
     artistWallAlbumArtwork: settings.artistWallAlbumArtwork === true,
     autoUpdateEnabled: settings.autoUpdateEnabled !== false,
     autoAccountCheckOnStartup: settings.autoAccountCheckOnStartup !== false,
+    spotifyAutoLaunchOfficialPlayer: settings.spotifyAutoLaunchOfficialPlayer !== false,
     playlistBackupsEnabled: settings.playlistBackupsEnabled !== false,
     coverCacheDir: normalizeCoverCacheDir(settings.coverCacheDir),
     hideToTrayOnClose: settings.hideToTrayOnClose === true,
@@ -502,6 +513,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     appWallpaperUiOpacityPercent: Number.isFinite(appWallpaperUiOpacityPercent)
       ? Math.round(clamp(appWallpaperUiOpacityPercent, 0, 100))
       : defaultSettings.appWallpaperUiOpacityPercent,
+    appWallpaperVisualProtectionEnabled: settings.appWallpaperVisualProtectionEnabled !== false,
     appWallpaperUnifiedOpacityEnabled: settings.appWallpaperUnifiedOpacityEnabled === true,
     networkMetadataEnabled: settings.networkMetadataEnabled === true,
     networkMetadataProviders: providers.length ? providers : defaultSettings.networkMetadataProviders,

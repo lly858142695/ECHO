@@ -4,6 +4,13 @@ import type { AudioStatus } from '../../../shared/types/audio';
 import type { PlaybackStatus } from '../../../shared/types/playback';
 import { streamingProviderNames, type StreamingProviderName } from '../../../shared/types/streaming';
 import { likedChangedEvent, likedTracksChangedEvent } from '../../hooks/useLikedMedia';
+import {
+  isSpotifyTrack,
+  pauseSpotifyPlayback,
+  resumeSpotifyPlayback,
+  seekSpotifyPlayback,
+  setSpotifyVolume,
+} from '../../integrations/spotify/spotifyPlayback';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getVisualPlaybackState, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../../stores/playbackStatusStore';
 import { PlayerProgress } from './PlayerProgress';
@@ -86,6 +93,9 @@ const isAudioStatusForPlayback = (audioStatus: AudioStatus, playbackStatus: Play
     Boolean(playbackStatus.filePath && audioStatus.currentFilePath === playbackStatus.filePath)
   );
 };
+
+const isSpotifyPlaybackStatus = (status: PlaybackStatus | null | undefined): boolean =>
+  typeof status?.filePath === 'string' && status.filePath.startsWith('streaming:spotify:');
 
 const dispatchPlaybackSeeked = (positionSeconds: number, trackId: string | null): void => {
   window.dispatchEvent(new CustomEvent(playbackSeekedEvent, { detail: { positionSeconds, trackId } }));
@@ -206,6 +216,9 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       }
 
       const snapshotAudioStatus = snapshot.audioStatus;
+      if (isSpotifyPlaybackStatus(snapshot.playbackStatus) && !snapshotAudioStatus) {
+        setAudioStatus(null);
+      }
       const shouldApplyAudioStatus = snapshotAudioStatus
         ? isAudioStatusForPlayback(snapshotAudioStatus, snapshot.playbackStatus)
         : false;
@@ -268,6 +281,47 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const streamingTrackQuality = currentTrack?.streamingQuality;
   const streamingTrackBpm = currentTrack?.bpm ?? null;
   const streamingTrackAnalysisStatus = currentTrack?.analysisStatus ?? null;
+  const isSpotifyCurrentTrack = isSpotifyTrack(currentTrack);
+
+  useEffect(() => {
+    if (!isSpotifyCurrentTrack || !currentTrack?.providerTrackId || !window.echo?.spotify?.getPlaybackState) {
+      return;
+    }
+
+    let cancelled = false;
+    const expectedUri = `spotify:track:${currentTrack.providerTrackId}`;
+    const track = currentTrack;
+
+    const syncSpotifyProgress = async (): Promise<void> => {
+      try {
+        const spotifyState = await window.echo.spotify.getPlaybackState();
+        if (cancelled || spotifyState.itemUri !== expectedUri) {
+          return;
+        }
+
+        const status: PlaybackStatus = {
+          state: spotifyState.isPlaying ? 'playing' : 'paused',
+          currentTrackId: track.id,
+          positionMs: spotifyState.progressMs ?? 0,
+          durationMs: Math.round(Math.max(0, track.duration) * 1000),
+          filePath: track.stableKey ?? track.path,
+        };
+        setPlaybackStatusSnapshot({ playbackStatus: status, audioStatus: null, error: null });
+      } catch {
+        // Spotify progress polling is best-effort; transport actions surface actionable errors.
+      }
+    };
+
+    void syncSpotifyProgress();
+    const interval = window.setInterval(() => {
+      void syncSpotifyProgress();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [currentTrack, isSpotifyCurrentTrack]);
 
   useEffect(() => {
     activeTrackIdRef.current = currentTrack?.id ?? trackId ?? null;
@@ -509,6 +563,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
     const canAnalyzeCurrentTrack =
       isPlaying &&
       streamingTrackMediaType === 'streaming' &&
+      streamingTrackProvider !== 'spotify' &&
       !streamingTrackBpm &&
       streamingTrackAnalysisStatus !== 'analyzing' &&
       streamingTrackAnalysisStatus !== 'complete' &&
@@ -613,7 +668,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   useEffect(() => {
     const mv = window.echo?.mv;
 
-    if (!isPlaying || !trackId || !mv || mvPreloadTrackRef.current === trackId) {
+    if (!isPlaying || !trackId || currentTrack?.mediaType === 'streaming' || !mv || mvPreloadTrackRef.current === trackId) {
       return;
     }
 
@@ -647,7 +702,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       cancelled = true;
       cancelDeferredTask();
     };
-  }, [isPlaying, trackId]);
+  }, [currentTrack?.mediaType, isPlaying, trackId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -725,6 +780,15 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
   const handlePlayPause = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
 
+    if (isSpotifyCurrentTrack && currentTrack) {
+      await runPlaybackAction(() =>
+        visualState === 'playing' || visualState === 'loading'
+          ? pauseSpotifyPlayback(currentTrack)
+          : resumeSpotifyPlayback(currentTrack),
+      );
+      return;
+    }
+
     if (!playback) {
       setError('Desktop bridge unavailable');
       return;
@@ -734,7 +798,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
       const latestStatus = await playback.getStatus();
       return latestStatus.state === 'playing' || latestStatus.state === 'loading' ? playback.pause() : playback.play();
     });
-  }, [runPlaybackAction]);
+  }, [currentTrack, isSpotifyCurrentTrack, runPlaybackAction, visualState]);
 
   const handlePrevious = useCallback((): void => {
     void runPlaybackAction(queue.playPrevious);
@@ -894,6 +958,14 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
           trackKey: trackId ?? filePath ?? null,
           updatedAtMs: performance.now(),
         };
+        if (isSpotifyCurrentTrack && currentTrack) {
+          const status = await seekSpotifyPlayback(currentTrack, safePositionSeconds);
+          setPlaybackStatus(status);
+          setPlaybackStatusSnapshot({ playbackStatus: status, error: null });
+          dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? trackId ?? null);
+          return;
+        }
+
         const status = await playback.seek(safePositionSeconds);
         const nextStatus = {
           ...status,
@@ -921,7 +993,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
         setSeekPreviewSeconds(null);
       }
     },
-    [durationSeconds, filePath, refreshStatus, trackId],
+    [currentTrack, durationSeconds, filePath, isSpotifyCurrentTrack, refreshStatus, trackId],
   );
 
   return (
@@ -971,7 +1043,7 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
           onToggleCurrentTrackLiked={() => void handleToggleCurrentTrackLiked()}
         />
         <PlayerProgress
-          disabled={!filePath}
+          disabled={!filePath && !isSpotifyCurrentTrack}
           durationSeconds={durationSeconds}
           positionSeconds={positionSeconds}
           onCommit={(nextPositionSeconds) => void commitSeek(nextPositionSeconds)}
@@ -986,14 +1058,17 @@ export const PlayerBar = ({ onOpenAudioSettings }: PlayerBarProps): JSX.Element 
           onError={setError}
           onOpenChange={(isOpen) => setOpenPopover(isOpen ? 'volume' : null)}
           onStatusChange={setAudioStatus}
+          onCommitVolume={isSpotifyCurrentTrack ? setSpotifyVolume : undefined}
         />
-        <PlayerSpeedControl
-          status={audioStatus}
-          isOpen={openPopover === 'speed'}
-          onError={setError}
-          onOpenChange={(isOpen) => setOpenPopover(isOpen ? 'speed' : null)}
-          onStatusChange={setAudioStatus}
-        />
+        {!isSpotifyCurrentTrack ? (
+          <PlayerSpeedControl
+            status={audioStatus}
+            isOpen={openPopover === 'speed'}
+            onError={setError}
+            onOpenChange={(isOpen) => setOpenPopover(isOpen ? 'speed' : null)}
+            onStatusChange={setAudioStatus}
+          />
+        ) : null}
         <button className="icon-button" type="button" aria-label="音频控制" title="音频控制" onClick={onOpenAudioSettings}>
           <Import size={17} />
         </button>

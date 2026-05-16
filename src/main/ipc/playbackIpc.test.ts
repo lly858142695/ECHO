@@ -60,6 +60,10 @@ describe('playback media prepare IPC', () => {
       codec: 'flac',
       bitDepth: 16,
       bitrate: 900000,
+      headers: {
+        Referer: 'https://music.163.com/',
+        Cookie: 'MUSIC_U=secret',
+      },
       requiresProxy: false,
     });
 
@@ -133,6 +137,10 @@ describe('playback media prepare IPC', () => {
     expect(resolvePlayback).toHaveBeenCalledTimes(1);
     expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({
       filePath: 'https://stream.example.test/song.flac?token=prepared',
+      inputHeaders: expect.objectContaining({
+        Referer: 'https://music.163.com/',
+        Cookie: 'MUSIC_U=secret',
+      }),
       trackId: 'streaming-track',
       probe: expect.objectContaining({
         durationSeconds: 120,

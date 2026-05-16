@@ -12,6 +12,7 @@ import { savePlaybackMemoryNow } from '../ipc/playbackIpc';
 import { dispatchLocalAudioFilesOpened, parseLocalAudioFileArguments } from './localFileOpen';
 import { initializeAutoUpdater } from './autoUpdater';
 import { getAppSettings } from './appSettings';
+import { ensureDataProtection } from './dataProtection';
 import { disposeBackgroundPlaybackShortcuts, initializeBackgroundPlaybackShortcuts } from './backgroundPlaybackShortcuts';
 import { getAccountService } from '../accounts/AccountService';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
@@ -45,6 +46,7 @@ const refreshPreviouslyLoggedInAccountsOnStartup = async (): Promise<void> => {
 export const registerAppLifecycle = (): void => {
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
   app.commandLine.appendSwitch('disable-background-timer-throttling');
+  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
   const hasSingleInstanceLock = app.requestSingleInstanceLock();
   if (!hasSingleInstanceLock) {
@@ -68,6 +70,7 @@ export const registerAppLifecycle = (): void => {
   });
 
   app.whenReady().then(() => {
+    ensureDataProtection('startup');
     getCrashReportService().initialize();
     registerCoverProtocolHandler();
     registerVideoProtocolHandler();

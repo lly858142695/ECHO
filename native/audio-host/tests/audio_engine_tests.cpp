@@ -203,7 +203,7 @@ void testHostSharedBackendOptions()
 
     const auto directSound = parseOptions({ "echo-audio-host", "-shared-backend", "directsound" });
     require(directSound.sharedBackend == "directsound", "directsound shared backend must parse");
-    require(isDisabledSharedBackend(directSound), "directsound backend must be disabled");
+    require(! isDisabledSharedBackend(directSound), "directsound backend must be enabled as compatibility output");
 
     const auto windows = parseOptions({ "echo-audio-host", "-shared-backend", "windows" });
     require(windows.sharedBackend == "windows", "windows shared backend must parse");
@@ -211,7 +211,7 @@ void testHostSharedBackendOptions()
     const auto invalid = parseOptions({ "echo-audio-host", "-shared-backend", "invalid" });
     require(invalid.sharedBackend == "auto", "invalid shared backend must fall back to auto");
 
-    require(! shouldIncludeSharedBackendType("DirectSound", directSound.sharedBackend), "disabled directsound backend must skip DirectSound");
+    require(shouldIncludeSharedBackendType("DirectSound", directSound.sharedBackend), "directsound backend must include DirectSound");
     require(! shouldIncludeSharedBackendType("Windows Audio", directSound.sharedBackend), "directsound backend must skip Windows Audio");
     require(shouldIncludeSharedBackendType("Windows Audio", windows.sharedBackend), "windows backend must include Windows Audio");
     require(! shouldIncludeSharedBackendType("DirectSound", windows.sharedBackend), "windows backend must skip DirectSound");
@@ -223,7 +223,8 @@ void testHostBackendNames()
 {
     const auto shared = parseOptions({ "echo-audio-host" });
     require(getBackendName(shared, "Windows Audio") == "wasapi-shared", "Windows Audio shared backend name");
-    require(getBackendName(shared, "DirectSound") == "wasapi-shared", "disabled DirectSound must not surface a DirectSound backend name");
+    require(getBackendName(shared, "DirectSound") == "directsound-shared", "DirectSound shared backend name");
+    require(getBackendImplName(shared, "DirectSound") == "juce-directsound-shared", "DirectSound backend implementation name");
 
     const auto exclusive = parseOptions({ "echo-audio-host", "-exclusive" });
     require(getBackendName(exclusive, "Windows Audio (Exclusive Mode)") == "wasapi-exclusive", "exclusive backend name");

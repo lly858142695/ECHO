@@ -9,7 +9,7 @@ type LoginConfig = {
   requiredCookieNames?: string[];
 };
 
-const loginConfigs: Record<AccountProvider, LoginConfig> = {
+const loginConfigs: Partial<Record<AccountProvider, LoginConfig>> = {
   netease: {
     url: 'https://music.163.com/',
     domains: ['music.163.com', '.music.163.com', '163.com', '.163.com'],
@@ -61,7 +61,7 @@ export const startAccountLoginWindow = async (
 ): Promise<AccountLoginStartResult> => {
   const config = loginConfigs[provider];
   if (!config) {
-    throw new Error('provider must be a supported account provider');
+    throw new Error('provider must use browser-cookie login');
   }
 
   const partition = `persist:echo-account-${provider}`;

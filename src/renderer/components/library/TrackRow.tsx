@@ -93,6 +93,7 @@ export const TrackRow = memo(
     const isUnavailable = track.unavailable === true;
     const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
     const shouldShowCover = Boolean(track.coverThumb && track.coverThumb !== failedCoverUrl);
+    const canDownload = Boolean(onDownload) && track.provider !== 'spotify';
     const downloadPercent =
       typeof downloadProgress === 'number' && Number.isFinite(downloadProgress)
         ? Math.max(0, Math.min(100, Math.round(downloadProgress)))
@@ -240,7 +241,7 @@ export const TrackRow = memo(
           <button className="row-action" type="button" aria-label={`Add to queue ${track.title}`} title="Add to queue" disabled={isUnavailable} onClick={handleAddToQueue}>
             <ListPlus size={16} />
           </button>
-          {onDownload ? (
+          {canDownload ? (
             <button
               className="row-action"
               type="button"

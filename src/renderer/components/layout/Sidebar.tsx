@@ -11,6 +11,12 @@ type SidebarProps = {
   onImportFile: () => void;
 };
 
+const renderNavIcon = (Icon: AppRoute['icon'], size: number): JSX.Element => (
+  <span className="nav-icon-shell" aria-hidden="true">
+    <Icon size={size} strokeWidth={1.7} aria-hidden="true" focusable="false" />
+  </span>
+);
+
 export const Sidebar = ({
   routes,
   activeRouteId,
@@ -65,8 +71,8 @@ export const Sidebar = ({
               type="button"
               title={label}
             >
-              <Icon size={18} />
-              <span>{label}</span>
+              {renderNavIcon(Icon, 26)}
+              <span className="nav-item-label">{label}</span>
             </button>
           );
         })}
@@ -95,8 +101,8 @@ export const Sidebar = ({
               title={label}
               aria-label={label}
             >
-              <Icon size={17} />
-              <span>{label}</span>
+              {renderNavIcon(Icon, 25)}
+              <span className="nav-item-label">{label}</span>
             </button>
           );
         })}

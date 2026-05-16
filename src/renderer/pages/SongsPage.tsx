@@ -462,7 +462,7 @@ export const SongsPage = (): JSX.Element => {
             shortRemovedCount: 0,
             shortDurationThresholdSeconds: 5,
           };
-      const folders = await library.getFolders();
+      const folders: Awaited<ReturnType<typeof library.getFolders>> = [];
       const activeFolders = folders.filter((folder) => folder.status === 'active');
       const scanJobs = await Promise.all(activeFolders.map((folder) => library.scanFolder(folder.id)));
 

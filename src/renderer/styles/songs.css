@@ -180,17 +180,15 @@
   justify-content: space-between;
   gap: 6px;
   width: auto;
-  min-width: 108px;
-  max-width: 142px;
-  min-height: 38px;
-  padding: 0 8px;
+  min-width: 96px;
+  max-width: 136px;
+  min-height: 34px;
+  padding: 0 4px 0 6px;
   color: #31445f;
-  border: 1px solid rgba(73, 118, 160, 0.2);
-  border-radius: 14px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(246, 250, 255, 0.9)),
-    rgba(255, 255, 255, 0.9);
-  box-shadow: 0 12px 28px rgba(42, 62, 88, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
   font: inherit;
   font-size: 13px;
   font-weight: 720;
@@ -224,13 +222,13 @@
 .sort-button-icon {
   display: grid;
   place-items: center;
-  width: 23px;
-  height: 23px;
-  padding: 4px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   color: #1677c8;
-  border-radius: 9px;
-  background: rgba(22, 119, 200, 0.1);
-  box-shadow: inset 0 0 0 1px rgba(22, 119, 200, 0.08);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .sort-button-chevron {
@@ -329,16 +327,16 @@
 
 .sort-button:hover {
   color: #233750;
-  border-color: rgba(22, 119, 200, 0.32);
-  background: #ffffff;
-  box-shadow: 0 14px 34px rgba(42, 62, 88, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  transform: translateY(-1px);
+  border-color: transparent;
+  background: rgba(35, 73, 111, 0.06);
+  box-shadow: none;
+  transform: none;
 }
 
 .sort-button:focus-visible {
   outline: 0;
-  border-color: rgba(22, 119, 200, 0.62);
-  box-shadow: 0 0 0 3px rgba(22, 119, 200, 0.15), 0 14px 34px rgba(42, 62, 88, 0.13);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(22, 119, 200, 0.14);
 }
 
 .track-list-shell {
@@ -2691,7 +2689,6 @@ html[data-theme="dark"] .tool-button,
 html[data-theme="dark"] .duplicate-toggle,
 html[data-theme="dark"] .duplicate-analyze-button,
 html[data-theme="dark"] .search-box,
-html[data-theme="dark"] .sort-button,
 html[data-theme="dark"] .songs-import-hint,
 html[data-theme="dark"] .album-card,
 html[data-theme="dark"] .artist-card {
@@ -2706,15 +2703,28 @@ html[data-theme="dark"] .search-box {
   background: var(--theme-field-bg);
 }
 
+html[data-theme="dark"] .sort-button {
+  color: var(--color-muted);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
 html[data-theme="dark"] .tool-button:hover,
 html[data-theme="dark"] .duplicate-toggle:hover,
 html[data-theme="dark"] .duplicate-analyze-button:hover,
-html[data-theme="dark"] .sort-button:hover,
 html[data-theme="dark"] .album-card:hover,
 html[data-theme="dark"] .artist-card:hover {
   color: var(--echo-heading-text);
   border-color: var(--color-border-strong);
   background: rgba(39, 48, 61, 0.9);
+}
+
+html[data-theme="dark"] .sort-button:hover {
+  color: var(--echo-heading-text);
+  border-color: transparent;
+  background: rgba(232, 238, 247, 0.08);
+  box-shadow: none;
 }
 
 html[data-theme="dark"] .tool-button.danger:hover {
@@ -2753,6 +2763,26 @@ html[data-theme="dark"] .track-row[data-playing="true"] {
   box-shadow:
     inset 0 0 0 1px rgba(100, 181, 255, 0.08),
     0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .tool-button,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .duplicate-toggle,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .duplicate-analyze-button,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .songs-import-hint,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .sort-menu,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .sort-option:hover,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .sort-option[aria-selected="true"],
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .track-row:hover,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .track-row[data-playing="true"],
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .row-action {
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .track-row:hover {
+  transform: none;
 }
 
 html[data-theme="dark"] .track-cover[data-empty="true"],

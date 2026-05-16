@@ -1,4 +1,4 @@
-import type { AudioLatencyProfile, AudioOutputMode, ChannelBalanceState, PlaybackSpeedMode } from './audio';
+import type { AudioLatencyProfile, AudioOutputMode, AudioSharedBackend, ChannelBalanceState, PlaybackSpeedMode } from './audio';
 import type { DuplicateTrackMode } from './library';
 import type { LibrarySort } from './library';
 import type { LyricsProviderId } from './lyrics';
@@ -22,6 +22,7 @@ export type AppearancePreferences = {
 export type RememberedAudioOutput = {
   enabled: boolean;
   outputMode: AudioOutputMode;
+  sharedBackend?: AudioSharedBackend;
   latencyProfile?: AudioLatencyProfile;
   deviceIndex?: number;
   deviceName?: string;
@@ -42,11 +43,13 @@ export type AppSettings = {
   rememberedAudioOutput?: RememberedAudioOutput;
   hiddenAudioDeviceKeys?: string[];
   audioUseJuceOutput?: boolean;
+  audioAsioUnavailableFallbackEnabled?: boolean;
   albumMergeStrategy: 'standard' | 'sameTitleAndCover';
   chineseCrossScriptSearchEnabled?: boolean;
   artistWallAlbumArtwork: boolean;
   autoUpdateEnabled?: boolean;
   autoAccountCheckOnStartup?: boolean;
+  spotifyAutoLaunchOfficialPlayer?: boolean;
   playlistBackupsEnabled?: boolean;
   coverCacheDir: string | null;
   hideToTrayOnClose: boolean;
@@ -57,6 +60,7 @@ export type AppSettings = {
   appWallpaperBlurPx: number;
   appWallpaperBrightnessPercent: number;
   appWallpaperUiOpacityPercent: number;
+  appWallpaperVisualProtectionEnabled?: boolean;
   appWallpaperUnifiedOpacityEnabled: boolean;
   networkMetadataEnabled: boolean;
   networkMetadataProviders: Array<'mock' | 'musicbrainz' | 'cover-art-archive' | 'netease-cloud-music' | 'qq-music'>;

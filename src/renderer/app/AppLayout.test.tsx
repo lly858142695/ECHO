@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Captions, ListMusic, Music2 } from 'lucide-react';
 import { AppProviders } from './AppProviders';
 import { AppLayout } from './AppLayout';
@@ -38,11 +38,53 @@ const SharedStatusProbe = (): JSX.Element => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   (window as unknown as { echo?: Window['echo'] }).echo = undefined;
 });
 
 describe('AppLayout standalone routes', () => {
+  it('lets upper-left chrome notices be closed manually', async () => {
+    (window as unknown as { echo?: Window['echo'] }).echo = undefined;
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /最小化|Minimize/ }));
+
+    await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
+
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+  });
+
+  it('auto-dismisses upper-left chrome notices after five seconds', async () => {
+    vi.useFakeTimers();
+    (window as unknown as { echo?: Window['echo'] }).echo = undefined;
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /最小化|Minimize/ }));
+    expect(screen.getByRole('status')).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByRole('status').className).toContain('is-hiding');
+
+    act(() => {
+      vi.advanceTimersByTime(220);
+    });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('keeps the songs route mounted when navigating away and back', async () => {
     const onSongsMount = vi.fn();
     const onSongsUnmount = vi.fn();
@@ -341,6 +383,7 @@ describe('AppLayout standalone routes', () => {
           appWallpaperBlurPx: 12,
           appWallpaperBrightnessPercent: 80,
           appWallpaperUiOpacityPercent: 0,
+          appWallpaperVisualProtectionEnabled: false,
           appWallpaperUnifiedOpacityEnabled: true,
           smtcEnabled: true,
         }),
@@ -363,6 +406,83 @@ describe('AppLayout standalone routes', () => {
     expect(container.querySelector('.app-shell--lyrics')).toBeTruthy();
     expect(container.querySelector('.app-shell--wallpaper')).toBeNull();
     expect(container.querySelector('.app-wallpaper-layer')).toBeNull();
+  });
+
+  it('lets wallpaper opacity pass through without visual protection forcing full transparency', async () => {
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({
+          lyricsPlayerBarDrawerEnabled: false,
+          appCustomWallpaperPath: 'D:\\Echo\\app-wallpapers\\wallpaper.png',
+          appWallpaperScalePercent: 100,
+          appWallpaperBlurPx: 0,
+          appWallpaperBrightnessPercent: 100,
+          appWallpaperUiOpacityPercent: 50,
+          appWallpaperVisualProtectionEnabled: false,
+          appWallpaperUnifiedOpacityEnabled: false,
+          smtcEnabled: true,
+        }),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(container.querySelector('.app-wallpaper-layer')).toBeTruthy());
+    const wallpaper = container.querySelector('.app-wallpaper-layer img') as HTMLImageElement | null;
+    expect(wallpaper).toBeTruthy();
+    fireEvent.load(wallpaper as HTMLImageElement);
+
+    const shell = await waitFor(() => {
+      const element = container.querySelector('.app-shell--wallpaper-ready') as HTMLElement | null;
+      expect(element).toBeTruthy();
+      return element as HTMLElement;
+    });
+
+    expect(shell.dataset.wallpaperVisualProtection).toBe('false');
+    expect(shell.dataset.wallpaperUiTransparent).toBeUndefined();
+    expect(shell.style.getPropertyValue('--app-wallpaper-ui-titlebar-alpha')).toBe('0.370');
+    expect(shell.style.getPropertyValue('--app-wallpaper-ui-page-base-alpha')).toBe('0.310');
+  });
+
+  it('marks wallpaper chrome as transparent only when protection is off and UI opacity is zero', async () => {
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({
+          lyricsPlayerBarDrawerEnabled: false,
+          appCustomWallpaperPath: 'D:\\Echo\\app-wallpapers\\wallpaper.png',
+          appWallpaperScalePercent: 100,
+          appWallpaperBlurPx: 0,
+          appWallpaperBrightnessPercent: 100,
+          appWallpaperUiOpacityPercent: 0,
+          appWallpaperVisualProtectionEnabled: false,
+          appWallpaperUnifiedOpacityEnabled: false,
+          smtcEnabled: true,
+        }),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(container.querySelector('.app-wallpaper-layer')).toBeTruthy());
+    fireEvent.load(container.querySelector('.app-wallpaper-layer img') as HTMLImageElement);
+
+    const shell = await waitFor(() => {
+      const element = container.querySelector('.app-shell--wallpaper-ready') as HTMLElement | null;
+      expect(element).toBeTruthy();
+      return element as HTMLElement;
+    });
+
+    expect(shell.dataset.wallpaperVisualProtection).toBe('false');
+    expect(shell.dataset.wallpaperUiTransparent).toBe('true');
+    expect(shell.style.getPropertyValue('--app-wallpaper-ui-titlebar-alpha')).toBe('0.000');
   });
 });
 

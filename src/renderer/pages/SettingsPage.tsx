@@ -22,7 +22,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { AudioDeviceInfo, AudioOutputMode, AudioOutputSettings, AudioStatus, PlaybackSpeedMode } from '../../shared/types/audio';
+import type { AudioDeviceInfo, AudioOutputMode, AudioOutputSettings, AudioSharedBackend, AudioStatus, PlaybackSpeedMode } from '../../shared/types/audio';
 import type { AccountProvider, AccountStatus, YouTubeBrowser } from '../../shared/types/accounts';
 import type { AppSettings, AppThemeMode } from '../../shared/types/appSettings';
 import type { CoverCacheMigrationResult } from '../../shared/types/coverCache';
@@ -48,7 +48,7 @@ import {
   updateAppearancePreferences,
   type AppearancePreferences,
 } from '../preferences/appearancePreferences';
-import { updateThemeMode } from '../preferences/themePreferences';
+import { defaultThemeMode, updateThemeMode } from '../preferences/themePreferences';
 import { rememberLibraryScanStatus } from '../stores/libraryScanSession';
 import {
   getAccountsBridge,
@@ -68,6 +68,9 @@ const playbackSpeedModes: Array<{ mode: PlaybackSpeedMode; label: string }> = [
   { mode: 'daycore', label: 'Daycore' },
   { mode: 'speed', label: '普通变速' },
 ];
+
+const normalizeSharedBackend = (value: unknown): AudioSharedBackend =>
+  value === 'windows' || value === 'directsound' ? value : 'auto';
 
 const networkProviderLabels: Record<AppSettings['networkMetadataProviders'][number], string> = {
   'netease-cloud-music': '网易云音乐',
@@ -125,6 +128,7 @@ const accountProviderLabels: Record<AccountProvider, string> = {
   bilibili: 'Bilibili',
   youtube: 'YouTube',
   soundcloud: 'SoundCloud',
+  spotify: 'Spotify',
 };
 
 const accountLoginUrls: Record<AccountProvider, string> = {
@@ -133,6 +137,7 @@ const accountLoginUrls: Record<AccountProvider, string> = {
   bilibili: 'https://www.bilibili.com/',
   youtube: 'https://www.youtube.com/',
   soundcloud: 'https://soundcloud.com/',
+  spotify: 'https://accounts.spotify.com/',
 };
 
 const cookieAccountProviders: AccountProvider[] = ['netease', 'qqmusic', 'bilibili', 'soundcloud'];
@@ -493,6 +498,52 @@ const YouTubeAccountCard = ({
   </article>
 );
 
+const SpotifyAccountCard = ({
+  busyAction,
+  error,
+  message,
+  onCheck,
+  onClear,
+  onOpenLogin,
+  status,
+}: {
+  busyAction?: AccountBusyAction;
+  error?: string | null;
+  message?: string | null;
+  onCheck: () => void;
+  onClear: () => void;
+  onOpenLogin: () => void;
+  status?: AccountStatus;
+}): JSX.Element => (
+  <article className="settings-account-row" aria-label="Spotify">
+    <div className="settings-account-summary">
+      <span className={getAccountBadgeClass(status)}>{getAccountStatusLabel(status)}</span>
+      <div>
+        <h3>Spotify</h3>
+        <p>官方播放器接入，需要 Premium；请在 Spotify Dashboard 注册 http://127.0.0.1:43879/spotify/callback。</p>
+      </div>
+    </div>
+    <div className="settings-account-actions">
+      <button className="settings-action-button" type="button" disabled={busyAction === 'check'} onClick={onCheck}>
+        {busyAction === 'check' ? '检查中...' : '检查'}
+      </button>
+      <button className="settings-action-button settings-account-login-button" type="button" disabled={busyAction === 'login'} onClick={onOpenLogin}>
+        <ExternalLink size={15} />
+        {busyAction === 'login' ? '等待授权...' : '登录 Spotify'}
+      </button>
+      <button className="settings-danger-button" type="button" disabled={busyAction === 'clear'} onClick={onClear}>
+        {busyAction === 'clear' ? '退出中...' : '退出'}
+      </button>
+    </div>
+    <div className="settings-account-meta">
+      <span>{status?.displayName ?? status?.username ?? '使用 OAuth PKCE 授权，不保存 Client Secret；下载功能不适用于 Spotify。'}</span>
+      <span>登录 {status?.lastLoginAt ?? 'n/a'} · 检查 {status?.lastCheckedAt ?? 'n/a'}</span>
+    </div>
+    {message ? <p className="settings-inline-note settings-account-note">{message}</p> : null}
+    {error ? <p className="settings-inline-error settings-account-note">{error}</p> : null}
+  </article>
+);
+
 const NumberRangeField = ({
   max,
   min,
@@ -582,6 +633,7 @@ export const SettingsPage = (): JSX.Element => {
   const [status, setStatus] = useState<AudioStatus | null>(null);
   const [devices, setDevices] = useState<AudioDeviceInfo[]>([]);
   const [outputMode, setOutputMode] = useState<AudioOutputMode>('shared');
+  const [sharedBackend, setSharedBackend] = useState<AudioSharedBackend>('auto');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [appearancePreferences, setAppearancePreferences] = useState<AppearancePreferences>(() => readAppearancePreferences());
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
@@ -595,6 +647,7 @@ export const SettingsPage = (): JSX.Element => {
     bilibili: '',
     youtube: '',
     soundcloud: '',
+    spotify: '',
   });
   const [accountBusy, setAccountBusy] = useState<Partial<Record<AccountProvider, AccountBusyAction>>>({});
   const [accountErrors, setAccountErrors] = useState<Partial<Record<AccountProvider, string | null>>>({});
@@ -760,10 +813,11 @@ export const SettingsPage = (): JSX.Element => {
     const app = getAppBridge();
     void app?.getSettings().then((settings) => {
       setAppSettings(settings);
-      updateThemeMode(settings.appearanceTheme ?? 'light');
+      updateThemeMode(settings.appearanceTheme ?? defaultThemeMode);
       if (settings.appearancePreferences) {
         setAppearancePreferences(updateAppearancePreferences(settings.appearancePreferences));
       }
+      setSharedBackend(settings.rememberedAudioOutput?.sharedBackend ?? 'auto');
     }).catch(() => undefined);
     void app?.getVersion().then(setAppVersion).catch(() => undefined);
     void app?.getUpdateStatus?.().then(setUpdateStatus).catch(() => undefined);
@@ -867,7 +921,10 @@ export const SettingsPage = (): JSX.Element => {
 
   useEffect(() => {
     setOutputMode(status?.outputMode ?? 'shared');
-  }, [status?.outputMode]);
+    if (status?.sharedBackend || status?.outputBackend === 'directsound-shared') {
+      setSharedBackend(status.outputBackend === 'directsound-shared' ? 'directsound' : normalizeSharedBackend(status.sharedBackend));
+    }
+  }, [status?.outputBackend, status?.outputMode, status?.sharedBackend]);
 
   useEffect(() => {
     if (status?.outputDeviceId && devices.some((device) => device.id === status.outputDeviceId)) {
@@ -926,17 +983,22 @@ export const SettingsPage = (): JSX.Element => {
   }, [activeSection]);
 
   const applyOutputSettings = useCallback(
-    async (nextOutputMode = outputMode, nextDeviceId = selectedDeviceId) => {
+    async (nextOutputMode = outputMode, nextDeviceId = selectedDeviceId, nextSharedBackend = sharedBackend) => {
       const nextDevice =
         devices.find((device) => device.id === nextDeviceId && (nextOutputMode === 'asio' ? device.outputMode === 'asio' : device.outputMode === 'shared')) ?? null;
+      const normalizedSharedBackend = nextOutputMode === 'shared' ? normalizeSharedBackend(nextSharedBackend) : 'auto';
       const output: AudioOutputSettings = {
         outputMode: nextOutputMode,
+        sharedBackend: normalizedSharedBackend,
         latencyProfile: 'lowLatency',
         useJuceOutput: appSettings?.audioUseJuceOutput === true,
+        asioUnavailableFallbackEnabled: appSettings?.audioAsioUnavailableFallbackEnabled === true,
       };
 
       if (nextDevice) {
-        output.deviceIndex = nextDevice.index;
+        if (normalizedSharedBackend !== 'directsound') {
+          output.deviceIndex = nextDevice.index;
+        }
         output.deviceName = nextDevice.name;
       }
 
@@ -949,7 +1011,7 @@ export const SettingsPage = (): JSX.Element => {
 
       setStatus(await audio.setOutput(output));
     },
-    [appSettings?.audioUseJuceOutput, devices, outputMode, selectedDeviceId],
+    [appSettings?.audioAsioUnavailableFallbackEnabled, appSettings?.audioUseJuceOutput, devices, outputMode, selectedDeviceId, sharedBackend],
   );
 
   const handleNavClick = (key: SettingsNavKey): void => {
@@ -962,12 +1024,18 @@ export const SettingsPage = (): JSX.Element => {
     const nextDevices = devices.filter((device) => (nextMode === 'asio' ? device.outputMode === 'asio' : device.outputMode === 'shared'));
     const nextDeviceId = nextDevices.find((device) => device.isDefault)?.id ?? nextDevices[0]?.id ?? '';
     setSelectedDeviceId(nextDeviceId);
-    void applyOutputSettings(nextMode, nextDeviceId);
+    void applyOutputSettings(nextMode, nextDeviceId, nextMode === 'shared' ? sharedBackend : 'auto');
   };
 
   const handleDeviceChange = (nextDeviceId: string): void => {
     setSelectedDeviceId(nextDeviceId);
     void applyOutputSettings(outputMode, nextDeviceId);
+  };
+
+  const handleSharedBackendChange = (nextSharedBackend: AudioSharedBackend): void => {
+    setOutputMode('shared');
+    setSharedBackend(nextSharedBackend);
+    void applyOutputSettings('shared', selectedDeviceId, nextSharedBackend);
   };
 
   const handleJuceOutputToggle = async (): Promise<void> => {
@@ -982,6 +1050,23 @@ export const SettingsPage = (): JSX.Element => {
 
     try {
       setStatus(await audio.setOutput({ useJuceOutput: nextUseJuceOutput }));
+    } catch (audioError) {
+      setError(audioError instanceof Error ? audioError.message : String(audioError));
+    }
+  };
+
+  const handleAsioUnavailableFallbackToggle = async (): Promise<void> => {
+    const nextEnabled = !(appSettings?.audioAsioUnavailableFallbackEnabled ?? false);
+    patchAppSettings({ audioAsioUnavailableFallbackEnabled: nextEnabled });
+
+    const audio = getAudioBridge();
+    if (!audio) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to change audio output.');
+      return;
+    }
+
+    try {
+      setStatus(await audio.setOutput({ asioUnavailableFallbackEnabled: nextEnabled }));
     } catch (audioError) {
       setError(audioError instanceof Error ? audioError.message : String(audioError));
     }
@@ -1306,7 +1391,7 @@ export const SettingsPage = (): JSX.Element => {
       return;
     }
 
-    if (!accountStatusByProvider[provider]?.connected && accountCookies[provider].trim().length === 0) {
+    if (provider !== 'spotify' && !accountStatusByProvider[provider]?.connected && accountCookies[provider].trim().length === 0) {
       setAccountErrors((current) => ({ ...current, [provider]: '尚未保存 Cookie。请先打开登录页，在网页登录后复制 Cookie 并保存。' }));
       return;
     }
@@ -2135,6 +2220,18 @@ export const SettingsPage = (): JSX.Element => {
                   ))}
                 </div>
               </SettingRow>
+              <SettingRow title={t('settings.playback.sharedBackend.title')} description={t('settings.playback.sharedBackend.description')}>
+                <div className="settings-chip-row">
+                  {([
+                    ['auto', t('settings.playback.sharedBackend.wasapi')],
+                    ['directsound', t('settings.playback.sharedBackend.directSound')],
+                  ] as Array<[AudioSharedBackend, string]>).map(([backend, label]) => (
+                    <ChipButton active={outputMode === 'shared' && sharedBackend === backend} key={backend} onClick={() => handleSharedBackendChange(backend)}>
+                      {label}
+                    </ChipButton>
+                  ))}
+                </div>
+              </SettingRow>
               <SettingRow title={t('settings.playback.outputDevice.title')} description={t('settings.playback.outputDevice.description')}>
                 <label className="settings-select-field">
                   <select value={selectedDeviceId} onChange={(event) => handleDeviceChange(event.target.value)} disabled={compatibleDevices.length === 0}>
@@ -2164,6 +2261,13 @@ export const SettingsPage = (): JSX.Element => {
                   active={appSettings?.audioUseJuceOutput ?? false}
                   disabled={!appSettings}
                   onClick={() => void handleJuceOutputToggle()}
+                />
+              </SettingRow>
+              <SettingRow title="ASIO unavailable guard" description="Default off. When enabled, ECHO skips the same ASIO device briefly after the driver says No device found, then uses safe shared output.">
+                <ToggleButton
+                  active={appSettings?.audioAsioUnavailableFallbackEnabled ?? false}
+                  disabled={!appSettings}
+                  onClick={() => void handleAsioUnavailableFallbackToggle()}
                 />
               </SettingRow>
               <SettingRow title={t('settings.playback.speedMode.title')} description={t('settings.playback.speedMode.description')}>
@@ -2300,6 +2404,13 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() => patchAppSettings({ autoAccountCheckOnStartup: !(appSettings?.autoAccountCheckOnStartup ?? true) })}
                 />
               </SettingRow>
+              <SettingRow title="Spotify 自动启动官方播放器" description="播放 Spotify 时，如果 ECHO 内置 SDK 因 DRM 不可用，会自动打开 Spotify 桌面端或网页版并接管 Connect 设备。">
+                <ToggleButton
+                  active={appSettings?.spotifyAutoLaunchOfficialPlayer ?? true}
+                  disabled={!appSettings}
+                  onClick={() => patchAppSettings({ spotifyAutoLaunchOfficialPlayer: !(appSettings?.spotifyAutoLaunchOfficialPlayer ?? true) })}
+                />
+              </SettingRow>
               <div className="settings-account-panel">
                 <header className="settings-account-panel-header">
                   <div>
@@ -2338,6 +2449,15 @@ export const SettingsPage = (): JSX.Element => {
                     onOpenLogin={() => void handleAccountOpenLogin('youtube')}
                     onClear={() => void handleAccountClear('youtube')}
                   />
+                  <SpotifyAccountCard
+                    status={accountStatusByProvider.spotify}
+                    busyAction={accountBusy.spotify}
+                    error={accountErrors.spotify}
+                    message={accountMessages.spotify}
+                    onCheck={() => void handleAccountCheck('spotify')}
+                    onOpenLogin={() => void handleAccountOpenLogin('spotify')}
+                    onClear={() => void handleAccountClear('spotify')}
+                  />
                 </div>
               </div>
               <SettingRow title={t('settings.integrations.mobile.title')} description={t('settings.integrations.mobile.description')}>
@@ -2358,7 +2478,7 @@ export const SettingsPage = (): JSX.Element => {
                 <div className="settings-chip-row">
                   {themeModeOptions.map((option) => (
                     <ChipButton
-                      active={(appSettings?.appearanceTheme ?? 'light') === option.mode}
+                      active={(appSettings?.appearanceTheme ?? defaultThemeMode) === option.mode}
                       key={option.mode}
                       onClick={() => handleThemeModeChange(option.mode)}
                     >
@@ -2442,6 +2562,17 @@ export const SettingsPage = (): JSX.Element => {
                             suffix="%"
                             value={appSettings.appWallpaperUiOpacityPercent ?? 100}
                             onChange={(appWallpaperUiOpacityPercent) => previewAndPersistAppWallpaperSettings({ appWallpaperUiOpacityPercent })}
+                          />
+                        </div>
+                        <div className="settings-wallpaper-control settings-wallpaper-control--toggle">
+                          <span>可视化保护</span>
+                          <ToggleButton
+                            active={appSettings.appWallpaperVisualProtectionEnabled !== false}
+                            onClick={() =>
+                              previewAndPersistAppWallpaperSettings({
+                                appWallpaperVisualProtectionEnabled: !(appSettings.appWallpaperVisualProtectionEnabled !== false),
+                              })
+                            }
                           />
                         </div>
                         <div className="settings-wallpaper-control settings-wallpaper-control--toggle">

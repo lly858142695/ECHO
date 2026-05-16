@@ -336,6 +336,41 @@ describe('LyricsService', () => {
     expect(lyrics?.lines).toEqual([{ timeMs: 1000, text: 'Line' }]);
   });
 
+  it('resets corrupt lyrics cache tables and retries provider lyrics caching', async () => {
+    const { database, service } = createHarness({
+      onlineProvider: {
+        getLyrics: vi.fn(async () =>
+          trackLyrics({
+            id: 'lyrics-repair',
+            lines: [{ timeMs: 1000, text: 'Recovered' }],
+            plainText: 'Recovered',
+            syncedText: '[00:01.00]Recovered',
+          }),
+        ),
+        searchCandidates: vi.fn(async () => []),
+      },
+    });
+    const originalPrepare = database.prepare.bind(database);
+    let failOnce = true;
+
+    vi.spyOn(database, 'prepare').mockImplementation(((source: string) => {
+      if (failOnce && source.includes('FROM lyrics_cache') && source.includes('WHERE track_id = ?')) {
+        failOnce = false;
+        const error = new Error('SqliteError: database disk image is malformed') as Error & { code: string };
+        error.code = 'SQLITE_CORRUPT';
+        throw error;
+      }
+
+      return originalPrepare(source);
+    }) as never);
+
+    const lyrics = await service.getLyricsForTrack('track-1');
+
+    expect(lyrics?.lines[0].text).toBe('Recovered');
+    const cached = database.prepare('SELECT id FROM lyrics_cache WHERE track_id = ?').get('track-1');
+    expect(cached).toBeTruthy();
+  });
+
   it('auto-applies a high scoring provider candidate during track lookup', async () => {
     const { service } = createHarness({
       onlineProvider: {

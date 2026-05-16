@@ -6,6 +6,7 @@ import { getAppSettings, setAppSettings } from './appSettings';
 import { bindBackgroundPlaybackShortcutsToWindow } from './backgroundPlaybackShortcuts';
 import { ensureTray, isAppQuitRequested } from './tray';
 import { clearMainWindow, setMainWindow } from './windowManager';
+import { getCrashReportService } from '../diagnostics/CrashReportService';
 
 const mainOutputDir = import.meta.dirname;
 const appIconPath = join(mainOutputDir, '../../software.ico');
@@ -79,6 +80,21 @@ export const createMainWindow = (): BrowserWindow => {
     webPreferences: createMainWindowWebPreferences(),
   });
   let rememberSizeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  window.webContents.on('console-message', (details) => {
+    const { level, message, lineNumber, sourceId } = details;
+
+    if (!message.includes('[SpotifySDK]')) {
+      return;
+    }
+
+    getCrashReportService().getLogger()?.info('renderer', 'renderer console', {
+      level,
+      message,
+      line: lineNumber,
+      sourceId,
+    });
+  });
 
   const scheduleRememberSize = (): void => {
     if (rememberSizeTimer !== null) {

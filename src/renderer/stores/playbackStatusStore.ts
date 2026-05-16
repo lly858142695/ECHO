@@ -52,6 +52,9 @@ const playbackMatchesIntent = (status: AudioStatus | PlaybackStatus, intent: Pla
 const playbackHasIdentity = (status: AudioStatus | PlaybackStatus): boolean =>
   Boolean(status.currentTrackId || ('currentFilePath' in status ? status.currentFilePath : status.filePath));
 
+const isSpotifyPlaybackStatus = (status: PlaybackStatus | null | undefined): boolean =>
+  typeof status?.filePath === 'string' && status.filePath.startsWith('streaming:spotify:');
+
 const isStaleStatusForVisualIntent = (status: AudioStatus | PlaybackStatus, intent: PlaybackVisualIntent | null): boolean =>
   Boolean(intent && playbackHasIdentity(status) && !playbackMatchesIntent(status, intent));
 
@@ -83,10 +86,25 @@ const shouldClearVisualIntentForPatch = (
 };
 
 export const setPlaybackStatusSnapshot = (patch: Partial<Omit<PlaybackStatusSnapshot, 'version'>>): PlaybackStatusSnapshot => {
-  const shouldApplyPlaybackStatus = !patch.playbackStatus || !isStaleStatusForVisualIntent(patch.playbackStatus, snapshot.playbackVisualIntent);
-  const shouldApplyAudioStatus = !patch.audioStatus || !isStaleStatusForVisualIntent(patch.audioStatus, snapshot.playbackVisualIntent);
+  const hasPlaybackStatusPatch = Object.prototype.hasOwnProperty.call(patch, 'playbackStatus');
+  const hasAudioStatusPatch = Object.prototype.hasOwnProperty.call(patch, 'audioStatus');
+  const nativeRefreshOverSpotify =
+    isSpotifyPlaybackStatus(snapshot.playbackStatus) &&
+    hasPlaybackStatusPatch &&
+    hasAudioStatusPatch &&
+    !isSpotifyPlaybackStatus(patch.playbackStatus);
+  const nativeAudioOverSpotify =
+    isSpotifyPlaybackStatus(snapshot.playbackStatus) &&
+    hasAudioStatusPatch &&
+    !hasPlaybackStatusPatch;
+  const shouldApplyPlaybackStatus =
+    !nativeRefreshOverSpotify && (!patch.playbackStatus || !isStaleStatusForVisualIntent(patch.playbackStatus, snapshot.playbackVisualIntent));
+  const shouldApplyAudioStatus =
+    !nativeRefreshOverSpotify &&
+    !nativeAudioOverSpotify &&
+    (!patch.audioStatus || !isStaleStatusForVisualIntent(patch.audioStatus, snapshot.playbackVisualIntent));
 
-  if (Object.prototype.hasOwnProperty.call(patch, 'playbackStatus')) {
+  if (hasPlaybackStatusPatch) {
     refreshRequestId += 1;
   }
 
@@ -98,8 +116,11 @@ export const setPlaybackStatusSnapshot = (patch: Partial<Omit<PlaybackStatusSnap
     snapshot.audioStatus = patch.audioStatus ?? null;
   }
 
-  if (shouldApplyPlaybackStatus && Object.prototype.hasOwnProperty.call(patch, 'playbackStatus')) {
+  if (shouldApplyPlaybackStatus && hasPlaybackStatusPatch) {
     snapshot.playbackStatus = patch.playbackStatus ?? null;
+    if (isSpotifyPlaybackStatus(snapshot.playbackStatus) && !hasAudioStatusPatch) {
+      snapshot.audioStatus = null;
+    }
   }
 
   if (Object.prototype.hasOwnProperty.call(patch, 'error')) {

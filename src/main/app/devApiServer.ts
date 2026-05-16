@@ -86,6 +86,11 @@ export const startDevApiServer = (): void => {
         return;
       }
 
+      if (request.method === 'POST' && url.pathname === '/streaming/sync-liked-songs') {
+        sendJson(response, 200, await getStreamingService().syncLikedSongs());
+        return;
+      }
+
       sendJson(response, 404, { error: 'Not found.' });
     } catch (error) {
       sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) });

@@ -7,6 +7,7 @@ const providerDisplayNames: Record<StreamingProviderName, string> = {
   netease: 'NetEase Cloud Music',
   qqmusic: 'QQ Music',
   bilibili: 'Bilibili',
+  spotify: 'Spotify',
 };
 
 const defaultDescriptor = (provider: StreamingProvider): StreamingProviderDescriptor => ({
@@ -15,6 +16,7 @@ const defaultDescriptor = (provider: StreamingProvider): StreamingProviderDescri
   enabled: true,
   supportsSearch: true,
   supportsPlayback: true,
+  supportsDownload: true,
   supportsLyrics: Boolean(provider.getLyrics),
   supportsMv: Boolean(provider.getMv),
   requiresAccount: false,
@@ -54,6 +56,7 @@ export class StreamingProviderRegistry {
         enabled: false,
         supportsSearch: false,
         supportsPlayback: false,
+        supportsDownload: false,
         supportsLyrics: false,
         supportsMv: false,
         requiresAccount: name !== 'mock',

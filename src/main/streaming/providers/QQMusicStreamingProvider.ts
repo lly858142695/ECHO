@@ -36,6 +36,23 @@ const uinFromCookie = (cookie?: string): string => {
   return match?.[1] ?? '0';
 };
 
+const findPlaylistRecords = (value: unknown, depth = 0): Record<string, unknown>[] => {
+  if (depth > 8 || !value || typeof value !== 'object') {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => findPlaylistRecords(item, depth + 1));
+  }
+
+  const record = asRecord(value);
+  const title = text(record.dissname) ?? text(record.dirName) ?? text(record.name) ?? text(record.title);
+  const id = text(record.dissid) ?? text(record.disstid) ?? text(record.tid) ?? text(record.dirid);
+  const current = title && id ? [record] : [];
+
+  return [...current, ...Object.values(record).flatMap((item) => findPlaylistRecords(item, depth + 1))];
+};
+
 const albumCoverUrl = (albumMid: string | null, size = 300): string | null =>
   albumMid
     ? streamingImageProxyUrl(`https://y.gtimg.cn/music/photo_new/T002R${size}x${size}M000${albumMid}.jpg`, qqReferer)
@@ -441,6 +458,36 @@ export class QQMusicStreamingProvider implements StreamingProvider {
     throw new Error(message ?? '这首歌暂时不可播放，可能需要会员或版权不可用');
   }
 
+  async getLikedSongsPlaylist(input: { page?: number; pageSize?: number } = {}): Promise<StreamingPlaylistDetail> {
+    const cookie = accountCookie();
+    if (!cookie) {
+      throw new Error('请先登录 QQ 音乐账号。');
+    }
+
+    const page = Math.max(1, Math.floor(input.page ?? 1));
+    const pageSize = Math.min(500, Math.max(1, Math.floor(input.pageSize ?? 100)));
+    const begin = (page - 1) * pageSize;
+    const data = await this.fetchLikedSongsPage(cookie, begin, pageSize);
+    const tracks = data.songs.map(mapSong);
+
+    return {
+      id: streamingStableKey(provider, 'playlist:liked-songs'),
+      provider,
+      providerPlaylistId: 'liked-songs',
+      title: 'QQ 音乐我喜欢',
+      description: '从 QQ 音乐账号同步的我喜欢歌曲',
+      creator: accountStatus().displayName ?? accountStatus().username ?? null,
+      coverUrl: tracks[0]?.coverUrl ?? null,
+      coverThumb: tracks[0]?.coverThumb ?? null,
+      trackCount: data.total,
+      tracks,
+      page,
+      pageSize,
+      total: data.total,
+      hasMore: begin + tracks.length < data.total,
+    };
+  }
+
   private async fetchSong(providerTrackId: string): Promise<unknown> {
     const params = new URLSearchParams({
       songmid: providerTrackId,
@@ -455,5 +502,85 @@ export class QQMusicStreamingProvider implements StreamingProvider {
     }
 
     return song;
+  }
+
+  private async fetchLikedSongsPage(cookie: string, begin: number, pageSize: number): Promise<{ total: number; songs: unknown[] }> {
+    const uin = uinFromCookie(cookie);
+    if (uin === '0') {
+      throw new Error('无法读取 QQ 音乐账号 UIN，请重新登录后再同步。');
+    }
+
+    const params = new URLSearchParams({
+      loginUin: uin,
+      hostUin: uin,
+      format: 'json',
+      inCharset: 'utf8',
+      outCharset: 'utf-8',
+      notice: '0',
+      platform: 'yqq',
+      needNewCode: '0',
+      ct: '20',
+      cid: '205360956',
+      userid: uin,
+      reqtype: '1',
+      sin: String(begin),
+      ein: String(begin + pageSize - 1),
+    });
+    const data = asRecord(
+      await jsonFetch(`https://c.y.qq.com/fav/fcgi-bin/fcg_get_profile_order_asset.fcg?${params.toString()}`, {
+        headers: qqHeaders(cookie),
+        timeoutMs: 12_000,
+      }),
+    );
+    const payload = asRecord(data.data);
+    const entries = Array.isArray(payload.songlist) ? payload.songlist : [];
+    const songs = entries.map((entry) => asRecord(entry).data ?? entry);
+
+    return {
+      total: integer(payload.totalsong) ?? songs.length,
+      songs,
+    };
+  }
+
+  private async findLikedPlaylistId(cookie: string): Promise<string> {
+    const uin = uinFromCookie(cookie);
+    if (uin === '0') {
+      throw new Error('无法读取 QQ 音乐账号 UIN，请重新登录后再同步。');
+    }
+
+    const params = new URLSearchParams({
+      loginUin: uin,
+      hostUin: uin,
+      format: 'json',
+      inCharset: 'utf8',
+      outCharset: 'utf-8',
+      notice: '0',
+      platform: 'yqq',
+      needNewCode: '0',
+      ct: '20',
+      cid: '205360956',
+      userid: uin,
+      reqtype: '2',
+      sin: '0',
+      ein: '49',
+    });
+    const data = await jsonFetch(`https://c.y.qq.com/fav/fcgi-bin/fcg_get_profile_order_asset.fcg?${params.toString()}`, {
+      headers: qqHeaders(cookie),
+      timeoutMs: 12_000,
+    });
+    const playlists = findPlaylistRecords(data);
+    const liked = playlists.find((playlist) => {
+      const name = text(playlist.dissname) ?? text(playlist.dirName) ?? text(playlist.name) ?? text(playlist.title) ?? '';
+      return /我喜欢|我喜歡|like/iu.test(name);
+    });
+    const id = liked
+      ? text(liked.dissid) ?? text(liked.disstid) ?? text(liked.tid) ?? text(liked.dirid)
+      : text(asRecord(data).mymusic) ?? text(asRecord(data).mymusicId);
+
+    if (!id) {
+      throw new Error('没有找到 QQ 音乐“我喜欢”歌单。');
+    }
+
+    return id;
   }
 }

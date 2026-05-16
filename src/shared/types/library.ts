@@ -185,7 +185,7 @@ export type LibraryPageQuery = {
 };
 
 export type PlaylistKind = 'manual' | 'smart' | 'synced' | 'system';
-export type PlaylistSourceProvider = 'local' | 'netease' | 'qqmusic' | 'remote';
+export type PlaylistSourceProvider = 'local' | 'netease' | 'qqmusic' | 'spotify' | 'remote';
 export type PlaylistSortMode = 'manual' | 'titleAsc' | 'titleDesc' | 'artistAsc' | 'addedDesc';
 export type PlaylistMediaType = 'track' | 'album' | 'stream_track' | 'remote_file';
 export type PlaylistExportFormat = 'json' | 'txt' | 'm3u8' | 'csv';

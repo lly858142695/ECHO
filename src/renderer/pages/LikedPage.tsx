@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Disc3, Heart, ListFilter, Play, Search, Shuffle, Trash2 } from 'lucide-react';
+import { Cloud, Disc3, Heart, ListFilter, Play, RefreshCw, Search, Shuffle, Trash2 } from 'lucide-react';
 import type { LibraryAlbum, LibraryPage, LibraryPlaylistItem, LibrarySort, LibraryTrack } from '../../shared/types/library';
 import { AlbumDetailView } from '../components/album/AlbumDetailView';
 import { TrackList } from '../components/library/TrackList';
@@ -81,6 +81,8 @@ export const LikedPage = (): JSX.Element => {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<LibrarySort>('recent');
   const [error, setError] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [isSyncingLikedSongs, setIsSyncingLikedSongs] = useState(false);
   const [isTrackLoading, setIsTrackLoading] = useState(false);
   const [isAlbumLoading, setIsAlbumLoading] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null);
@@ -304,6 +306,41 @@ export const LikedPage = (): JSX.Element => {
     window.dispatchEvent(new Event(likedChangedEvent));
   }, [tab]);
 
+  const handleSyncLikedSongs = useCallback(async (): Promise<void> => {
+    const streaming = window.echo?.streaming;
+    if (!streaming?.syncLikedSongs) {
+      setError('当前版本暂不支持同步在线喜欢歌单。');
+      return;
+    }
+
+    setIsSyncingLikedSongs(true);
+    setError(null);
+    setSyncStatus('正在同步网易云 / QQ 音乐我喜欢...');
+
+    try {
+      const result = await streaming.syncLikedSongs();
+      const failedProviders = result.providers.filter((provider) => !provider.success);
+      const successProviders = result.providers.filter((provider) => provider.success);
+      const successText = successProviders.length
+        ? `已同步 ${successProviders.map((provider) => (provider.provider === 'netease' ? '网易云' : 'QQ')).join(' / ')}，新增 ${result.addedCount} 首。`
+        : failedProviders.length
+          ? failedProviders.map((provider) => `${provider.provider === 'netease' ? '网易云' : 'QQ'}：${provider.error ?? '同步失败'}`).join('；')
+          : '没有平台同步成功。';
+      setSyncStatus(successText);
+      if (successProviders.length > 0 && failedProviders.length > 0) {
+        setError(failedProviders.map((provider) => `${provider.provider === 'netease' ? '网易云' : 'QQ'}：${provider.error ?? '同步失败'}`).join('；'));
+      }
+      await loadTracks(1, 'replace');
+      window.dispatchEvent(new Event(likedTracksChangedEvent));
+      window.dispatchEvent(new Event(likedChangedEvent));
+    } catch (syncError) {
+      setSyncStatus(null);
+      setError(syncError instanceof Error ? syncError.message : String(syncError));
+    } finally {
+      setIsSyncingLikedSongs(false);
+    }
+  }, [loadTracks]);
+
   if (selectedAlbum) {
     return <AlbumDetailView album={selectedAlbum} onBack={() => setSelectedAlbum(null)} />;
   }
@@ -351,6 +388,9 @@ export const LikedPage = (): JSX.Element => {
             </button>
             <button className="queue-tool-button" type="button" disabled={tracks.length === 0} onClick={() => void handleShuffleAll()}>
               <Shuffle size={16} /> 随机播放
+            </button>
+            <button className="queue-tool-button" type="button" disabled={isSyncingLikedSongs} onClick={() => void handleSyncLikedSongs()}>
+              {isSyncingLikedSongs ? <RefreshCw size={16} className="spinning-icon" /> : <Cloud size={16} />} 同步我喜欢
             </button>
           </>
         ) : null}
@@ -401,6 +441,7 @@ export const LikedPage = (): JSX.Element => {
       )}
 
       {error || isLoading ? <div className="list-footer"><span>{error ?? '正在读取喜欢的音乐...'}</span></div> : null}
+      {syncStatus && !error && !isLoading ? <div className="list-footer"><span>{syncStatus}</span></div> : null}
       {tab === 'albums' ? <MediaWallScrollSpacer height={likedAlbumSpacerHeight} /> : null}
     </div>
   );

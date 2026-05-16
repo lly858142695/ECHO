@@ -202,6 +202,8 @@ export class EqBridge extends EventEmitter {
   private state: EqState = defaultState();
   private channelBalanceState: ChannelBalanceState = defaultChannelBalanceState();
   private socket: net.Socket | null = null;
+  private activeControlPort: number | null = null;
+  private nativeSyncTargetEqState: EqState | null = null;
   private pending: PendingRequest[] = [];
   private receiveBuffer = '';
   private readonly presetPath: string;
@@ -237,28 +239,45 @@ export class EqBridge extends EventEmitter {
 
     const socket = net.createConnection({ host: '127.0.0.1', port });
     this.socket = socket;
+    this.activeControlPort = port;
     socket.setNoDelay(true);
     socket.on('connect', () => {
+      if (this.socket !== socket) {
+        return;
+      }
+
       void this.syncStateToNative().catch((error: unknown) => {
         this.emit('error', error instanceof Error ? error : new Error(String(error)));
       });
     });
     socket.on('data', (chunk) => this.handleData(chunk));
     socket.on('error', (error) => {
+      if (this.socket !== socket) {
+        return;
+      }
+
       this.rejectPending(error);
       this.emit('error', error);
     });
     socket.on('close', () => {
-      if (this.socket === socket) {
-        this.socket = null;
+      if (this.socket !== socket) {
+        return;
       }
+
+      this.socket = null;
+      this.activeControlPort = null;
       this.rejectPending(new Error('eq_control_closed'));
     });
   }
 
-  disconnect(): void {
+  disconnect(expectedPort?: number | null): void {
+    if (expectedPort && this.activeControlPort !== expectedPort) {
+      return;
+    }
+
     const socket = this.socket;
     this.socket = null;
+    this.activeControlPort = null;
 
     if (socket) {
       socket.destroy();
@@ -430,10 +449,21 @@ export class EqBridge extends EventEmitter {
     return this.listPresets();
   }
 
-  private async syncStateToNative(): Promise<void> {
-    await this.sendNative({ type: 'eq:set-enabled', enabled: this.state.enabled });
-    await this.sendNative({ type: 'eq:set-preset', preampDb: this.state.preampDb, bands: this.state.bands });
-    await this.sendNativeChannelBalance({ type: 'channelBalance.setState', state: this.channelBalanceState });
+  async syncStateToNative(): Promise<void> {
+    const eqState = this.getState();
+    const channelBalanceState = this.getChannelBalanceState();
+
+    this.nativeSyncTargetEqState = eqState;
+    try {
+      await this.sendNative({ type: 'eq:set-enabled', enabled: eqState.enabled });
+      await this.sendNative({ type: 'eq:set-preset', preampDb: eqState.preampDb, bands: eqState.bands });
+    } finally {
+      this.nativeSyncTargetEqState = null;
+      this.state = eqState;
+      this.emitState();
+    }
+
+    await this.sendNativeChannelBalance({ type: 'channelBalance.setState', state: channelBalanceState });
   }
 
   private async sendNative(message: Record<string, unknown>): Promise<EqState> {
@@ -501,13 +531,19 @@ export class EqBridge extends EventEmitter {
       }
 
       if (message.type === 'eq:state') {
-        this.state = {
-          ...this.state,
-          enabled: Boolean(message.enabled),
-          preampDb: clamp(Number(message.preampDb ?? this.state.preampDb), eqMinPreampDb, eqMaxPreampDb),
-          bands: validateBands(message.bands) ?? this.state.bands,
-          clippingRisk: Boolean(message.clippingRisk),
-        };
+        const syncTarget = this.nativeSyncTargetEqState;
+        this.state = syncTarget
+          ? {
+              ...syncTarget,
+              clippingRisk: Boolean(message.clippingRisk),
+            }
+          : {
+              ...this.state,
+              enabled: Boolean(message.enabled),
+              preampDb: clamp(Number(message.preampDb ?? this.state.preampDb), eqMinPreampDb, eqMaxPreampDb),
+              bands: validateBands(message.bands) ?? this.state.bands,
+              clippingRisk: Boolean(message.clippingRisk),
+            };
         this.emitState();
       }
 

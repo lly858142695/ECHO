@@ -132,4 +132,80 @@ describe('StreamingService playlist imports', () => {
     expect(getPlaylist).toHaveBeenCalledWith({ providerPlaylistId: '778899', page: 1, pageSize: 500 });
     expect(result.providerPlaylistId).toBe('778899');
   });
+
+  it('imports Spotify playlist links without resolving playback URLs', async () => {
+    const registry = new StreamingProviderRegistry();
+    const getPlaylist = vi.fn(async (input: { providerPlaylistId: string; page?: number; pageSize?: number }): Promise<StreamingPlaylistDetail> => ({
+      id: `streaming:spotify:playlist:${input.providerPlaylistId}`,
+      provider: 'spotify',
+      providerPlaylistId: input.providerPlaylistId,
+      title: 'Spotify Playlist',
+      description: null,
+      creator: null,
+      coverUrl: null,
+      coverThumb: null,
+      trackCount: 0,
+      tracks: [],
+      page: 1,
+      pageSize: 500,
+      total: 0,
+      hasMore: false,
+    }));
+    const resolvePlayback = vi.fn();
+    registry.register({
+      name: 'spotify',
+      descriptor: {
+        displayName: 'Spotify',
+        enabled: true,
+        supportsSearch: true,
+        supportsPlayback: true,
+        supportsDownload: false,
+        supportsLyrics: false,
+        supportsMv: false,
+        requiresAccount: true,
+      },
+      search: vi.fn(),
+      getTrack: vi.fn(),
+      getPlaylist,
+      resolvePlayback,
+    });
+    const service = new StreamingService(registry, fakeCacheStore());
+
+    const result = await service.importPlaylistFromUrl('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M');
+
+    expect(getPlaylist).toHaveBeenCalledWith({ providerPlaylistId: '37i9dQZF1DXcBWIGoYBM5M', page: 1, pageSize: 500 });
+    expect(resolvePlayback).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      provider: 'spotify',
+      providerPlaylistId: '37i9dQZF1DXcBWIGoYBM5M',
+      playlistName: 'Spotify Playlist',
+    });
+  });
+
+  it('exposes Spotify as playback-only and not downloadable in provider descriptors', () => {
+    const registry = new StreamingProviderRegistry();
+    registry.register({
+      name: 'spotify',
+      descriptor: {
+        displayName: 'Spotify',
+        enabled: true,
+        supportsSearch: true,
+        supportsPlayback: true,
+        supportsDownload: false,
+        supportsLyrics: false,
+        supportsMv: false,
+        requiresAccount: true,
+      },
+      search: vi.fn(),
+      getTrack: vi.fn(),
+      resolvePlayback: vi.fn(),
+    });
+
+    expect(registry.list().find((provider) => provider.name === 'spotify')).toMatchObject({
+      name: 'spotify',
+      supportsPlayback: true,
+      supportsDownload: false,
+      requiresAccount: true,
+    });
+  });
 });

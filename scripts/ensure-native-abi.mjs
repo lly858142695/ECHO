@@ -12,6 +12,11 @@ const nativeBinaryPath = join(projectRoot, 'node_modules', 'better-sqlite3', 'bu
 const markerPath = join(projectRoot, 'node_modules', '.echo-native-abi.json');
 const cacheRoot = join(projectRoot, 'node_modules', '.echo-native-cache', 'better-sqlite3');
 
+if (process.env.ECHO_SKIP_NATIVE_ABI === '1') {
+  console.log(`[native-abi] skipped ${target} ABI alignment because ECHO_SKIP_NATIVE_ABI=1`);
+  process.exit(0);
+}
+
 const executable = (name) => (process.platform === 'win32' ? `${name}.cmd` : name);
 const quoteShellArg = (value) => `"${String(value).replace(/"/g, '\\"')}"`;
 

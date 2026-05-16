@@ -2815,6 +2815,14 @@ export class LibraryStore {
         tracks.field_sources_json AS track_field_sources_json,
         tracks.missing AS track_missing,
         streaming_tracks.cover_url AS streaming_cover_url,
+        streaming_tracks.id AS streaming_track_id,
+        streaming_tracks.stable_key AS streaming_stable_key,
+        streaming_tracks.title AS streaming_title,
+        streaming_tracks.artist AS streaming_artist,
+        streaming_tracks.album AS streaming_album,
+        streaming_tracks.album_artist AS streaming_album_artist,
+        streaming_tracks.duration AS streaming_duration,
+        streaming_tracks.playable AS streaming_playable,
         albums.id AS album_id,
         albums.album_key AS album_key,
         albums.title AS album_title,
@@ -3008,7 +3016,7 @@ export class LibraryStore {
   }
 
   getLikedTracks(query?: LibraryPageQuery): LibraryPage<LibraryPlaylistItem> {
-    return this.getSystemPlaylistItems(this.getLikedSongsPlaylist().id, 'track', query);
+    return this.getSystemPlaylistItems(this.getLikedSongsPlaylist().id, ['track', 'stream_track'], query);
   }
 
   getLikedAlbums(query?: LibraryPageQuery): LibraryPage<LibraryPlaylistItem> {
@@ -3024,7 +3032,10 @@ export class LibraryStore {
   }
 
   getLikedTrackIds(trackIds: string[]): Record<string, boolean> {
-    return this.getLikedMediaIds(this.getLikedSongsPlaylist().id, 'track', trackIds);
+    const playlist = this.getLikedSongsPlaylist();
+    const localMatches = this.getLikedMediaIds(playlist.id, 'track', trackIds);
+    const streamingMatches = this.getLikedMediaIds(playlist.id, 'stream_track', trackIds);
+    return Object.fromEntries(trackIds.map((trackId) => [trackId, localMatches[trackId] === true || streamingMatches[trackId] === true]));
   }
 
   getLikedAlbumIds(albumIds: string[]): Record<string, boolean> {
@@ -3131,7 +3142,9 @@ export class LibraryStore {
   }
 
   unlikeTrack(trackId: string): void {
-    this.unlikeMedia(this.getLikedSongsPlaylist().id, 'track', trackId);
+    const playlistId = this.getLikedSongsPlaylist().id;
+    this.unlikeMedia(playlistId, 'track', trackId);
+    this.unlikeMedia(playlistId, 'stream_track', trackId);
   }
 
   toggleTrackLiked(trackId: string): { liked: boolean; item?: LibraryPlaylistItem } {
@@ -3501,7 +3514,7 @@ export class LibraryStore {
 
   private getSystemPlaylistItems(
     playlistId: string,
-    mediaType: LibraryPlaylistItem['mediaType'],
+    mediaType: LibraryPlaylistItem['mediaType'] | LibraryPlaylistItem['mediaType'][],
     query?: LibraryPageQuery,
   ): LibraryPage<LibraryPlaylistItem> {
     const { page, pageSize, search, sort } = pageFromQuery(query);
@@ -3512,10 +3525,12 @@ export class LibraryStore {
       likePredicate('COALESCE(playlist_items.artist_snapshot, tracks.artist, albums.album_artist, \'\')'),
       likePredicate('COALESCE(playlist_items.album_snapshot, tracks.album, albums.title, \'\')'),
     ], searchOptions);
+    const mediaTypes = Array.isArray(mediaType) ? mediaType : [mediaType];
+    const mediaTypeSql = mediaTypes.map(() => '?').join(', ');
     const whereSql = searchFilter.sql
-      ? `playlist_items.playlist_id = ? AND playlist_items.media_type = ? AND ${searchFilter.sql}`
-      : 'playlist_items.playlist_id = ? AND playlist_items.media_type = ?';
-    const params = [playlistId, mediaType, ...searchFilter.params];
+      ? `playlist_items.playlist_id = ? AND playlist_items.media_type IN (${mediaTypeSql}) AND ${searchFilter.sql}`
+      : `playlist_items.playlist_id = ? AND playlist_items.media_type IN (${mediaTypeSql})`;
+    const params = [playlistId, ...mediaTypes, ...searchFilter.params];
     const totalRow = this.getRow(
       `SELECT COUNT(*) AS total
        FROM playlist_items
@@ -3554,6 +3569,15 @@ export class LibraryStore {
         tracks.network_metadata_status AS track_network_metadata_status,
         tracks.field_sources_json AS track_field_sources_json,
         tracks.missing AS track_missing,
+        streaming_tracks.id AS streaming_track_id,
+        streaming_tracks.stable_key AS streaming_stable_key,
+        streaming_tracks.title AS streaming_title,
+        streaming_tracks.artist AS streaming_artist,
+        streaming_tracks.album AS streaming_album,
+        streaming_tracks.album_artist AS streaming_album_artist,
+        streaming_tracks.duration AS streaming_duration,
+        streaming_tracks.cover_url AS streaming_cover_url,
+        streaming_tracks.playable AS streaming_playable,
         albums.id AS album_id,
         albums.album_key AS album_key,
         albums.title AS album_title,
@@ -3564,6 +3588,9 @@ export class LibraryStore {
         albums.cover_id AS album_cover_id
        FROM playlist_items
        LEFT JOIN tracks ON tracks.id = playlist_items.media_id
+       LEFT JOIN streaming_tracks
+         ON streaming_tracks.provider = playlist_items.source_provider
+        AND streaming_tracks.provider_track_id = playlist_items.source_item_id
        LEFT JOIN albums ON albums.id = playlist_items.media_id
        WHERE ${whereSql}
        ${this.likedItemsOrderSql(sort)}
@@ -3628,6 +3655,15 @@ export class LibraryStore {
         tracks.network_metadata_status AS track_network_metadata_status,
         tracks.field_sources_json AS track_field_sources_json,
         tracks.missing AS track_missing,
+        streaming_tracks.id AS streaming_track_id,
+        streaming_tracks.stable_key AS streaming_stable_key,
+        streaming_tracks.title AS streaming_title,
+        streaming_tracks.artist AS streaming_artist,
+        streaming_tracks.album AS streaming_album,
+        streaming_tracks.album_artist AS streaming_album_artist,
+        streaming_tracks.duration AS streaming_duration,
+        streaming_tracks.cover_url AS streaming_cover_url,
+        streaming_tracks.playable AS streaming_playable,
         albums.id AS album_id,
         albums.album_key AS album_key,
         albums.title AS album_title,
@@ -3638,6 +3674,9 @@ export class LibraryStore {
         albums.cover_id AS album_cover_id
       FROM playlist_items
       LEFT JOIN tracks ON tracks.id = playlist_items.media_id
+      LEFT JOIN streaming_tracks
+        ON streaming_tracks.provider = playlist_items.source_provider
+       AND streaming_tracks.provider_track_id = playlist_items.source_item_id
       LEFT JOIN albums ON albums.id = playlist_items.media_id
       WHERE playlist_items.id = ?`,
       itemId,
@@ -3704,6 +3743,7 @@ export class LibraryStore {
     const streamingCoverUrl = textOrNull(row.streaming_cover_url);
     const trackMissing = Number(row.track_missing ?? 1) !== 0;
     const hasTrack = textOrNull(row.track_id) !== null && !trackMissing;
+    const hasStreamingTrack = row.media_type === 'stream_track' && textOrNull(row.streaming_track_id) !== null;
     const hasAlbum = textOrNull(row.album_id) !== null;
     const isRemoteTrackItem = row.media_type === 'track' && row.source_provider === 'remote';
     const isStreamingTrackItem = row.media_type === 'stream_track';
@@ -3729,7 +3769,35 @@ export class LibraryStore {
       addedAt: String(row.added_at),
       addedFrom: textOrNull(row.added_from),
       unavailable,
-      track: hasTrack
+      track: hasStreamingTrack
+        ? {
+            id: textOrNull(row.streaming_stable_key) ?? textOrNull(row.media_id) ?? String(row.streaming_track_id),
+            mediaType: 'streaming',
+            path: textOrNull(row.streaming_stable_key) ?? textOrNull(row.media_id) ?? String(row.streaming_track_id),
+            provider: textOrNull(row.source_provider),
+            providerTrackId: textOrNull(row.source_item_id),
+            stableKey: textOrNull(row.streaming_stable_key) ?? textOrNull(row.media_id),
+            title: textOrNull(row.streaming_title) ?? textOrNull(row.title_snapshot) ?? 'Untitled',
+            artist: textOrNull(row.streaming_artist) ?? textOrNull(row.artist_snapshot) ?? 'Unknown Artist',
+            album: textOrNull(row.streaming_album) ?? textOrNull(row.album_snapshot) ?? 'Unknown Album',
+            albumArtist:
+              textOrNull(row.streaming_album_artist) ?? textOrNull(row.streaming_artist) ?? textOrNull(row.artist_snapshot) ?? 'Unknown Artist',
+            trackNo: null,
+            discNo: null,
+            year: null,
+            genre: null,
+            duration: numberOrNull(row.streaming_duration) ?? numberOrNull(row.duration_snapshot) ?? 0,
+            codec: null,
+            sampleRate: null,
+            bitDepth: null,
+            bitrate: null,
+            coverId,
+            coverThumb: streamingCoverUrl,
+            fieldSources: {},
+            unavailable: Number(row.streaming_playable ?? 1) === 0 || Number(row.unavailable ?? 0) !== 0,
+            playlistItemId: String(row.id),
+          }
+        : hasTrack
         ? this.mapTrack({
             id: row.track_id,
             path: row.track_path,
@@ -3779,7 +3847,7 @@ export class LibraryStore {
   }
 
   private mapPlaylistSourceProvider(value: unknown): LibraryPlaylist['sourceProvider'] {
-    return value === 'netease' || value === 'qqmusic' || value === 'remote' ? value : 'local';
+    return value === 'netease' || value === 'qqmusic' || value === 'spotify' || value === 'remote' ? value : 'local';
   }
 
   private mapPlaylistSortMode(value: unknown): LibraryPlaylist['sortMode'] {

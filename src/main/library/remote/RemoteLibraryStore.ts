@@ -244,9 +244,9 @@ export class RemoteLibraryStore {
       .map((row) => this.mapTrack(row));
   }
 
-  getComparableFingerprint(sourceId: string, remotePath: string): { etag: string | null; modifiedAt: string | null; sizeBytes: number | null } | null {
+  getComparableFingerprint(sourceId: string, remotePath: string): { etag: string | null; modifiedAt: string | null; sizeBytes: number | null; coverId: string | null } | null {
     const row = this.database
-      .prepare<[string, string], DbRow>('SELECT etag, modified_at, size_bytes FROM remote_tracks WHERE source_id = ? AND remote_path = ?')
+      .prepare<[string, string], DbRow>('SELECT etag, modified_at, size_bytes, cover_id FROM remote_tracks WHERE source_id = ? AND remote_path = ?')
       .get(sourceId, remotePath);
 
     return row
@@ -254,6 +254,7 @@ export class RemoteLibraryStore {
           etag: textOrNull(row.etag),
           modifiedAt: textOrNull(row.modified_at),
           sizeBytes: numberOrNull(row.size_bytes),
+          coverId: textOrNull(row.cover_id),
         }
       : null;
   }

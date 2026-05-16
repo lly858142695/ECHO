@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { X } from 'lucide-react';
 import { PlayerBar } from '../components/player/PlayerBar';
 import { AudioSettingsDrawer } from '../components/player/AudioSettingsDrawer';
 import { LyricsSettingsDrawer } from '../components/lyrics/LyricsSettingsDrawer';
@@ -30,6 +31,7 @@ type AppWallpaperSettings = Pick<
   | 'appWallpaperBlurPx'
   | 'appWallpaperBrightnessPercent'
   | 'appWallpaperUiOpacityPercent'
+  | 'appWallpaperVisualProtectionEnabled'
   | 'appWallpaperUnifiedOpacityEnabled'
 >;
 
@@ -39,6 +41,7 @@ const defaultAppWallpaperSettings: AppWallpaperSettings = {
   appWallpaperBlurPx: 0,
   appWallpaperBrightnessPercent: 100,
   appWallpaperUiOpacityPercent: 100,
+  appWallpaperVisualProtectionEnabled: true,
   appWallpaperUnifiedOpacityEnabled: false,
 };
 
@@ -50,7 +53,11 @@ const accountProviderLabels: Record<AccountProvider, string> = {
   bilibili: 'Bilibili',
   youtube: 'YouTube',
   soundcloud: 'SoundCloud',
+  spotify: 'Spotify',
 };
+
+const isSpotifyPlaybackSetupError = (message: string): boolean =>
+  /spotify/iu.test(message) && /(SDK|DRM\/Widevine|keysystem|playback device|Connect device|official player)/iu.test(message);
 
 const selectAppWallpaperSettings = (settings: AppSettings): AppWallpaperSettings => ({
   appCustomWallpaperPath: settings.appCustomWallpaperPath,
@@ -58,6 +65,7 @@ const selectAppWallpaperSettings = (settings: AppSettings): AppWallpaperSettings
   appWallpaperBlurPx: settings.appWallpaperBlurPx,
   appWallpaperBrightnessPercent: settings.appWallpaperBrightnessPercent,
   appWallpaperUiOpacityPercent: settings.appWallpaperUiOpacityPercent,
+  appWallpaperVisualProtectionEnabled: settings.appWallpaperVisualProtectionEnabled !== false,
   appWallpaperUnifiedOpacityEnabled: settings.appWallpaperUnifiedOpacityEnabled,
 });
 
@@ -67,6 +75,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const playbackStatusSnapshot = useSharedPlaybackStatus();
   const [activeRouteId, setActiveRouteId] = useState<AppRouteId>('songs');
   const [chromeNotice, setChromeNotice] = useState<string | null>(null);
+  const [isChromeNoticeVisible, setIsChromeNoticeVisible] = useState(false);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const [audioErrorNotice, setAudioErrorNotice] = useState<{ message: string } | null>(null);
   const [diagnosticsNotice, setDiagnosticsNotice] = useState(false);
@@ -117,6 +126,13 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     : null;
   const visibleAppWallpaperUrl = appWallpaperUrl && !isLyricsRoute ? appWallpaperUrl : null;
   const isAppWallpaperReady = Boolean(visibleAppWallpaperUrl && loadedAppWallpaperUrl === visibleAppWallpaperUrl);
+  const appWallpaperRawUiAlpha = isAppWallpaperReady
+    ? Math.max(0, Math.min(1, appWallpaperSettings.appWallpaperUiOpacityPercent / 100))
+    : 1;
+  const isAppWallpaperUiTransparent =
+    isAppWallpaperReady &&
+    !appWallpaperSettings.appWallpaperVisualProtectionEnabled &&
+    appWallpaperRawUiAlpha <= 0;
   const appWallpaperStyle = useMemo<CSSProperties>(() => {
     const blurPx = appWallpaperSettings.appWallpaperBlurPx;
     const brightnessPercent = appWallpaperSettings.appWallpaperBrightnessPercent;
@@ -135,9 +151,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     appWallpaperSettings.appWallpaperScalePercent,
   ]);
   const appShellStyle = useMemo(() => {
-    const uiAlpha = isAppWallpaperReady
-      ? Math.max(0, Math.min(1, appWallpaperSettings.appWallpaperUiOpacityPercent / 100))
-      : 1;
+    const uiAlpha =
+      isAppWallpaperReady && appWallpaperSettings.appWallpaperVisualProtectionEnabled
+        ? Math.max(appWallpaperRawUiAlpha, 0.36)
+        : appWallpaperRawUiAlpha;
     const isUnified = isAppWallpaperReady && appWallpaperSettings.appWallpaperUnifiedOpacityEnabled;
     const scaledAlpha = (value: number): string => (uiAlpha * value).toFixed(3);
     const unifiedAlpha = uiAlpha.toFixed(3);
@@ -162,7 +179,9 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       '--app-wallpaper-ui-surface-blur': `${(uiAlpha * 18).toFixed(1)}px`,
     } as CSSProperties;
   }, [
+    appWallpaperRawUiAlpha,
     appWallpaperSettings.appWallpaperUiOpacityPercent,
+    appWallpaperSettings.appWallpaperVisualProtectionEnabled,
     appWallpaperSettings.appWallpaperUnifiedOpacityEnabled,
     isAppWallpaperReady,
   ]);
@@ -185,6 +204,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     },
     [activeRouteId],
   );
+
+  const dismissChromeNotice = useCallback((): void => {
+    setIsChromeNoticeVisible(false);
+  }, []);
 
   useEffect(() => {
     if (!persistentRouteIds.has(activeRouteId)) {
@@ -217,12 +240,26 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       return undefined;
     }
 
+    setIsChromeNoticeVisible(true);
+
     const timer = window.setTimeout(() => {
-      setChromeNotice(null);
-    }, 4200);
+      setIsChromeNoticeVisible(false);
+    }, 5000);
 
     return () => window.clearTimeout(timer);
   }, [chromeNotice]);
+
+  useEffect(() => {
+    if (!chromeNotice || isChromeNoticeVisible) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setChromeNotice(null);
+    }, 220);
+
+    return () => window.clearTimeout(timer);
+  }, [chromeNotice, isChromeNoticeVisible]);
 
   useEffect(() => {
     if (!accountNotice) {
@@ -255,6 +292,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     const rawError = playbackStatusSnapshot.audioStatus?.error ?? playbackStatusSnapshot.error;
 
     if (!rawError || rawError === 'Desktop bridge unavailable') {
+      return;
+    }
+
+    if (isSpotifyPlaybackSetupError(rawError)) {
       return;
     }
 
@@ -313,6 +354,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
           'appWallpaperBlurPx' in patch ||
           'appWallpaperBrightnessPercent' in patch ||
           'appWallpaperUiOpacityPercent' in patch ||
+          'appWallpaperVisualProtectionEnabled' in patch ||
           'appWallpaperUnifiedOpacityEnabled' in patch)
       ) {
         setAppWallpaperSettings((current) => ({
@@ -329,6 +371,9 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
           appWallpaperUiOpacityPercent: 'appWallpaperUiOpacityPercent' in patch
             ? (patch.appWallpaperUiOpacityPercent ?? defaultAppWallpaperSettings.appWallpaperUiOpacityPercent)
             : current.appWallpaperUiOpacityPercent,
+          appWallpaperVisualProtectionEnabled: 'appWallpaperVisualProtectionEnabled' in patch
+            ? (patch.appWallpaperVisualProtectionEnabled !== false)
+            : current.appWallpaperVisualProtectionEnabled,
           appWallpaperUnifiedOpacityEnabled: 'appWallpaperUnifiedOpacityEnabled' in patch
             ? (patch.appWallpaperUnifiedOpacityEnabled === true)
             : current.appWallpaperUnifiedOpacityEnabled,
@@ -408,19 +453,22 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     ])
       .then(([remembered, settings]) => {
         const useJuceOutput = settings?.audioUseJuceOutput === true;
+        const asioUnavailableFallbackEnabled = settings?.audioAsioUnavailableFallbackEnabled === true;
         if (!remembered.enabled) {
           return audio
-            .setOutput({ useJuceOutput })
+            .setOutput({ useJuceOutput, asioUnavailableFallbackEnabled })
             .then(setAudioDrawerStatus);
         }
 
         return audio
           .setOutput({
             outputMode: remembered.outputMode,
+            sharedBackend: remembered.sharedBackend,
             latencyProfile: remembered.latencyProfile,
             deviceIndex: remembered.deviceIndex,
             deviceName: remembered.deviceName,
             useJuceOutput,
+            asioUnavailableFallbackEnabled,
           })
           .then(setAudioDrawerStatus);
       })
@@ -576,6 +624,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         isAppWallpaperReady ? 'app-shell--wallpaper-ready' : ''
       }`}
       data-wallpaper-unified-opacity={isAppWallpaperReady && appWallpaperSettings.appWallpaperUnifiedOpacityEnabled ? 'true' : undefined}
+      data-wallpaper-visual-protection={
+        isAppWallpaperReady ? (appWallpaperSettings.appWallpaperVisualProtectionEnabled ? 'true' : 'false') : undefined
+      }
+      data-wallpaper-ui-transparent={isAppWallpaperUiTransparent ? 'true' : undefined}
       style={appShellStyle}
     >
       {visibleAppWallpaperUrl ? (
@@ -654,8 +706,11 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       />
 
       {chromeNotice ? (
-        <div className="chrome-notice" role="status">
-          {chromeNotice}
+        <div className={`chrome-notice ${isChromeNoticeVisible ? 'is-visible' : 'is-hiding'}`} role="status">
+          <span className="chrome-notice-message">{chromeNotice}</span>
+          <button className="chrome-notice-close" type="button" aria-label="关闭提示" title="关闭提示" onClick={dismissChromeNotice}>
+            <X size={14} />
+          </button>
         </div>
       ) : null}
 

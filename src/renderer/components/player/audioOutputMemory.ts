@@ -1,4 +1,4 @@
-import type { AudioDeviceInfo, AudioLatencyProfile, AudioOutputMode, AudioOutputSettings } from '../../../shared/types/audio';
+import type { AudioDeviceInfo, AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, AudioSharedBackend } from '../../../shared/types/audio';
 import type { RememberedAudioOutput } from '../../../shared/types/appSettings';
 import { getAppBridge } from '../../utils/echoBridge';
 
@@ -11,16 +11,20 @@ export const resolveSupportedLatencyProfile = (
   return latencyProfile;
 };
 
+export const normalizeSharedBackend = (value: unknown): AudioSharedBackend =>
+  value === 'windows' || value === 'directsound' ? value : 'auto';
+
 export const readRememberedAudioOutput = (): RememberedAudioOutput => {
   try {
     const raw = window.localStorage.getItem(storageKey);
 
     if (!raw) {
-      return { enabled: false, outputMode: 'shared', latencyProfile: 'balanced' };
+      return { enabled: false, outputMode: 'shared', sharedBackend: 'auto', latencyProfile: 'balanced' };
     }
 
     const parsed = JSON.parse(raw) as Partial<RememberedAudioOutput>;
     const outputMode = parsed.outputMode === 'exclusive' || parsed.outputMode === 'asio' ? parsed.outputMode : 'shared';
+    const sharedBackend = normalizeSharedBackend(parsed.sharedBackend);
     const latencyProfile =
       parsed.latencyProfile === 'stable' || parsed.latencyProfile === 'balanced' || parsed.latencyProfile === 'lowLatency'
         ? parsed.latencyProfile
@@ -29,6 +33,7 @@ export const readRememberedAudioOutput = (): RememberedAudioOutput => {
     const remembered: RememberedAudioOutput = {
       enabled: parsed.enabled === true,
       outputMode,
+      sharedBackend,
       latencyProfile: resolveSupportedLatencyProfile(outputMode, latencyProfile),
       deviceIndex: Number.isInteger(Number(parsed.deviceIndex)) ? Number(parsed.deviceIndex) : undefined,
       deviceName: typeof parsed.deviceName === 'string' && parsed.deviceName.trim() ? parsed.deviceName : undefined,
@@ -40,7 +45,7 @@ export const readRememberedAudioOutput = (): RememberedAudioOutput => {
 
     return remembered;
   } catch {
-    return { enabled: false, outputMode: 'shared', latencyProfile: 'balanced' };
+    return { enabled: false, outputMode: 'shared', sharedBackend: 'auto', latencyProfile: 'balanced' };
   }
 };
 
@@ -60,7 +65,7 @@ export const loadPersistedRememberedAudioOutput = async (): Promise<RememberedAu
   const settings = await appBridge.getSettings();
   const remembered = (settings.appMemoryVersion ?? 0) < 1 && localOutput.enabled
     ? localOutput
-    : (settings.rememberedAudioOutput ?? { enabled: false, outputMode: 'shared', latencyProfile: 'balanced' });
+    : (settings.rememberedAudioOutput ?? { enabled: false, outputMode: 'shared', sharedBackend: 'auto', latencyProfile: 'balanced' });
   window.localStorage.setItem(storageKey, JSON.stringify(remembered));
 
   if ((settings.appMemoryVersion ?? 0) < 1 && localOutput.enabled) {
@@ -74,11 +79,22 @@ export const createOutputSettings = (
   outputMode: AudioOutputMode,
   device: AudioDeviceInfo | null,
   latencyProfile: AudioLatencyProfile = 'balanced',
+  sharedBackend: AudioSharedBackend = 'auto',
 ): AudioOutputSettings => {
-  const settings: AudioOutputSettings = { outputMode, latencyProfile: resolveSupportedLatencyProfile(outputMode, latencyProfile) };
+  const normalizedSharedBackend = outputMode === 'shared' ? normalizeSharedBackend(sharedBackend) : 'auto';
+  const settings: AudioOutputSettings = {
+    outputMode,
+    latencyProfile: resolveSupportedLatencyProfile(outputMode, latencyProfile),
+  };
+
+  if (outputMode === 'shared') {
+    settings.sharedBackend = normalizedSharedBackend;
+  }
 
   if (device) {
-    settings.deviceIndex = device.index;
+    if (normalizedSharedBackend !== 'directsound') {
+      settings.deviceIndex = device.index;
+    }
     settings.deviceName = device.name;
   }
 

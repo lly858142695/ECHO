@@ -3,6 +3,10 @@ import type { AccountProvider, AccountStatus, YouTubeBrowser } from '../../../sh
 export type StoredAccountRecord = {
   cookie?: string;
   browser?: YouTubeBrowser;
+  accessToken?: string;
+  refreshToken?: string;
+  tokenType?: string;
+  scope?: string;
   username?: string | null;
   displayName?: string | null;
   avatarUrl?: string | null;

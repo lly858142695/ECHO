@@ -36,4 +36,48 @@ describe('audioOutputMemory', () => {
       deviceName: 'USB DAC',
     });
   });
+
+  it('persists DirectSound shared backend and omits device index when creating output settings', () => {
+    writeRememberedAudioOutput({
+      enabled: true,
+      outputMode: 'shared',
+      sharedBackend: 'directsound',
+      latencyProfile: 'stable',
+      deviceIndex: 4,
+      deviceName: 'USB DAC',
+    });
+
+    expect(readRememberedAudioOutput()).toMatchObject({
+      enabled: true,
+      outputMode: 'shared',
+      sharedBackend: 'directsound',
+      latencyProfile: 'stable',
+      deviceIndex: 4,
+      deviceName: 'USB DAC',
+    });
+
+    expect(createOutputSettings('shared', {
+      id: 'shared:4',
+      index: 4,
+      name: 'USB DAC',
+      outputMode: 'shared',
+      sampleRate: 48000,
+      sharedDeviceSampleRate: 48000,
+      isDefault: false,
+    }, 'stable', 'directsound')).toMatchObject({
+      outputMode: 'shared',
+      sharedBackend: 'directsound',
+      latencyProfile: 'stable',
+      deviceName: 'USB DAC',
+    });
+    expect(createOutputSettings('shared', {
+      id: 'shared:4',
+      index: 4,
+      name: 'USB DAC',
+      outputMode: 'shared',
+      sampleRate: 48000,
+      sharedDeviceSampleRate: 48000,
+      isDefault: false,
+    }, 'stable', 'directsound')).not.toHaveProperty('deviceIndex');
+  });
 });

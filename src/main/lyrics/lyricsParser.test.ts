@@ -137,11 +137,52 @@ describe('lyricsParser', () => {
       1,
     );
 
-    expect(lyrics?.lines).toEqual([
+  expect(lyrics?.lines).toEqual([
       { timeMs: 1000, text: 'Hello', romanization: 'hello', translation: '你好' },
     ]);
   });
-  it('merges synced provider romanization with larger provider timestamp drift', () => {
+
+  it('folds same-timestamp romanization and translations into secondary fields', () => {
+    const lyrics = providerResultToTrackLyrics(
+      { title: 'Song', artist: 'Artist' },
+      {
+        provider: 'local',
+        providerLyricsId: 'local:1',
+        title: 'Song',
+        artist: 'Artist',
+        album: null,
+        durationSeconds: null,
+        instrumental: false,
+        plainLyrics: null,
+        syncedLyrics: [
+          '[00:08.48]世界中のすべての人間に',
+          '[00:08.48]se ka i ju u no su be te no ni n ge n ni',
+          '[00:08.48]如果试着去取悦全世界的人',
+          '[00:10.08]好かれるなんて気持ち悪いよ',
+          '[00:10.08]su ka re ru na n te ki mo chi wa ru i yo',
+          '[00:10.08]那一定很令人作呕吧',
+        ].join('\n'),
+      },
+      1,
+    );
+
+    expect(lyrics?.lines).toEqual([
+      {
+        timeMs: 8480,
+        text: '世界中のすべての人間に',
+        romanization: 'se ka i ju u no su be te no ni n ge n ni',
+        translation: '如果试着去取悦全世界的人',
+      },
+      {
+        timeMs: 10080,
+        text: '好かれるなんて気持ち悪いよ',
+        romanization: 'su ka re ru na n te ki mo chi wa ru i yo',
+        translation: '那一定很令人作呕吧',
+      },
+    ]);
+  });
+
+  it('does not merge synced provider romanization with larger provider timestamp drift', () => {
     const lyrics = providerResultToTrackLyrics(
       { title: 'Song', artist: 'Artist' },
       {
@@ -153,15 +194,39 @@ describe('lyricsParser', () => {
         durationSeconds: null,
         instrumental: false,
         plainLyrics: null,
-        syncedLyrics: '[00:10.00]君が好き\n[00:14.00]夜を越えて',
+        syncedLyrics: '[00:10.00]First line\n[00:14.00]Second line',
         romanizationLyrics: '[00:11.10]kimi ga suki\n[00:15.20]yoru o koete',
       },
       1,
     );
 
     expect(lyrics?.lines).toEqual([
-      { timeMs: 10000, text: '君が好き', romanization: 'kimi ga suki' },
-      { timeMs: 14000, text: '夜を越えて', romanization: 'yoru o koete' },
+      { timeMs: 10000, text: 'First line' },
+      { timeMs: 14000, text: 'Second line' },
+    ]);
+  });
+
+  it('does not attach synced secondary lyrics by matching line index when timestamps disagree', () => {
+    const lyrics = providerResultToTrackLyrics(
+      { title: 'Song', artist: 'Artist' },
+      {
+        provider: 'qqmusic',
+        providerLyricsId: 'qqmusic:1',
+        title: 'Song',
+        artist: 'Artist',
+        album: null,
+        durationSeconds: null,
+        instrumental: false,
+        plainLyrics: null,
+        syncedLyrics: '[00:10.00]Hello\n[00:20.00]World',
+        translationLyrics: '[00:01.00]你好\n[00:02.00]世界',
+      },
+      1,
+    );
+
+    expect(lyrics?.lines).toEqual([
+      { timeMs: 10000, text: 'Hello' },
+      { timeMs: 20000, text: 'World' },
     ]);
   });
 

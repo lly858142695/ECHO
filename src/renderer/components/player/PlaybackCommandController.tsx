@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { PlaybackStatus } from '../../../shared/types/playback';
 import type { SmtcCommand } from '../../../shared/types/smtc';
+import { isSpotifyTrack, pauseSpotifyPlayback, resumeSpotifyPlayback, seekSpotifyPlayback } from '../../integrations/spotify/spotifyPlayback';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getVisualPlaybackState, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../../stores/playbackStatusStore';
 import { bindMediaSessionActions, clearMediaSession } from './mediaSession';
@@ -22,6 +23,7 @@ export const PlaybackCommandController = (): null => {
   const isPlaying = visualState === 'playing';
   const positionSeconds = audioStatus?.positionSeconds ?? (playbackStatus?.positionMs ?? 0) / 1000;
   const durationSeconds = audioStatus?.durationSeconds ?? (playbackStatus?.durationMs ?? 0) / 1000;
+  const isSpotifyCurrentTrack = isSpotifyTrack(queue.currentTrack);
 
   const runPlaybackAction = useCallback(async (action: () => Promise<PlaybackStatus | null>): Promise<void> => {
     try {
@@ -38,6 +40,15 @@ export const PlaybackCommandController = (): null => {
   const handlePlayPause = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
 
+    if (isSpotifyCurrentTrack && queue.currentTrack) {
+      await runPlaybackAction(() =>
+        visualState === 'playing' || visualState === 'loading'
+          ? pauseSpotifyPlayback(queue.currentTrack!)
+          : resumeSpotifyPlayback(queue.currentTrack!),
+      );
+      return;
+    }
+
     if (!playback) {
       return;
     }
@@ -46,7 +57,7 @@ export const PlaybackCommandController = (): null => {
       const latestStatus = await playback.getStatus();
       return latestStatus.state === 'playing' || latestStatus.state === 'loading' ? playback.pause() : playback.play();
     });
-  }, [runPlaybackAction]);
+  }, [isSpotifyCurrentTrack, queue, runPlaybackAction, visualState]);
 
   const handlePrevious = useCallback((): void => {
     void runPlaybackAction(queue.playPrevious);
@@ -71,6 +82,11 @@ export const PlaybackCommandController = (): null => {
 
       if (command === 'play') {
         if (!isPlaying) {
+          if (isSpotifyCurrentTrack && queue.currentTrack) {
+            void runPlaybackAction(() => resumeSpotifyPlayback(queue.currentTrack!));
+            return;
+          }
+
           void runPlaybackAction(() =>
             (state === 'idle' || state === 'stopped') && queue.currentTrack ? queue.playTrack(queue.currentTrack) : playback.play(),
           );
@@ -79,6 +95,11 @@ export const PlaybackCommandController = (): null => {
       }
 
       if (command === 'pause') {
+        if (isSpotifyCurrentTrack && queue.currentTrack) {
+          void runPlaybackAction(() => pauseSpotifyPlayback(queue.currentTrack!));
+          return;
+        }
+
         void runPlaybackAction(() => playback.pause());
         return;
       }
@@ -97,7 +118,7 @@ export const PlaybackCommandController = (): null => {
         void runPlaybackAction(() => playback.stop());
       }
     },
-    [handleNext, handlePlayPause, handlePrevious, isPlaying, queue, runPlaybackAction, state],
+    [handleNext, handlePlayPause, handlePrevious, isPlaying, isSpotifyCurrentTrack, queue, runPlaybackAction, state],
   );
 
   const commitSeek = useCallback(
@@ -109,6 +130,13 @@ export const PlaybackCommandController = (): null => {
       }
 
       const safePositionSeconds = Math.min(durationSeconds, Math.max(0, nextPositionSeconds));
+      if (isSpotifyCurrentTrack && queue.currentTrack) {
+        const status = await seekSpotifyPlayback(queue.currentTrack, safePositionSeconds);
+        setPlaybackStatusSnapshot({ playbackStatus: status, error: null });
+        dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? queue.currentTrackId ?? null);
+        return;
+      }
+
       const status = await playback.seek(safePositionSeconds);
       setPlaybackStatusSnapshot({
         playbackStatus: {
@@ -120,7 +148,7 @@ export const PlaybackCommandController = (): null => {
       dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? queue.currentTrackId ?? null);
       await refreshPlaybackStatus();
     },
-    [durationSeconds, queue.currentTrackId],
+    [durationSeconds, isSpotifyCurrentTrack, queue.currentTrack, queue.currentTrackId],
   );
 
   useEffect(() => {

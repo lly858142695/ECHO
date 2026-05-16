@@ -1,6 +1,6 @@
 {
   "name": "echo-next",
-  "version": "26.5.15",
+  "version": "26.5.16",
   "description": "ECHO Next Phase 0 desktop music app shell.",
   "author": "Moekotori",
   "main": "out/main/index.js",
@@ -203,11 +203,15 @@
       "category": "AudioVideo"
     },
     "nsis": {
+      "artifactName": "ECHO-NEXT-Setup-${version}.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "software.ico",
       "uninstallerIcon": "software.ico"
+    },
+    "portable": {
+      "artifactName": "ECHO-NEXT-Portable-${version}.${ext}"
     }
   }
 }

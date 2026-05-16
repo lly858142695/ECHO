@@ -39,6 +39,135 @@ const cleanLyricText = (text: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const hasHan = (value: string): boolean => /\p{Script=Han}/u.test(value);
+const hasKana = (value: string): boolean => /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(value);
+const hasLatin = (value: string): boolean => /\p{Script=Latin}/u.test(value);
+const hasHangul = (value: string): boolean => /\p{Script=Hangul}/u.test(value);
+
+const hasEastAsianScript = (value: string): boolean =>
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(value);
+
+const normalizeLineText = (value: string | null | undefined): string | null => {
+  const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
+  return normalized.length > 0 ? normalized : null;
+};
+
+const looksLikeRomanizationText = (value: string): boolean =>
+  hasLatin(value) &&
+  !hasEastAsianScript(value) &&
+  /^[\p{Script=Latin}\d\s'"’.,!?():;+\-/&]+$/u.test(value);
+
+const looksLikeTranslationText = (primaryText: string, value: string): boolean => {
+  if (!hasHan(value) || hasKana(value) || hasHangul(value)) {
+    return false;
+  }
+
+  return hasKana(primaryText) || hasLatin(primaryText) || hasHangul(primaryText) || !hasHan(primaryText);
+};
+
+const classifyAlternateLine = (
+  primaryText: string,
+  value: string,
+  usedFields: Set<'romanization' | 'translation'>,
+): 'romanization' | 'translation' | null => {
+  if (!usedFields.has('romanization') && looksLikeRomanizationText(value)) {
+    return 'romanization';
+  }
+
+  if (!usedFields.has('translation') && looksLikeTranslationText(primaryText, value)) {
+    return 'translation';
+  }
+
+  return null;
+};
+
+const collapseTimestampGroup = (group: LyricLine[]): LyricLine[] => {
+  if (group.length <= 1) {
+    return group;
+  }
+
+  const primary = group[0];
+  const usedFields = new Set<'romanization' | 'translation'>();
+  const collapsed: LyricLine = { ...primary };
+  if (normalizeLineText(collapsed.romanization)) {
+    usedFields.add('romanization');
+  }
+  if (normalizeLineText(collapsed.translation)) {
+    usedFields.add('translation');
+  }
+
+  let changed = false;
+  const pending: string[] = [];
+  for (const line of group.slice(1)) {
+    const alternateText = normalizeLineText(line.text);
+    if (!alternateText || alternateText === collapsed.text) {
+      continue;
+    }
+
+    const field = classifyAlternateLine(collapsed.text, alternateText, usedFields);
+    if (field) {
+      collapsed[field] = alternateText;
+      usedFields.add(field);
+      changed = true;
+      continue;
+    }
+
+    pending.push(alternateText);
+  }
+
+  if (changed) {
+    for (const alternateText of pending) {
+      if (!usedFields.has('translation')) {
+        collapsed.translation = alternateText;
+        usedFields.add('translation');
+        continue;
+      }
+
+      if (!usedFields.has('romanization')) {
+        collapsed.romanization = alternateText;
+        usedFields.add('romanization');
+      }
+    }
+
+    return [collapsed];
+  }
+
+  return group;
+};
+
+export const normalizeSyncedLyricAlternates = (lines: LyricLine[]): LyricLine[] => {
+  if (lines.length < 2) {
+    return lines;
+  }
+
+  const normalized: LyricLine[] = [];
+  let group: LyricLine[] = [];
+  for (const line of lines) {
+    if (line.timeMs < 0) {
+      if (group.length > 0) {
+        normalized.push(...collapseTimestampGroup(group));
+        group = [];
+      }
+      normalized.push(line);
+      continue;
+    }
+
+    if (group.length === 0 || group[0].timeMs === line.timeMs) {
+      group.push(line);
+      continue;
+    }
+
+    normalized.push(...collapseTimestampGroup(group));
+    group = [line];
+  }
+
+  if (group.length > 0) {
+    normalized.push(...collapseTimestampGroup(group));
+  }
+
+  return normalized;
+};
+
 export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
   const lines: LyricLine[] = [];
 

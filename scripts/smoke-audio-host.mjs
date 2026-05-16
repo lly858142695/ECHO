@@ -40,6 +40,42 @@ const parseJsonLines = (stdout) => stdout
   })
   .filter(Boolean);
 
+const framedMagic = 'ECNP';
+const framedVersion = 1;
+const frameTypeBeginSession = 1;
+const frameTypePcmF32Le = 2;
+const frameTypeEndSession = 3;
+const frameTypeShutdown = 4;
+
+const createFrameHeader = (type, sessionId, payloadBytes) => {
+  const header = Buffer.alloc(16);
+  header.write(framedMagic, 0, 'ascii');
+  header.writeUInt8(framedVersion, 4);
+  header.writeUInt8(type, 5);
+  header.writeUInt32LE(sessionId >>> 0, 8);
+  header.writeUInt32LE(Math.max(0, payloadBytes) >>> 0, 12);
+  return header;
+};
+
+const createFrame = (type, sessionId, payload = Buffer.alloc(0)) =>
+  payload.length > 0
+    ? Buffer.concat([createFrameHeader(type, sessionId, payload.length), payload])
+    : createFrameHeader(type, sessionId, 0);
+
+const createPcm = ({ sampleRate = 48000, seconds = 0.1, channels = 2 } = {}) => {
+  const frames = Math.floor(seconds * sampleRate);
+  const pcm = Buffer.alloc(frames * channels * Float32Array.BYTES_PER_ELEMENT);
+
+  for (let frame = 0; frame < frames; frame += 1) {
+    const sample = Math.sin((frame / sampleRate) * Math.PI * 2 * 440) * 0.02;
+    for (let channel = 0; channel < channels; channel += 1) {
+      pcm.writeFloatLE(sample, (frame * channels + channel) * Float32Array.BYTES_PER_ELEMENT);
+    }
+  }
+
+  return pcm;
+};
+
 const runPcmHost = async (args, { timeoutMs = 15000, sampleRate = 48000, seconds = 0.1 } = {}) => {
   const child = spawn(hostPath, args, {
     cwd: projectRoot,
@@ -64,16 +100,7 @@ const runPcmHost = async (args, { timeoutMs = 15000, sampleRate = 48000, seconds
     stdinError = error instanceof Error ? error.message : String(error);
   });
 
-  const channels = 2;
-  const frames = Math.floor(seconds * sampleRate);
-  const pcm = Buffer.alloc(frames * channels * Float32Array.BYTES_PER_ELEMENT);
-
-  for (let frame = 0; frame < frames; frame += 1) {
-    const sample = Math.sin((frame / sampleRate) * Math.PI * 2 * 440) * 0.02;
-    for (let channel = 0; channel < channels; channel += 1) {
-      pcm.writeFloatLE(sample, (frame * channels + channel) * Float32Array.BYTES_PER_ELEMENT);
-    }
-  }
+  const pcm = createPcm({ sampleRate, seconds });
 
   child.stdin.write(pcm, (error) => {
     if (error) {
@@ -99,6 +126,88 @@ const runPcmHost = async (args, { timeoutMs = 15000, sampleRate = 48000, seconds
     stdout,
     stderr,
     stdinError,
+    events: parseJsonLines(stdout),
+  };
+};
+
+const runFramedPcmHost = async (args, { timeoutMs = 15000, sampleRate = 48000, seconds = 0.1 } = {}) => {
+  const child = spawn(hostPath, [...args, '-framed-stdin'], {
+    cwd: projectRoot,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let stdout = '';
+  let stderr = '';
+  let stdinError = '';
+  let shutdownSent = false;
+
+  const sendShutdown = () => {
+    if (shutdownSent || child.stdin.destroyed || child.stdin.writableEnded || !child.stdin.writable) {
+      return;
+    }
+
+    shutdownSent = true;
+    child.stdin.write(createFrame(frameTypeShutdown, 0), (error) => {
+      if (error) {
+        stdinError = error.message;
+      }
+      child.stdin.end();
+    });
+  };
+
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+    if (stdout.includes('"event":"ended"')) {
+      sendShutdown();
+    }
+  });
+
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+
+  child.stdin.on('error', (error) => {
+    stdinError = error instanceof Error ? error.message : String(error);
+  });
+
+  const sessionId = 1;
+  const pcm = createPcm({ sampleRate, seconds });
+  child.stdin.write(createFrame(frameTypeBeginSession, sessionId), (error) => {
+    if (error) {
+      stdinError = error.message;
+    }
+  });
+  child.stdin.write(createFrame(frameTypePcmF32Le, sessionId, pcm), (error) => {
+    if (error) {
+      stdinError = error.message;
+    }
+  });
+  child.stdin.write(createFrame(frameTypeEndSession, sessionId), (error) => {
+    if (error) {
+      stdinError = error.message;
+    }
+  });
+
+  const exitCode = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve(-1);
+    }, timeoutMs);
+
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      resolve(code ?? 0);
+    });
+  });
+
+  return {
+    exitCode,
+    stdout,
+    stderr,
+    stdinError,
+    shutdownSent,
     events: parseJsonLines(stdout),
   };
 };
@@ -160,6 +269,34 @@ if (!ready || !position || !telemetry || !ended || !hasReadyBufferTelemetry(shar
 }
 
 console.log('[smoke:audio-host] shared ready/position/telemetry/ended OK');
+
+const framedSharedResult = await runFramedPcmHost(['-sr', '48000', '-ch', '2'], {
+  timeoutMs: 10000,
+  sampleRate: 48000,
+  seconds: 0.25,
+});
+
+if (framedSharedResult.exitCode !== 0) {
+  fail(`framed shared host exited with ${framedSharedResult.exitCode}; stdin=${framedSharedResult.stdinError || 'ok'}; stderr=${framedSharedResult.stderr}; stdout=${framedSharedResult.stdout}`);
+}
+
+const framedSharedReady = framedSharedResult.events.find((event) => event.ready === true);
+ready = Boolean(framedSharedReady);
+position = framedSharedResult.events.some((event) => typeof event.pos === 'number');
+ended = framedSharedResult.events.some((event) => event.event === 'ended');
+const shutdownAck = framedSharedResult.events.some((event) => event.event === 'shutdown-ack');
+telemetry = framedSharedResult.events.some((event) =>
+  typeof event.pos === 'number' &&
+  typeof event.bufferedFrames === 'number' &&
+  typeof event.underrunCallbacks === 'number' &&
+  typeof event.underrunFrames === 'number'
+);
+
+if (!ready || !position || !telemetry || !ended || !shutdownAck || !hasReadyBufferTelemetry(framedSharedReady)) {
+  fail(`missing expected framed shared events ready=${ready} bufferTelemetry=${hasReadyBufferTelemetry(framedSharedReady)} position=${position} telemetry=${telemetry} ended=${ended} shutdownAck=${shutdownAck}; stdin=${framedSharedResult.stdinError || 'ok'}; stderr=${framedSharedResult.stderr}; stdout=${framedSharedResult.stdout}`);
+}
+
+console.log('[smoke:audio-host] framed stdin ready/position/telemetry/ended/shutdown OK');
 
 if (process.platform === 'win32') {
   const directSoundResult = await runPcmHost(['-sr', '48000', '-ch', '2', '-shared-backend', 'directsound'], {

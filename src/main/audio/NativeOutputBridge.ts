@@ -234,8 +234,8 @@ const normalizeOutputMode = (options: NativeOutputStartOptions): 'shared' | 'exc
 
 type NativeOutputMode = ReturnType<typeof normalizeOutputMode>;
 
-const normalizeSharedBackendForHost = (sharedBackend: NativeOutputStartOptions['sharedBackend']): 'auto' | 'windows' =>
-  sharedBackend === 'windows' ? 'windows' : 'auto';
+const normalizeSharedBackendForHost = (sharedBackend: NativeOutputStartOptions['sharedBackend']): 'auto' | 'windows' | 'directsound' =>
+  sharedBackend === 'windows' || sharedBackend === 'directsound' ? sharedBackend : 'auto';
 
 type PendingGracefulStop = {
   promise: Promise<void>;
@@ -1016,6 +1016,7 @@ export class NativeOutputBridge extends EventEmitter {
   }
 
   private cleanupBridgeReferences(): void {
+    const eqControlPort = this.eqControlPort;
     this.clearReadyTimer();
     this.proc = null;
     this.bridgeWritable = null;
@@ -1027,7 +1028,7 @@ export class NativeOutputBridge extends EventEmitter {
     this.eqControlPort = null;
     this.currentSessionId = 0;
     this.currentSessionHasPcm = false;
-    getEqBridge().disconnect();
+    getEqBridge().disconnect(eqControlPort);
   }
 
   private clearReadyTimer(): void {

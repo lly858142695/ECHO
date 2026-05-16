@@ -1,8 +1,8 @@
 import { dialog, ipcMain } from 'electron';
 import { SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../../shared/constants/audioExtensions';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
-import { normalizeAudioOutputModeForPlatform } from '../../shared/utils/audioPlatformCapabilities';
-import type { AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, PlaybackSpeedMode } from '../../shared/types/audio';
+import { normalizeAudioOutputModeForPlatform, normalizeAudioSharedBackendForPlatform } from '../../shared/utils/audioPlatformCapabilities';
+import type { AudioLatencyProfile, AudioOutputMode, AudioOutputSettings, AudioSharedBackend, PlaybackSpeedMode } from '../../shared/types/audio';
 import type {
   LocalFileResolveResult,
   PlaybackMediaStartRequest,
@@ -23,6 +23,7 @@ import { getStreamingService } from '../streaming/StreamingService';
 import { normalizePlaybackFilePath } from './playbackPath';
 
 const outputModes = new Set<AudioOutputMode>(['shared', 'exclusive', 'asio']);
+const sharedBackends = new Set<AudioSharedBackend>(['auto', 'windows', 'directsound']);
 const latencyProfiles = new Set<AudioLatencyProfile>(['stable', 'balanced', 'lowLatency']);
 const playbackSpeedModes = new Set<PlaybackSpeedMode>(['nightcore', 'daycore', 'speed']);
 const streamingProviders = new Set<StreamingProviderName>(streamingProviderNames);
@@ -30,11 +31,18 @@ const preparedMediaTtlMs = 2 * 60 * 1000;
 
 type PreparedMediaItem = {
   filePath: string;
+  inputHeaders?: Record<string, string>;
   probe?: PlaybackProbeHint;
   durationSeconds: number | null;
 };
 
 const preparedMediaCache = new Map<string, { expiresAt: number; prepared: PreparedMediaItem }>();
+
+const isSupersededPlaybackRun = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return message.includes('audio_session_run_cancelled');
+};
 
 const requireText = (value: unknown, name: string): string => {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -72,6 +80,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings | undefine
     output.outputMode = normalizeAudioOutputModeForPlatform(input.outputMode as AudioOutputMode, process.platform);
   }
 
+  if (typeof input.sharedBackend === 'string' && sharedBackends.has(input.sharedBackend as AudioSharedBackend)) {
+    output.sharedBackend = normalizeAudioSharedBackendForPlatform(input.sharedBackend as AudioSharedBackend, process.platform);
+  }
+
   if (typeof input.deviceIndex === 'number' && Number.isInteger(input.deviceIndex)) {
     output.deviceIndex = input.deviceIndex;
   }
@@ -96,6 +108,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings | undefine
 
   if (typeof input.useJuceOutput === 'boolean') {
     output.useJuceOutput = input.useJuceOutput;
+  }
+
+  if (typeof input.asioUnavailableFallbackEnabled === 'boolean') {
+    output.asioUnavailableFallbackEnabled = input.asioUnavailableFallbackEnabled;
   }
 
   if (typeof input.volume === 'number' && Number.isFinite(input.volume)) {
@@ -332,6 +348,10 @@ const resolveMediaItemForPlayback = async (
       })
     ).url;
   } else if (item.mediaType === 'streaming') {
+    if (item.provider === 'spotify') {
+      throw new Error('Spotify playback uses the official Web Playback SDK and must not enter the native audio session.');
+    }
+
     const playbackRequest = {
       provider: item.provider,
       providerTrackId: item.providerTrackId,
@@ -360,6 +380,7 @@ const resolveMediaItemForPlayback = async (
             bitrate: source.bitrate,
           }
         : undefined;
+    return { filePath, inputHeaders: source.headers, probe, durationSeconds };
   } else {
     filePath = item.path;
   }
@@ -471,7 +492,9 @@ export const registerPlaybackIpc = (): void => {
       void syncSmtcStatus();
       return toPlaybackStatus();
     } catch (error) {
-      reportPlaybackAudioError(error, 'play-local-file-ipc', { request });
+      if (!isSupersededPlaybackRun(error)) {
+        reportPlaybackAudioError(error, 'play-local-file-ipc', { request });
+      }
       throw error;
     }
   });
@@ -499,11 +522,16 @@ export const registerPlaybackIpc = (): void => {
     }
 
     const item = request.item;
+    if (item.mediaType === 'streaming' && item.provider === 'spotify') {
+      throw new Error('Spotify playback uses the official Web Playback SDK and must not enter the native audio session.');
+    }
+
     try {
       let prepared = await resolveMediaItemForPlayback(request);
 
       await getAudioSession().playLocalFile({
         filePath: prepared.filePath,
+        inputHeaders: prepared.inputHeaders,
         trackId: item.trackId,
         startSeconds: request.startSeconds,
         output: request.output,
@@ -530,6 +558,7 @@ export const registerPlaybackIpc = (): void => {
         const prepared = await resolveMediaItemForPlayback(request, { forceRefresh: true });
         await getAudioSession().playLocalFile({
           filePath: prepared.filePath,
+          inputHeaders: prepared.inputHeaders,
           trackId: item.trackId,
           startSeconds: request.startSeconds,
           output: request.output,

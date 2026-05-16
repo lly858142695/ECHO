@@ -16,7 +16,7 @@ import {
   eqMinGainDb,
   eqMinPreampDb,
 } from '../../shared/types/eq';
-import type { StreamingPlaylistImportResult } from '../../shared/types/streaming';
+import type { StreamingLikedSongsSyncResult, StreamingPlaylistImportResult } from '../../shared/types/streaming';
 
 export const getEchoBridge = (): Window['echo'] | null => window.echo ?? null;
 
@@ -465,6 +465,21 @@ const refreshNeteaseDailyRecommendFromDevApi = async (): Promise<StreamingPlayli
   return payload as StreamingPlaylistImportResult;
 };
 
+const syncLikedSongsFromDevApi = async (): Promise<StreamingLikedSongsSyncResult> => {
+  const response = await fetch(`${devApiBaseUrl}/streaming/sync-liked-songs`, {
+    method: 'POST',
+  }).catch(() => {
+    throw new Error('本地开发接口未启动，请重启 npm run dev 后再同步喜欢歌单。');
+  });
+  const payload = (await response.json().catch(() => ({}))) as { error?: string };
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? '同步在线喜欢歌单失败。');
+  }
+
+  return payload as StreamingLikedSongsSyncResult;
+};
+
 const browserStreamingBridge: StreamingBridgeApi = {
   search: async () => {
     throw new Error('桌面桥接不可用，请在 ECHO Next 客户端窗口中搜索流媒体。');
@@ -486,6 +501,7 @@ const browserStreamingBridge: StreamingBridgeApi = {
   },
   getProviders: async () => [],
   importPlaylistFromUrl: importPlaylistFromDevApi,
+  syncLikedSongs: syncLikedSongsFromDevApi,
   refreshNeteaseDailyRecommend: refreshNeteaseDailyRecommendFromDevApi,
 };
 

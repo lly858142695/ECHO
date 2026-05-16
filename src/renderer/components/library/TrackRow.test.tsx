@@ -111,6 +111,18 @@ describe('TrackRow', () => {
     expect(screen.getByText('42%')).toBeTruthy();
   });
 
+  it('hides the download action for Spotify streaming tracks', () => {
+    render(
+      <TrackRow
+        isPlaying={false}
+        track={track({ mediaType: 'streaming', provider: 'spotify', providerTrackId: 'spotify-track-id' })}
+        onDownload={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Download Afraid' })).toBeNull();
+  });
+
   it('marks clickable rows without adding a cover play affordance', () => {
     const { container } = render(<TrackRow isPlaying={false} track={track()} onPlay={vi.fn()} />);
 

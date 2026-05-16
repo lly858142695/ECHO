@@ -66,6 +66,41 @@ const inferProvider = (url: string): DownloadSourceProvider => {
   return 'unknown';
 };
 
+const spotifyDownloadBlockedMessage = 'Spotify streams are playback-only in ECHO Next. Downloading Spotify content is disabled by policy.';
+
+const isSpotifyHost = (host: string): boolean => {
+  const normalized = host.toLowerCase();
+  return (
+    normalized === 'spotify.com' ||
+    normalized.endsWith('.spotify.com') ||
+    normalized === 'scdn.co' ||
+    normalized.endsWith('.scdn.co') ||
+    normalized === 'spotifycdn.com' ||
+    normalized.endsWith('.spotifycdn.com')
+  );
+};
+
+const isSpotifyDownloadUrl = (value: unknown): boolean => {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (trimmed.toLowerCase().startsWith('spotify:')) {
+    return true;
+  }
+
+  try {
+    return isSpotifyHost(new URL(trimmed).hostname);
+  } catch {
+    return false;
+  }
+};
+
 const cloneJob = (job: DownloadJob): DownloadJob => ({ ...job });
 
 type CommandResult = {
@@ -461,6 +496,10 @@ export class DownloadService extends EventEmitter {
 
     if (!sourceUrl) {
       throw new Error('download URL must be a non-empty string');
+    }
+
+    if (isSpotifyDownloadUrl(sourceUrl) || isSpotifyDownloadUrl(options.webpageUrl)) {
+      throw new Error(spotifyDownloadBlockedMessage);
     }
 
     const outputDirectory = this.settings.outputDirectory;

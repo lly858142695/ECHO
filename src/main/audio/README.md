@@ -15,10 +15,12 @@ shape from ECHO.
 
 ## Windows Native Backends
 
-Windows playback is limited to the legacy native WASAPI Shared, WASAPI Exclusive,
-and ASIO SDK paths. The old DirectSound/JUCE device backend is intentionally
-disabled for playback stability; `sharedBackend: 'directsound'` remains a
-legacy type value only and is normalized away before spawning the host.
+Windows playback defaults to WASAPI Shared, WASAPI Exclusive, and ASIO SDK paths.
+DirectSound is available only as a Shared-mode compatibility backend through
+`sharedBackend: 'directsound'`. It is not enumerated or selected by default; the
+session promotes it only for explicit user selection. Automatic recovery stays
+on WASAPI Shared/Safe Shared because the JUCE DirectSound backend can add enough
+latency to break normal playback.
 
 ## Sample-Rate Fields
 

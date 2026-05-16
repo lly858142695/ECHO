@@ -542,6 +542,17 @@ html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
   box-shadow: none;
 }
 
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"]::before,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .app-titlebar,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .sidebar,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .page-surface,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .player-bar {
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
 @keyframes page-content-settle {
   from {
     opacity: 0.96;
@@ -573,7 +584,7 @@ html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
   }
 
   .brand-block > div:last-child,
-  .nav-item span,
+  .nav-item-label,
   .sidebar-meta,
   .topbar-description,
   .sidebar-section-label,
@@ -599,7 +610,7 @@ html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
 
 @media (max-width: 640px) {
   .app-shell {
-    --mobile-nav-height: 62px;
+    --mobile-nav-height: 66px;
     --player-height: 132px;
     grid-template-rows: var(--titlebar-height) minmax(0, 1fr) var(--mobile-nav-height) var(--player-height);
     grid-template-columns: minmax(0, 1fr);
@@ -664,8 +675,8 @@ html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
   }
 
   .nav-item {
-    width: 46px;
-    min-height: 46px;
+    width: 52px;
+    min-height: 50px;
     justify-content: center;
     grid-template-columns: 1fr;
     padding: 0;
@@ -674,14 +685,14 @@ html[data-theme="dark"] .app-shell--wallpaper-ready .player-bar {
 
   .nav-item::before {
     top: auto;
-    right: 13px;
+    right: 14px;
     bottom: 2px;
-    left: 13px;
+    left: 14px;
     width: auto;
     height: 2px;
   }
 
-  .nav-item svg {
+  .nav-icon-shell {
     justify-self: center;
   }
 

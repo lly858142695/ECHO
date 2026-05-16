@@ -90,6 +90,8 @@ describe('SubsonicRemoteSourceAdapter', () => {
               duration: 188,
               suffix: 'flac',
               bitRate: 900,
+              bitDepth: 24,
+              samplingRate: 96000,
               size: 12345,
               coverArt: 'cover-1',
             }],
@@ -126,7 +128,19 @@ describe('SubsonicRemoteSourceAdapter', () => {
     expect(scanned[0]).toEqual(expect.objectContaining({
       path: 'subsonic:song:song-1',
       stableKey: 'song-1',
-      metadata: expect.objectContaining({ title: 'Echo Song', artist: 'Echo Artist', duration: 188 }),
+      metadata: expect.objectContaining({
+        title: 'Echo Song',
+        artist: 'Echo Artist',
+        duration: 188,
+        sampleRate: 96000,
+        bitDepth: 24,
+        bitrate: 900000,
+        fieldSources: expect.objectContaining({
+          sampleRate: 'subsonic',
+          bitDepth: 'subsonic',
+          bitrate: 'subsonic',
+        }),
+      }),
     }));
 
     const stream = await adapter.createStreamUrl({ source: source(port), remotePath: 'subsonic:song:song-1', stableKey: 'song-1' });

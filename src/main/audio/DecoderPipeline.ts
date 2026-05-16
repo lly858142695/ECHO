@@ -62,7 +62,7 @@ const createDecoderError = (
   stderrLines: string[],
 ): Error => {
   const stderr = stderrLines.join(' | ');
-  const details = [`ffmpeg="${ffmpegPath}"`, `args="${args.map(redactUrlSecrets).join(' ')}"`];
+  const details = [`ffmpeg="${ffmpegPath}"`, `args="${redactFfmpegArgs(args).join(' ')}"`];
 
   if (stderr) {
     details.push(`stderr="${stderr}"`);
@@ -83,6 +83,36 @@ const redactUrlSecrets = (value: string): string => {
     return value;
   }
 };
+
+const sensitiveHeaderPattern = /^(authorization|cookie|proxy-authorization|set-cookie|x-api-key|x-auth-token):/iu;
+
+const normalizeInputHeaders = (headers: Record<string, string> | undefined): string | null => {
+  if (!headers) {
+    return null;
+  }
+
+  const lines = Object.entries(headers)
+    .map(([name, value]) => [name.trim(), String(value).trim()] as const)
+    .filter(([name, value]) => name.length > 0 && value.length > 0 && !/[\r\n:]/u.test(name) && !/[\r\n]/u.test(value))
+    .map(([name, value]) => `${name}: ${value}`);
+
+  return lines.length > 0 ? `${lines.join('\r\n')}\r\n` : null;
+};
+
+const redactHeaderBlock = (value: string): string =>
+  value
+    .split(/\r?\n/u)
+    .map((line) => (sensitiveHeaderPattern.test(line) ? `${line.slice(0, line.indexOf(':') + 1)} <redacted>` : line))
+    .join('\\r\\n');
+
+const redactFfmpegArgs = (args: string[]): string[] =>
+  args.map((arg, index) => {
+    if (index > 0 && args[index - 1] === '-headers') {
+      return `"${redactHeaderBlock(arg)}"`;
+    }
+
+    return redactUrlSecrets(arg);
+  });
 
 export const resolveDecoderFfmpegPath = (dependencies: DecoderPipelineDependencies = {}): string => {
   const explicitPath = normalizePath(dependencies.ffmpegPath);
@@ -168,6 +198,7 @@ export class DecoderPipeline {
     const decodePath = cueTrack?.audioPath ?? request.filePath;
     const cueRelativeStart = Math.max(0, request.startSeconds);
     const decodeStart = cueTrack ? cueTrack.startSeconds + cueRelativeStart : cueRelativeStart;
+    const inputHeaders = normalizeInputHeaders(request.inputHeaders);
     const cueDuration =
       cueTrack?.endSeconds !== null && cueTrack?.endSeconds !== undefined
         ? Math.max(0, cueTrack.endSeconds - cueTrack.startSeconds - cueRelativeStart)
@@ -179,6 +210,7 @@ export class DecoderPipeline {
       '-nostdin',
       '-ss',
       String(decodeStart),
+      ...(inputHeaders ? ['-headers', inputHeaders] : []),
       '-i',
       decodePath,
       '-vn',
@@ -194,7 +226,7 @@ export class DecoderPipeline {
     let proc: DecoderChildProcess;
 
     try {
-      this.logger(`[DecoderPipeline] spawn: ${this.ffmpegPath} ${args.map(redactUrlSecrets).join(' ')}`);
+      this.logger(`[DecoderPipeline] spawn: ${this.ffmpegPath} ${redactFfmpegArgs(args).join(' ')}`);
       proc = this.spawn(this.ffmpegPath, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,

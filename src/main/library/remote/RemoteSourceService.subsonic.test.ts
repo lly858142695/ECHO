@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase, type EchoDatabase } from '../../database/createDatabase';
 import { RemoteSourceService } from './RemoteSourceService';
@@ -51,6 +54,10 @@ const close = async (server: Server): Promise<void> =>
 
 const md5 = (value: string): string => createHash('md5').update(value).digest('hex');
 const envelope = (body: Record<string, unknown>): string => JSON.stringify({ 'subsonic-response': { status: 'ok', version: '1.16.1', ...body } });
+const tinyPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+  'base64',
+);
 
 const waitForSync = async (service: RemoteSourceService, sourceId: string): Promise<void> => {
   for (let index = 0; index < 100; index += 1) {
@@ -70,7 +77,7 @@ const waitForSync = async (service: RemoteSourceService, sourceId: string): Prom
 const waitForJobs = async (service: RemoteSourceService, sourceId: string): Promise<void> => {
   for (let index = 0; index < 100; index += 1) {
     const status = service.getJobStatus(sourceId);
-    if (status.completed.lyrics === 1 && status.completed.mv === 1) {
+    if (status.completed.cover === 1 && status.completed.lyrics === 1 && status.completed.mv === 1) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -81,6 +88,7 @@ const waitForJobs = async (service: RemoteSourceService, sourceId: string): Prom
 
 describe('RemoteSourceService Subsonic integration', () => {
   const servers: Server[] = [];
+  const tempDirs: string[] = [];
   let database: EchoDatabase | null = null;
   let service: RemoteSourceService | null = null;
 
@@ -92,6 +100,9 @@ describe('RemoteSourceService Subsonic integration', () => {
     serviceMocks.searchNetworkCandidates.mockReset();
     for (const server of servers.splice(0)) {
       await close(server);
+    }
+    for (const tempDir of tempDirs.splice(0)) {
+      await rm(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -127,10 +138,21 @@ describe('RemoteSourceService Subsonic integration', () => {
               duration: 188,
               suffix: 'flac',
               bitRate: 900,
+              bitDepth: 24,
+              samplingRate: 96000,
               coverArt: 'cover-1',
             }],
           },
         }));
+        return;
+      }
+      if (url.pathname === '/rest/getCoverArt.view') {
+        expect(url.searchParams.get('id')).toBe('cover-1');
+        response.writeHead(200, {
+          'Content-Type': 'image/png',
+          'Content-Length': String(tinyPng.length),
+        });
+        response.end(tinyPng);
         return;
       }
 
@@ -139,8 +161,10 @@ describe('RemoteSourceService Subsonic integration', () => {
     });
     servers.push(server);
     const port = await listen(server);
+    const coverCacheDir = await mkdtemp(join(tmpdir(), 'echo-remote-cover-'));
+    tempDirs.push(coverCacheDir);
     database = createDatabase(':memory:');
-    service = new RemoteSourceService(database, () => database?.close());
+    service = new RemoteSourceService(database, () => database?.close(), coverCacheDir);
 
     const source = service.createSource({
       provider: 'subsonic',
@@ -164,6 +188,10 @@ describe('RemoteSourceService Subsonic integration', () => {
       artist: 'Echo Artist',
       album: 'Echo Album',
       albumArtist: 'Echo Artist',
+      sampleRate: 96000,
+      bitDepth: 24,
+      bitrate: 900000,
+      coverThumb: expect.stringContaining('echo-cover://thumb/'),
       metadataStatus: 'ok',
     }));
     expect(serviceMocks.getLyricsForTrack).toHaveBeenCalledWith(trackId);

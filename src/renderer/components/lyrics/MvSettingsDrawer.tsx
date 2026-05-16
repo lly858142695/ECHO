@@ -175,6 +175,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [networkSearchError, setNetworkSearchError] = useState<string | null>(null);
+  const [networkSearchNotice, setNetworkSearchNotice] = useState<string | null>(null);
   const [isMaxQualityMenuOpen, setIsMaxQualityMenuOpen] = useState(false);
   const [useCurrentSongName, setUseCurrentSongName] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -291,6 +292,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       try {
         setError(null);
         setNetworkSearchError(null);
+        setNetworkSearchNotice(null);
         setCandidates([]);
         const video = await window.echo.mv.getSelected(trackId);
         setSelectedVideo(await resolveSelectedStreams(video));
@@ -363,14 +365,10 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
 
       setCandidates(nextCandidates);
       setNetworkSearchError(null);
+      setNetworkSearchNotice(nextCandidates.length === 0 ? t('mvSettings.error.noNetworkCandidates') : null);
       setSelectedVideo(selected);
       if (selected) {
         notifyMvChanged(effectiveTrackId);
-      }
-      if (nextCandidates.length === 0) {
-        const emptyMessage = t('mvSettings.error.noNetworkCandidates');
-        setError(emptyMessage);
-        setNetworkSearchError(emptyMessage);
       }
     },
     [activeTrack, notifyMvChanged, resolveSelectedStreams, t],
@@ -440,6 +438,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         setIsBusy(true);
         setError(null);
         setNetworkSearchError(null);
+        setNetworkSearchNotice(null);
         setCandidates([]);
         try {
           await searchNetworkForActiveTrack(trackId, searchQuery);
@@ -447,6 +446,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
           const message = searchError instanceof Error ? searchError.message : String(searchError);
           setError(message);
           setNetworkSearchError(message);
+          setNetworkSearchNotice(null);
         } finally {
           setIsBusy(false);
         }
@@ -515,6 +515,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       const message = t('mvSettings.error.noActiveTrackNetworkSearch');
       setError(message);
       setNetworkSearchError(message);
+      setNetworkSearchNotice(null);
       setCandidates([]);
       return;
     }
@@ -522,6 +523,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     setIsBusy(true);
     setError(null);
     setNetworkSearchError(null);
+    setNetworkSearchNotice(null);
     setCandidates([]);
     try {
       await searchNetworkForActiveTrack(trackId, searchQuery);
@@ -529,6 +531,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       const message = searchError instanceof Error ? searchError.message : String(searchError);
       setError(message);
       setNetworkSearchError(message);
+      setNetworkSearchNotice(null);
     } finally {
       setIsBusy(false);
     }
@@ -543,6 +546,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
 
     setIsBusy(true);
     setError(null);
+    setNetworkSearchNotice(null);
     try {
       const video = await window.echo.mv.chooseLocalVideo(trackId);
       if (video) {
@@ -567,6 +571,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
 
     setIsBusy(true);
     setError(null);
+    setNetworkSearchNotice(null);
     try {
       const video = await window.echo.mv.bindUrl(trackId, customMvUrl);
       setSelectedVideo(await resolveSelectedStreams(video));
@@ -593,6 +598,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       mvRequestRef.current = requestId;
       setBusyCandidateId(candidateId);
       setError(null);
+      setNetworkSearchNotice(null);
       try {
         const video = await window.echo.mv.selectVideo(targetTrackId, candidateId);
         const resolvedVideo = await resolveSelectedStreams(video);
@@ -621,6 +627,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
 
     setIsBusy(true);
     setError(null);
+    setNetworkSearchNotice(null);
     try {
       await window.echo.mv.clearSelected(trackId);
       setSelectedVideo(null);
@@ -724,8 +731,11 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
 
       setCandidates(detail.candidates);
       const message = detail.candidates.length === 0 ? t('mvSettings.error.noNetworkCandidates') : null;
-      setError(message);
-      setNetworkSearchError(message);
+      setNetworkSearchNotice(message);
+      setNetworkSearchError(null);
+      if (message) {
+        setError(null);
+      }
     };
 
     window.addEventListener('mv:candidatesChanged', handleCandidatesChanged);
@@ -945,8 +955,12 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
                 </button>
               ))}
             </div>
+          ) : networkSearchNotice ? (
+            <p className="mv-settings-search-empty" role="status">
+              {networkSearchNotice}
+            </p>
           ) : networkSearchError ? (
-            <p className="mv-settings-search-error" role="status">
+            <p className="mv-settings-search-error" role="alert">
               {networkSearchError}
             </p>
           ) : null}

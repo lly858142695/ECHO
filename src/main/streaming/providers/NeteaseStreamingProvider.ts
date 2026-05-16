@@ -34,9 +34,12 @@ const neteaseHeaders = (cookie?: string): Record<string, string> => ({
 
 type NeteaseRequestedQuality = NonNullable<StreamingPlaybackRequest['quality']> | 'fallback';
 type NeteaseApi = {
+  likelist?: (request: Record<string, unknown>) => Promise<{ body?: { ids?: unknown[]; checkPoint?: unknown[]; code?: number } }>;
+  login_status?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
   playlist_track_all?: (request: Record<string, unknown>) => Promise<{ body?: { songs?: unknown[] } }>;
   recommend_songs?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
   song_url_v1?: (request: Record<string, unknown>) => Promise<{ body?: { data?: unknown[] } }>;
+  user_account?: (request: Record<string, unknown>) => Promise<{ body?: unknown }>;
 };
 type NeteaseResolvedSource = {
   url: string;
@@ -126,6 +129,7 @@ const toPlaybackSource = (
   request: StreamingPlaybackRequest,
   source: NeteaseResolvedSource,
   candidate: { bitrate: number; quality: NonNullable<StreamingPlaybackSource['codec']> },
+  cookie?: string,
 ): StreamingPlaybackSource => {
   const type = source.type.toLocaleLowerCase() || candidate.quality || 'mp3';
 
@@ -139,7 +143,7 @@ const toPlaybackSource = (
     sampleRate: null,
     bitDepth: null,
     codec: type,
-    headers: {},
+    headers: neteaseHeaders(cookie),
     requiresProxy: false,
     supportsRange: true,
   };
@@ -302,6 +306,14 @@ const dailyRecommendSongs = (value: unknown): unknown[] => {
   return [];
 };
 
+const neteaseUserIdFromBody = (value: unknown): string | null => {
+  const body = asRecord(value);
+  const data = asRecord(body.data);
+  const account = asRecord(body.account ?? data.account);
+  const profile = asRecord(body.profile ?? data.profile);
+  return text(profile.userId) ?? text(account.id) ?? text(account.userId);
+};
+
 export class NeteaseStreamingProvider implements StreamingProvider {
   readonly name = provider;
 
@@ -416,6 +428,39 @@ export class NeteaseStreamingProvider implements StreamingProvider {
     };
   }
 
+  async getLikedSongsPlaylist(input: { page?: number; pageSize?: number } = {}): Promise<StreamingPlaylistDetail> {
+    const cookie = accountCookie();
+    if (!cookie) {
+      throw new Error('请先登录网易云音乐账号。');
+    }
+
+    const page = Math.max(1, Math.floor(input.page ?? 1));
+    const pageSize = Math.min(500, Math.max(1, Math.floor(input.pageSize ?? 100)));
+    const offset = (page - 1) * pageSize;
+    const userId = await this.resolveUserId(cookie);
+    const songIds = await this.fetchLikedSongIds(userId, cookie);
+    const pageSongIds = songIds.slice(offset, offset + pageSize);
+    const songs = await this.fetchSongs(pageSongIds);
+    const tracks = songs.map((song) => mapSong(song));
+
+    return {
+      id: streamingStableKey(provider, 'playlist:liked-songs'),
+      provider,
+      providerPlaylistId: 'liked-songs',
+      title: '网易云我喜欢',
+      description: '从网易云音乐账号同步的我喜欢歌曲',
+      creator: accountStatus().displayName ?? accountStatus().username ?? null,
+      coverUrl: tracks[0]?.coverUrl ?? null,
+      coverThumb: tracks[0]?.coverThumb ?? null,
+      trackCount: songIds.length,
+      tracks,
+      page,
+      pageSize,
+      total: songIds.length,
+      hasMore: offset + pageSongIds.length < songIds.length,
+    };
+  }
+
   async getDailyRecommendPlaylist(): Promise<StreamingPlaylistDetail> {
     const cookie = accountCookie();
     if (!cookie) {
@@ -484,6 +529,72 @@ export class NeteaseStreamingProvider implements StreamingProvider {
     } catch {
       return new Map();
     }
+  }
+
+  private async resolveUserId(cookie: string): Promise<string> {
+    const ncm = getNcmApi();
+    const bodies: unknown[] = [];
+
+    if (ncm?.login_status) {
+      try {
+        bodies.push((await ncm.login_status({ cookie })).body);
+      } catch {
+        // Try the older account endpoint below.
+      }
+    }
+
+    if (ncm?.user_account) {
+      try {
+        bodies.push((await ncm.user_account({ cookie })).body);
+      } catch {
+        // Fall back to the public endpoint below.
+      }
+    }
+
+    try {
+      bodies.push(
+        await jsonFetch('https://music.163.com/api/nuser/account/get', {
+          headers: neteaseHeaders(cookie),
+          timeoutMs: 12_000,
+        }),
+      );
+    } catch {
+      // The API wrappers above may already have succeeded.
+    }
+
+    for (const body of bodies) {
+      const userId = neteaseUserIdFromBody(body);
+      if (userId) {
+        return userId;
+      }
+    }
+
+    throw new Error('无法读取网易云账号 ID，请重新登录后再同步。');
+  }
+
+  private async fetchLikedSongIds(userId: string, cookie: string): Promise<string[]> {
+    const ncm = getNcmApi();
+    if (ncm?.likelist) {
+      try {
+        const response = await ncm.likelist({ uid: userId, cookie });
+        const ids = Array.isArray(response.body?.ids) ? response.body.ids : response.body?.checkPoint;
+        if (Array.isArray(ids)) {
+          return ids.map((id) => String(id)).filter(Boolean);
+        }
+      } catch {
+        // Fall back to the public endpoint below.
+      }
+    }
+
+    const params = new URLSearchParams({ uid: userId });
+    const data = asRecord(
+      await jsonFetch(`https://music.163.com/api/song/like/get?${params.toString()}`, {
+        headers: neteaseHeaders(cookie),
+        timeoutMs: 12_000,
+      }),
+    );
+    const ids = Array.isArray(data.ids) ? data.ids : Array.isArray(data.checkPoint) ? data.checkPoint : [];
+    return ids.map((id) => String(id)).filter(Boolean);
   }
 
   private async fetchSongs(songIds: string[]): Promise<unknown[]> {
@@ -595,7 +706,7 @@ export class NeteaseStreamingProvider implements StreamingProvider {
       attemptedLevels.push(candidate.level);
       const ncmSource = await resolveWithNcmApi(request, candidate, cookie);
       if (ncmSource) {
-        return toPlaybackSource(request, ncmSource, candidate);
+        return toPlaybackSource(request, ncmSource, candidate, cookie);
       }
 
       const params = new URLSearchParams({
@@ -628,6 +739,7 @@ export class NeteaseStreamingProvider implements StreamingProvider {
             level: text(source.level) ?? candidate.level,
           },
           candidate,
+          cookie,
         );
       }
     }

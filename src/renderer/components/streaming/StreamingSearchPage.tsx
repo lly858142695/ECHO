@@ -43,7 +43,7 @@ const defaultCover = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="14" fill="#eaf1f8"/><circle cx="31" cy="32" r="12" fill="#9fb6cc"/><path d="M28 67c11-19 25-25 42-9" fill="none" stroke="#5f7f9d" stroke-width="8" stroke-linecap="round"/></svg>',
 )}`;
 
-const providerPriority: StreamingProviderName[] = ['netease', 'qqmusic', 'mock'];
+const providerPriority: StreamingProviderName[] = ['spotify', 'netease', 'qqmusic', 'mock'];
 const emptyTracks: StreamingTrack[] = [];
 const emptyAlbums: StreamingAlbum[] = [];
 const emptyArtists: StreamingArtist[] = [];
@@ -90,6 +90,8 @@ const streamingTrackWebUrl = (track: StreamingTrack): string | null => {
       return `https://music.163.com/#/song?id=${encodeURIComponent(track.providerTrackId)}`;
     case 'qqmusic':
       return `https://y.qq.com/n/ryqq/songDetail/${encodeURIComponent(track.providerTrackId)}`;
+    case 'spotify':
+      return `https://open.spotify.com/track/${encodeURIComponent(track.providerTrackId)}`;
     default:
       return null;
   }
@@ -386,6 +388,12 @@ export const StreamingSearchPage = (): JSX.Element => {
   );
 
   const handleDownload = useCallback(async (track: StreamingTrack): Promise<void> => {
+    if (track.provider === 'spotify') {
+      setActionError('Spotify 由官方播放器播放，下载功能不适用于 Spotify。');
+      setActionMessage(null);
+      return;
+    }
+
     const sourceUrl = streamingTrackWebUrl(track);
     if (!sourceUrl) {
       setActionError('这个平台暂不支持从流媒体结果直接下载。');
@@ -702,9 +710,11 @@ export const StreamingSearchPage = (): JSX.Element => {
                         <button type="button" title="加入队列" onClick={() => handleAddToQueue(track)} disabled={!track.playable}>
                           {isQueued ? <Check size={16} /> : <ListPlus size={16} />}
                         </button>
-                        <button type="button" title="下载" onClick={() => void handleDownload(track)} disabled={isDownloading}>
-                          {isDownloading ? <Loader2 className="spinning-icon" size={16} /> : <Download size={16} />}
-                        </button>
+                        {track.provider !== 'spotify' ? (
+                          <button type="button" title="下载" onClick={() => void handleDownload(track)} disabled={isDownloading}>
+                            {isDownloading ? <Loader2 className="spinning-icon" size={16} /> : <Download size={16} />}
+                          </button>
+                        ) : null}
                       </div>
                       {isResolving ? <div className="streaming-resolving">正在解析播放地址...</div> : null}
                       {downloadJob ? (

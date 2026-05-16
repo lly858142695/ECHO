@@ -6,6 +6,7 @@ import type { LocalFileResolveResult, PlaybackStatus } from '../../shared/types/
 import type { PlayableTrack } from '../../shared/types/remoteSources';
 import { streamingProviderNames, streamingStableKey } from '../../shared/types/streaming';
 import type { StreamingProviderName } from '../../shared/types/streaming';
+import { isSpotifyTrack, playSpotifyTrack } from '../integrations/spotify/spotifyPlayback';
 import { beginPlaybackSwitchSnapshot, setPlaybackStatusSnapshot } from './playbackStatusStore';
 
 export type QueueSource =
@@ -340,6 +341,14 @@ const createProbeFromTrack = (track: LibraryTrack) => ({
   bitrate: track.bitrate,
 });
 
+const statusForPlaybackFailure = (track: LibraryTrack): PlaybackStatus => ({
+  state: 'error',
+  currentTrackId: track.id,
+  positionMs: 0,
+  durationMs: Math.round(Math.max(0, track.duration) * 1000),
+  filePath: track.stableKey ?? track.path,
+});
+
 const playbackStatusForItem = (status: PlaybackStatus, item: QueueItem): PlaybackStatus => {
   if (status.currentTrackId === item.track.id) {
     return status;
@@ -660,10 +669,6 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     const requestToken = playRequestTokenRef.current + 1;
     playRequestTokenRef.current = requestToken;
 
-    if (!playback) {
-      throw new Error('Desktop bridge unavailable. Open ECHO Next in Electron to play local files.');
-    }
-
     const previousItem = findItemByQueueId(itemsRef.current, currentQueueIdRef.current);
     void finishPlaybackHistorySession();
     setCurrentQueueId(item.queueId);
@@ -676,16 +681,37 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       durationMs: Math.round(Math.max(0, item.track.duration) * 1000),
       filePath: track.path,
     });
-    const rawStatus =
-      (track.mediaType === 'remote' || track.mediaType === 'streaming') && playback.playMediaItem
-        ? await playback.playMediaItem({
-            item: toPlayableTrack(track),
-          })
-        : await playback.playLocalFile({
-            filePath: track.path,
-            trackId: track.id,
-            probe: createProbeFromTrack(track),
-          });
+    const rawStatus = await (async () => {
+      try {
+        return isSpotifyTrack(track)
+          ? await (async () => {
+              await playback?.stop?.().catch(() => undefined);
+              return playSpotifyTrack(track);
+            })()
+          : await (() => {
+              if (!playback) {
+                throw new Error('Desktop bridge unavailable. Open ECHO Next in Electron to play local files.');
+              }
+
+              return (track.mediaType === 'remote' || track.mediaType === 'streaming') && playback.playMediaItem
+                ? playback.playMediaItem({
+                    item: toPlayableTrack(track),
+                  })
+                : playback.playLocalFile({
+                    filePath: track.path,
+                    trackId: track.id,
+                    probe: createProbeFromTrack(track),
+                  });
+            })();
+      } catch (error) {
+        setPlaybackStatusSnapshot({
+          playbackStatus: statusForPlaybackFailure(item.track),
+          error: error instanceof Error ? error.message : String(error),
+          playbackVisualIntent: null,
+        });
+        throw error;
+      }
+    })();
     const status = playbackStatusForItem(rawStatus, item);
     playbackStatusTokensRef.current.set(status, requestToken);
     playbackStatusPreviousItemRef.current.set(status, previousItem);
@@ -725,6 +751,10 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     const index = current.findIndex((candidate) => candidate.queueId === item.queueId);
     const next = index >= 0 && index < current.length - 1 ? current[index + 1] : null;
     if (!next) {
+      return;
+    }
+
+    if (isSpotifyTrack(next.track)) {
       return;
     }
 

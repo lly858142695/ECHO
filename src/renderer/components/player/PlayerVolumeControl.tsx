@@ -10,6 +10,7 @@ type PlayerVolumeControlProps = {
   onError: (message: string) => void;
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
+  onCommitVolume?: (volume: number) => Promise<void>;
 };
 
 const volumeFromStatus = (status: AudioStatus | null): number => {
@@ -22,6 +23,7 @@ export const PlayerVolumeControl = ({
   onError,
   isOpen,
   onOpenChange,
+  onCommitVolume,
 }: PlayerVolumeControlProps): JSX.Element => {
   const [volume, setVolume] = useState(volumeFromStatus(status));
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -90,6 +92,25 @@ export const PlayerVolumeControl = ({
       setVolume(safeVolume);
       pendingCommitRef.current = safeVolume;
 
+      if (onCommitVolume) {
+        try {
+          await onCommitVolume(safeVolume);
+          const setSettings = window.echo?.app?.setSettings;
+          if (typeof setSettings === 'function') {
+            void setSettings({ playerVolume: safeVolume }).catch(() => undefined);
+          }
+          if (pendingCommitRef.current === safeVolume) {
+            pendingCommitRef.current = null;
+          }
+        } catch (error) {
+          if (pendingCommitRef.current === safeVolume) {
+            pendingCommitRef.current = null;
+          }
+          onError(error instanceof Error ? error.message : String(error));
+        }
+        return;
+      }
+
       if (!audio) {
         onError('Desktop bridge unavailable');
         return;
@@ -112,7 +133,7 @@ export const PlayerVolumeControl = ({
         onError(error instanceof Error ? error.message : String(error));
       }
     },
-    [onError, onStatusChange],
+    [onCommitVolume, onError, onStatusChange],
   );
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>): void => {

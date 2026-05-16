@@ -82,6 +82,17 @@ describe('DownloadService', () => {
     expect(() => service.createUrlJob('https://www.youtube.com/watch?v=probe')).toThrow('请选择下载文件夹');
   });
 
+  it('rejects Spotify URLs before creating a download job', () => {
+    const service = new DownloadService();
+
+    expect(() => service.createUrlJob('https://open.spotify.com/track/spotify-track-id')).toThrow(
+      'Spotify streams are playback-only in ECHO Next',
+    );
+    expect(() => service.createUrlJob('https://example.com/audio.mp3', { webpageUrl: 'spotify:track:spotify-track-id' })).toThrow(
+      'Spotify streams are playback-only in ECHO Next',
+    );
+  });
+
   it('loads and saves download settings through the settings store', () => {
     const outputDirectory = makeTempRoot();
     const saveSettings = vi.fn();

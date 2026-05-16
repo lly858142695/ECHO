@@ -151,11 +151,15 @@
 
 .chrome-notice {
   position: fixed;
-  right: 24px;
-  bottom: calc(var(--player-height) + 18px);
+  top: 52px;
+  left: 18px;
   z-index: 30;
   max-width: min(420px, calc(100vw - 48px));
-  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px 12px 14px;
   color: #2c2c2e;
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -164,11 +168,56 @@
   font-size: 12px;
   font-weight: 720;
   line-height: 1.45;
+  opacity: 0;
+  transform: translate3d(-12px, -8px, 0) scale(0.98);
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.chrome-notice.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+.chrome-notice.is-hiding {
+  pointer-events: none;
+}
+
+.chrome-notice-message {
+  min-width: 0;
+}
+
+.chrome-notice-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  color: inherit;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.72;
+  transition:
+    opacity 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.chrome-notice-close:hover {
+  opacity: 1;
+  border-color: rgba(44, 44, 46, 0.1);
+  background: rgba(44, 44, 46, 0.06);
 }
 
 .chrome-notice--diagnostics {
   display: grid;
+  grid-template-columns: 1fr;
   gap: 10px;
+  opacity: 1;
+  transform: none;
 }
 
 .chrome-notice--audio-error {
@@ -177,11 +226,14 @@
   bottom: auto;
   left: 18px;
   display: grid;
+  grid-template-columns: 1fr;
   gap: 7px;
   max-width: min(460px, calc(100vw - 36px));
   border-color: rgba(190, 58, 58, 0.24);
   background: rgba(255, 250, 250, 0.98);
   box-shadow: 0 18px 46px rgba(126, 35, 35, 0.16);
+  opacity: 1;
+  transform: none;
 }
 
 .chrome-notice--account {
@@ -190,11 +242,14 @@
   bottom: auto;
   left: 18px;
   display: grid;
+  grid-template-columns: 1fr;
   gap: 6px;
   max-width: min(420px, calc(100vw - 36px));
   border-color: rgba(176, 111, 31, 0.28);
   background: rgba(255, 251, 244, 0.98);
   box-shadow: 0 18px 46px rgba(142, 83, 12, 0.14);
+  opacity: 1;
+  transform: none;
 }
 
 .chrome-notice--account strong {
@@ -308,7 +363,7 @@
 
 .nav-list {
   display: flex;
-  gap: 3px;
+  gap: 5px;
   flex-direction: column;
 }
 
@@ -371,36 +426,42 @@
 .nav-item {
   position: relative;
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 0 10px 0 8px;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 12px 0 7px;
   color: #526174;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 11px;
   background: transparent;
   isolation: isolate;
 }
 
-.nav-item svg {
-  box-sizing: content-box;
-  width: 21px;
-  height: 21px;
-  padding: 5px;
+.nav-icon-shell {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
   color: #62738a;
   border-radius: 10px;
   background: transparent;
   transition:
     color 150ms ease,
     background-color 150ms ease,
-    box-shadow 150ms ease;
+    transform 150ms ease;
+}
+
+.nav-icon-shell svg {
+  display: block;
+  width: 26px;
+  height: 26px;
 }
 
 .nav-item::before {
   position: absolute;
-  top: 8px;
-  bottom: 8px;
+  top: 10px;
+  bottom: 10px;
   left: -7px;
   width: 2px;
   border-radius: 999px;
@@ -408,7 +469,7 @@
   content: "";
 }
 
-.nav-item span {
+.nav-item-label {
   overflow: hidden;
   font-size: 13px;
   font-weight: 720;
@@ -419,32 +480,22 @@
 
 .nav-item[data-active="true"] {
   color: #172235;
-  border-color: rgba(83, 131, 181, 0.2);
-  background:
-    radial-gradient(circle at 18px 50%, rgba(10, 132, 255, 0.12), transparent 42px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(235, 242, 249, 0.88)),
-    rgba(239, 245, 252, 0.92);
-  box-shadow:
-    0 10px 22px rgba(63, 91, 128, 0.13),
-    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
 .nav-item[data-active="true"]::before {
-  background: linear-gradient(180deg, #1988ff, #2bb7a8);
-  box-shadow: 0 0 12px rgba(25, 136, 255, 0.34);
+  background: #1579bd;
+  box-shadow: none;
 }
 
-.nav-item[data-active="true"] svg {
-  color: #0b73d9;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(221, 237, 254, 0.78)),
-    rgba(10, 132, 255, 0.08);
-  box-shadow:
-    0 4px 10px rgba(10, 96, 176, 0.08),
-    inset 0 0 0 1px rgba(10, 132, 255, 0.1);
+.nav-item[data-active="true"] .nav-icon-shell {
+  color: #0c6fae;
+  background: transparent;
 }
 
-.nav-item:hover,
+.nav-item:not([data-active="true"]):hover,
 .sidebar-folder:hover {
   color: #1f2a3a;
   border-color: rgba(91, 108, 128, 0.11);
@@ -454,9 +505,40 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 
-.nav-item:hover svg {
-  color: #2f638f;
+.nav-item:not([data-active="true"]):hover .nav-icon-shell {
+  color: #235b83;
   background: rgba(77, 105, 135, 0.07);
+}
+
+.nav-item[data-active="true"]:hover {
+  color: #172235;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.nav-item[data-active="true"]:hover .nav-icon-shell {
+  color: #0c6fae;
+  background: transparent;
+}
+
+@media (max-width: 640px) {
+  .sidebar .nav-list {
+    min-width: max-content;
+    flex-direction: row;
+    gap: 7px;
+  }
+
+  .sidebar .utility-nav {
+    padding-top: 0;
+    padding-left: 8px;
+    border-top: 0;
+    border-left: 1px solid var(--color-border);
+  }
+
+  .sidebar .utility-nav::before {
+    display: none;
+  }
 }
 
 .nav-item:active,
@@ -4400,16 +4482,26 @@
   scrollbar-width: thin;
 }
 
+.mv-settings-search-empty,
 .mv-settings-search-error {
   margin: 0;
   padding: 10px 12px;
-  color: rgba(255, 218, 218, 0.9);
-  border: 1px solid rgba(255, 184, 184, 0.18);
   border-radius: 8px;
-  background: rgba(154, 65, 65, 0.18);
   font-size: 11px;
   font-weight: 760;
   line-height: 1.45;
+}
+
+.mv-settings-search-empty {
+  color: rgba(220, 231, 255, 0.76);
+  border: 1px solid rgba(220, 231, 255, 0.1);
+  background: rgba(220, 231, 255, 0.08);
+}
+
+.mv-settings-search-error {
+  color: rgba(255, 218, 218, 0.9);
+  border: 1px solid rgba(255, 184, 184, 0.18);
+  background: rgba(154, 65, 65, 0.18);
 }
 
 .mv-settings-candidates::-webkit-scrollbar {
@@ -4559,6 +4651,21 @@
   grid-column: 1 / -1;
   min-height: 40px;
   padding: 0 14px;
+}
+
+.mv-current-song-toggle .mv-toggle-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.mv-current-song-toggle .mv-toggle-copy strong {
+  flex: 0 1 auto;
+}
+
+.mv-current-song-toggle .mv-toggle-copy em {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .mv-custom-card {
@@ -5944,7 +6051,7 @@ html[data-theme="dark"] .songs-title-group h1 {
 html[data-theme="dark"] .app-titlebar-brand span,
 html[data-theme="dark"] .sidebar-folder,
 html[data-theme="dark"] .nav-item,
-html[data-theme="dark"] .nav-item svg,
+html[data-theme="dark"] .nav-icon-shell,
 html[data-theme="dark"] .titlebar-action,
 html[data-theme="dark"] .window-control,
 html[data-theme="dark"] .songs-title-group span {
@@ -5963,7 +6070,7 @@ html[data-theme="dark"] .titlebar-action svg {
 
 html[data-theme="dark"] .titlebar-action:hover,
 html[data-theme="dark"] .window-control:hover,
-html[data-theme="dark"] .nav-item:hover,
+html[data-theme="dark"] .nav-item:not([data-active="true"]):hover,
 html[data-theme="dark"] .settings-nav-item:hover {
   color: var(--echo-heading-text);
   background: rgba(255, 255, 255, 0.065);
@@ -5975,7 +6082,7 @@ html[data-theme="dark"] .titlebar-action:hover {
   box-shadow: none;
 }
 
-html[data-theme="dark"] .nav-item:hover svg {
+html[data-theme="dark"] .nav-item:not([data-active="true"]):hover .nav-icon-shell {
   color: var(--echo-heading-text);
   background: var(--theme-control-bg-hover);
 }
@@ -5988,25 +6095,29 @@ html[data-theme="dark"] .titlebar-action[data-drawer-open="true"] {
   box-shadow: none;
 }
 
-html[data-theme="dark"] .nav-item[data-active="true"],
-html[data-theme="dark"] .settings-nav-item.active {
-  border-color: rgba(100, 181, 255, 0.2);
-  background:
-    radial-gradient(circle at 18px 50%, rgba(100, 181, 255, 0.15), transparent 42px),
-    linear-gradient(180deg, rgba(42, 51, 64, 0.84), rgba(29, 36, 46, 0.84)),
-    rgba(29, 36, 46, 0.9);
-  box-shadow: inset 3px 0 0 rgba(100, 181, 255, 0.78);
+html[data-theme="dark"] .nav-item[data-active="true"] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
-html[data-theme="dark"] .nav-item[data-active="true"] svg,
-html[data-theme="dark"] .nav-item[data-active="true"]:hover svg {
-  color: var(--color-accent-strong);
+html[data-theme="dark"] .settings-nav-item.active {
+  border-color: rgba(100, 181, 255, 0.16);
   background:
-    linear-gradient(180deg, var(--theme-control-bg-hover), var(--theme-control-bg-active)),
-    var(--theme-control-bg);
-  box-shadow:
-    0 6px 14px var(--theme-overlay-bg),
-    inset 0 0 0 1px var(--theme-button-border);
+    linear-gradient(180deg, rgba(42, 51, 64, 0.72), rgba(29, 36, 46, 0.78)),
+    rgba(29, 36, 46, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] .nav-item[data-active="true"]::before {
+  background: var(--color-accent-strong);
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .nav-item[data-active="true"] .nav-icon-shell,
+html[data-theme="dark"] .nav-item[data-active="true"]:hover .nav-icon-shell {
+  color: var(--color-accent-strong);
+  background: transparent;
 }
 
 html[data-theme="dark"] .utility-nav,
@@ -6299,6 +6410,35 @@ html[data-theme="dark"] .app-shell--wallpaper .settings-page .audio-field input,
 html[data-theme="dark"] .app-shell--wallpaper .settings-page .audio-field select {
   border-color: rgb(232 238 247 / var(--app-wallpaper-ui-border-alpha));
   background: rgba(27, 33, 42, 0.82);
+}
+
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .page-surface:has(.settings-page),
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-page,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-nav,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-search,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-nav-item:hover,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-nav-item.active,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-section,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .section-title,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .setting-row,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-wallpaper-path,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-wallpaper-control,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-page .audio-command-button,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-page .audio-icon-command,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-page .audio-field input,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-page .audio-field select,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .metric,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .settings-row,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .search-preview,
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .empty-state {
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.app-shell--wallpaper-ready[data-wallpaper-ui-transparent="true"] .setting-row:hover {
+  background: transparent;
 }
 
 html[data-theme="dark"] .page-surface:has(.downloads-page) {
@@ -7669,8 +7809,8 @@ html[data-theme="dark"] .history-play-count {
 
 @media (max-width: 640px) {
   .chrome-notice {
-    right: 12px;
-    bottom: calc(var(--player-height) + 74px);
+    top: 48px;
+    left: 12px;
     max-width: calc(100vw - 24px);
   }
 

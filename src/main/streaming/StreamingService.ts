@@ -5,6 +5,8 @@ import { getAppSettings } from '../app/appSettings';
 import type { BpmAnalysisResult } from '../../shared/types/library';
 import type {
   StreamingLyricsResult,
+  StreamingLikedSongsSyncProviderResult,
+  StreamingLikedSongsSyncResult,
   StreamingMvResult,
   StreamingPlaybackRequest,
   StreamingPlaybackSource,
@@ -27,17 +29,21 @@ import { StreamingRateLimiter } from './StreamingRateLimiter';
 import { MockStreamingProvider } from './providers/MockStreamingProvider';
 import { NeteaseStreamingProvider } from './providers/NeteaseStreamingProvider';
 import { QQMusicStreamingProvider } from './providers/QQMusicStreamingProvider';
+import { SpotifyStreamingProvider } from './providers/SpotifyStreamingProvider';
 
 const searchTtlMs = 5 * 60 * 1000;
 const trackDetailTtlMs = 30 * 60 * 1000;
 const maxPlaybackTtlMs = 5 * 60 * 1000;
 const fallbackPlaybackTtlMs = 2 * 60 * 1000;
 const providerTimeoutMs = 10 * 1000;
+const likedSongsSyncTimeoutMs = 45 * 1000;
 const searchCacheVersion = 'v2';
-const lyricsCacheVersion = 'v2';
+const lyricsCacheVersion = 'v3';
 const bpmConfidenceThreshold = 0.42;
 const playlistImportPageSize = 500;
+const likedSongsSyncPageSize = 100;
 const maxPlaylistImportTracks = 20_000;
+const likedSongsSyncProviders = ['netease', 'qqmusic'] as const;
 const qqShareLinkUserAgent =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
 
@@ -47,7 +53,7 @@ type StreamingTrackRequest = {
 };
 
 type StreamingPlaylistUrlTarget = {
-  provider: Extract<StreamingProviderName, 'netease' | 'qqmusic'>;
+  provider: Extract<StreamingProviderName, 'netease' | 'qqmusic' | 'spotify'>;
   providerPlaylistId: string;
 };
 
@@ -84,6 +90,11 @@ const mvCacheKey = (provider: StreamingProviderName, providerTrackId: string): s
 
 const parsePlaylistUrl = (rawUrl: string): URL => {
   const trimmed = rawUrl.trim();
+  const spotifyUri = trimmed.match(/^spotify:playlist:([A-Za-z0-9]+)$/iu);
+  if (spotifyUri) {
+    return new URL(`https://open.spotify.com/playlist/${spotifyUri[1]}`);
+  }
+
   try {
     return new URL(trimmed);
   } catch {
@@ -125,6 +136,13 @@ const playlistIdFromParsedUrl = (url: URL): StreamingPlaylistUrlTarget | null =>
     const id = findParam('id', 'disstid', 'playlistId') ?? combinedPath.match(/playlist\/([A-Za-z0-9]+)/iu)?.[1] ?? null;
     if (id) {
       return { provider: 'qqmusic', providerPlaylistId: id };
+    }
+  }
+
+  if (host === 'open.spotify.com' || host.endsWith('.spotify.com')) {
+    const id = combinedPath.match(/playlist\/([A-Za-z0-9]+)/iu)?.[1] ?? null;
+    if (id) {
+      return { provider: 'spotify', providerPlaylistId: id };
     }
   }
 
@@ -173,7 +191,7 @@ const resolvePlaylistIdFromUrl = async (rawUrl: string): Promise<StreamingPlayli
     return resolvedTarget;
   }
 
-  throw new Error('Only NetEase Cloud Music and QQ Music playlist links are supported.');
+  throw new Error('Only NetEase Cloud Music, QQ Music, and Spotify playlist links are supported.');
 };
 
 const cleanError = (error: unknown, fallback: string): Error => {
@@ -493,6 +511,20 @@ export class StreamingService {
     };
   }
 
+  async syncLikedSongs(): Promise<StreamingLikedSongsSyncResult> {
+    const providers = await Promise.all(likedSongsSyncProviders.map((providerName) => this.syncProviderLikedSongs(providerName)));
+    const firstPlaylistId =
+      this.cacheStore.importLikedStreamingTracks([], { addedFrom: 'streaming-liked-sync' }).playlist.id;
+
+    return {
+      playlistId: firstPlaylistId,
+      importedCount: providers.reduce((total, provider) => total + provider.importedCount, 0),
+      addedCount: providers.reduce((total, provider) => total + provider.addedCount, 0),
+      providers,
+      syncedAt: new Date().toISOString(),
+    };
+  }
+
   normalizeTrack(provider: StreamingProviderName, raw: StreamingTrack): StreamingTrack {
     const providerTrackId = raw.providerTrackId.trim();
     return {
@@ -514,8 +546,12 @@ export class StreamingService {
   }
 
   private async callProvider<T>(provider: StreamingProvider, work: () => Promise<T>, label: string): Promise<T> {
+    return this.callProviderWithTimeout(provider, work, label, providerTimeoutMs);
+  }
+
+  private async callProviderWithTimeout<T>(provider: StreamingProvider, work: () => Promise<T>, label: string, timeoutMs: number): Promise<T> {
     try {
-      return await this.rateLimiter.schedule(provider.name, () => withTimeout(work(), providerTimeoutMs, label));
+      return await this.rateLimiter.schedule(provider.name, () => withTimeout(work(), timeoutMs, label));
     } catch (error) {
       throw cleanError(error, `${label} failed.`);
     }
@@ -532,6 +568,55 @@ export class StreamingService {
     this.cacheStore.setApiCache(request.provider, 'search', key, normalizedResult, expiresAtFromTtl(searchTtlMs));
     return this.memoryCache.set(key, normalizedResult, searchTtlMs);
   }
+
+  private async syncProviderLikedSongs(
+    providerName: (typeof likedSongsSyncProviders)[number],
+  ): Promise<StreamingLikedSongsSyncProviderResult> {
+    try {
+      const provider = this.registry.get(providerName);
+      if (!provider.getLikedSongsPlaylist) {
+        throw new Error('此平台暂不支持“我喜欢”同步。');
+      }
+
+      let page = 1;
+      let importedCount = 0;
+      let addedCount = 0;
+      let total: number | null = null;
+
+      while (importedCount < maxPlaylistImportTracks) {
+        const detail = await this.callProviderWithTimeout(
+          provider,
+          () => provider.getLikedSongsPlaylist!({ page, pageSize: likedSongsSyncPageSize }),
+          `${providerName} liked songs sync`,
+          likedSongsSyncTimeoutMs,
+        );
+        const normalizedTracks = detail.tracks.map((track) => this.normalizeTrack(detail.provider, track));
+        const result = this.cacheStore.importLikedStreamingTracks(normalizedTracks, {
+          addedFrom: `${providerName}-liked-sync`,
+        });
+        importedCount += normalizedTracks.length;
+        addedCount += result.addedCount;
+        total = detail.total;
+
+        if (!detail.hasMore || normalizedTracks.length === 0) {
+          break;
+        }
+
+        page += 1;
+      }
+
+      return { provider: providerName, success: true, importedCount, addedCount, total };
+    } catch (error) {
+      return {
+        provider: providerName,
+        success: false,
+        importedCount: 0,
+        addedCount: 0,
+        total: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 }
 
 export const createStreamingService = (database: EchoDatabase): StreamingService => {
@@ -539,6 +624,7 @@ export const createStreamingService = (database: EchoDatabase): StreamingService
   registry.register(new MockStreamingProvider());
   registry.register(new NeteaseStreamingProvider());
   registry.register(new QQMusicStreamingProvider());
+  registry.register(new SpotifyStreamingProvider());
   return new StreamingService(
     registry,
     new StreamingCacheStore(database, (playlistId) => backupPlaylistIfEnabled(database, playlistId, 'streaming-refresh', getAppSettings)),

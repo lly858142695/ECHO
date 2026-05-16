@@ -40,6 +40,8 @@ type SubsonicSong = {
   contentType?: string;
   suffix?: string;
   bitRate?: number;
+  bitDepth?: number;
+  samplingRate?: number;
   size?: number;
   created?: string;
   coverArt?: string;
@@ -293,6 +295,8 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
         album: song.album,
         albumArtist: song.albumArtist,
         duration: song.duration,
+        bitDepth: song.bitDepth,
+        samplingRate: song.samplingRate,
         size: song.size,
         coverArt: song.coverArt,
       })),
@@ -320,8 +324,8 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
       genre: cleanText(song.genre),
       duration,
       codec: cleanText(song.suffix) ?? cleanText(song.contentType),
-      sampleRate: null,
-      bitDepth: null,
+      sampleRate: cleanNumber(song.samplingRate),
+      bitDepth: cleanNumber(song.bitDepth),
       bitrate: cleanNumber(song.bitRate) ? Number(song.bitRate) * 1000 : null,
       fieldSources: {
         title: 'subsonic',
@@ -329,6 +333,9 @@ export class SubsonicRemoteSourceAdapter implements RemoteSourceAdapter {
         album: song.album ? 'subsonic' : 'missing',
         albumArtist: albumArtist === 'Unknown Artist' ? 'filename_fallback' : 'subsonic',
         duration: duration ? 'subsonic' : 'unknown',
+        sampleRate: cleanNumber(song.samplingRate) ? 'subsonic' : 'unknown',
+        bitDepth: cleanNumber(song.bitDepth) ? 'subsonic' : 'unknown',
+        bitrate: cleanNumber(song.bitRate) ? 'subsonic' : 'unknown',
         ...(song.coverArt ? { coverArt: song.coverArt } : {}),
       },
       warnings: duration ? [] : ['duration_unavailable'],

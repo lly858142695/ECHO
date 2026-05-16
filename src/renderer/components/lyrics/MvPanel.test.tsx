@@ -837,6 +837,67 @@ describe('MvPanel', () => {
     expect(container.querySelector('.lyrics-mv-artwork img')?.getAttribute('src')).toBe('echo-cover://thumb/test');
   });
 
+  it('refreshes an unplayable search-selected MV before showing it as unavailable', async () => {
+    const externalCandidate = makeVideo({
+      id: 'video-external',
+      sourceType: 'search_candidate',
+      provider: 'bilibili',
+      sourceId: 'BV1external',
+      playableInApp: false,
+      mediaUrl: null,
+      title: 'External Search Result',
+    });
+    const playableCandidate = makeVideo({
+      id: 'video-playable',
+      sourceType: 'search_candidate',
+      provider: 'bilibili',
+      sourceId: 'BV1playable',
+      mediaUrl: 'echo-mv://stream/video-playable/bilibili-qn-80',
+      title: 'Playable Search Result',
+    });
+    const getSelected = vi.fn().mockResolvedValueOnce(externalCandidate).mockResolvedValueOnce(playableCandidate);
+    window.echo = {
+      playback: {
+        seek: vi.fn(),
+      },
+      mv: {
+        getSelected,
+        getSettings: vi.fn().mockResolvedValue(defaultMvSettings),
+        setSettings: vi.fn(),
+        findLocalCandidates: vi.fn().mockResolvedValue([]),
+        searchNetworkCandidates: vi.fn().mockResolvedValue([]),
+        getCandidates: vi.fn().mockResolvedValue([]),
+        resolveStreams: vi.fn(async (videoId: string) => ({
+          video: videoId === playableCandidate.id ? playableCandidate : externalCandidate,
+          variants: [],
+        })),
+        setQuality: vi.fn(),
+        setOffset: vi.fn(),
+        chooseLocalVideo: vi.fn().mockResolvedValue(null),
+        bindLocalVideo: vi.fn(),
+        selectVideo: vi.fn(),
+        clearSelected: vi.fn(),
+        openExternal: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(
+      <MvPanel
+        trackId="track-1"
+        title="Test Song"
+        artist="Test Artist"
+        coverUrl="echo-cover://thumb/test"
+        isAudioPlaying
+        audioClock={makeAudioClock(0)}
+      />,
+    );
+
+    await waitFor(() => expect(window.echo.mv.searchNetworkCandidates).toHaveBeenCalledWith('track-1'));
+    await waitFor(() => expect(getSelected).toHaveBeenCalledTimes(2));
+    expect(container.querySelector('video')?.getAttribute('src')).toBe('echo-mv://stream/video-playable/bilibili-qn-80');
+    expect(screen.queryByText('MV unavailable')).toBeNull();
+  });
+
   it('falls back to the track cover when the selected MV thumbnail fails to load', async () => {
     const { container } = renderPanel(
       makeVideo({

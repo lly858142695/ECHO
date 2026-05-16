@@ -156,7 +156,7 @@ describe('China streaming providers', () => {
     });
   });
 
-  it('resolves NetEase playback without returning secret headers', async () => {
+  it('resolves NetEase playback with CDN request headers for the native decoder', async () => {
     setNeteaseApiForTests(null);
     const fetchRunner = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -183,7 +183,11 @@ describe('China streaming providers', () => {
       provider: 'netease',
       providerTrackId: '123',
       url: 'https://m701.music.126.net/token/song.mp3',
-      headers: {},
+      headers: expect.objectContaining({
+        Referer: 'https://music.163.com/',
+        Origin: 'https://music.163.com',
+        Cookie: 'MUSIC_U=secret; csrf=hidden',
+      }),
       requiresProxy: false,
       supportsRange: true,
     });
@@ -218,6 +222,10 @@ describe('China streaming providers', () => {
       url: 'https://m701.music.126.net/enhanced/song.flac',
       codec: 'flac',
       bitrate: 999000,
+      headers: expect.objectContaining({
+        Cookie: 'MUSIC_U=secret; csrf=hidden',
+        Referer: 'https://music.163.com/',
+      }),
     });
   });
 

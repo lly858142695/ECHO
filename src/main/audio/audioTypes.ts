@@ -5,6 +5,7 @@ import type {
   AudioLatencyProfile,
   AudioOutputMode,
   AudioOutputSettings,
+  AudioSharedBackend,
   AudioPlaybackState,
   AudioStatus,
 } from '../../shared/types/audio';
@@ -16,6 +17,7 @@ export type {
   AudioLatencyProfile,
   AudioOutputMode,
   AudioOutputSettings,
+  AudioSharedBackend,
   AudioPlaybackState,
   AudioStatus,
 };
@@ -23,6 +25,7 @@ export type {
 export type LocalAudioSource = {
   filePath: string;
   trackId?: string;
+  inputHeaders?: Record<string, string>;
 };
 
 export type AudioProbeResult = {
@@ -53,6 +56,7 @@ export type PcmDecodeRequest = {
   startSeconds: number;
   channels: number;
   decoderOutputSampleRate: number;
+  inputHeaders?: Record<string, string>;
 };
 
 export type DecoderRun = {
@@ -67,7 +71,7 @@ export type NativeOutputStartOptions = {
   channels: number;
   deviceIndex?: number;
   deviceName?: string;
-  sharedBackend?: 'auto' | 'windows' | 'directsound'; // directsound is legacy-disabled; callers should not request it.
+  sharedBackend?: AudioSharedBackend;
   asio?: boolean;
   exclusive?: boolean;
   useJuceOutput?: boolean;

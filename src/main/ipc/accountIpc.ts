@@ -3,6 +3,7 @@ import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { AccountLoginStartResult, AccountProvider, AccountStatus } from '../../shared/types/accounts';
 import { getAccountService, isAccountProvider, isYouTubeBrowser } from '../accounts/AccountService';
 import { startAccountLoginWindow } from '../accounts/AccountLoginWindow';
+import { getSpotifyAuthService } from '../accounts/SpotifyAuthService';
 
 const requireProvider = (value: unknown): AccountProvider => {
   if (!isAccountProvider(value)) {
@@ -30,20 +31,92 @@ export const registerAccountIpc = (): void => {
   );
   ipcMain.handle(IpcChannels.AccountStartLogin, (_event, provider: unknown): Promise<AccountLoginStartResult> => {
     const accountProvider = requireProvider(provider);
+    if (accountProvider === 'spotify') {
+      return getSpotifyAuthService().startLoginWindow();
+    }
+
     return startAccountLoginWindow(accountProvider, getAccountService());
   });
   ipcMain.handle(IpcChannels.AccountClear, (_event, provider: unknown): AccountStatus =>
     getAccountService().clearAccount(requireProvider(provider)),
   );
-  ipcMain.handle(IpcChannels.AccountCheck, (_event, provider: unknown): Promise<AccountStatus> =>
-    getAccountService().checkAccount(requireProvider(provider)),
-  );
-  ipcMain.handle(IpcChannels.AccountCheckAll, (): Promise<AccountStatus[]> => getAccountService().checkAllAccounts());
+  ipcMain.handle(IpcChannels.AccountCheck, (_event, provider: unknown): Promise<AccountStatus> => {
+    const accountProvider = requireProvider(provider);
+    if (accountProvider === 'spotify') {
+      return getSpotifyAuthService().checkAccount();
+    }
+
+    return getAccountService().checkAccount(accountProvider);
+  });
+  ipcMain.handle(IpcChannels.AccountCheckAll, async (): Promise<AccountStatus[]> => {
+    await getAccountService().checkAllAccounts();
+    if (getAccountService().getStatus('spotify').connected) {
+      await getSpotifyAuthService().checkAccount();
+    }
+    return getAccountService().getStatuses();
+  });
   ipcMain.handle(IpcChannels.AccountSetYouTubeBrowser, (_event, browser: unknown): AccountStatus => {
     if (!isYouTubeBrowser(browser)) {
       throw new Error('browser must be edge, chrome, firefox, or none');
     }
 
     return getAccountService().setYouTubeBrowser(browser);
+  });
+  ipcMain.handle(IpcChannels.SpotifyGetAccessToken, (): Promise<string> => getSpotifyAuthService().getAccessToken());
+  ipcMain.handle(IpcChannels.SpotifyGetDevices, () => getSpotifyAuthService().getDevices());
+  ipcMain.handle(IpcChannels.SpotifyGetPlaybackState, () => getSpotifyAuthService().getPlaybackState());
+  ipcMain.handle(IpcChannels.SpotifyEnsureConnectDevice, (_event, request: unknown) => {
+    const input = request && typeof request === 'object' ? (request as Record<string, unknown>) : {};
+    const uri = typeof input.uri === 'string' ? input.uri.trim() : '';
+    const webUrl = typeof input.webUrl === 'string' ? input.webUrl.trim() : '';
+    const preferredDeviceId =
+      typeof input.preferredDeviceId === 'string' && input.preferredDeviceId.trim()
+        ? input.preferredDeviceId.trim()
+        : null;
+    if (!uri || !webUrl) {
+      throw new Error('Spotify uri and webUrl are required');
+    }
+
+    return getSpotifyAuthService().ensureConnectDevice({ uri, webUrl, preferredDeviceId });
+  });
+  ipcMain.handle(IpcChannels.SpotifyStartPlayback, (_event, request: unknown): Promise<void> => {
+    const input = request && typeof request === 'object' ? (request as Record<string, unknown>) : {};
+    const deviceId = typeof input.deviceId === 'string' ? input.deviceId.trim() : '';
+    const uri = typeof input.uri === 'string' ? input.uri.trim() : '';
+    const positionMs = typeof input.positionMs === 'number' && Number.isFinite(input.positionMs) ? input.positionMs : undefined;
+    if (!deviceId || !uri) {
+      throw new Error('Spotify deviceId and uri are required');
+    }
+
+    return getSpotifyAuthService().startPlayback({ deviceId, uri, positionMs });
+  });
+  ipcMain.handle(IpcChannels.SpotifyTransferPlayback, (_event, request: unknown): Promise<void> => {
+    const input = request && typeof request === 'object' ? (request as Record<string, unknown>) : {};
+    const deviceId = typeof input.deviceId === 'string' ? input.deviceId.trim() : '';
+    if (!deviceId) {
+      throw new Error('Spotify deviceId is required');
+    }
+
+    return getSpotifyAuthService().transferPlayback({ deviceId, play: input.play === true });
+  });
+  ipcMain.handle(IpcChannels.SpotifyPause, (_event, deviceId: unknown): Promise<void> =>
+    getSpotifyAuthService().pause(typeof deviceId === 'string' ? deviceId : undefined),
+  );
+  ipcMain.handle(IpcChannels.SpotifyResume, (_event, deviceId: unknown): Promise<void> =>
+    getSpotifyAuthService().resume(typeof deviceId === 'string' ? deviceId : undefined),
+  );
+  ipcMain.handle(IpcChannels.SpotifySeek, (_event, positionMs: unknown, deviceId: unknown): Promise<void> => {
+    if (typeof positionMs !== 'number' || !Number.isFinite(positionMs)) {
+      throw new Error('Spotify seek position must be a finite number');
+    }
+
+    return getSpotifyAuthService().seek(positionMs, typeof deviceId === 'string' ? deviceId : undefined);
+  });
+  ipcMain.handle(IpcChannels.SpotifySetVolume, (_event, volume: unknown, deviceId: unknown): Promise<void> => {
+    if (typeof volume !== 'number' || !Number.isFinite(volume)) {
+      throw new Error('Spotify volume must be a finite number');
+    }
+
+    return getSpotifyAuthService().setVolume(volume, typeof deviceId === 'string' ? deviceId : undefined);
   });
 };

@@ -1,4 +1,4 @@
-import type { AudioOutputMode } from '../types/audio';
+import type { AudioOutputMode, AudioSharedBackend } from '../types/audio';
 
 export const isAdvancedNativeOutputPlatform = (platform: string): boolean => platform === 'win32';
 
@@ -8,6 +8,17 @@ export const normalizeAudioOutputModeForPlatform = (
   outputMode: AudioOutputMode,
   platform: string,
 ): AudioOutputMode => (isAdvancedNativeOutputPlatform(platform) ? outputMode : 'shared');
+
+export const normalizeAudioSharedBackendForPlatform = (
+  sharedBackend: AudioSharedBackend | undefined,
+  platform: string,
+): AudioSharedBackend => {
+  if (platform !== 'win32') {
+    return 'auto';
+  }
+
+  return sharedBackend === 'windows' || sharedBackend === 'directsound' ? sharedBackend : 'auto';
+};
 
 export const detectRendererPlatform = (navigatorLike: Pick<Navigator, 'platform' | 'userAgent'>): NodeJS.Platform | 'unknown' => {
   const platform = `${navigatorLike.platform} ${navigatorLike.userAgent}`.toLocaleLowerCase();

@@ -121,10 +121,49 @@ const createHarness = (onlineProviders: MainMvOnlineProvider[] = []) => {
     openPath: vi.fn(async () => ''),
     openExternal: vi.fn(async () => undefined),
   };
-  const service = new MvService(database, { getTrack: () => track }, undefined, shellOpener, onlineProviders);
+  const service = new MvService(database, { getTrack: (trackId) => (trackId === track.id ? track : null) }, undefined, shellOpener, onlineProviders);
 
   return { database, root, service, shellOpener, track };
 };
+
+const makeResolvedVariant = (overrides: Partial<ResolvedMvStreamVariant> = {}): ResolvedMvStreamVariant => ({
+  id: 'bilibili-qn-80',
+  label: '1080p',
+  qualityTier: '1080p',
+  width: 1920,
+  height: 1080,
+  fps: null,
+  codec: 'avc1',
+  container: 'mp4',
+  mimeType: 'video/mp4',
+  protocol: 'direct',
+  playableInApp: true,
+  requiresAccount: false,
+  expiresAt: null,
+  url: 'https://cdn.example/echo-1080.mp4',
+  headers: {},
+  rawProviderJson: { provider: 'bilibili', resolver: 'test', qn: 80, qualityRank: 3 },
+  ...overrides,
+});
+
+const makeExternalVariant = (url = 'https://www.bilibili.com/video/BV1external'): ResolvedMvStreamVariant => ({
+  id: 'bilibili:external',
+  label: 'Bilibili',
+  qualityTier: 'auto',
+  width: null,
+  height: null,
+  fps: null,
+  codec: null,
+  container: null,
+  mimeType: null,
+  protocol: 'external',
+  playableInApp: false,
+  requiresAccount: false,
+  expiresAt: null,
+  url,
+  headers: {},
+  rawProviderJson: null,
+});
 
 afterEach(() => {
   appSettingsMock.current = { ...appSettingsMock.defaultValue };
@@ -213,7 +252,7 @@ describe('MvService', () => {
     const provider: MainMvOnlineProvider = {
       id: 'bilibili',
       search: vi.fn(async () => [candidate]),
-      resolve: vi.fn(async () => []),
+      resolve: vi.fn(async () => [makeResolvedVariant()]),
     };
     const { service, track } = createHarness([provider]);
 
@@ -257,13 +296,14 @@ describe('MvService', () => {
     const provider: MainMvOnlineProvider = {
       id: 'bilibili',
       search: vi.fn(async () => [highScoreCandidate, manualCandidate]),
-      resolve: vi.fn(async () => []),
+      resolve: vi.fn(async () => [makeResolvedVariant()]),
     };
     const { service, track } = createHarness([provider]);
     appSettingsMock.current = { ...appSettingsMock.current, mvAutoSearch: false };
 
     const candidates = await service.searchNetworkCandidates(track.id);
     const selectedManually = service.selectVideo(track.id, candidates.find((candidate) => candidate.title === 'Echo Song Live MV')!.id);
+    await service.resolveStreams(selectedManually.id);
     appSettingsMock.current = { ...appSettingsMock.current, mvAutoSearch: true };
 
     await service.searchNetworkCandidates(track.id);
@@ -345,7 +385,7 @@ describe('MvService', () => {
     const bilibiliProvider: MainMvOnlineProvider = {
       id: 'bilibili',
       search: vi.fn(async () => [playableCandidate]),
-      resolve: vi.fn(async () => []),
+      resolve: vi.fn(async () => [makeResolvedVariant()]),
     };
     const youtubeProvider: MainMvOnlineProvider = {
       id: 'youtube',
@@ -360,6 +400,59 @@ describe('MvService', () => {
       provider: 'bilibili',
       sourceId: 'BV1playable',
       selected: true,
+    });
+  });
+
+  it('skips auto candidates that only resolve to an external Bilibili link', async () => {
+    const externalCandidate: MvMatchCandidate = {
+      id: 'bilibili:BV1external',
+      provider: 'bilibili',
+      sourceType: 'search_candidate',
+      title: 'Echo Song Blu-ray ISO',
+      artist: 'Echo Artist',
+      filePath: null,
+      url: 'https://www.bilibili.com/video/BV1external',
+      providerUrl: 'https://www.bilibili.com/video/BV1external',
+      thumbnailUrl: null,
+      uploader: 'Archive Channel',
+      availableQualities: [],
+      durationSeconds: 120,
+      score: 0.93,
+      playableInApp: true,
+      viewCount: 2000,
+      reasons: ['Bilibili search'],
+    };
+    const playableCandidate: MvMatchCandidate = {
+      ...externalCandidate,
+      id: 'bilibili:BV1playable',
+      title: 'Echo Song Music Video',
+      url: 'https://www.bilibili.com/video/BV1playable',
+      providerUrl: 'https://www.bilibili.com/video/BV1playable',
+      score: 0.9,
+      viewCount: 500,
+    };
+    const provider: MainMvOnlineProvider = {
+      id: 'bilibili',
+      search: vi.fn(async () => [externalCandidate, playableCandidate]),
+      resolve: vi.fn(async (video) =>
+        video.sourceId === 'BV1external' ? [makeExternalVariant(video.providerUrl ?? video.url ?? undefined)] : [makeResolvedVariant()],
+      ),
+    };
+    const { service, track } = createHarness([provider]);
+
+    await service.searchNetworkCandidates(track.id);
+
+    expect(provider.resolve).toHaveBeenCalledTimes(2);
+    expect(service.getSelectedVideo(track.id)).toMatchObject({
+      provider: 'bilibili',
+      sourceId: 'BV1playable',
+      selected: true,
+      playableInApp: true,
+      mediaUrl: expect.stringContaining('echo-mv://stream/'),
+    });
+    expect(service.getVideoCandidates(track.id).find((video) => video.sourceId === 'BV1external')).toMatchObject({
+      selected: false,
+      playableInApp: false,
     });
   });
 
@@ -384,7 +477,7 @@ describe('MvService', () => {
     const provider: MainMvOnlineProvider = {
       id: 'bilibili',
       search: vi.fn(async () => [candidate]),
-      resolve: vi.fn(async () => []),
+      resolve: vi.fn(async () => [makeResolvedVariant()]),
     };
     const { service, track } = createHarness([provider]);
 
@@ -404,7 +497,7 @@ describe('MvService', () => {
     const provider: MainMvOnlineProvider = {
       id: 'bilibili',
       search: vi.fn(async () => []),
-      resolve: vi.fn(async () => []),
+      resolve: vi.fn(async () => [makeResolvedVariant()]),
     };
     const { service, track } = createHarness([provider]);
 
@@ -412,6 +505,53 @@ describe('MvService', () => {
 
     await expect(service.searchNetworkCandidates(track.id)).resolves.toEqual([]);
     expect(provider.search).not.toHaveBeenCalled();
+  });
+
+  it('resets corrupt MV cache tables and retries network MV persistence', async () => {
+    const candidate: MvMatchCandidate = {
+      id: 'bilibili:BV1repair',
+      provider: 'bilibili',
+      sourceType: 'search_candidate',
+      title: 'Echo Song MV',
+      artist: 'Echo Artist',
+      filePath: null,
+      url: 'https://www.bilibili.com/video/BV1repair',
+      providerUrl: 'https://www.bilibili.com/video/BV1repair',
+      thumbnailUrl: null,
+      uploader: 'Echo Channel',
+      availableQualities: [],
+      durationSeconds: 120,
+      score: 0.92,
+      playableInApp: true,
+      reasons: ['Bilibili search'],
+    };
+    const provider: MainMvOnlineProvider = {
+      id: 'bilibili',
+      search: vi.fn(async () => [candidate]),
+      resolve: vi.fn(async () => [makeResolvedVariant()]),
+    };
+    const { database, service, track } = createHarness([provider]);
+    const originalTransaction = database.transaction.bind(database);
+    let failOnce = true;
+
+    vi.spyOn(database, 'transaction').mockImplementation(((fn: () => unknown) => {
+      if (failOnce) {
+        failOnce = false;
+        return (() => {
+          const error = new Error('SqliteError: database disk image is malformed') as Error & { code: string };
+          error.code = 'SQLITE_CORRUPT';
+          throw error;
+        }) as never;
+      }
+
+      return originalTransaction(fn as never) as never;
+    }) as never);
+
+    const candidates = await service.searchNetworkCandidates(track.id);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ provider: 'bilibili', title: 'Echo Song MV' });
+    expect(service.getSelectedVideo(track.id)).toMatchObject({ provider: 'bilibili', selected: true });
   });
 
   it('uses the configured auto-apply threshold for network MV candidates', async () => {
@@ -435,7 +575,7 @@ describe('MvService', () => {
     const provider: MainMvOnlineProvider = {
       id: 'bilibili',
       search: vi.fn(async () => [candidate]),
-      resolve: vi.fn(async () => []),
+      resolve: vi.fn(async () => [makeResolvedVariant()]),
     };
     const { service, track } = createHarness([provider]);
 
@@ -521,6 +661,23 @@ describe('MvService', () => {
     expect(video.provider).toBe('bilibili');
     expect(video.providerUrl).toBe('https://www.bilibili.com/video/BV1RAW');
     expect(video.selected).toBe(true);
+  });
+
+  it('binds a custom MV URL to a streaming track id without requiring a local library row', () => {
+    const { service } = createHarness();
+    const streamingTrackId = 'streaming:netease:1983779468';
+
+    const video = service.bindUrl(streamingTrackId, 'https://www.bilibili.com/video/BV1STREAM');
+
+    expect(video).toMatchObject({
+      trackId: streamingTrackId,
+      provider: 'bilibili',
+      sourceType: 'manual',
+      sourceId: 'BV1STREAM',
+      providerUrl: 'https://www.bilibili.com/video/BV1STREAM',
+      selected: true,
+    });
+    expect(service.getSelectedVideo(streamingTrackId)?.id).toBe(video.id);
   });
 
   it('binds a custom YouTube MV URL as an external video', async () => {

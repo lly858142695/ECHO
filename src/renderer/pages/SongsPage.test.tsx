@@ -339,7 +339,7 @@ describe('SongsPage', () => {
     await waitFor(() => expect(screen.getByTestId('current-track-id').textContent).toBe('track-1'));
   });
 
-  it('maintains the library from the toolbar without blocking on the renderer', async () => {
+  it('prunes invalid library entries from the toolbar without starting a folder scan', async () => {
     const track = makeTrack();
     installEcho([track]);
     vi.mocked(window.echo.library.pruneInvalidTracks).mockResolvedValue({
@@ -381,8 +381,7 @@ describe('SongsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '扫描失效歌曲、短音频并增量扫描' }));
 
     await waitFor(() => expect(window.echo.library.pruneInvalidTracks).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(window.echo.library.scanFolder).toHaveBeenCalledWith('folder-1'));
-    await screen.findByText('维护完成：检查 1 首，移除失效 0 首，移除 5 秒及以下短音频 1 首，增量扫描 1 个文件夹。');
+    expect(window.echo.library.scanFolder).not.toHaveBeenCalled();
   });
 
   it('confirms before clearing the song list', async () => {

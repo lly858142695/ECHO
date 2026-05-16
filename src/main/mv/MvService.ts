@@ -101,8 +101,84 @@ const nowIso = (): string => new Date().toISOString();
 const clampOffset = (value: number): number => Math.max(-10000, Math.min(10000, Math.round(value)));
 
 const fileHashId = (filePath: string): string => `local:${createHash('sha1').update(resolve(filePath)).digest('hex')}`;
+const isSqliteCorruptionError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code) : '';
+  return code === 'SQLITE_CORRUPT' || /database disk image is malformed|database disk image malformed|SQLITE_CORRUPT/i.test(message);
+};
+
+const mvStorageSql = `
+CREATE TABLE IF NOT EXISTS track_videos (
+  id TEXT PRIMARY KEY,
+  track_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_id TEXT,
+  title TEXT,
+  artist TEXT,
+  url TEXT,
+  provider_url TEXT,
+  thumbnail_url TEXT,
+  file_path TEXT,
+  mime_type TEXT,
+  duration_seconds REAL,
+  width INTEGER,
+  height INTEGER,
+  selected_quality_id TEXT,
+  quality_label TEXT,
+  fps REAL,
+  offset_ms INTEGER NOT NULL DEFAULT 0,
+  raw_provider_json TEXT,
+  score REAL NOT NULL DEFAULT 0,
+  selected INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS track_video_streams (
+  id TEXT PRIMARY KEY,
+  video_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  variant_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  quality_tier TEXT NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  fps REAL,
+  codec TEXT,
+  container TEXT,
+  mime_type TEXT,
+  protocol TEXT NOT NULL,
+  url TEXT,
+  headers_json TEXT NOT NULL DEFAULT '{}',
+  playable_in_app INTEGER NOT NULL DEFAULT 0,
+  requires_account INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT,
+  raw_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (video_id) REFERENCES track_videos(id) ON DELETE CASCADE,
+  UNIQUE(video_id, variant_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_track_videos_track_id ON track_videos(track_id);
+CREATE INDEX IF NOT EXISTS idx_track_videos_track_selected ON track_videos(track_id, selected);
+CREATE INDEX IF NOT EXISTS idx_track_videos_provider_source ON track_videos(provider, source_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_track_videos_one_selected ON track_videos(track_id) WHERE selected = 1;
+CREATE INDEX IF NOT EXISTS idx_track_video_streams_video_id ON track_video_streams(video_id);
+CREATE INDEX IF NOT EXISTS idx_track_video_streams_provider ON track_video_streams(provider, variant_id);
+`;
+
+const resetMvStorage = (database: EchoDatabase): void => {
+  database.exec(`
+    DROP TABLE IF EXISTS track_video_streams;
+    DROP TABLE IF EXISTS track_videos;
+    ${mvStorageSql}
+  `);
+};
 
 const networkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
+const streamingTrackIdPattern = /^streaming:([^:]+):(.+)$/;
 export const MV_AUTO_MATCH_THRESHOLD = 0.7;
 const normalizeAutoApplyThreshold = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) ? Math.max(0.3, Math.min(1, value)) : MV_AUTO_MATCH_THRESHOLD;
@@ -501,16 +577,25 @@ export class MvService {
   }
 
   getSelectedVideo(trackId: string): TrackVideo | null {
-    const row = this.database
-      .prepare<[string], TrackVideoRow>(
-        `SELECT * FROM track_videos
-         WHERE track_id = ? AND selected = 1
-         ORDER BY updated_at DESC
-         LIMIT 1`,
-      )
-      .get(trackId);
+    try {
+      const row = this.database
+        .prepare<[string], TrackVideoRow>(
+          `SELECT * FROM track_videos
+           WHERE track_id = ? AND selected = 1
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+        )
+        .get(trackId);
 
-    return row ? this.mapRow(row) : null;
+      return row ? this.mapRow(row) : null;
+    } catch (error) {
+      if (isSqliteCorruptionError(error)) {
+        this.repairMvStorage(error);
+        return null;
+      }
+
+      throw error;
+    }
   }
 
   async getSelectedOrAutoApplyVideo(trackId: string): Promise<TrackVideo | null> {
@@ -575,14 +660,7 @@ export class MvService {
         reasons: [...(candidate.reasons ?? []), `remote:${track.sourceId ?? 'unknown'}:${track.stableKey ?? track.id}`],
       }))
         : candidates;
-    const upsertedCandidates = this.database.transaction(() => normalizedCandidates.map((candidate) => this.upsertNetworkCandidate(track, candidate)))();
-    const selectedCandidate = settings.autoSearch && !this.getSelectedVideo(trackId) ? this.chooseAutoCandidate(upsertedCandidates, settings) : null;
-
-    if (selectedCandidate) {
-      this.selectVideo(trackId, selectedCandidate.id);
-    }
-
-    return upsertedCandidates;
+    return this.persistNetworkCandidatesWithRepair(track, normalizedCandidates, settings);
   }
 
   async searchNetworkCandidatesForSnapshot(request: MvTrackSnapshotSearchRequest): Promise<MvMatchCandidate[]> {
@@ -623,25 +701,27 @@ export class MvService {
         filePath: null,
         reasons: [...(candidate.reasons ?? []), `snapshot:${track.mediaType ?? 'streaming'}:${track.id}`],
       }));
-    const upsertedCandidates = this.database.transaction(() => candidates.map((candidate) => this.upsertNetworkCandidate(track, candidate)))();
-    const selectedCandidate = settings.autoSearch && !this.getSelectedVideo(track.id) ? this.chooseAutoCandidate(upsertedCandidates, settings) : null;
-
-    if (selectedCandidate) {
-      this.selectVideo(track.id, selectedCandidate.id);
-    }
-
-    return upsertedCandidates;
+    return this.persistNetworkCandidatesWithRepair(track, candidates, settings);
   }
 
   getVideoCandidates(trackId: string): TrackVideo[] {
-    return this.database
-      .prepare<[string], TrackVideoRow>(
-        `SELECT * FROM track_videos
-         WHERE track_id = ?
-         ORDER BY selected DESC, score DESC, updated_at DESC`,
-      )
-      .all(trackId)
-      .map((row) => this.mapRow(row));
+    try {
+      return this.database
+        .prepare<[string], TrackVideoRow>(
+          `SELECT * FROM track_videos
+           WHERE track_id = ?
+           ORDER BY selected DESC, score DESC, updated_at DESC`,
+        )
+        .all(trackId)
+        .map((row) => this.mapRow(row));
+    } catch (error) {
+      if (isSqliteCorruptionError(error)) {
+        this.repairMvStorage(error);
+        return [];
+      }
+
+      throw error;
+    }
   }
 
   bindLocalVideo(trackId: string, filePath: string): TrackVideo {
@@ -702,7 +782,7 @@ export class MvService {
   }
 
   bindUrl(trackId: string, url: string): TrackVideo {
-    const track = this.getExistingTrack(trackId);
+    const track = this.getExistingTrackOrStreamingPlaceholder(trackId);
     const custom = customMvFromUrl(url);
     const existing = this.database
       .prepare<[string, string, string], TrackVideoRow>(
@@ -926,6 +1006,49 @@ export class MvService {
     return track;
   }
 
+  private getExistingTrackOrStreamingPlaceholder(trackId: string): LibraryTrack {
+    const track = this.library.getTrack(trackId);
+    if (track) {
+      return track;
+    }
+
+    const streamingMatch = streamingTrackIdPattern.exec(trackId);
+    if (!streamingMatch) {
+      throw new Error(`Unknown track ${trackId}`);
+    }
+
+    return {
+      id: trackId,
+      mediaType: 'streaming',
+      isTemporary: true,
+      path: trackId,
+      sourceId: streamingMatch[1],
+      provider: streamingMatch[1],
+      providerTrackId: streamingMatch[2],
+      stableKey: trackId,
+      title: 'Streaming track',
+      artist: 'Unknown Artist',
+      album: 'Unknown Album',
+      albumArtist: 'Unknown Artist',
+      trackNo: null,
+      discNo: null,
+      year: null,
+      genre: null,
+      duration: 0,
+      codec: null,
+      sampleRate: null,
+      bitDepth: null,
+      bitrate: null,
+      coverId: null,
+      coverThumb: null,
+      fieldSources: {
+        title: 'streaming-id',
+        artist: 'streaming-id',
+        album: 'streaming-id',
+      },
+    };
+  }
+
   private trackSnapshotToLibraryTrack(request: MvTrackSnapshotSearchRequest): LibraryTrack {
     return {
       id: request.trackId,
@@ -1029,6 +1152,38 @@ export class MvService {
       filePath: null,
       playableInApp: isBrowserPlayableVideo(normalizedPath) && existsSync(normalizedPath),
     };
+  }
+
+  private async persistNetworkCandidatesWithRepair(
+    track: LibraryTrack,
+    candidates: MvMatchCandidate[],
+    settings: MvSettings,
+  ): Promise<MvMatchCandidate[]> {
+    try {
+      return await this.persistNetworkCandidates(track, candidates, settings);
+    } catch (error) {
+      if (!isSqliteCorruptionError(error)) {
+        throw error;
+      }
+
+      this.repairMvStorage(error);
+      return this.persistNetworkCandidates(track, candidates, settings);
+    }
+  }
+
+  private async persistNetworkCandidates(track: LibraryTrack, candidates: MvMatchCandidate[], settings: MvSettings): Promise<MvMatchCandidate[]> {
+    const upsertedCandidates = this.database.transaction(() => candidates.map((candidate) => this.upsertNetworkCandidate(track, candidate)))();
+
+    if (settings.autoSearch && this.shouldAutoSelectNetworkCandidate(track.id)) {
+      await this.selectFirstResolvedAutoCandidate(track.id, upsertedCandidates, settings);
+    }
+
+    return upsertedCandidates;
+  }
+
+  private repairMvStorage(error: unknown): void {
+    console.warn('[mv] SQLite MV storage is corrupt; resetting MV cache tables.', error);
+    resetMvStorage(this.database);
   }
 
   private upsertNetworkCandidate(track: LibraryTrack, candidate: MvMatchCandidate): MvMatchCandidate {
@@ -1139,6 +1294,34 @@ export class MvService {
           );
       }
     })();
+  }
+
+  private shouldAutoSelectNetworkCandidate(trackId: string): boolean {
+    const selected = this.getSelectedVideo(trackId);
+    if (!selected) {
+      return true;
+    }
+
+    return selected.sourceType === 'search_candidate' && (!selected.playableInApp || !selected.mediaUrl);
+  }
+
+  private async selectFirstResolvedAutoCandidate(
+    trackId: string,
+    candidates: MvMatchCandidate[],
+    settings: MvSettings,
+  ): Promise<TrackVideo | null> {
+    for (const candidate of this.rankAutoCandidates(candidates, settings)) {
+      try {
+        const resolved = await this.resolveStreams(candidate.id);
+        if (resolved.video.playableInApp && resolved.video.mediaUrl) {
+          return this.selectVideo(trackId, candidate.id);
+        }
+      } catch {
+        // Try the next matching candidate; search results can include videos that only open externally.
+      }
+    }
+
+    return null;
   }
 
   private applySelectedStreamSnapshot(videoId: string): void {
@@ -1287,10 +1470,10 @@ export class MvService {
     return highestRequestedQn < maxBilibiliQnForSettings(settings);
   }
 
-  private chooseAutoCandidate<T extends Pick<TrackVideo | MvMatchCandidate, 'id' | 'provider' | 'playableInApp' | 'score'> & { viewCount?: number | null }>(
+  private rankAutoCandidates<T extends Pick<TrackVideo | MvMatchCandidate, 'id' | 'provider' | 'playableInApp' | 'score'> & { viewCount?: number | null }>(
     candidates: T[],
     settings: MvSettings,
-  ): T | null {
+  ): T[] {
     const enabledProviders = new Set(settings.enabledProviders);
     const providerRank = (provider: MvProviderId): number => {
       if (provider === 'local') {
@@ -1301,25 +1484,23 @@ export class MvService {
       return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
     };
 
-    return (
-      [...candidates]
-        .filter((candidate) => candidate.provider === 'local' || enabledProviders.has(candidate.provider as NetworkMvProviderId))
-        .filter((candidate) => candidate.playableInApp)
-        .filter((candidate) => candidate.score >= normalizeAutoApplyThreshold(settings.autoApplyThreshold))
-        .sort((left, right) => {
-          const scoreDelta = right.score - left.score;
-          if (scoreDelta !== 0) {
-            return scoreDelta;
-          }
+    return [...candidates]
+      .filter((candidate) => candidate.provider === 'local' || enabledProviders.has(candidate.provider as NetworkMvProviderId))
+      .filter((candidate) => candidate.playableInApp)
+      .filter((candidate) => candidate.score >= normalizeAutoApplyThreshold(settings.autoApplyThreshold))
+      .sort((left, right) => {
+        const scoreDelta = right.score - left.score;
+        if (scoreDelta !== 0) {
+          return scoreDelta;
+        }
 
-          const viewDelta = (right.viewCount ?? -1) - (left.viewCount ?? -1);
-          if (viewDelta !== 0) {
-            return viewDelta;
-          }
+        const viewDelta = (right.viewCount ?? -1) - (left.viewCount ?? -1);
+        if (viewDelta !== 0) {
+          return viewDelta;
+        }
 
-          return providerRank(left.provider) - providerRank(right.provider);
-        })[0] ?? null
-    );
+        return providerRank(left.provider) - providerRank(right.provider);
+      });
   }
 
   private mapRow(row: TrackVideoRow): TrackVideo {

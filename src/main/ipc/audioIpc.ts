@@ -1,13 +1,14 @@
 import { writeFileSync } from 'node:fs';
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
-import { normalizeAudioOutputModeForPlatform } from '../../shared/utils/audioPlatformCapabilities';
+import { normalizeAudioOutputModeForPlatform, normalizeAudioSharedBackendForPlatform } from '../../shared/utils/audioPlatformCapabilities';
 import type {
   AudioDiagnostics,
   AudioDeviceInfo,
   AudioLatencyProfile,
   AudioOutputMode,
   AudioOutputSettings,
+  AudioSharedBackend,
   AudioStatus,
   ChannelBalanceState,
   PlaybackSpeedMode,
@@ -18,6 +19,7 @@ import { getEqBridge } from '../audio/EqBridge';
 import { getCrashReportService } from '../diagnostics/CrashReportService';
 
 const outputModes = new Set<AudioOutputMode>(['shared', 'exclusive', 'asio']);
+const sharedBackends = new Set<AudioSharedBackend>(['auto', 'windows', 'directsound']);
 const latencyProfiles = new Set<AudioLatencyProfile>(['stable', 'balanced', 'lowLatency']);
 const playbackSpeedModes = new Set<PlaybackSpeedMode>(['nightcore', 'daycore', 'speed']);
 
@@ -71,6 +73,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
     output.outputMode = normalizeAudioOutputModeForPlatform(input.outputMode as AudioOutputMode, process.platform);
   }
 
+  if (typeof input.sharedBackend === 'string' && sharedBackends.has(input.sharedBackend as AudioSharedBackend)) {
+    output.sharedBackend = normalizeAudioSharedBackendForPlatform(input.sharedBackend as AudioSharedBackend, process.platform);
+  }
+
   if (typeof input.deviceIndex === 'number' && Number.isInteger(input.deviceIndex)) {
     output.deviceIndex = input.deviceIndex;
   }
@@ -100,6 +106,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
 
   if (typeof input.useJuceOutput === 'boolean') {
     output.useJuceOutput = input.useJuceOutput;
+  }
+
+  if (typeof input.asioUnavailableFallbackEnabled === 'boolean') {
+    output.asioUnavailableFallbackEnabled = input.asioUnavailableFallbackEnabled;
   }
 
   if (typeof input.volume === 'number' && Number.isFinite(input.volume)) {

@@ -8,6 +8,7 @@ type DbRow = Record<string, unknown>;
 type PlaylistBackupCallback = (playlistId: string) => void;
 
 const nowIso = (): string => new Date().toISOString();
+const likedSongsSourcePlaylistId = 'liked-tracks';
 
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value.length > 0 ? value : null);
 
@@ -371,13 +372,95 @@ export class StreamingCacheStore {
     })();
   }
 
+  importLikedStreamingTracks(
+    tracks: StreamingTrack[],
+    options: { addedFrom: string },
+  ): { playlist: LibraryPlaylist; importedCount: number; addedCount: number } {
+    return this.database.transaction(() => {
+      const playlist = this.getOrCreateLikedSongsPlaylist();
+      this.upsertTracks(tracks);
+
+      if (tracks.length === 0) {
+        return { playlist: this.refreshPlaylistItemCount(playlist.id), importedCount: 0, addedCount: 0 };
+      }
+
+      const existingSourceIds = new Set<string>();
+      for (let index = 0; index < tracks.length; index += 400) {
+        const chunk = tracks.slice(index, index + 400);
+        const predicates = chunk.map(() => '(source_provider = ? AND source_item_id = ?)').join(' OR ');
+        const params = chunk.flatMap((track) => [track.provider, track.providerTrackId]);
+        const rows = this.database
+          .prepare<[string, ...string[]], DbRow>(
+            `SELECT source_provider, source_item_id
+             FROM playlist_items
+             WHERE playlist_id = ? AND (${predicates})`,
+          )
+          .all(playlist.id, ...params);
+        for (const row of rows) {
+          const provider = textOrNull(row.source_provider);
+          const sourceItemId = textOrNull(row.source_item_id);
+          if (provider && sourceItemId) {
+            existingSourceIds.add(`${provider}:${sourceItemId}`);
+          }
+        }
+      }
+
+      const timestamp = nowIso();
+      const insertItem = this.database.prepare(
+        `INSERT INTO playlist_items (
+          id, playlist_id, media_type, media_id, source_provider, source_item_id,
+          title_snapshot, artist_snapshot, album_snapshot, duration_snapshot,
+          cover_id, position, added_at, added_from, unavailable
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      let nextPosition = Number(
+        this.database
+          .prepare<[string], DbRow>('SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM playlist_items WHERE playlist_id = ?')
+          .get(playlist.id)?.next_position ?? 0,
+      );
+      let addedCount = 0;
+
+      for (const track of tracks) {
+        if (existingSourceIds.has(`${track.provider}:${track.providerTrackId}`)) {
+          continue;
+        }
+
+        insertItem.run(
+          randomUUID(),
+          playlist.id,
+          'stream_track',
+          track.stableKey || streamingStableKey(track.provider, track.providerTrackId),
+          track.provider,
+          track.providerTrackId,
+          track.title,
+          track.artist,
+          track.album,
+          track.duration,
+          null,
+          nextPosition,
+          timestamp,
+          options.addedFrom,
+          track.playable === false ? 1 : 0,
+        );
+        existingSourceIds.add(`${track.provider}:${track.providerTrackId}`);
+        nextPosition += 1;
+        addedCount += 1;
+      }
+
+      return { playlist: this.refreshPlaylistItemCount(playlist.id), importedCount: tracks.length, addedCount };
+    })();
+  }
+
   private mapPlaylist(row: DbRow): LibraryPlaylist {
     return {
       id: String(row.id),
       name: String(row.name),
       description: textOrNull(row.description),
       kind: row.kind === 'smart' || row.kind === 'synced' || row.kind === 'system' ? row.kind : 'manual',
-      sourceProvider: row.source_provider === 'netease' || row.source_provider === 'qqmusic' ? row.source_provider : 'local',
+      sourceProvider:
+        row.source_provider === 'netease' || row.source_provider === 'qqmusic' || row.source_provider === 'spotify'
+          ? row.source_provider
+          : 'local',
       sourcePlaylistId: textOrNull(row.source_playlist_id),
       coverId: textOrNull(row.cover_id),
       coverThumb: textOrNull(row.cover_url),
@@ -389,6 +472,49 @@ export class StreamingCacheStore {
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     };
+  }
+
+  private getOrCreateLikedSongsPlaylist(): LibraryPlaylist {
+    const timestamp = nowIso();
+    const existing = this.database
+      .prepare<[string, string, string], DbRow>(
+        'SELECT * FROM playlists WHERE kind = ? AND source_provider = ? AND source_playlist_id = ? LIMIT 1',
+      )
+      .get('system', 'local', likedSongsSourcePlaylistId);
+
+    if (existing) {
+      return this.mapPlaylist(existing);
+    }
+
+    const playlistId = randomUUID();
+    this.database
+      .prepare(
+        `INSERT INTO playlists (
+          id, name, description, kind, source_provider, source_playlist_id,
+          cover_id, cover_url, sort_mode, item_count, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        playlistId,
+        '喜欢的歌曲',
+        '本地与在线平台同步的喜欢歌曲',
+        'system',
+        'local',
+        likedSongsSourcePlaylistId,
+        null,
+        null,
+        'manual',
+        0,
+        timestamp,
+        timestamp,
+      );
+
+    const row = this.database.prepare<[string], DbRow>('SELECT * FROM playlists WHERE id = ?').get(playlistId);
+    if (!row) {
+      throw new Error('Failed to create liked songs playlist');
+    }
+
+    return this.mapPlaylist(row);
   }
 
   private mapTrack(row: DbRow): StreamingTrack {

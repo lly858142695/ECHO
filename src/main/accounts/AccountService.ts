@@ -15,6 +15,7 @@ import { BilibiliAccountProvider } from './providers/BilibiliAccountProvider';
 import { NeteaseAccountProvider } from './providers/NeteaseAccountProvider';
 import { QQMusicAccountProvider } from './providers/QQMusicAccountProvider';
 import { SoundCloudAccountProvider } from './providers/SoundCloudAccountProvider';
+import { SpotifyAccountProvider } from './providers/SpotifyAccountProvider';
 import { YouTubeAccountProvider } from './providers/YouTubeAccountProvider';
 
 type StoredAccounts = Partial<Record<AccountProvider, StoredAccountRecord>>;
@@ -43,10 +44,14 @@ const normalizeStoredRecord = (value: unknown): StoredAccountRecord => {
     return {};
   }
 
-  return {
-    cookie: typeof value.cookie === 'string' ? value.cookie : undefined,
-    browser: isYouTubeBrowser(value.browser) ? value.browser : undefined,
-    username: typeof value.username === 'string' ? value.username : null,
+    return {
+      cookie: typeof value.cookie === 'string' ? value.cookie : undefined,
+      browser: isYouTubeBrowser(value.browser) ? value.browser : undefined,
+      accessToken: typeof value.accessToken === 'string' ? value.accessToken : undefined,
+      refreshToken: typeof value.refreshToken === 'string' ? value.refreshToken : undefined,
+      tokenType: typeof value.tokenType === 'string' ? value.tokenType : undefined,
+      scope: typeof value.scope === 'string' ? value.scope : undefined,
+      username: typeof value.username === 'string' ? value.username : null,
     displayName: typeof value.displayName === 'string' ? value.displayName : null,
     avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : null,
     lastLoginAt: typeof value.lastLoginAt === 'string' ? value.lastLoginAt : null,
@@ -73,6 +78,7 @@ export class AccountService {
       bilibili: new BilibiliAccountProvider(),
       youtube,
       soundcloud: new SoundCloudAccountProvider(),
+      spotify: new SpotifyAccountProvider(),
     };
   }
 
@@ -141,6 +147,51 @@ export class AccountService {
   async checkAllAccounts(): Promise<AccountStatus[]> {
     await Promise.all(accountProviders.map((provider) => this.checkAccount(provider)));
     return this.getStatuses();
+  }
+
+  saveSpotifyTokens(input: {
+    accessToken: string;
+    refreshToken?: string | null;
+    tokenType?: string | null;
+    scope?: string | null;
+    expiresAt?: string | null;
+    username?: string | null;
+    displayName?: string | null;
+    avatarUrl?: string | null;
+  }): AccountStatus {
+    const records = this.readRecords();
+    const current = records.spotify;
+    records.spotify = {
+      ...current,
+      accessToken: input.accessToken,
+      refreshToken: input.refreshToken ?? current?.refreshToken,
+      tokenType: input.tokenType ?? current?.tokenType ?? 'Bearer',
+      scope: input.scope ?? current?.scope,
+      expiresAt: input.expiresAt ?? current?.expiresAt ?? null,
+      username: input.username ?? current?.username ?? null,
+      displayName: input.displayName ?? current?.displayName ?? input.username ?? null,
+      avatarUrl: input.avatarUrl ?? current?.avatarUrl ?? null,
+      lastLoginAt: current?.lastLoginAt ?? nowIso(),
+      lastCheckedAt: nowIso(),
+      error: null,
+    };
+    this.writeRecords(records);
+    return this.getStatus('spotify');
+  }
+
+  updateSpotifyCheckStatus(patch: Pick<StoredAccountRecord, 'displayName' | 'username' | 'avatarUrl' | 'error'>): AccountStatus {
+    const records = this.readRecords();
+    records.spotify = {
+      ...records.spotify,
+      ...patch,
+      lastCheckedAt: nowIso(),
+    };
+    this.writeRecords(records);
+    return this.getStatus('spotify');
+  }
+
+  getSpotifyTokenRecord(): StoredAccountRecord | null {
+    return this.readRecords().spotify ?? null;
   }
 
   async checkPreviouslyLoggedInAccounts(): Promise<AccountStatus[]> {

@@ -3,6 +3,7 @@ import electronUpdater from 'electron-updater';
 import type { UpdateInfo } from 'electron-updater';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { UpdateStatus } from '../../shared/types/updates';
+import { createDataProtectionSnapshot, writeDataProtectionManifest } from './dataProtection';
 
 const { autoUpdater } = electronUpdater;
 
@@ -216,6 +217,12 @@ export const initializeAutoUpdater = (enabled: boolean): void => {
 
   autoUpdater.on('update-downloaded', (updateInfo) => {
     applyUpdateInfo(updateInfo);
+    try {
+      writeDataProtectionManifest();
+      createDataProtectionSnapshot('update-install');
+    } catch (error) {
+      console.warn('[data-protection] failed to snapshot protected data before update install', error);
+    }
     updateStatus = {
       ...updateStatus,
       state: 'downloaded',

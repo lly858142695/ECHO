@@ -92,6 +92,7 @@ import type {
 } from '../shared/types/remoteSources';
 import type {
   StreamingLyricsResult,
+  StreamingLikedSongsSyncResult,
   StreamingMvResult,
   StreamingPlaybackRequest,
   StreamingPlaybackSource,
@@ -287,6 +288,7 @@ export type EchoApi = {
     getMv: (request: { provider: StreamingProviderName; providerTrackId: string }) => Promise<StreamingMvResult>;
     getProviders: () => Promise<StreamingProviderDescriptor[]>;
     importPlaylistFromUrl: (url: string) => Promise<StreamingPlaylistImportResult>;
+    syncLikedSongs: () => Promise<StreamingLikedSongsSyncResult>;
     refreshNeteaseDailyRecommend: () => Promise<StreamingPlaylistImportResult>;
   };
   lyrics: {
@@ -374,6 +376,18 @@ export type EchoApi = {
     checkAll: () => Promise<AccountStatus[]>;
     setYouTubeBrowser: (browser: YouTubeBrowser) => Promise<AccountStatus>;
     onStatusesChanged: (handler: (statuses: AccountStatus[]) => void) => () => void;
+  };
+  spotify: {
+    getAccessToken: () => Promise<string>;
+    getDevices: () => Promise<Array<{ id: string; name: string; type: string; isActive: boolean; isRestricted: boolean; volumePercent: number | null }>>;
+    getPlaybackState: () => Promise<{ isPlaying: boolean; progressMs: number | null; itemUri: string | null; deviceId: string | null; deviceName: string | null }>;
+    ensureConnectDevice: (request: { uri: string; webUrl: string; preferredDeviceId?: string | null }) => Promise<{ deviceId: string; deviceName: string; launched: 'none' | 'desktop' | 'web'; waitedMs: number }>;
+    startPlayback: (request: { deviceId: string; uri: string; positionMs?: number }) => Promise<void>;
+    transferPlayback: (request: { deviceId: string; play?: boolean }) => Promise<void>;
+    pause: (deviceId?: string | null) => Promise<void>;
+    resume: (deviceId?: string | null) => Promise<void>;
+    seek: (positionMs: number, deviceId?: string | null) => Promise<void>;
+    setVolume: (volume: number, deviceId?: string | null) => Promise<void>;
   };
   eq: {
     getState: () => Promise<EqState>;

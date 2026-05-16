@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import net from 'node:net';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -6,6 +7,8 @@ import { EqBridge } from './EqBridge';
 import type { EqState } from '../../shared/types/eq';
 
 const tempDirs: string[] = [];
+const servers: net.Server[] = [];
+const sockets: net.Socket[] = [];
 
 const createBridge = (): EqBridge => {
   const dir = mkdtempSync(join(tmpdir(), 'echo-next-eq-'));
@@ -36,9 +39,89 @@ const expectedBuiltInCurves: Record<string, { preampDb: number; gains: number[] 
 
 afterEach(() => {
   tempDirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true }));
+  sockets.splice(0).forEach((socket) => socket.destroy());
+  servers.splice(0).forEach((server) => server.close());
 });
 
+const createEqControlServer = async (
+  options: { responseBands?: EqState['bands'] } = {},
+): Promise<{ port: number; messages: Array<Record<string, unknown>>; closeClients: () => void }> => {
+  const messages: Array<Record<string, unknown>> = [];
+  const responseBands = options.responseBands ?? createBridge().getState().bands;
+  const clients: net.Socket[] = [];
+  const server = net.createServer((socket) => {
+    sockets.push(socket);
+    clients.push(socket);
+    socket.on('error', () => undefined);
+    let buffer = '';
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString('utf8');
+      let newlineIndex = buffer.indexOf('\n');
+      while (newlineIndex >= 0) {
+        const line = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        if (line) {
+          const message = JSON.parse(line) as Record<string, unknown>;
+          messages.push(message);
+          if (message.type === 'channelBalance.setState') {
+            socket.write(`${JSON.stringify({ type: 'channelBalance:state' })}\n`);
+          } else {
+            socket.write(`${JSON.stringify({ type: 'eq:state', enabled: true, preampDb: 0, bands: responseBands })}\n`);
+          }
+        }
+        newlineIndex = buffer.indexOf('\n');
+      }
+    });
+  });
+
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('test EQ control server did not bind to a TCP port');
+  }
+
+  return {
+    port: address.port,
+    messages,
+    closeClients: () => clients.forEach((socket) => socket.destroy()),
+  };
+};
+
 describe('EqBridge protocol validation', () => {
+  it('ignores stale control socket closes after a newer native host connects', async () => {
+    const bridge = createBridge();
+    const first = await createEqControlServer();
+    const second = await createEqControlServer();
+
+    bridge.connect(first.port);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    bridge.connect(second.port);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    first.closeClients();
+
+    await bridge.setBandGain({ band: 2, gainDb: 4 });
+
+    expect(second.messages.some((message) => message.type === 'eq:set-band-gain' && message.band === 2)).toBe(true);
+  });
+
+  it('keeps the intended EQ curve when a fresh native host answers enable with Flat state', async () => {
+    const bridge = createBridge();
+    await bridge.setPreset('rock');
+    await bridge.setEnabled(true);
+    const intendedBands = bridge.getState().bands;
+    const server = await createEqControlServer({ responseBands: createBridge().getState().bands });
+
+    bridge.connect(server.port);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await expect.poll(() => server.messages.some((message) => message.type === 'eq:set-preset')).toBe(true);
+    const presetMessage = server.messages.find((message) => message.type === 'eq:set-preset') as { bands?: EqState['bands'] } | undefined;
+
+    expect(presetMessage?.bands?.map((band) => band.gainDb)).toEqual(intendedBands.map((band) => band.gainDb));
+    expect(bridge.getState().bands.map((band) => band.gainDb)).toEqual(intendedBands.map((band) => band.gainDb));
+  });
+
   it('rejects invalid band indexes', async () => {
     const bridge = createBridge();
 

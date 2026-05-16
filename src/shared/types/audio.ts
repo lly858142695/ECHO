@@ -1,4 +1,5 @@
 export type AudioOutputMode = 'shared' | 'exclusive' | 'asio';
+export type AudioSharedBackend = 'auto' | 'windows' | 'directsound';
 
 export type AudioPlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'stopped' | 'ended' | 'error';
 
@@ -48,12 +49,14 @@ export type AudioDeviceInfo = {
 
 export type AudioOutputSettings = {
   outputMode?: AudioOutputMode;
+  sharedBackend?: AudioSharedBackend;
   deviceIndex?: number;
   deviceName?: string;
   requestedOutputSampleRate?: number;
   latencyProfile?: AudioLatencyProfile;
   bufferSizeFrames?: number | null;
   useJuceOutput?: boolean;
+  asioUnavailableFallbackEnabled?: boolean;
   volume?: number;
   playbackRate?: number;
   playbackSpeedMode?: PlaybackSpeedMode;
@@ -68,6 +71,7 @@ export type AudioStatus = {
   outputBackend: string | null;
   activeOutputBackendImpl: string | null;
   outputMode: AudioOutputMode;
+  sharedBackend?: AudioSharedBackend | null;
   useJuceOutputRequested: boolean;
   volume: number;
   playbackRate: number;
@@ -119,6 +123,7 @@ export type AudioDiagnostics = Pick<
   | 'state'
   | 'host'
   | 'outputMode'
+  | 'sharedBackend'
   | 'outputBackend'
   | 'activeOutputBackendImpl'
   | 'useJuceOutputRequested'

@@ -1,4 +1,4 @@
-export type StreamingProviderName = 'mock' | 'netease' | 'qqmusic' | 'bilibili';
+export type StreamingProviderName = 'mock' | 'netease' | 'qqmusic' | 'bilibili' | 'spotify';
 
 export type StreamingMediaType = 'track' | 'album' | 'artist' | 'playlist' | 'mv';
 
@@ -12,6 +12,7 @@ export const streamingProviderNames: StreamingProviderName[] = [
   'netease',
   'qqmusic',
   'bilibili',
+  'spotify',
 ];
 
 export const streamingStableKey = (provider: StreamingProviderName, providerTrackId: string): string =>
@@ -184,6 +185,7 @@ export type StreamingProviderDescriptor = {
   enabled: boolean;
   supportsSearch: boolean;
   supportsPlayback?: boolean;
+  supportsDownload?: boolean;
   supportsLyrics: boolean;
   supportsMv: boolean;
   requiresAccount: boolean;
@@ -203,6 +205,23 @@ export type StreamingPlaylistImportResult = {
   playlistId: string;
   playlistName: string;
   importedCount: number;
-  provider: Extract<StreamingProviderName, 'netease' | 'qqmusic'>;
+  provider: Extract<StreamingProviderName, 'netease' | 'qqmusic' | 'spotify'>;
   providerPlaylistId: string;
+};
+
+export type StreamingLikedSongsSyncProviderResult = {
+  provider: Extract<StreamingProviderName, 'netease' | 'qqmusic'>;
+  success: boolean;
+  importedCount: number;
+  addedCount: number;
+  total: number | null;
+  error?: string;
+};
+
+export type StreamingLikedSongsSyncResult = {
+  playlistId: string;
+  importedCount: number;
+  addedCount: number;
+  providers: StreamingLikedSongsSyncProviderResult[];
+  syncedAt: string;
 };

@@ -20,11 +20,12 @@ describe('app settings normalization', () => {
     });
 
     expect(settings.coverCacheDir).toBeNull();
-    expect(settings.appearanceTheme).toBe('light');
+    expect(settings.appearanceTheme).toBe('dark');
     expect(settings.albumMergeStrategy).toBe('standard');
     expect(settings.chineseCrossScriptSearchEnabled).toBe(true);
     expect(settings.artistWallAlbumArtwork).toBe(false);
     expect(settings.autoAccountCheckOnStartup).toBe(true);
+    expect(settings.spotifyAutoLaunchOfficialPlayer).toBe(true);
     expect(settings.playlistBackupsEnabled).toBe(true);
     expect(settings.rememberWindowSizeEnabled).toBe(true);
     expect(settings.rememberedWindowSize).toBeNull();
@@ -33,6 +34,7 @@ describe('app settings normalization', () => {
     expect(settings.appWallpaperBlurPx).toBe(0);
     expect(settings.appWallpaperBrightnessPercent).toBe(100);
     expect(settings.appWallpaperUiOpacityPercent).toBe(100);
+    expect(settings.appWallpaperVisualProtectionEnabled).toBe(true);
     expect(settings.appWallpaperUnifiedOpacityEnabled).toBe(false);
     expect(settings.scanPerformanceMode).toBe('balanced');
     expect(settings.backgroundSpacePauseEnabled).toBe(false);
@@ -93,10 +95,10 @@ describe('app settings normalization', () => {
   it('normalizes appearance theme modes', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
-    expect(normalizeSettings({}).appearanceTheme).toBe('light');
+    expect(normalizeSettings({}).appearanceTheme).toBe('dark');
     expect(normalizeSettings({ appearanceTheme: 'dark' }).appearanceTheme).toBe('dark');
     expect(normalizeSettings({ appearanceTheme: 'system' }).appearanceTheme).toBe('system');
-    expect(normalizeSettings({ appearanceTheme: 'midnight' as never }).appearanceTheme).toBe('light');
+    expect(normalizeSettings({ appearanceTheme: 'midnight' as never }).appearanceTheme).toBe('dark');
   });
 
   it('resolves a custom coverCacheDir to an absolute path', async () => {
@@ -148,6 +150,15 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ autoAccountCheckOnStartup: 'no' as never }).autoAccountCheckOnStartup).toBe(true);
   });
 
+  it('keeps Spotify official player auto launch enabled unless explicitly disabled', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).spotifyAutoLaunchOfficialPlayer).toBe(true);
+    expect(normalizeSettings({ spotifyAutoLaunchOfficialPlayer: true }).spotifyAutoLaunchOfficialPlayer).toBe(true);
+    expect(normalizeSettings({ spotifyAutoLaunchOfficialPlayer: false }).spotifyAutoLaunchOfficialPlayer).toBe(false);
+    expect(normalizeSettings({ spotifyAutoLaunchOfficialPlayer: 'no' as never }).spotifyAutoLaunchOfficialPlayer).toBe(true);
+  });
+
   it('normalizes remembered window size settings', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
@@ -175,6 +186,7 @@ describe('app settings normalization', () => {
         appWallpaperBlurPx: 99,
         appWallpaperBrightnessPercent: 12,
         appWallpaperUiOpacityPercent: -10,
+        appWallpaperVisualProtectionEnabled: false,
         appWallpaperUnifiedOpacityEnabled: true,
       }),
     ).toMatchObject({
@@ -183,6 +195,7 @@ describe('app settings normalization', () => {
       appWallpaperBlurPx: 40,
       appWallpaperBrightnessPercent: 40,
       appWallpaperUiOpacityPercent: 0,
+      appWallpaperVisualProtectionEnabled: false,
       appWallpaperUnifiedOpacityEnabled: true,
     });
 
@@ -192,6 +205,7 @@ describe('app settings normalization', () => {
         appWallpaperBlurPx: -4,
         appWallpaperBrightnessPercent: 180,
         appWallpaperUiOpacityPercent: 128,
+        appWallpaperVisualProtectionEnabled: 'yes' as never,
         appWallpaperUnifiedOpacityEnabled: 'yes' as never,
       }),
     ).toMatchObject({
@@ -199,6 +213,7 @@ describe('app settings normalization', () => {
       appWallpaperBlurPx: 0,
       appWallpaperBrightnessPercent: 140,
       appWallpaperUiOpacityPercent: 100,
+      appWallpaperVisualProtectionEnabled: true,
       appWallpaperUnifiedOpacityEnabled: false,
     });
   });
@@ -283,13 +298,19 @@ describe('app settings normalization', () => {
     });
     expect(
       normalizeSettings({
-        rememberedAudioOutput: { enabled: true, outputMode: 'exclusive', latencyProfile: 'stable' },
+        rememberedAudioOutput: { enabled: true, outputMode: 'shared', sharedBackend: 'directsound', latencyProfile: 'stable' },
       }).rememberedAudioOutput,
     ).toMatchObject({
       enabled: true,
-      outputMode: 'exclusive',
+      outputMode: 'shared',
+      sharedBackend: 'directsound',
       latencyProfile: 'stable',
     });
+    expect(
+      normalizeSettings({
+        rememberedAudioOutput: { enabled: true, outputMode: 'shared', sharedBackend: 'invalid' as never },
+      }).rememberedAudioOutput?.sharedBackend,
+    ).toBe('auto');
   });
 
   it('normalizes JUCE output as an opt-in audio setting', async () => {
@@ -299,6 +320,15 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ audioUseJuceOutput: true }).audioUseJuceOutput).toBe(true);
     expect(normalizeSettings({ audioUseJuceOutput: false }).audioUseJuceOutput).toBe(false);
     expect(normalizeSettings({ audioUseJuceOutput: 'yes' as never }).audioUseJuceOutput).toBe(false);
+  });
+
+  it('normalizes ASIO unavailable fallback as an opt-in audio setting', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).audioAsioUnavailableFallbackEnabled).toBe(false);
+    expect(normalizeSettings({ audioAsioUnavailableFallbackEnabled: true }).audioAsioUnavailableFallbackEnabled).toBe(true);
+    expect(normalizeSettings({ audioAsioUnavailableFallbackEnabled: false }).audioAsioUnavailableFallbackEnabled).toBe(false);
+    expect(normalizeSettings({ audioAsioUnavailableFallbackEnabled: 'yes' as never }).audioAsioUnavailableFallbackEnabled).toBe(false);
   });
 
   it('keeps audio analysis enabled by default', async () => {

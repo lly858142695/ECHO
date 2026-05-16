@@ -123,7 +123,7 @@ export class RemoteLibrarySyncService {
           existing.modifiedAt === item.modifiedAt &&
           existing.sizeBytes === item.sizeBytes;
 
-        if (unchanged) {
+        if (unchanged && existing.coverId) {
           this.patchStatus(sourceId, { skippedCount: this.getSyncStatus(sourceId).skippedCount + 1 });
           continue;
         }

@@ -5,7 +5,7 @@ import { parseFile, type ILyricsTag } from 'music-metadata';
 import type { LyricsQuery, LyricsSearchCandidate, TrackLyrics } from '../../shared/types/lyrics';
 import { decodeTextFileBytes } from '../../shared/utils/decodeTextFile';
 import type { LyricsProvider, LyricsProviderCapability, LyricsProviderResult, LyricsProviderSearchRequest } from './LyricsProvider';
-import { detectLyricsKind, parsePlainLyrics, parseSyncedLyrics } from './lyricsParser';
+import { detectLyricsKind, normalizeSyncedLyricAlternates, parsePlainLyrics, parseSyncedLyrics } from './lyricsParser';
 
 export type LocalLyricsCandidate = LyricsSearchCandidate & {
   filePath: string;
@@ -202,7 +202,12 @@ export class LocalLyricsProvider implements LyricsProvider {
     const syncedLyrics = candidate.extension === '.lrc' ? raw : null;
     const plainLyrics = candidate.extension === '.txt' ? raw : null;
     const kind = detectLyricsKind({ syncedLyrics, plainLyrics });
-    const lines = kind === 'synced' ? parseSyncedLyrics(raw) : kind === 'plain' ? parsePlainLyrics(raw) : [];
+    const lines =
+      kind === 'synced'
+        ? normalizeSyncedLyricAlternates(parseSyncedLyrics(raw))
+        : kind === 'plain'
+          ? parsePlainLyrics(raw)
+          : [];
 
     if (kind === 'empty') {
       return null;

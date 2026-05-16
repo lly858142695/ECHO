@@ -68,6 +68,9 @@ const isAdaptiveStream = (video: TrackVideo | null): boolean =>
         video.mimeType.includes('application/vnd.apple.mpegurl')),
   );
 
+const isUnplayableSearchCandidate = (video: TrackVideo | null): boolean =>
+  Boolean(video && video.sourceType === 'search_candidate' && (!video.playableInApp || !video.mediaUrl));
+
 const mvSyncDriftThresholdSeconds = 0.8;
 const mvSyncCorrectionCooldownMs = 1000;
 const playbackSeekedEvent = 'playback:seeked';
@@ -420,7 +423,18 @@ export const MvPanel = ({
         await window.echo.mv.searchNetworkCandidates?.(trackId);
         video = await window.echo.mv.getSelected(trackId);
       }
-      const resolvedVideo = await resolveNetworkVideo(video);
+      let resolvedVideo = await resolveNetworkVideo(video);
+      if (
+        isUnplayableSearchCandidate(resolvedVideo) &&
+        nextSettings.autoPreload &&
+        isAudioPlayingRef.current &&
+        preloadAttemptRef.current !== trackId
+      ) {
+        preloadAttemptRef.current = trackId;
+        await window.echo.mv.searchNetworkCandidates?.(trackId);
+        video = await window.echo.mv.getSelected(trackId);
+        resolvedVideo = await resolveNetworkVideo(video);
+      }
       if (requestRef.current !== requestId) {
         return;
       }

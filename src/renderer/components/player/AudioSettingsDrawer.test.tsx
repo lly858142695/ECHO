@@ -116,6 +116,16 @@ const setNavigatorUserAgent = (userAgent: string): void => {
   });
 };
 
+const openBufferControls = (): void => {
+  const toggle = document.querySelector('.audio-buffer-collapse-button');
+
+  if (!(toggle instanceof HTMLButtonElement)) {
+    throw new Error('Buffer controls toggle was not rendered');
+  }
+
+  fireEvent.click(toggle);
+};
+
 beforeEach(() => {
   window.localStorage.clear();
   setNavigatorUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
@@ -143,6 +153,7 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
       outputBackend: 'wasapi-exclusive',
       latencyProfile: 'lowLatency',
     });
+    openBufferControls();
 
     expect(screen.getByRole('button', { name: /Low latency/ }).className).toContain('active');
     expect(screen.getByRole('button', { name: /Balanced/ })).toBeTruthy();
@@ -183,6 +194,7 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
       nativeActualBufferFrames: 256,
       nativeOutputLatencyMs: 5,
     });
+    openBufferControls();
 
     expect(screen.getByRole('heading', { name: 'ASIO buffer' })).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /128/ }).length).toBeGreaterThan(0);
@@ -223,6 +235,7 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     };
     const setOutput = vi.fn().mockResolvedValue({ ...status, nativeRequestedBufferFrames: 128 });
     renderDrawer(status, setOutput);
+    openBufferControls();
 
     fireEvent.click(screen.getByRole('button', { name: /128/ }));
 
@@ -263,6 +276,7 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
     };
     const setOutput = vi.fn().mockResolvedValue({ ...status, nativeRequestedBufferFrames: null });
     renderDrawer(status, setOutput);
+    openBufferControls();
 
     fireEvent.click(screen.getByRole('button', { name: /Auto/ }));
 

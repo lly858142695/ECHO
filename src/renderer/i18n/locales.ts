@@ -51,6 +51,7 @@ export type TranslationKey =
   | 'audioDrawer.meter.source'
   | 'audioDrawer.mode.exclusive'
   | 'audioDrawer.mode.exclusiveCandidate'
+  | 'audioDrawer.mode.directSound'
   | 'audioDrawer.mode.shared'
   | 'audioDrawer.note.asio'
   | 'audioDrawer.note.asioWarning'
@@ -59,6 +60,11 @@ export type TranslationKey =
   | 'audioDrawer.note.juceOutput'
   | 'audioDrawer.option.rememberOutput'
   | 'audioDrawer.option.rememberOutputDescription'
+  | 'audioDrawer.option.directSound'
+  | 'audioDrawer.option.directSoundDescription'
+  | 'audioDrawer.option.sharedBackend'
+  | 'audioDrawer.option.wasapiShared'
+  | 'audioDrawer.option.wasapiSharedDescription'
   | 'audioDrawer.option.wasapiExclusive'
   | 'audioDrawer.option.wasapiExclusiveDescription'
   | 'audioDrawer.section.advancedOutput'
@@ -672,6 +678,10 @@ export type TranslationKey =
   | 'settings.playback.outputDevice.title'
   | 'settings.playback.outputMode.description'
   | 'settings.playback.outputMode.title'
+  | 'settings.playback.sharedBackend.description'
+  | 'settings.playback.sharedBackend.directSound'
+  | 'settings.playback.sharedBackend.title'
+  | 'settings.playback.sharedBackend.wasapi'
   | 'settings.playback.resetEngine.action'
   | 'settings.playback.resetEngine.busy'
   | 'settings.playback.resetEngine.description'
@@ -748,6 +758,7 @@ const zhCN: TranslationMap = {
   'audioDrawer.meter.source': '音源',
   'audioDrawer.mode.exclusive': '独占',
   'audioDrawer.mode.exclusiveCandidate': '独占候选',
+  'audioDrawer.mode.directSound': 'DirectSound 兼容',
   'audioDrawer.mode.shared': '共享',
   'audioDrawer.note.asio': '低延迟专业音频接口，需要驱动支持。',
   'audioDrawer.note.asioWarning': '开启 ASIO 会占用您的音频通道；如果没有安装 ASIO 驱动，请不要使用。',
@@ -756,6 +767,11 @@ const zhCN: TranslationMap = {
   'audioDrawer.note.juceOutput': '通常来说，JUCE 的输出最稳定；开启后会尝试接管当前输出，失败会自动回退。',
   'audioDrawer.option.rememberOutput': '保存输出设置',
   'audioDrawer.option.rememberOutputDescription': '下次启动时恢复所选输出设备、输出模式和缓冲等参数。',
+  'audioDrawer.option.directSound': 'DirectSound 兼容',
+  'audioDrawer.option.directSoundDescription': '手动兼容模式，延迟较大；只在 WASAPI 播放异常时尝试。',
+  'audioDrawer.option.sharedBackend': '共享后端',
+  'audioDrawer.option.wasapiShared': 'WASAPI Shared',
+  'audioDrawer.option.wasapiSharedDescription': '日常 Windows 共享输出路径。',
   'audioDrawer.option.wasapiExclusive': 'WASAPI 独占模式',
   'audioDrawer.option.wasapiExclusiveDescription': '共享是日常 Windows 输出路径。独占会请求同一设备但绕过共享混音器。',
   'audioDrawer.section.advancedOutput': '高级输出',
@@ -1068,7 +1084,7 @@ const zhCN: TranslationMap = {
   'route.settings.description': '应用设置。',
   'route.settings.label': '设置',
   'route.songs.description': '本地曲库歌曲列表。',
-  'route.songs.label': '歌曲',
+  'route.songs.label': '曲目',
   'settings.about.audioHost.description': 'echo-audio-host.exe 当前用于本地迁移验收，正式发布后走 extraResources。',
   'settings.about.audioHost.title': '音频宿主',
   'settings.about.devMode.description': '当前正在使用 ECHO Next Phase 1：Library Core + Audio Host 验收。',
@@ -1369,6 +1385,10 @@ const zhCN: TranslationMap = {
   'settings.playback.outputDevice.title': '输出设备',
   'settings.playback.outputMode.description': 'Shared 适合日常使用，Exclusive / ASIO 用于采样率验收和后续 bit-perfect 路径。',
   'settings.playback.outputMode.title': '输出模式',
+  'settings.playback.sharedBackend.description': 'DirectSound 只作为手动兼容模式，延迟较大；日常播放保持 WASAPI Shared。',
+  'settings.playback.sharedBackend.directSound': 'DirectSound 兼容',
+  'settings.playback.sharedBackend.title': '共享后端',
+  'settings.playback.sharedBackend.wasapi': 'WASAPI Shared',
   'settings.playback.resetEngine.action': '重置音频引擎',
   'settings.playback.resetEngine.busy': '正在重置',
   'settings.playback.resetEngine.description': '停止当前播放并释放 native 音频主机；设备/驱动卡住时可先试这个，不必重开软件。',
@@ -1467,6 +1487,7 @@ const zhTW: TranslationMap = {
   'audioDrawer.meter.source': '音源',
   'audioDrawer.mode.exclusive': '獨佔',
   'audioDrawer.mode.exclusiveCandidate': '獨佔候選',
+  'audioDrawer.mode.directSound': 'DirectSound 相容',
   'audioDrawer.mode.shared': '共享',
   'audioDrawer.note.asio': '低延遲專業音訊介面，需要驅動支援。',
   'audioDrawer.note.asioWarning': '開啟 ASIO 會占用您的音訊通道；如果沒有安裝 ASIO 驅動，請不要使用。',
@@ -1475,6 +1496,11 @@ const zhTW: TranslationMap = {
   'audioDrawer.note.juceOutput': '通常來說，JUCE 的輸出最穩定；開啟後會嘗試接管目前輸出，失敗會自動退回。',
   'audioDrawer.option.rememberOutput': '儲存輸出設定',
   'audioDrawer.option.rememberOutputDescription': '下次啟動時復原所選輸出裝置、輸出模式與緩衝等參數。',
+  'audioDrawer.option.directSound': 'DirectSound 相容',
+  'audioDrawer.option.directSoundDescription': '手動相容模式，延遲較大；只在 WASAPI 播放異常時嘗試。',
+  'audioDrawer.option.sharedBackend': '共享後端',
+  'audioDrawer.option.wasapiShared': 'WASAPI Shared',
+  'audioDrawer.option.wasapiSharedDescription': '日常 Windows 共享輸出路徑。',
   'audioDrawer.option.wasapiExclusive': 'WASAPI 獨佔模式',
   'audioDrawer.option.wasapiExclusiveDescription': '共享是日常 Windows 輸出路徑。獨佔會要求同一裝置但略過共享混音器。',
   'audioDrawer.section.advancedOutput': '進階輸出',
@@ -1719,7 +1745,7 @@ const zhTW: TranslationMap = {
   'queue.unknownArtist': '未知演出者',
   'route.remote.label': '網路硬碟 / 遠端',
   'route.settings.label': '設定',
-  'route.songs.label': '歌曲',
+  'route.songs.label': '曲目',
   'settings.general.language.title': '顯示語言',
   'settings.general.language.description': '選擇選單、應用程式內設定與系統對話框的顯示語言。',
   'settings.header.searchPlaceholder': '搜尋設定...',
@@ -1774,6 +1800,10 @@ const zhTW: TranslationMap = {
   'settings.playback.speedMode.title': '變速模式',
   'settings.playback.outputDevice.title': '輸出裝置',
   'settings.playback.outputDevice.empty': '沒有可用裝置',
+  'settings.playback.sharedBackend.description': 'DirectSound 只作為手動相容模式，延遲較大；日常播放保持 WASAPI Shared。',
+  'settings.playback.sharedBackend.directSound': 'DirectSound 相容',
+  'settings.playback.sharedBackend.title': '共享後端',
+  'settings.playback.sharedBackend.wasapi': 'WASAPI Shared',
   'settings.playback.resetEngine.action': '重置音訊引擎',
   'settings.playback.resetEngine.busy': '正在重置',
   'settings.playback.resetEngine.description': '停止目前播放並釋放 native 音訊主機；裝置或驅動卡住時可先試這個，不必重開軟體。',
@@ -1931,6 +1961,7 @@ const jaJP: TranslationMap = {
   'audioDrawer.meter.source': 'ソース',
   'audioDrawer.mode.exclusive': '排他',
   'audioDrawer.mode.exclusiveCandidate': '排他候補',
+  'audioDrawer.mode.directSound': 'DirectSound 互換',
   'audioDrawer.mode.shared': '共有',
   'audioDrawer.note.asio': '低遅延のプロ向け音声インターフェイスです。ドライバー対応が必要です。',
   'audioDrawer.note.asioWarning': 'ASIO を有効にすると音声チャンネルを占有します。ASIO ドライバーがない場合は使わないでください。',
@@ -1939,6 +1970,11 @@ const jaJP: TranslationMap = {
   'audioDrawer.note.juceOutput': '通常、JUCE 出力が最も安定します。有効にすると現在の出力を引き継ぎ、失敗時は自動で戻します。',
   'audioDrawer.option.rememberOutput': '出力設定を保存',
   'audioDrawer.option.rememberOutputDescription': '次回起動時に選択した出力デバイス、出力モード、バッファーなどの設定を復元します。',
+  'audioDrawer.option.directSound': 'DirectSound 互換',
+  'audioDrawer.option.directSoundDescription': '手動の互換モードです。遅延が大きいため、WASAPI 再生に問題がある場合だけ試してください。',
+  'audioDrawer.option.sharedBackend': '共有バックエンド',
+  'audioDrawer.option.wasapiShared': 'WASAPI Shared',
+  'audioDrawer.option.wasapiSharedDescription': '通常の Windows 共有出力経路です。',
   'audioDrawer.option.wasapiExclusive': 'WASAPI 排他モード',
   'audioDrawer.option.wasapiExclusiveDescription': '共有は通常の Windows 出力経路です。排他は共有ミキサーを通さず同じデバイスを要求します。',
   'audioDrawer.section.advancedOutput': '詳細出力',
@@ -2313,6 +2349,10 @@ const jaJP: TranslationMap = {
   'settings.playback.speedMode.description': '下部プレイヤーの速度スライダーで使う変速方式を選びます。',
   'settings.playback.speedMode.title': '変速モード',
   'settings.playback.outputMode.description': 'Shared は日常利用向け、Exclusive / ASIO はサンプルレート検証と今後の bit-perfect 経路向けです。',
+  'settings.playback.sharedBackend.description': 'DirectSound は手動の互換モードです。遅延が大きいため、普段は WASAPI Shared を使います。',
+  'settings.playback.sharedBackend.directSound': 'DirectSound 互換',
+  'settings.playback.sharedBackend.title': '共有バックエンド',
+  'settings.playback.sharedBackend.wasapi': 'WASAPI Shared',
   'settings.playback.outputDevice.title': '出力デバイス',
   'settings.playback.outputDevice.description': 'echo-audio-host から取得したデバイス一覧です。デバイスがない場合は既定出力を維持します。',
   'settings.playback.outputDevice.empty': '利用可能なデバイスなし',
@@ -2476,6 +2516,7 @@ const enUS: TranslationMap = {
   'audioDrawer.meter.source': 'Source',
   'audioDrawer.mode.exclusive': 'Exclusive',
   'audioDrawer.mode.exclusiveCandidate': 'Exclusive candidate',
+  'audioDrawer.mode.directSound': 'DirectSound Compatibility',
   'audioDrawer.mode.shared': 'Shared',
   'audioDrawer.note.asio': 'Low-latency professional audio interface support requires a driver.',
   'audioDrawer.note.asioWarning': 'ASIO takes over your audio channels. Do not use it unless an ASIO driver is installed.',
@@ -2484,6 +2525,11 @@ const enUS: TranslationMap = {
   'audioDrawer.note.juceOutput': 'JUCE output is usually the most stable. When enabled, it takes over the current output and falls back automatically if it fails.',
   'audioDrawer.option.rememberOutput': 'Save Output Settings',
   'audioDrawer.option.rememberOutputDescription': 'Restores the selected output device, output mode, buffer, and related settings on the next launch.',
+  'audioDrawer.option.directSound': 'DirectSound Compatibility',
+  'audioDrawer.option.directSoundDescription': 'Manual compatibility mode with high latency; try only when WASAPI playback fails.',
+  'audioDrawer.option.sharedBackend': 'Shared backend',
+  'audioDrawer.option.wasapiShared': 'WASAPI Shared',
+  'audioDrawer.option.wasapiSharedDescription': 'Everyday Windows shared output path.',
   'audioDrawer.option.wasapiExclusive': 'WASAPI Exclusive Mode',
   'audioDrawer.option.wasapiExclusiveDescription': 'Shared is the everyday Windows path. Exclusive requests the same device without the shared mixer.',
   'audioDrawer.section.advancedOutput': 'Advanced Output',
@@ -2962,6 +3008,10 @@ const enUS: TranslationMap = {
   'settings.playback.speedMode.description': 'Choose the mode used by the speed slider in the player bar.',
   'settings.playback.speedMode.title': 'Speed Mode',
   'settings.playback.outputMode.description': 'Shared is for everyday listening. Exclusive / ASIO are for sample-rate validation and future bit-perfect paths.',
+  'settings.playback.sharedBackend.description': 'DirectSound is a manual compatibility mode with high latency; keep WASAPI Shared for daily playback.',
+  'settings.playback.sharedBackend.directSound': 'DirectSound Compatibility',
+  'settings.playback.sharedBackend.title': 'Shared Backend',
+  'settings.playback.sharedBackend.wasapi': 'WASAPI Shared',
   'settings.playback.outputDevice.title': 'Output Device',
   'settings.playback.outputDevice.description': 'Device list from echo-audio-host. When no device is available, default output is kept.',
   'settings.playback.outputDevice.empty': 'No available devices',

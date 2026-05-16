@@ -1,0 +1,603 @@
+.app-shell {
+  background: var(--echo-polish-app-bg-layer), var(--echo-polish-app-bg);
+}
+
+.app-titlebar {
+  border-color: var(--echo-polish-border);
+  background: var(--echo-polish-titlebar-bg);
+  box-shadow: var(--echo-polish-shadow-panel);
+}
+
+.app-titlebar-brand strong {
+  color: var(--theme-heading-text);
+}
+
+.app-titlebar-brand span {
+  color: var(--theme-muted-text);
+}
+
+.titlebar-action,
+.window-control,
+.tool-button,
+.sort-button,
+.queue-icon-button,
+.queue-tool-button,
+.settings-action-button,
+.settings-icon-button,
+.downloads-action-button,
+.download-icon-button {
+  border-radius: var(--radius-md);
+}
+
+.titlebar-action,
+.window-control {
+  color: var(--theme-button-muted-text);
+}
+
+.titlebar-action:hover,
+.window-control:hover {
+  color: var(--theme-heading-text);
+  background: var(--echo-polish-button-bg-hover);
+}
+
+.titlebar-action[data-active="true"],
+.titlebar-action[data-drawer-open="true"] {
+  color: var(--echo-polish-accent-text);
+  background: var(--echo-polish-active-bg);
+}
+
+.sidebar {
+  border-color: var(--echo-polish-border);
+  background: var(--echo-polish-sidebar-bg);
+  box-shadow: var(--echo-polish-shadow-panel);
+}
+
+.nav-list {
+  gap: 6px;
+}
+
+.nav-item {
+  min-height: 42px;
+  color: var(--theme-muted-text);
+  border-color: transparent;
+  border-radius: var(--radius-md);
+}
+
+.nav-icon-shell {
+  width: 34px;
+  height: 34px;
+  color: currentColor;
+  border-radius: var(--radius-md);
+}
+
+.nav-item-label {
+  font-weight: 780;
+}
+
+.nav-item[data-active="true"] {
+  color: var(--theme-heading-text);
+  border-color: var(--echo-polish-active-border);
+  background: var(--echo-polish-active-bg);
+  box-shadow: var(--echo-polish-shadow-row);
+}
+
+.nav-item[data-active="true"]::before {
+  background: var(--echo-polish-accent-text);
+  box-shadow: none;
+}
+
+.nav-item[data-active="true"] .nav-icon-shell {
+  color: var(--echo-polish-accent-text);
+  background: var(--echo-polish-accent-bg);
+}
+
+.nav-item:not([data-active="true"]):hover,
+.sidebar-folder:hover {
+  color: var(--theme-heading-text);
+  border-color: var(--echo-polish-border);
+  background: var(--echo-polish-button-bg);
+  box-shadow: none;
+}
+
+.nav-item:not([data-active="true"]):hover .nav-icon-shell {
+  color: var(--echo-polish-accent-text);
+  background: var(--echo-polish-surface-muted);
+}
+
+.utility-nav {
+  border-color: var(--echo-polish-border);
+}
+
+.utility-nav::before {
+  background: var(--echo-polish-hairline);
+}
+
+.page-surface:not(:has(.lyrics-page)) {
+  background: var(--echo-polish-page-bg), var(--theme-app-bg);
+}
+
+.page-surface:has(.settings-page),
+.page-surface:has(.queue-page),
+.page-surface:has(.streaming-page),
+.page-surface:has(.album-detail-page),
+.page-surface:has(.artist-detail-page) {
+  background: var(--echo-polish-page-bg), var(--theme-app-bg);
+}
+
+.page-stack,
+.songs-page,
+.queue-page,
+.streaming-page,
+.playlists-page,
+.liked-page,
+.folders-page,
+.downloads-page,
+.history-page,
+.settings-page {
+  color: var(--theme-page-text);
+}
+
+.songs-title-group h1,
+.streaming-hero h1,
+.downloads-header h1,
+.playlist-sidebar-header h1,
+.queue-page-header h1,
+.queue-section-heading h2,
+.album-detail-copy h1,
+.artist-hero-copy h1,
+.settings-header h1 {
+  color: var(--theme-heading-text);
+}
+
+.songs-title-group span,
+.streaming-hero p,
+.downloads-header p,
+.queue-count,
+.queue-kicker,
+.playlist-list-item small,
+.album-detail-meta,
+.artist-hero-copy p,
+.settings-nav-desc,
+.setting-info p {
+  color: var(--theme-muted-text);
+}
+
+.search-box,
+.streaming-search-box,
+.downloads-search-box,
+.settings-search,
+.playlist-search,
+.playlist-import-box label,
+.playlist-create-form input,
+.downloads-url-box input,
+.download-setting-field select,
+.remote-source-form input,
+.remote-source-form select,
+.settings-select-field select,
+.settings-input-field input,
+.settings-account-cookie-field input,
+.font-picker-search {
+  color: var(--theme-page-text);
+  border: 1px solid var(--echo-polish-border);
+  border-radius: var(--radius-md);
+  background: var(--echo-polish-field-bg);
+  box-shadow: none;
+}
+
+.search-box:focus-within,
+.streaming-search-box:focus-within,
+.downloads-search-box:focus-within,
+.settings-search:focus-within,
+.playlist-search:focus-within,
+.playlist-import-box label:focus-within,
+.playlist-create-form input:focus,
+.downloads-url-box input:focus,
+.download-setting-field select:focus,
+.remote-source-form input:focus,
+.remote-source-form select:focus,
+.settings-select-field select:focus,
+.settings-input-field input:focus,
+.settings-account-cookie-field input:focus,
+.font-picker-search:focus-within {
+  border-color: var(--echo-polish-active-border);
+  box-shadow: 0 0 0 3px var(--echo-polish-accent-bg);
+}
+
+.metric,
+.settings-row,
+.search-preview,
+.empty-state,
+.settings-section,
+.settings-nav,
+.settings-cache-panel,
+.settings-account-row,
+.downloads-panel,
+.downloads-url-panel,
+.downloads-search-panel,
+.remote-sources-hero,
+.remote-source-form,
+.remote-source-card,
+.streaming-playlist-import,
+.playlist-daily-recommend,
+.playlist-detail,
+.duplicate-version-panel,
+.queue-now-card,
+.queue-toolbar,
+.queue-empty-state,
+.artist-hero,
+.artist-stat-grid div,
+.artist-detail-missing {
+  border-color: var(--echo-polish-border);
+  border-radius: var(--radius-md);
+  background: var(--echo-polish-surface);
+  box-shadow: var(--echo-polish-shadow-panel);
+}
+
+.settings-section,
+.downloads-panel,
+.remote-source-card,
+.queue-now-card,
+.artist-hero {
+  background: var(--echo-polish-surface-strong);
+}
+
+.settings-page {
+  background: transparent;
+}
+
+.settings-header {
+  padding-bottom: 24px;
+}
+
+.settings-section {
+  padding: 22px 26px;
+}
+
+.settings-nav-item {
+  border-radius: var(--radius-md);
+}
+
+.settings-nav-item:hover {
+  color: var(--theme-heading-text);
+  background: var(--echo-polish-button-bg);
+}
+
+.settings-nav-item.active {
+  color: var(--theme-heading-text);
+  border-color: var(--echo-polish-active-border);
+  background: var(--echo-polish-active-bg);
+  box-shadow: inset 3px 0 0 var(--echo-polish-accent-text), var(--echo-polish-shadow-row);
+}
+
+.section-title,
+.downloads-section-title,
+.streaming-kicker,
+.queue-section-heading > span,
+.album-detail-kicker,
+.artist-detail-kicker {
+  color: var(--echo-polish-accent-text);
+}
+
+.list-filter-chip,
+.network-missing-filter-chip,
+.settings-action-button,
+.settings-icon-button,
+.settings-danger-button,
+.duplicate-toggle,
+.duplicate-analyze-button,
+.tool-button,
+.sort-button,
+.downloads-action-button,
+.download-icon-button,
+.streaming-provider-tabs button,
+.streaming-result-tabs button,
+.streaming-quality-select > button,
+.queue-tool-button,
+.queue-repeat-group button,
+.album-icon-action,
+.album-load-more,
+.artist-secondary-action,
+.artist-load-more {
+  color: var(--theme-button-text);
+  border-color: var(--echo-polish-border);
+  background: var(--echo-polish-button-bg);
+  box-shadow: none;
+}
+
+.list-filter-chip:hover,
+.network-missing-filter-chip:hover,
+.settings-action-button:hover,
+.settings-icon-button:hover,
+.settings-danger-button:hover,
+.duplicate-toggle:hover,
+.duplicate-analyze-button:hover,
+.tool-button:hover,
+.sort-button:hover,
+.downloads-action-button:hover:not(:disabled),
+.download-icon-button:hover:not(:disabled),
+.streaming-provider-tabs button:hover:not(:disabled),
+.streaming-result-tabs button:hover,
+.streaming-quality-select > button:hover,
+.queue-tool-button:hover:not(:disabled),
+.queue-repeat-group button:hover,
+.album-icon-action:hover,
+.album-load-more:hover,
+.artist-secondary-action:not(:disabled):hover,
+.artist-load-more:not(:disabled):hover {
+  color: var(--theme-heading-text);
+  border-color: var(--echo-polish-border-strong);
+  background: var(--echo-polish-button-bg-hover);
+  transform: none;
+}
+
+.list-filter-chip.active,
+.network-missing-filter-chip.active,
+.duplicate-toggle.active,
+.streaming-provider-tabs button[data-active="true"],
+.streaming-result-tabs button[data-active="true"],
+.queue-tool-button.is-active,
+.queue-repeat-group button.is-active {
+  color: var(--echo-polish-accent-text);
+  border-color: var(--echo-polish-active-border);
+  background: var(--echo-polish-active-bg);
+}
+
+.settings-danger-button,
+.queue-tool-button.danger,
+.queue-icon-button.danger {
+  color: var(--color-red);
+  background: var(--echo-polish-danger-bg);
+}
+
+.tool-button.danger,
+.tool-button.danger:hover:not(:disabled) {
+  color: var(--theme-button-text);
+  border-color: var(--echo-polish-border);
+  background: var(--echo-polish-button-bg);
+}
+
+.tool-button.danger:hover:not(:disabled) {
+  color: var(--theme-heading-text);
+  border-color: var(--echo-polish-border-strong);
+  background: var(--echo-polish-button-bg-hover);
+}
+
+.track-list-shell {
+  margin-inline: -18px;
+}
+
+.track-row,
+.streaming-row,
+.streaming-discovery-card,
+.playlist-list-item,
+.download-search-result,
+.download-job-row,
+.queue-row,
+.album-track-row,
+.artist-track-row,
+.remote-source-coming-soon,
+.lyrics-candidate,
+.lyrics-mv-candidate {
+  border-color: var(--echo-polish-border);
+  border-radius: var(--radius-md);
+  background: var(--echo-polish-row-bg);
+  box-shadow: none;
+}
+
+.track-row:hover,
+.track-row[data-playing="true"],
+.streaming-row:hover,
+.streaming-row[data-playing="true"],
+.streaming-discovery-card:hover,
+.playlist-list-item:hover,
+.playlist-list-item[data-active="true"],
+.download-search-result:hover,
+.download-job-row:hover,
+.queue-row:hover,
+.album-track-row:hover,
+.album-track-row[data-playing='true'],
+.artist-track-row:hover,
+.artist-track-row[data-playing="true"],
+.remote-source-coming-soon:hover,
+.lyrics-candidate:hover,
+.lyrics-mv-candidate:hover {
+  border-color: var(--echo-polish-border-strong);
+  background: var(--echo-polish-row-bg-hover);
+  box-shadow: var(--echo-polish-shadow-row);
+  transform: none;
+}
+
+.track-row[data-playing="true"],
+.streaming-row[data-playing="true"],
+.queue-row[data-current='true'],
+.album-track-row[data-playing='true'],
+.artist-track-row[data-playing="true"] {
+  border-color: var(--echo-polish-active-border);
+  background: var(--echo-polish-row-bg-active);
+}
+
+.track-cover,
+.streaming-cover,
+.playlist-cover,
+.queue-now-cover,
+.queue-row-cover,
+.album-detail-cover,
+.artist-hero-avatar,
+.artist-album-cover,
+.artist-track-cover,
+.download-search-thumb,
+.download-job-icon {
+  border-color: var(--echo-polish-border);
+  border-radius: var(--radius-md);
+  background: var(--echo-polish-surface-muted);
+  box-shadow: var(--echo-polish-cover-shadow);
+}
+
+.track-row:hover .track-cover,
+.track-row:focus-visible .track-cover {
+  transform: none;
+}
+
+.album-primary-action,
+.artist-primary-action,
+.primary-action,
+.play-button,
+.player-bar .play-button {
+  color: var(--echo-polish-on-accent);
+  border-color: transparent;
+  background: var(--echo-polish-play-bg);
+  box-shadow: var(--echo-polish-shadow-row);
+}
+
+.album-primary-action:not(:disabled):hover,
+.artist-primary-action:not(:disabled):hover,
+.primary-action:hover:not(:disabled),
+.play-button:hover,
+.player-bar .play-button:hover {
+  box-shadow: var(--echo-polish-shadow-panel);
+  transform: none;
+}
+
+.player-bar {
+  border-color: var(--echo-polish-border);
+  background: var(--echo-polish-player-bg);
+  box-shadow: var(--echo-polish-shadow-player);
+}
+
+.player-now {
+  min-width: 0;
+}
+
+.player-cover {
+  border-radius: var(--radius-md);
+  box-shadow: var(--echo-polish-cover-shadow);
+}
+
+.player-track-copy strong {
+  color: var(--theme-heading-text);
+}
+
+.player-track-copy > span,
+.player-tags .hifi-tag,
+.output-status > span,
+.progress-row {
+  color: var(--theme-muted-text);
+}
+
+.player-bar .icon-button {
+  color: var(--theme-button-text);
+  border-color: var(--echo-polish-border);
+  border-radius: 50%;
+  background: var(--echo-polish-button-bg);
+}
+
+.transport .icon-button,
+.transport .play-button,
+.player-bar .icon-button,
+.player-bar .play-button {
+  border-radius: 50%;
+}
+
+.player-bar .icon-button:hover,
+.player-bar .icon-button.is-soft-active {
+  color: var(--echo-polish-accent-text);
+  border-color: var(--echo-polish-active-border);
+  background: var(--echo-polish-active-bg);
+}
+
+.progress-track,
+.download-progress-track,
+.streaming-download-progress-track,
+.queue-progress-track,
+.settings-update-progress-track {
+  background: var(--theme-control-bg);
+}
+
+.progress-fill,
+.download-progress-track span,
+.streaming-download-progress-track span,
+.settings-update-progress-track span {
+  background: var(--echo-polish-play-bg);
+}
+
+.sort-menu,
+.streaming-quality-menu,
+.playlist-action-menu,
+.playlist-quality-menu,
+.track-context-menu,
+.font-picker-modal {
+  border-color: var(--echo-polish-border);
+  border-radius: var(--radius-md);
+  background: var(--echo-polish-surface-strong);
+  box-shadow: var(--echo-polish-shadow-soft);
+}
+
+.sort-option,
+.streaming-quality-menu button,
+.playlist-action-menu-item,
+.playlist-quality-menu button,
+.track-context-menu button {
+  color: var(--theme-button-text);
+  border-radius: var(--radius-md);
+}
+
+.sort-option:hover,
+.sort-option[aria-selected="true"],
+.streaming-quality-menu button:hover,
+.streaming-quality-menu button[aria-selected="true"],
+.playlist-action-menu-item:hover,
+.playlist-quality-menu button:hover,
+.track-context-menu button:hover {
+  color: var(--theme-heading-text);
+  background: var(--echo-polish-active-bg);
+}
+
+.chrome-notice,
+.drag-import-panel,
+.duplicate-version-panel {
+  color: var(--theme-page-text);
+  border-color: var(--echo-polish-border);
+  border-radius: var(--radius-md);
+  background: var(--echo-polish-surface-strong);
+  box-shadow: var(--echo-polish-shadow-soft);
+}
+
+.drag-import-overlay {
+  border-color: var(--echo-polish-active-border);
+  background: var(--echo-polish-active-bg);
+}
+
+@media (max-width: 980px) {
+  .nav-item {
+    padding-inline: 6px;
+  }
+
+  .player-bar {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 1fr) auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .sidebar {
+    background: var(--echo-polish-player-bg);
+  }
+
+  .page-surface {
+    padding: 18px 14px;
+  }
+
+  .track-list-shell {
+    margin-inline: -8px;
+  }
+
+  .track-row,
+  .streaming-row,
+  .queue-row,
+  .download-job-row {
+    border-radius: var(--radius-md);
+  }
+
+  .settings-section {
+    padding: 18px;
+  }
+}
