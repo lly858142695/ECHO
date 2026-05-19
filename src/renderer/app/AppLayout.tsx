@@ -164,6 +164,9 @@ const openMvSettingsEvent = 'app:open-mv-settings';
 const openLyricsSettingsEvent = 'app:open-lyrics-settings';
 const showChromeNoticeEvent = 'app:show-chrome-notice';
 
+const readSuppressAccountExpiryNotices = (settings: Partial<AppSettings> | null | undefined): boolean =>
+  settings?.suppressAccountExpiryNotices === true;
+
 export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const { t } = useI18n();
   const playbackQueue = usePlaybackQueue();
@@ -172,6 +175,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [chromeNotice, setChromeNotice] = useState<string | null>(null);
   const [isChromeNoticeVisible, setIsChromeNoticeVisible] = useState(false);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
+  const suppressAccountExpiryNoticesRef = useRef(false);
   const [audioErrorNotice, setAudioErrorNotice] = useState<{ message: string } | null>(null);
   const [diagnosticsNotice, setDiagnosticsNotice] = useState(false);
   const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
@@ -417,7 +421,54 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [accountNotice]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
+      if (!settings || !Object.prototype.hasOwnProperty.call(settings, 'suppressAccountExpiryNotices')) {
+        return;
+      }
+
+      const suppressed = readSuppressAccountExpiryNotices(settings);
+      suppressAccountExpiryNoticesRef.current = suppressed;
+      if (suppressed) {
+        setAccountNotice(null);
+      }
+    };
+
+    const refreshSettings = (): void => {
+      void window.echo?.app?.getSettings?.().then((settings) => {
+        if (!cancelled) {
+          applySettings(settings);
+        }
+      }).catch(() => undefined);
+    };
+
+    refreshSettings();
+
+    const handleSettingsChanged = (event: Event): void => {
+      if (event instanceof CustomEvent) {
+        applySettings(event.detail as Partial<AppSettings> | null | undefined);
+        return;
+      }
+
+      if (!cancelled) {
+        refreshSettings();
+      }
+    };
+
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('settings:changed', handleSettingsChanged);
+    };
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = window.echo?.accounts?.onStatusesChanged?.((statuses: AccountStatus[]) => {
+      if (suppressAccountExpiryNoticesRef.current) {
+        return;
+      }
+
       const disconnected = statuses.filter((status) => !status.connected && Boolean(status.error));
 
       if (disconnected.length === 0) {

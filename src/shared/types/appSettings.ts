@@ -121,6 +121,7 @@ export type AppSettings = {
   liveLibraryAutoHideDeletedEnabled?: boolean;
   autoUpdateEnabled?: boolean;
   autoAccountCheckOnStartup?: boolean;
+  suppressAccountExpiryNotices?: boolean;
   spotifyAutoLaunchOfficialPlayer?: boolean;
   playlistBackupsEnabled?: boolean;
   coverCacheDir: string | null;

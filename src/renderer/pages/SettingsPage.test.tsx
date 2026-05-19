@@ -14,6 +14,7 @@ const settings: AppSettings = {
   artistWallAlbumArtwork: false,
   artistWallAlbumFallbackForMissingAvatars: false,
   autoAccountCheckOnStartup: true,
+  suppressAccountExpiryNotices: false,
   coverCacheDir: null,
   hideToTrayOnClose: false,
   appCustomWallpaperPath: null,
@@ -1208,6 +1209,23 @@ describe('SettingsPage', () => {
     fireEvent.click(within(row).getByRole('button'));
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ autoAccountCheckOnStartup: false }));
+  });
+
+  it('saves the account expiry notice suppression setting from Settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockResolvedValue({ ...settings, suppressAccountExpiryNotices: true });
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    fireEvent.click(screen.getAllByText('settings.nav.integrations.label')[0]);
+    const row = screen.getByText('关闭账号失效通知').closest('.setting-row') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button'));
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ suppressAccountExpiryNotices: true }));
   });
 
   it('shows app wallpaper controls only after choosing a custom wallpaper', async () => {

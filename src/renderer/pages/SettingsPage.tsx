@@ -3018,6 +3018,14 @@ export const SettingsPage = (): JSX.Element => {
         terms: ['启动时刷新账号登录状态', '账号状态', '登录状态', 'account status', 'login status', 'startup account refresh', 'youtube', 'bilibili', 'spotify', '状态'],
       },
       {
+        id: 'row-account-expiry-notices',
+        sectionKey: 'integrations',
+        targetId: 'settings-row-account-expiry-notices',
+        title: '关闭账号失效通知',
+        description: '开启后，账号失效时不再弹出左上角提醒；账号状态仍可在这里查看。',
+        terms: ['关闭账号失效通知', '账号失效通知', '左上角通知', '消息推送', 'account notice', 'account expiry notice', 'login expired', 'notification'],
+      },
+      {
         id: 'row-audio-status',
         sectionKey: 'playback',
         targetId: 'settings-row-audio-status',
@@ -6575,6 +6583,18 @@ export const SettingsPage = (): JSX.Element => {
                   active={appSettings?.autoAccountCheckOnStartup ?? true}
                   disabled={!appSettings}
                   onClick={() => patchAppSettings({ autoAccountCheckOnStartup: !(appSettings?.autoAccountCheckOnStartup ?? true) })}
+                />
+              </SettingRow>
+              <SettingRow
+                id="settings-row-account-expiry-notices"
+                highlighted={highlightedSettingId === 'settings-row-account-expiry-notices'}
+                title="关闭账号失效通知"
+                description="开启后，账号失效时不再弹出左上角提醒；账号状态仍可在这里查看。"
+              >
+                <ToggleButton
+                  active={appSettings?.suppressAccountExpiryNotices === true}
+                  disabled={!appSettings}
+                  onClick={() => patchAppSettings({ suppressAccountExpiryNotices: appSettings?.suppressAccountExpiryNotices !== true })}
                 />
               </SettingRow>
               <SettingRow title="Spotify 自动启动官方播放器" description="播放 Spotify 时，如果 ECHO 内置 SDK 因 DRM 不可用，会自动打开 Spotify 桌面端或网页版并接管 Connect 设备。">

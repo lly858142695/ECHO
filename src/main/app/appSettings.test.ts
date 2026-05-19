@@ -271,6 +271,15 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ autoAccountCheckOnStartup: 'no' as never }).autoAccountCheckOnStartup).toBe(true);
   });
 
+  it('keeps account expiry notices visible unless explicitly suppressed', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).suppressAccountExpiryNotices).toBe(false);
+    expect(normalizeSettings({ suppressAccountExpiryNotices: true }).suppressAccountExpiryNotices).toBe(true);
+    expect(normalizeSettings({ suppressAccountExpiryNotices: false }).suppressAccountExpiryNotices).toBe(false);
+    expect(normalizeSettings({ suppressAccountExpiryNotices: 'yes' as never }).suppressAccountExpiryNotices).toBe(false);
+  });
+
   it('keeps Spotify official player auto launch enabled unless explicitly disabled', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
