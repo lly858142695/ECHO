@@ -180,34 +180,4 @@ describe('LibraryService grouping refresh scheduling', () => {
     scheduled.close();
   });
 
-  it('marks missing paths without immediately rebuilding grouping indexes', () => {
-    const store = new FakeStore();
-    const service = createService(store);
-
-    const changed = (service as unknown as { markMissingPathsFromWatcher: (folderId: string, paths: string[]) => number })
-      .markMissingPathsFromWatcher('folder-1', ['D:\\Music\\deleted.flac']);
-
-    expect(changed).toBe(1);
-    expect(store.markMissingCalls).toBe(1);
-    expect(store.refreshAlbumsCalls).toBe(0);
-    expect(store.refreshArtistsCalls).toBe(0);
-    expect(service.getDiagnostics().groupingRefreshQueued).toBe(true);
-    service.close();
-  });
-
-  it('does not force an artist rebuild while a grouping refresh is already queued', () => {
-    const store = new FakeStore();
-    const service = createService(store);
-    const scheduled = service as unknown as {
-      markMissingPathsFromWatcher: (folderId: string, paths: string[]) => number;
-      close: () => void;
-    };
-
-    scheduled.markMissingPathsFromWatcher('folder-1', ['D:\\Music\\deleted.flac']);
-    service.getArtists({ pageSize: 10 });
-
-    expect(store.refreshArtistsCalls).toBe(0);
-    expect(service.getDiagnostics().groupingRefreshQueued).toBe(true);
-    scheduled.close();
-  });
 });

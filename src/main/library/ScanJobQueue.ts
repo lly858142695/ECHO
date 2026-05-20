@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
-import { basename, extname, isAbsolute, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, relative, resolve } from 'node:path';
 import { setImmediate as yieldToMainLoop } from 'node:timers/promises';
 import { SCANNABLE_AUDIO_EXTENSIONS } from '../../shared/constants/audioExtensions';
 import type { AlbumMergeStrategy, AlbumService } from './AlbumService';
 import type { LibraryStore } from './LibraryStore';
 import type {
   CoverResult,
+  FieldSources,
   LibraryFolder,
   LibraryScanMode,
   LibraryScanOptions,
@@ -22,6 +23,7 @@ import type { FileScanner } from './workers/FileScanner';
 import type { MetadataReader } from './workers/MetadataReader';
 import { getNcmConverter } from './NcmConverter';
 import { FileIdentityService, QUICK_HASH_VERSION, type FileIdentityObservation } from './FileIdentityService';
+import { createCueTrackPath, readEmbeddedCueSheet, resolveCueTrack } from '../audio/CueSheet';
 
 type ParsedScanItem = {
   file: ScannedAudioFile;
@@ -70,9 +72,68 @@ const progressFlushFileDelta = 64;
 const cacheCheckYieldFileDelta = 256;
 const deferredGroupingRefreshDelayMs = 1000;
 const maxStoredScanErrors = 200;
+const scanErrorSummaryThreshold = 20;
+const maxScanErrorMessageLength = 512;
 const maxLocalScanPathCount = 1000;
 const temporaryExtensions = new Set(['.tmp', '.temp', '.part', '.crdownload', '.download', '.swp']);
 const ignoredTemporaryNames = new Set(['.ds_store', 'thumbs.db']);
+
+const classifyScanError = (message: string): string => {
+  if (message.includes(': metadata')) {
+    return 'metadata';
+  }
+  if (message.includes(': cover')) {
+    return 'cover';
+  }
+  if (message.includes(': scanner')) {
+    return 'scanner';
+  }
+  if (message.includes(': ncm')) {
+    return 'ncm';
+  }
+  if (message.includes(' warning:')) {
+    return 'warning';
+  }
+  return 'other';
+};
+
+const compactScanMessage = (message: unknown): string => {
+  const normalized = String(message ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').replace(/\s+/gu, ' ').trim();
+  if (normalized.length <= maxScanErrorMessageLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxScanErrorMessageLength)}... [truncated]`;
+};
+
+const summarizeScanErrors = (errors: string[]): { errors: string[]; errorCount: number } => {
+  const errorCount = errors.length;
+  if (errorCount <= maxStoredScanErrors && errorCount < scanErrorSummaryThreshold) {
+    return { errors, errorCount };
+  }
+
+  const counts = new Map<string, number>();
+  for (const error of errors) {
+    const key = classifyScanError(error);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const summaries = Array.from(counts.entries())
+    .filter(([, count]) => count >= scanErrorSummaryThreshold)
+    .sort((left, right) => right[1] - left[1])
+    .map(([kind, count]) => `[summary] ${kind}: ${count} issue(s)`);
+
+  if (summaries.length === 0) {
+    return {
+      errors: errors.slice(0, maxStoredScanErrors),
+      errorCount,
+    };
+  }
+
+  return {
+    errors: [...summaries, ...errors.slice(0, Math.max(0, maxStoredScanErrors - summaries.length))],
+    errorCount,
+  };
+};
 
 type ScanProgressReporter = {
   update: (patch: ScanJobUpdate) => LibraryScanStatus | null;
@@ -365,10 +426,21 @@ export class ScanJobQueue {
       await this.processWithConcurrency(changedFiles, metadataConcurrency, async (item) => {
         this.throwIfCancelled(jobId);
 
+        let metadata: MetadataResult;
+        let identity: FileIdentityObservation | null = null;
+
         try {
-          const metadata = await this.metadataReader.read(item.file.path);
-          const identity = reducedScanPressure ? null : this.observeFileIdentity(item.file.path);
+          metadata = await this.metadataReader.read(item.file.path);
+          identity = reducedScanPressure ? null : this.observeFileIdentity(this.resolvePhysicalAudioPath(item.file.path));
           this.collectWorkerMessages(errors, item.file.path, 'metadata', metadata.warnings, metadata.errors);
+        } catch (error) {
+          const message = compactScanMessage(error instanceof Error ? error.message : String(error));
+          errors.push(`${item.file.path}: metadata: ${message}`);
+          metadata = this.createFallbackMetadata(item.file, message);
+          identity = reducedScanPressure ? null : this.observeFileIdentity(this.resolvePhysicalAudioPath(item.file.path));
+        }
+
+        try {
           let cover: CoverResult | null = null;
 
           try {
@@ -380,7 +452,7 @@ export class ScanJobQueue {
             this.collectWorkerMessages(errors, item.file.path, 'cover', cover.warnings, cover.errors);
             coverCount += 1;
           } catch (error) {
-            errors.push(`${item.file.path}: cover: ${error instanceof Error ? error.message : String(error)}`);
+            errors.push(`${item.file.path}: cover: ${compactScanMessage(error instanceof Error ? error.message : String(error))}`);
           }
 
           parsedItems.push({
@@ -390,7 +462,7 @@ export class ScanJobQueue {
             identity,
           });
         } catch (error) {
-          errors.push(`${item.file.path}: metadata: ${error instanceof Error ? error.message : String(error)}`);
+          errors.push(`${item.file.path}: cover: ${compactScanMessage(error instanceof Error ? error.message : String(error))}`);
         }
 
         processedFiles += 1;
@@ -437,11 +509,11 @@ export class ScanJobQueue {
           item.cover = cover;
           coverCount += 1;
         } catch (error) {
-          errors.push(`${item.file.path}: cover: ${error instanceof Error ? error.message : String(error)}`);
+          errors.push(`${item.file.path}: cover: ${compactScanMessage(error instanceof Error ? error.message : String(error))}`);
         }
 
         if (!reducedScanPressure && !this.hasIdentityObservation(item.state)) {
-          item.identity = this.observeFileIdentity(item.file.path);
+          item.identity = this.observeFileIdentity(this.resolvePhysicalAudioPath(item.file.path));
         }
 
         processedFiles += 1;
@@ -457,7 +529,7 @@ export class ScanJobQueue {
 
       await this.processWithConcurrency(identityUpdateItems, metadataConcurrency, async (item) => {
         this.throwIfCancelled(jobId);
-        item.identity = this.observeFileIdentity(item.file.path);
+        item.identity = this.observeFileIdentity(this.resolvePhysicalAudioPath(item.file.path));
         await yieldToMainLoop();
       });
 
@@ -619,7 +691,7 @@ export class ScanJobQueue {
       });
     }
 
-    errors.push(error instanceof Error ? error.message : String(error));
+    errors.push(compactScanMessage(error instanceof Error ? error.message : String(error)));
     return progress.flushNow({
       status: 'failed',
       phase: 'failed',
@@ -664,9 +736,9 @@ export class ScanJobQueue {
       for await (const file of this.fileScanner.scanFolder(folder.path)) {
         this.throwIfCancelled(jobId);
         try {
-          files.push(await this.normalizeScannedFile(file, folder.id));
+          files.push(...this.expandEmbeddedCueTracks(await this.normalizeScannedFile(file, folder.id)));
         } catch (error) {
-          errors.push(`${file.path}: ncm: ${error instanceof Error ? error.message : String(error)}`);
+          errors.push(`${file.path}: ncm: ${compactScanMessage(error instanceof Error ? error.message : String(error))}`);
         }
 
         if (files.length % 100 === 0) {
@@ -678,7 +750,7 @@ export class ScanJobQueue {
         }
       }
     } catch (error) {
-      errors.push(`${folder.path}: scanner: ${error instanceof Error ? error.message : String(error)}`);
+      errors.push(`${folder.path}: scanner: ${compactScanMessage(error instanceof Error ? error.message : String(error))}`);
       throw error;
     }
 
@@ -705,12 +777,12 @@ export class ScanJobQueue {
           continue;
         }
 
-        files.push({
+        files.push(...this.expandEmbeddedCueTracks({
           path: filePath,
           folderId: folder.id,
           sizeBytes: fileStat.size,
           mtimeMs: Math.round(fileStat.mtimeMs),
-        });
+        }));
       } catch {
         continue;
       }
@@ -771,11 +843,12 @@ export class ScanJobQueue {
       if (!patch.errors) {
         return patch;
       }
+      const summarized = summarizeScanErrors(patch.errors);
 
       return {
         ...patch,
-        errorCount: patch.errorCount ?? patch.errors.length,
-        errors: patch.errors.slice(0, maxStoredScanErrors),
+        errorCount: patch.errorCount ?? summarized.errorCount,
+        errors: summarized.errors,
       };
     };
 
@@ -823,6 +896,51 @@ export class ScanJobQueue {
     return lightweightMetadata;
   }
 
+  private createFallbackMetadata(file: ScannedAudioFile, message: string): MetadataResult {
+    const extension = extname(file.path).toLowerCase();
+    const title = basename(file.path, extension).replace(/[_-]+/gu, ' ').trim() || basename(file.path) || 'Unknown Title';
+    const albumFromFolder = basename(dirname(file.path)).trim();
+    const fieldSources: FieldSources = {
+      title: 'filename_fallback',
+      artist: 'unknown',
+      album: albumFromFolder ? 'folder_structure' : 'unknown',
+      albumArtist: 'artist_fallback',
+      trackNo: 'unknown',
+      discNo: 'unknown',
+      year: 'unknown',
+      genre: 'unknown',
+      duration: 'unknown',
+      codec: extension ? 'technical' : 'unknown',
+      sampleRate: 'unknown',
+      bitDepth: 'unknown',
+      bitrate: 'unknown',
+    };
+
+    return {
+      fields: {
+        title,
+        artist: 'Unknown Artist',
+        album: albumFromFolder || 'Unknown Album',
+        albumArtist: 'Unknown Artist',
+        trackNo: null,
+        discNo: null,
+        year: null,
+        genre: null,
+        duration: 0,
+        codec: extension ? extension.slice(1).toUpperCase() : null,
+        sampleRate: null,
+        bitDepth: null,
+        bitrate: null,
+      },
+      fieldSources,
+      embeddedMetadataStatus: 'error',
+      embeddedCoverStatus: 'missing',
+      warnings: [],
+      errors: [message],
+      status: 'fallback',
+    };
+  }
+
   private withFolderId(file: ScannedFile, folderId: string): ScannedAudioFile {
     return {
       ...file,
@@ -845,6 +963,26 @@ export class ScanJobQueue {
     };
   }
 
+  private expandEmbeddedCueTracks(file: ScannedAudioFile): ScannedAudioFile[] {
+    const sheet = readEmbeddedCueSheet(file.path);
+    if (!sheet || sheet.tracks.length <= 1) {
+      return [file];
+    }
+
+    return sheet.tracks.map((track) => ({
+      ...file,
+      path: createCueTrackPath(file.path, track.trackNumber),
+    }));
+  }
+
+  private resolvePhysicalAudioPath(filePath: string): string {
+    try {
+      return resolveCueTrack(filePath)?.audioPath ?? filePath;
+    } catch {
+      return filePath;
+    }
+  }
+
   private throwIfCancelled(jobId: string): void {
     if (this.store.isScanCancelled(jobId)) {
       throw new ScanCancelledError();
@@ -859,11 +997,11 @@ export class ScanJobQueue {
     workerErrors: string[],
   ): void {
     for (const warning of warnings) {
-      errors.push(`${filePath}: ${workerName} warning: ${warning}`);
+      errors.push(`${filePath}: ${workerName} warning: ${compactScanMessage(warning)}`);
     }
 
     for (const error of workerErrors) {
-      errors.push(`${filePath}: ${workerName}: ${error}`);
+      errors.push(`${filePath}: ${workerName}: ${compactScanMessage(error)}`);
     }
   }
 
@@ -997,7 +1135,7 @@ export class ScanJobQueue {
         quickHashVersion: QUICK_HASH_VERSION,
         identityStatus: 'error',
         identityUpdatedAt: new Date().toISOString(),
-        identityError: error instanceof Error ? error.message : String(error),
+        identityError: compactScanMessage(error instanceof Error ? error.message : String(error)),
       };
     }
   }

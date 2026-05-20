@@ -236,6 +236,15 @@
   transform: translate(calc((var(--cover-index) - 1.5) * 10px), calc((var(--cover-index) - 1.5) * 7px));
 }
 
+.folder-cover-stack[data-cover-count='1'] img {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  transform: none;
+}
+
 .folder-detail-title {
   display: grid;
   min-width: 0;

@@ -227,6 +227,7 @@ export const FoldersPage = (): JSX.Element => {
   const [isSavingTags, setIsSavingTags] = useState(false);
   const trackRequestIdRef = useRef(0);
   const bulkRequestIdRef = useRef(0);
+  const refreshedTerminalScanIdsRef = useRef<Set<string>>(new Set());
   const tagEditorCloseTimerRef = useRef<number | null>(null);
   const { currentTrackId, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeTrackFromQueue } = usePlaybackQueue();
 
@@ -412,7 +413,12 @@ export const FoldersPage = (): JSX.Element => {
   }, [scanStatuses]);
 
   useEffect(() => {
-    if (Object.values(scanStatuses).some((status) => terminalStatuses.has(status.status))) {
+    const terminalStatus = Object.values(scanStatuses).find(
+      (status) => terminalStatuses.has(status.status) && !refreshedTerminalScanIdsRef.current.has(status.id),
+    );
+
+    if (terminalStatus) {
+      refreshedTerminalScanIdsRef.current.add(terminalStatus.id);
       void refreshOverviews();
     }
   }, [refreshOverviews, scanStatuses]);
@@ -517,7 +523,6 @@ export const FoldersPage = (): JSX.Element => {
       rememberLibraryScanStatus(await library.scanFolder(folder.id));
       setMessage(t('folders.message.folderAddedScanStarted'));
       await refreshOverviews();
-      window.dispatchEvent(new Event('library:changed'));
     } catch (chooseError) {
       setError(formatFolderError(chooseError, t));
     }
@@ -536,7 +541,6 @@ export const FoldersPage = (): JSX.Element => {
       rememberLibraryScanStatus(await library.scanFolder(folder.id));
       setMessage(t('folders.message.folderAddedScanStarted'));
       await refreshOverviews();
-      window.dispatchEvent(new Event('library:changed'));
     } catch (addError) {
       setError(formatFolderError(addError, t));
     }
@@ -929,7 +933,7 @@ export const FoldersPage = (): JSX.Element => {
 
       <main className="folders-main">
         <header className="folder-detail-header">
-          <div className="folder-cover-stack" aria-hidden="true">
+          <div className="folder-cover-stack" data-cover-count={Math.min(selected?.coverThumbs.length ?? 0, 4)} aria-hidden="true">
             {(selected?.coverThumbs ?? []).slice(0, 4).map((cover, index) => (
               <img alt="" key={cover} src={cover} style={{ '--cover-index': index } as CSSProperties} />
             ))}

@@ -1200,17 +1200,18 @@ export class DownloadService extends EventEmitter {
       }
 
       const isTerminal = terminalStatuses.has(rawJob.status);
+      const options = state.jobOptions[rawJob.id];
+      const canResume = isTerminal || Boolean(options?.outputDirectory);
       const job: DownloadJob = {
         ...rawJob,
-        status: isTerminal ? rawJob.status : 'queued',
-        progress: isTerminal ? rawJob.progress : Math.min(95, Math.max(0, rawJob.progress ?? 0)),
-        error: isTerminal ? rawJob.error : null,
+        status: isTerminal ? rawJob.status : canResume ? 'queued' : 'failed',
+        progress: isTerminal ? rawJob.progress : canResume ? Math.min(95, Math.max(0, rawJob.progress ?? 0)) : 100,
+        error: isTerminal ? rawJob.error : canResume ? null : 'Download resume data is incomplete. Add the track to downloads again.',
         updatedAt: now,
-        completedAt: isTerminal ? rawJob.completedAt : null,
+        completedAt: isTerminal ? rawJob.completedAt : canResume ? null : now,
       };
       restoredJobs.push(job);
 
-      const options = state.jobOptions[rawJob.id];
       if (options?.outputDirectory) {
         this.jobOptions.set(rawJob.id, {
           ...options,

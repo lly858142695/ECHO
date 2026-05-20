@@ -11,12 +11,15 @@ import type {
   LibraryDatabaseArchiveInfo,
   LibraryDatabaseDeleteResult,
   LibraryDatabaseMaintenanceEventInfo,
+  LibraryDatabasePoisonReport,
   LibraryDatabaseProtectionStatus,
   LibraryDatabaseRepairResult,
   LibraryDatabaseRestoreResult,
+  LibraryDatabaseScrubResult,
   LibraryDatabaseSnapshotInfo,
   LibraryScanStatus,
 } from '../../shared/types/library';
+import { buildTrackSearchTerms } from '../library/SearchIndexTokens';
 
 type DataProtectionReason = 'startup' | 'update-install' | 'manual-library-database-snapshot' | 'scan-completed-library-snapshot';
 type ProtectedEntryKind = 'file' | 'directory';
@@ -41,12 +44,21 @@ type RestoreResult = {
 
 type LibraryDatabaseMaintenanceEvent = {
   createdAt: string;
-  action: 'manual-repair' | 'manual-delete' | 'manual-restore' | 'startup-protected' | 'scan-health-failed' | 'scan-auto-restore';
+  action:
+    | 'manual-repair'
+    | 'manual-delete'
+    | 'manual-restore'
+    | 'manual-scrub-quarantined'
+    | 'startup-protected'
+    | 'startup-poisoned'
+    | 'scan-health-failed'
+    | 'scan-auto-restore';
   databasePath: string;
   archivePath?: string | null;
   removedDatabaseFiles?: string[];
   restoredSnapshotId?: string;
   health?: DatabaseHealthResult;
+  poisonReport?: LibraryDatabasePoisonReport;
   scan?: {
     jobId: string;
     folderId: string;
@@ -87,11 +99,12 @@ export type LibraryDatabaseScanGuardRestoreResult = {
 };
 
 export type LibraryRecoveryResult = {
-  action: 'none' | 'protected' | 'archivedOnly' | 'autoRestoredFromScanGuard' | 'failed';
+  action: 'none' | 'protected' | 'archivedOnly' | 'quarantined' | 'autoRestoredFromScanGuard' | 'failed';
   sourceSnapshotPath?: string;
   scanGuardSnapshotId?: string;
   archivePath?: string;
   health: DatabaseHealthResult;
+  poisonReport?: LibraryDatabasePoisonReport;
 };
 
 export type DataProtectionResult = {
@@ -106,7 +119,10 @@ export type DataProtectionResult = {
 export class LibraryDatabaseUnavailableError extends Error {
   constructor(readonly recovery: LibraryRecoveryResult | null = lastDataProtectionResult?.recovery ?? null) {
     super(
-      recovery?.action === 'protected' || recovery?.action === 'archivedOnly' || recovery?.action === 'failed'
+      recovery?.action === 'protected' ||
+        recovery?.action === 'archivedOnly' ||
+        recovery?.action === 'quarantined' ||
+        recovery?.action === 'failed'
         ? '音乐库数据库未通过健康检查，ECHO Next 已进入保护模式。音乐文件不会被删除，请前往设置里的数据库恢复工具处理。'
         : '音乐库数据库暂时不可用。请稍后重试或前往设置里的数据库恢复工具处理。',
     );
@@ -322,6 +338,408 @@ const removeLibraryTriplet = (rootPath: string): void => {
   }
 };
 
+const maxProtectedDisplayTextLength = 512;
+const maxProtectedSearchTextLength = 4096;
+const poisonBinaryMarkerPattern = /(?:APIC|image\/(?:jpeg|jpg|png|webp|gif)|JFIF|Exif|\u0000)/iu;
+const textFieldsToInspect: Array<{ table: string; column: string; maxLength: number }> = [
+  { table: 'tracks', column: 'title', maxLength: maxProtectedDisplayTextLength },
+  { table: 'tracks', column: 'artist', maxLength: maxProtectedDisplayTextLength },
+  { table: 'tracks', column: 'album', maxLength: maxProtectedDisplayTextLength },
+  { table: 'tracks', column: 'album_artist', maxLength: maxProtectedDisplayTextLength },
+  { table: 'tracks', column: 'genre', maxLength: maxProtectedDisplayTextLength },
+  { table: 'tracks', column: 'codec', maxLength: 128 },
+  { table: 'tracks', column: 'search_terms', maxLength: maxProtectedSearchTextLength },
+  { table: 'albums', column: 'title', maxLength: maxProtectedDisplayTextLength },
+  { table: 'albums', column: 'album_artist', maxLength: maxProtectedDisplayTextLength },
+  { table: 'artists', column: 'name', maxLength: maxProtectedDisplayTextLength },
+  { table: 'artists', column: 'sort_name', maxLength: maxProtectedDisplayTextLength },
+  { table: 'scan_jobs', column: 'errors_json', maxLength: maxProtectedSearchTextLength },
+  { table: 'covers', column: 'warnings_json', maxLength: maxProtectedSearchTextLength },
+  { table: 'covers', column: 'errors_json', maxLength: maxProtectedSearchTextLength },
+];
+
+const quoteSqlIdentifier = (value: string): string => `"${value.replace(/"/gu, '""')}"`;
+
+const safeTableColumns = (database: Database.Database, tableName: string): Set<string> => {
+  try {
+    const rows = database.prepare<[], { name: string }>(`PRAGMA table_info(${quoteSqlIdentifier(tableName)})`).all();
+    return new Set(rows.map((row) => row.name));
+  } catch {
+    return new Set();
+  }
+};
+
+const inspectTextColumnForPoison = (
+  database: Database.Database,
+  tableName: string,
+  columnName: string,
+  maxLength: number,
+): { maxLength: number; suspectCount: number; oversizedCount: number; binaryMarkerCount: number } => {
+  const table = quoteSqlIdentifier(tableName);
+  const column = quoteSqlIdentifier(columnName);
+  const row = database
+    .prepare<[], { max_length: number | null; suspect_count: number | null; oversized_count: number | null; binary_marker_count: number | null }>(
+      `SELECT
+         MAX(LENGTH(${column})) AS max_length,
+         SUM(CASE WHEN ${column} IS NOT NULL AND (
+           LENGTH(${column}) > ${maxLength}
+           OR INSTR(${column}, char(0)) > 0
+           OR lower(${column}) LIKE '%apic%'
+           OR lower(${column}) LIKE '%image/jpeg%'
+           OR lower(${column}) LIKE '%image/jpg%'
+           OR lower(${column}) LIKE '%image/png%'
+           OR lower(${column}) LIKE '%image/webp%'
+           OR lower(${column}) LIKE '%jfif%'
+           OR lower(${column}) LIKE '%exif%'
+         ) THEN 1 ELSE 0 END) AS suspect_count,
+         SUM(CASE WHEN ${column} IS NOT NULL AND LENGTH(${column}) > ${maxLength} THEN 1 ELSE 0 END) AS oversized_count,
+         SUM(CASE WHEN ${column} IS NOT NULL AND (
+           INSTR(${column}, char(0)) > 0
+           OR lower(${column}) LIKE '%apic%'
+           OR lower(${column}) LIKE '%image/jpeg%'
+           OR lower(${column}) LIKE '%image/jpg%'
+           OR lower(${column}) LIKE '%image/png%'
+           OR lower(${column}) LIKE '%image/webp%'
+           OR lower(${column}) LIKE '%jfif%'
+           OR lower(${column}) LIKE '%exif%'
+         ) THEN 1 ELSE 0 END) AS binary_marker_count
+       FROM ${table}`,
+    )
+    .get();
+
+  return {
+    maxLength: Number(row?.max_length ?? 0),
+    suspectCount: Number(row?.suspect_count ?? 0),
+    oversizedCount: Number(row?.oversized_count ?? 0),
+    binaryMarkerCount: Number(row?.binary_marker_count ?? 0),
+  };
+};
+
+const okPoisonReport = (databasePath: string): LibraryDatabasePoisonReport => ({
+  status: 'ok',
+  reason: 'none',
+  checkedAt: new Date().toISOString(),
+  databasePath,
+  suspectCounts: {},
+  maxFieldLengths: {},
+});
+
+export const inspectLibraryDatabaseForPoison = (databasePath: string): LibraryDatabasePoisonReport => {
+  if (!existsSync(databasePath)) {
+    return okPoisonReport(databasePath);
+  }
+
+  const health = checkDatabaseHealth(databasePath);
+  if (health.status !== 'ok') {
+    return {
+      status: health.status === 'corrupt' ? 'poisoned' : 'unreadable',
+      reason: 'corrupt_database',
+      checkedAt: health.checkedAt,
+      databasePath,
+      suspectCounts: {},
+      maxFieldLengths: {},
+      message: health.message,
+    };
+  }
+
+  let database: Database.Database | null = null;
+  try {
+    database = new Database(databasePath, { readonly: true, fileMustExist: true });
+    const columnsByTable = new Map<string, Set<string>>();
+    const suspectCounts: Record<string, number> = {};
+    const maxFieldLengths: Record<string, number> = {};
+    let totalSuspects = 0;
+    let totalOversized = 0;
+    let totalBinaryMarkers = 0;
+
+    for (const field of textFieldsToInspect) {
+      let columns = columnsByTable.get(field.table);
+      if (!columns) {
+        columns = safeTableColumns(database, field.table);
+        columnsByTable.set(field.table, columns);
+      }
+      if (!columns.has(field.column)) {
+        continue;
+      }
+
+      const result = inspectTextColumnForPoison(database, field.table, field.column, field.maxLength);
+      const key = `${field.table}.${field.column}`;
+      if (result.maxLength > 0) {
+        maxFieldLengths[key] = result.maxLength;
+      }
+      if (result.suspectCount > 0) {
+        suspectCounts[key] = result.suspectCount;
+      }
+      totalSuspects += result.suspectCount;
+      totalOversized += result.oversizedCount;
+      totalBinaryMarkers += result.binaryMarkerCount;
+    }
+
+    if (totalSuspects === 0) {
+      return {
+        ...okPoisonReport(databasePath),
+        maxFieldLengths,
+      };
+    }
+
+    return {
+      status: 'poisoned',
+      reason: totalBinaryMarkers > 0 ? 'poisoned_metadata' : totalOversized > 0 ? 'oversized_payload' : 'poisoned_metadata',
+      checkedAt: new Date().toISOString(),
+      databasePath,
+      suspectCounts,
+      maxFieldLengths,
+      message: `Detected ${totalSuspects} unsafe library text payload(s).`,
+    };
+  } catch (error) {
+    return {
+      status: 'unreadable',
+      reason: 'corrupt_database',
+      checkedAt: new Date().toISOString(),
+      databasePath,
+      suspectCounts: {},
+      maxFieldLengths: {},
+      message: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    try {
+      database?.close();
+    } catch {
+      // Ignore close errors while reporting the original poison check result.
+    }
+  }
+};
+
+const normalizeProtectedTextWhitespace = (text: string): string =>
+  text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, ' ').replace(/\s+/gu, ' ').trim();
+
+const countProtectedControlCharacters = (text: string): number => {
+  let count = 0;
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if ((codePoint >= 0x00 && codePoint <= 0x1f) || (codePoint >= 0x7f && codePoint <= 0x9f)) {
+      count += 1;
+    }
+  }
+  return count;
+};
+
+const isUnsafeProtectedText = (text: string, maxLength: number): boolean => {
+  if (!text || text.length > maxLength || poisonBinaryMarkerPattern.test(text)) {
+    return true;
+  }
+
+  const controlCount = countProtectedControlCharacters(text);
+  return controlCount >= 8 || controlCount / Math.max(1, text.length) > 0.02;
+};
+
+const safeProtectedText = (value: unknown, fallback: string, maxLength = maxProtectedDisplayTextLength): string => {
+  const raw = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+  if (isUnsafeProtectedText(raw, maxLength)) {
+    return fallback;
+  }
+
+  const normalized = normalizeProtectedTextWhitespace(raw);
+  return isUnsafeProtectedText(normalized, maxLength) ? fallback : normalized;
+};
+
+const safeProtectedNullableText = (value: unknown, maxLength = maxProtectedDisplayTextLength): string | null => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const sanitized = safeProtectedText(value, '', maxLength);
+  return sanitized || null;
+};
+
+const filenameFallbackFromPath = (filePath: string): { title: string; artist: string | null } => {
+  const name = basename(filePath).replace(/\.[^.\\/]+$/u, '').trim();
+  const parts = name.split(' - ').map((part) => part.trim()).filter(Boolean);
+
+  if (parts.length >= 2) {
+    return { artist: parts[0], title: parts.slice(1).join(' - ') };
+  }
+
+  return { artist: null, title: name || 'Untitled' };
+};
+
+const compactJsonText = (value: unknown, maxLength = maxProtectedSearchTextLength): string => {
+  if (typeof value !== 'string' || value.length <= maxLength && !isUnsafeProtectedText(value, maxLength)) {
+    return typeof value === 'string' ? value : '[]';
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (Array.isArray(parsed)) {
+      return JSON.stringify(
+        parsed
+          .filter((item): item is string => typeof item === 'string')
+          .slice(0, 20)
+          .map((item) => safeProtectedText(item, '[unsafe payload removed]', maxProtectedDisplayTextLength)),
+      );
+    }
+  } catch {
+    // Fall back to a compact placeholder below.
+  }
+
+  return JSON.stringify(['[unsafe payload removed]']);
+};
+
+const scrubTrackRows = (database: Database.Database): number => {
+  const columns = safeTableColumns(database, 'tracks');
+  if (!columns.has('rowid') && columns.size === 0) {
+    return 0;
+  }
+
+  const wantedColumns = ['rowid', 'path', 'title', 'artist', 'album', 'album_artist', 'genre', 'codec', 'search_terms']
+    .filter((column) => column === 'rowid' || columns.has(column));
+  if (!wantedColumns.includes('rowid')) {
+    wantedColumns.unshift('rowid');
+  }
+
+  let scrubbed = 0;
+  const rows = database.prepare<[], Record<string, unknown>>(`SELECT ${wantedColumns.map(quoteSqlIdentifier).join(', ')} FROM tracks`).all();
+
+  for (const row of rows) {
+    const path = typeof row.path === 'string' ? row.path : '';
+    const fallback = filenameFallbackFromPath(path);
+    const next: Record<string, string | null> = {};
+
+    if (columns.has('title')) {
+      next.title = safeProtectedText(row.title, fallback.title);
+    }
+    if (columns.has('artist')) {
+      next.artist = safeProtectedText(row.artist, fallback.artist ?? 'Unknown Artist');
+    }
+    if (columns.has('album')) {
+      next.album = safeProtectedText(row.album, '');
+    }
+    if (columns.has('album_artist')) {
+      next.album_artist = safeProtectedText(row.album_artist, next.artist ?? fallback.artist ?? 'Unknown Artist');
+    }
+    if (columns.has('genre')) {
+      next.genre = safeProtectedNullableText(row.genre);
+    }
+    if (columns.has('codec')) {
+      next.codec = safeProtectedNullableText(row.codec, 128);
+    }
+    if (columns.has('search_terms')) {
+      next.search_terms = buildTrackSearchTerms({
+        title: next.title ?? safeProtectedText(row.title, fallback.title),
+        artist: next.artist ?? safeProtectedText(row.artist, fallback.artist ?? 'Unknown Artist'),
+        album: next.album ?? safeProtectedText(row.album, ''),
+        albumArtist: next.album_artist ?? safeProtectedText(row.album_artist, next.artist ?? fallback.artist ?? 'Unknown Artist'),
+        genre: next.genre ?? safeProtectedNullableText(row.genre),
+        path,
+      });
+    }
+
+    const changed = Object.entries(next).some(([column, value]) => (row[column] ?? null) !== (value ?? null));
+    if (!changed) {
+      continue;
+    }
+
+    const assignments = Object.keys(next).map((column) => `${quoteSqlIdentifier(column)} = ?`).join(', ');
+    database.prepare(`UPDATE tracks SET ${assignments} WHERE rowid = ?`).run(...Object.values(next), row.rowid);
+    scrubbed += 1;
+  }
+
+  return scrubbed;
+};
+
+const scrubSimpleTextTable = (
+  database: Database.Database,
+  tableName: string,
+  fields: Array<{ column: string; fallback: string; maxLength?: number }>,
+): number => {
+  const columns = safeTableColumns(database, tableName);
+  const activeFields = fields.filter((field) => columns.has(field.column));
+  if (activeFields.length === 0) {
+    return 0;
+  }
+
+  let scrubbed = 0;
+  const selectedColumns = ['rowid', ...activeFields.map((field) => field.column)];
+  const rows = database.prepare<[], Record<string, unknown>>(`SELECT ${selectedColumns.map(quoteSqlIdentifier).join(', ')} FROM ${quoteSqlIdentifier(tableName)}`).all();
+
+  for (const row of rows) {
+    const next = Object.fromEntries(
+      activeFields.map((field) => [
+        field.column,
+        safeProtectedText(row[field.column], field.fallback, field.maxLength ?? maxProtectedDisplayTextLength),
+      ]),
+    );
+    const changed = Object.entries(next).some(([column, value]) => row[column] !== value);
+    if (!changed) {
+      continue;
+    }
+
+    const assignments = Object.keys(next).map((column) => `${quoteSqlIdentifier(column)} = ?`).join(', ');
+    database.prepare(`UPDATE ${quoteSqlIdentifier(tableName)} SET ${assignments} WHERE rowid = ?`).run(...Object.values(next), row.rowid);
+    scrubbed += 1;
+  }
+
+  return scrubbed;
+};
+
+const scrubJsonTextTable = (database: Database.Database, tableName: string, columnsToScrub: string[]): number => {
+  const columns = safeTableColumns(database, tableName);
+  const activeColumns = columnsToScrub.filter((column) => columns.has(column));
+  if (activeColumns.length === 0) {
+    return 0;
+  }
+
+  let scrubbed = 0;
+  const rows = database.prepare<[], Record<string, unknown>>(`SELECT ${['rowid', ...activeColumns].map(quoteSqlIdentifier).join(', ')} FROM ${quoteSqlIdentifier(tableName)}`).all();
+
+  for (const row of rows) {
+    const next = Object.fromEntries(activeColumns.map((column) => [column, compactJsonText(row[column])]));
+    const changed = Object.entries(next).some(([column, value]) => row[column] !== value);
+    if (!changed) {
+      continue;
+    }
+
+    const assignments = Object.keys(next).map((column) => `${quoteSqlIdentifier(column)} = ?`).join(', ');
+    database.prepare(`UPDATE ${quoteSqlIdentifier(tableName)} SET ${assignments} WHERE rowid = ?`).run(...Object.values(next), row.rowid);
+    scrubbed += 1;
+  }
+
+  return scrubbed;
+};
+
+const scrubLibraryDatabaseCopy = (databasePath: string): number => {
+  let database: Database.Database | null = null;
+  try {
+    database = new Database(databasePath, { fileMustExist: true });
+    let scrubbedRows = 0;
+    database.transaction(() => {
+      scrubbedRows += scrubTrackRows(database!);
+      scrubbedRows += scrubSimpleTextTable(database!, 'albums', [
+        { column: 'title', fallback: '' },
+        { column: 'album_artist', fallback: 'Unknown Artist' },
+      ]);
+      scrubbedRows += scrubSimpleTextTable(database!, 'artists', [
+        { column: 'name', fallback: 'Unknown Artist' },
+        { column: 'sort_name', fallback: 'Unknown Artist' },
+      ]);
+      scrubbedRows += scrubJsonTextTable(database!, 'scan_jobs', ['errors_json']);
+      scrubbedRows += scrubJsonTextTable(database!, 'covers', ['warnings_json', 'errors_json']);
+    })();
+    try {
+      database.pragma('wal_checkpoint(TRUNCATE)');
+    } catch {
+      // Scrubbing a copied database should still proceed if WAL checkpoint is unavailable.
+    }
+    return scrubbedRows;
+  } finally {
+    try {
+      database?.close();
+    } catch {
+      // Ignore close errors after best-effort scrub.
+    }
+  }
+};
+
 export const repairProtectedLibraryDatabase = (userDataPath = app.getPath('userData')): LibraryDatabaseRepairResult => {
   mkdirSync(userDataPath, { recursive: true });
   const removedDatabaseFiles = [libraryFileName, libraryWalFileName, libraryShmFileName].filter((name) =>
@@ -494,6 +912,7 @@ const toMaintenanceEventInfo = (event: LibraryDatabaseMaintenanceEvent): Library
   removedDatabaseFiles: event.removedDatabaseFiles,
   restoredSnapshotId: event.restoredSnapshotId,
   health: event.health,
+  poisonReport: event.poisonReport,
   scan: event.scan,
   error: event.error,
 });
@@ -523,17 +942,57 @@ export const getLibraryDatabaseProtectionStatus = (
   const latestRestoreEvent = maintenanceEvents.find((event) => event.action === 'manual-restore');
   const latestMaintenanceEvent = maintenanceEvents[0] ?? null;
   const latestArchive = listArchivePaths(userDataPath).map(getArchiveInfo)[0] ?? null;
+  const latestPoisonEvent = maintenanceEvents.find((event) => event.action === 'startup-poisoned' || event.action === 'manual-scrub-quarantined') ?? null;
+  const currentPoisonReport = health.status === 'ok' ? inspectLibraryDatabaseForPoison(databasePath) : null;
+  const poisonReport =
+    currentPoisonReport?.status === 'poisoned'
+      ? currentPoisonReport
+      : latestPoisonEvent?.poisonReport ?? currentPoisonReport ?? null;
   const latestRestoreFailed = latestRestoreEvent?.health ? latestRestoreEvent.health.status !== 'ok' : false;
+  const latestArchiveIsQuarantined =
+    latestArchive?.reason === 'startup-poisoned-library' ||
+    latestArchive?.reason === 'manual-scrub-quarantined-database-replace' ||
+    latestPoisonEvent?.action === 'startup-poisoned';
+  const currentDatabasePoisoned = currentPoisonReport?.status === 'poisoned';
+  const activeDatabaseExists = existsSync(databasePath);
+  const isQuarantined =
+    currentDatabasePoisoned ||
+    (latestMaintenanceEvent?.action === 'startup-poisoned' && latestArchiveIsQuarantined && !activeDatabaseExists) ||
+    lastDataProtectionResult?.recovery.action === 'quarantined';
   const protectionMode: LibraryDatabaseProtectionStatus['protectionMode'] =
-    health.status === 'ok'
+    isQuarantined
+      ? 'quarantined'
+      : health.status === 'ok'
       ? latestMaintenanceEvent?.action === 'scan-auto-restore'
         ? 'autoRestoredFromScanGuard'
         : 'normal'
       : latestArchive
         ? 'archivedOnly'
         : 'protected';
+  const status: LibraryDatabaseProtectionStatus['status'] =
+    isQuarantined
+      ? 'quarantined'
+      : health.status === 'ok'
+        ? 'ok'
+        : health.status === 'corrupt'
+          ? 'needs_recovery'
+          : 'degraded';
+  const reason: LibraryDatabaseProtectionStatus['reason'] =
+    isQuarantined
+      ? poisonReport?.reason === 'oversized_payload'
+        ? 'oversized_payload'
+        : 'poisoned_metadata'
+      : health.status === 'ok'
+        ? 'none'
+        : 'corrupt_database';
   const recommendedAction: LibraryDatabaseProtectionStatus['recommendedAction'] =
-    health.status === 'ok'
+    isQuarantined && latestArchive?.databasePath
+      ? 'scrub-quarantined-database'
+      : isQuarantined && latestHealthySnapshot
+        ? 'restore-snapshot'
+        : isQuarantined
+          ? 'rebuild-empty-database'
+      : health.status === 'ok'
       ? 'none'
       : !latestHealthySnapshot || latestRestoreFailed
         ? 'rebuild-empty-database'
@@ -546,15 +1005,20 @@ export const getLibraryDatabaseProtectionStatus = (
       : undefined;
 
   return {
+    status,
+    reason,
     dataProtectionPath: getDataProtectionPath(userDataPath),
     databasePath,
     databaseSizeBytes: fileSizeOrNull(databasePath),
+    archivePath: isQuarantined ? latestArchive?.path ?? lastDataProtectionResult?.recovery.archivePath ?? null : null,
+    poisonReport,
     health,
     snapshots,
     latestHealthySnapshot,
     latestArchive,
     maintenanceEvents,
     canRestoreSnapshot: Boolean(latestHealthySnapshot),
+    canScrubQuarantinedDatabase: Boolean(isQuarantined && latestArchive?.databasePath),
     hasRunningScan,
     protectionMode,
     recommendedAction,
@@ -621,6 +1085,90 @@ export const restoreProtectedLibraryDatabaseSnapshot = (
     restoredSnapshot: snapshot,
     restoredDatabaseFiles,
     health,
+  };
+};
+
+const getLatestQuarantinedArchive = (userDataPath: string): LibraryDatabaseArchiveInfo | null =>
+  listArchivePaths(userDataPath)
+    .map(getArchiveInfo)
+    .find((archive) => archive.databasePath && archive.copied.includes(libraryFileName)) ?? null;
+
+export const scrubQuarantinedLibraryDatabase = (
+  userDataPath = app.getPath('userData'),
+  date = new Date(),
+): LibraryDatabaseScrubResult => {
+  const sourceArchive = getLatestQuarantinedArchive(userDataPath);
+  if (!sourceArchive?.databasePath) {
+    throw new Error('找不到可修复的隔离曲库数据库。');
+  }
+
+  const poisonReportBefore = inspectLibraryDatabaseForPoison(sourceArchive.databasePath);
+  const scrubRoot = join(getDataProtectionPath(userDataPath), 'scrubbed-libraries', `${timestampForPath(date)}-metadata-scrub`);
+  mkdirSync(scrubRoot, { recursive: true });
+  const copied = copyLibraryTriplet(sourceArchive.path, scrubRoot);
+  if (!copied.includes(libraryFileName)) {
+    throw new Error('隔离曲库副本复制失败，已拒绝修复。');
+  }
+
+  const scrubbedDatabasePath = libraryPathFor(scrubRoot);
+  const scrubbedRows = scrubLibraryDatabaseCopy(scrubbedDatabasePath);
+  const scrubbedHealth = checkDatabaseHealth(scrubbedDatabasePath);
+  if (scrubbedHealth.status !== 'ok') {
+    throw new Error(`修复副本没有通过数据库检查：${scrubbedHealth.message ?? scrubbedHealth.status}`);
+  }
+
+  const poisonReportAfter = inspectLibraryDatabaseForPoison(scrubbedDatabasePath);
+  if (poisonReportAfter.status !== 'ok') {
+    throw new Error('修复副本仍包含不安全的嵌入标签数据，已拒绝替换当前曲库。');
+  }
+
+  mkdirSync(userDataPath, { recursive: true });
+  const replacedDatabaseFiles = [libraryFileName, libraryWalFileName, libraryShmFileName].filter((name) =>
+    existsSync(join(userDataPath, name)),
+  );
+  const archivePath = archiveLibraryTriplet(userDataPath, 'manual-scrub-quarantined-database-replace');
+  removeLibraryTriplet(userDataPath);
+  const restoredDatabaseFiles = copyLibraryTriplet(scrubRoot, userDataPath);
+  if (!restoredDatabaseFiles.includes(libraryFileName)) {
+    throw new Error('修复后的曲库数据库复制失败，当前曲库未恢复。');
+  }
+
+  const health = checkDatabaseHealth(libraryPathFor(userDataPath));
+  recordLibraryDatabaseMaintenanceEvent(
+    {
+      action: 'manual-scrub-quarantined',
+      databasePath: libraryPathFor(userDataPath),
+      archivePath,
+      removedDatabaseFiles: replacedDatabaseFiles,
+      health,
+      poisonReport: poisonReportBefore,
+    },
+    userDataPath,
+  );
+
+  if (health.status !== 'ok') {
+    throw new Error(`修复后的曲库仍未通过检查：${health.message ?? health.status}`);
+  }
+
+  if (lastDataProtectionResult?.userDataPath === userDataPath) {
+    lastDataProtectionResult = {
+      ...lastDataProtectionResult,
+      snapshot: skippedSnapshot(health),
+      libraryHealth: health,
+      recovery: { action: 'none', health },
+    };
+  }
+
+  return {
+    databasePath: libraryPathFor(userDataPath),
+    sourceArchivePath: sourceArchive.path,
+    scrubbedDatabasePath,
+    archivePath,
+    replacedDatabaseFiles,
+    scrubbedRows,
+    health,
+    poisonReportBefore,
+    poisonReportAfter,
   };
 };
 
@@ -1022,13 +1570,67 @@ const protectCorruptLibraryDatabase = (userDataPath: string, currentHealth: Data
   }
 };
 
+const protectPoisonedLibraryDatabase = (userDataPath: string, currentHealth: DatabaseHealthResult): LibraryRecoveryResult => {
+  if (currentHealth.status !== 'ok') {
+    return { action: 'none', health: currentHealth };
+  }
+
+  const poisonReport = inspectLibraryDatabaseForPoison(libraryPathFor(userDataPath));
+  if (poisonReport.status !== 'poisoned') {
+    return { action: 'none', health: currentHealth, poisonReport };
+  }
+
+  const archivePath = archiveLibraryTriplet(userDataPath, 'startup-poisoned-library') ?? undefined;
+  try {
+    if (!archivePath || !existsSync(libraryPathFor(archivePath))) {
+      throw new Error('Poisoned library archive was not created; active database was left untouched.');
+    }
+    removeLibraryTriplet(userDataPath);
+    const protectedHealth: DatabaseHealthResult = {
+      status: 'corrupt',
+      databasePath: libraryPathFor(userDataPath),
+      checkedAt: new Date().toISOString(),
+      message: '曲库因损坏嵌入标签/超大文本已隔离，音乐文件未被删除。',
+      detail: poisonReport.message,
+    };
+    recordLibraryDatabaseMaintenanceEvent(
+      {
+        action: 'startup-poisoned',
+        databasePath: libraryPathFor(userDataPath),
+        archivePath,
+        removedDatabaseFiles: [libraryFileName, libraryWalFileName, libraryShmFileName],
+        health: protectedHealth,
+        poisonReport,
+      },
+      userDataPath,
+    );
+    return { action: 'quarantined', archivePath, health: protectedHealth, poisonReport };
+  } catch (error) {
+    return {
+      action: 'failed',
+      archivePath,
+      health: {
+        status: 'unreadable',
+        databasePath: libraryPathFor(userDataPath),
+        checkedAt: new Date().toISOString(),
+        message: error instanceof Error ? error.message : String(error),
+      },
+      poisonReport,
+    };
+  }
+};
+
 let lastDataProtectionResult: DataProtectionResult | null = null;
 
 export const getLastDataProtectionResult = (): DataProtectionResult | null => lastDataProtectionResult;
 
 export const isProtectedLibraryAvailable = (): boolean =>
   !lastDataProtectionResult ||
-  (lastDataProtectionResult.libraryHealth.status !== 'corrupt' && lastDataProtectionResult.recovery.action !== 'failed');
+  (
+    lastDataProtectionResult.libraryHealth.status !== 'corrupt' &&
+    lastDataProtectionResult.recovery.action !== 'quarantined' &&
+    lastDataProtectionResult.recovery.action !== 'failed'
+  );
 
 export const assertProtectedLibraryAvailable = (): void => {
   if (!isProtectedLibraryAvailable()) {
@@ -1046,7 +1648,10 @@ export const ensureDataProtection = async (
     const restore = restoreMissingProtectedData(userDataPath);
     writeDataProtectionManifest(userDataPath);
     const initialHealth = checkDatabaseHealth(libraryPathFor(userDataPath));
-    const recovery = protectCorruptLibraryDatabase(userDataPath, initialHealth);
+    const corruptRecovery = protectCorruptLibraryDatabase(userDataPath, initialHealth);
+    const recovery = corruptRecovery.action === 'none'
+      ? protectPoisonedLibraryDatabase(userDataPath, initialHealth)
+      : corruptRecovery;
     const libraryHealth = recovery.health.status === 'corrupt' ? recovery.health : checkDatabaseHealth(libraryPathFor(userDataPath));
     const snapshot = libraryHealth.status === 'ok'
       ? await createDataProtectionSnapshot(reason, userDataPath)
@@ -1062,6 +1667,8 @@ export const ensureDataProtection = async (
 
     if (recovery.action === 'protected' || recovery.action === 'archivedOnly') {
       console.warn('[data-protection] corrupt library database was archived and left in place; app is starting in protected mode');
+    } else if (recovery.action === 'quarantined') {
+      console.warn('[data-protection] poisoned library database was archived and removed from the active slot; app is starting in recovery mode');
     } else if (recovery.action === 'failed') {
       console.warn(`[data-protection] library database recovery failed: ${recovery.health.message ?? recovery.health.status}`);
     }

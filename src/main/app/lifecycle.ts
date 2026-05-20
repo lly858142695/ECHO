@@ -112,7 +112,11 @@ export const registerAppLifecycle = (): void => {
       });
     }
     createMainWindow();
-    if (dataProtection.recovery.action === 'protected' || dataProtection.recovery.action === 'archivedOnly') {
+    if (
+      dataProtection.recovery.action === 'protected' ||
+      dataProtection.recovery.action === 'archivedOnly' ||
+      dataProtection.recovery.action === 'quarantined'
+    ) {
       notifyLibraryDatabaseProtected();
     }
     initializeBackgroundPlaybackShortcuts();

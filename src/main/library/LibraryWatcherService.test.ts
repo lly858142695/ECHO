@@ -340,11 +340,10 @@ describe('LibraryWatcherService', () => {
     vi.useRealTimers();
   });
 
-  it('passes unlink events to the optional missing-path coordinator without rescanning', async () => {
+  it('records unlink events without queuing database mutation work', async () => {
     vi.useFakeTimers();
     const adapter = new FakeWatcherAdapter();
     const rescanPaths = vi.fn();
-    const markMissingPaths = vi.fn();
     const service = new LibraryWatcherService({
       enabled: true,
       autoRescanEnabled: true,
@@ -354,49 +353,18 @@ describe('LibraryWatcherService', () => {
       stabilityPollMs: 5,
       rescanDebounceMs: 10,
       statFile: () => null,
-      rescanCoordinator: { rescanPaths, markMissingPaths },
+      rescanCoordinator: { rescanPaths },
     });
     service.start();
 
     adapter.emit({ folderId: 'folder-1', eventType: 'unlink', path: 'D:\\Music\\deleted.flac' });
     await vi.advanceTimersByTimeAsync(5);
-    expect(markMissingPaths).not.toHaveBeenCalled();
-    expect(service.getDiagnostics().pendingPathCount).toBe(1);
+    expect(service.getDiagnostics().pendingPathCount).toBe(0);
     await vi.advanceTimersByTimeAsync(10);
 
     expect(rescanPaths).not.toHaveBeenCalled();
-    expect(markMissingPaths).toHaveBeenCalledWith('folder-1', ['D:\\Music\\deleted.flac']);
     expect(service.getDiagnostics().pendingPathCount).toBe(0);
-
-    service.stop();
-    vi.useRealTimers();
-  });
-
-  it('coalesces unlink missing updates into one batched coordinator call', async () => {
-    vi.useFakeTimers();
-    const adapter = new FakeWatcherAdapter();
-    const markMissingPaths = vi.fn();
-    const service = new LibraryWatcherService({
-      enabled: true,
-      autoRescanEnabled: true,
-      readFolders: () => [createFolder()],
-      adapter,
-      debounceMs: 5,
-      stabilityPollMs: 5,
-      rescanDebounceMs: 10,
-      statFile: () => null,
-      rescanCoordinator: { rescanPaths: vi.fn(), markMissingPaths },
-    });
-    service.start();
-
-    adapter.emit({ folderId: 'folder-1', eventType: 'unlink', path: 'D:\\Music\\deleted-a.flac' });
-    adapter.emit({ folderId: 'folder-1', eventType: 'unlink', path: 'D:\\Music\\deleted-b.flac' });
-    adapter.emit({ folderId: 'folder-1', eventType: 'unlink', path: 'D:\\Music\\deleted-a.flac' });
-    await vi.advanceTimersByTimeAsync(20);
-    await vi.advanceTimersByTimeAsync(10);
-
-    expect(markMissingPaths).toHaveBeenCalledTimes(1);
-    expect(markMissingPaths).toHaveBeenCalledWith('folder-1', expect.arrayContaining(['D:\\Music\\deleted-a.flac', 'D:\\Music\\deleted-b.flac']));
+    expect(service.getDiagnostics().skippedDeleteEventCount).toBe(1);
 
     service.stop();
     vi.useRealTimers();

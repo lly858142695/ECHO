@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { basename, extname, resolve } from 'node:path';
 import type { EchoDatabase } from '../database/createDatabase';
 import { BPM_ANALYSIS_VERSION } from '../../shared/constants/audioAnalysis';
 import { REPLAY_GAIN_ANALYSIS_VERSION } from '../../shared/constants/replayGain';
@@ -30,6 +30,12 @@ import type {
   LibraryFolderTracksQuery,
   LibraryPage,
   LibraryPageQuery,
+  LibraryQualityIssueItem,
+  LibraryQualityIssueKind,
+  LibraryQualityIssuePage,
+  LibraryQualityIssueQuery,
+  LibraryQualityIssueReason,
+  LibraryQualityOverviewItem,
   LibraryPlaylist,
   LibraryPlaylistItem,
   DuplicateTrackGroup,
@@ -98,14 +104,174 @@ type LooseAlbumCluster = {
 
 const defaultPageSize = 100;
 const maxPageSize = 500;
+const libraryQualityPageSize = 50;
+const libraryQualityMaxPageSize = 100;
 const variousArtistsDisplayName = 'Various Artists';
 const variousArtistsKey = 'various artists';
 const likedSongsSourcePlaylistId = 'liked-tracks';
 const likedAlbumsSourcePlaylistId = 'liked-albums';
 const neteaseDailyRecommendSourcePlaylistId = 'daily-recommend';
 const protectedSystemPlaylistIds = new Set([likedSongsSourcePlaylistId, likedAlbumsSourcePlaylistId, neteaseDailyRecommendSourcePlaylistId]);
+const streamingDownloadAddedFrom = (provider: string, providerTrackId: string): string =>
+  `streaming-download:${provider}:${providerTrackId}`;
+const libraryQualityOverviewDefinitions: Array<Omit<LibraryQualityOverviewItem, 'count' | 'lastError'>> = [
+  {
+    kind: 'missing_cover',
+    label: '缺封面',
+    severity: 'warning',
+    description: '没有可用封面的本地歌曲，适合先做封面补齐。',
+    actionAvailable: true,
+  },
+  {
+    kind: 'fallback_metadata',
+    label: '回退元数据',
+    severity: 'warning',
+    description: '标题或字段来自文件名兜底，可能需要重新读取标签或网络补全。',
+    actionAvailable: true,
+  },
+  {
+    kind: 'unknown_artist_album',
+    label: '未知艺人/专辑',
+    severity: 'warning',
+    description: '艺人、专辑或专辑艺人仍是未知/空值。',
+    actionAvailable: true,
+  },
+  {
+    kind: 'embedded_read_failed',
+    label: '内嵌读取失败',
+    severity: 'danger',
+    description: '内嵌标签或封面读取失败，建议先确认文件健康后再重扫。',
+    actionAvailable: false,
+  },
+  {
+    kind: 'network_candidate',
+    label: '可用网络候选',
+    severity: 'info',
+    description: '已经找到网络候选但尚未完全应用的歌曲。',
+    actionAvailable: true,
+  },
+];
+const unknownArtist = 'Unknown Artist';
+const maxLibraryDisplayTextLength = 512;
+const maxLibraryTechnicalTextLength = 128;
+const maxLibraryJsonTextLength = 16 * 1024;
+const binaryLibraryTextPattern = /(?:APIC|image\/(?:jpeg|jpg|png|webp|gif)|JFIF|Exif|\u0000)/iu;
 
 const nowIso = (): string => new Date().toISOString();
+
+const countLibraryControlCharacters = (text: string): number => {
+  let count = 0;
+
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if ((codePoint >= 0x00 && codePoint <= 0x1f) || (codePoint >= 0x7f && codePoint <= 0x9f)) {
+      count += 1;
+    }
+  }
+
+  return count;
+};
+
+const normalizeLibraryTextWhitespace = (text: string): string =>
+  text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, ' ').replace(/\s+/gu, ' ').trim();
+
+const isUnsafeLibraryText = (text: string, maxLength: number): boolean => {
+  if (!text || text.length > maxLength || binaryLibraryTextPattern.test(text)) {
+    return true;
+  }
+
+  const controlCount = countLibraryControlCharacters(text);
+  return controlCount >= 8 || controlCount / Math.max(1, text.length) > 0.02;
+};
+
+const filenameTrackFallback = (filePath: string): { title: string; artist: string | null } => {
+  const name = basename(filePath, extname(filePath)).trim();
+  const parts = name.split(' - ').map((part) => part.trim()).filter(Boolean);
+
+  if (parts.length >= 2) {
+    return {
+      artist: parts[0],
+      title: parts.slice(1).join(' - '),
+    };
+  }
+
+  return {
+    artist: null,
+    title: name || 'Untitled',
+  };
+};
+
+const sanitizeLibraryText = (value: unknown, fallback: string, maxLength = maxLibraryDisplayTextLength): string => {
+  const raw = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+
+  if (isUnsafeLibraryText(raw, maxLength)) {
+    return fallback;
+  }
+
+  const normalized = normalizeLibraryTextWhitespace(raw);
+  return isUnsafeLibraryText(normalized, maxLength) ? fallback : normalized;
+};
+
+const sanitizeNullableLibraryText = (
+  value: unknown,
+  maxLength = maxLibraryDisplayTextLength,
+): string | null => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const sanitized = sanitizeLibraryText(value, '', maxLength);
+  return sanitized || null;
+};
+
+const sanitizeErrorText = (value: unknown): string => {
+  const sanitized = sanitizeLibraryText(value, '[unsafe payload removed]', maxLibraryDisplayTextLength);
+  return sanitized || '[unsafe payload removed]';
+};
+
+const sanitizeErrorList = (errors: string[]): string[] =>
+  errors.slice(0, 200).map((error) => sanitizeErrorText(error));
+
+const sanitizeTrackWrite = (track: TrackWrite): TrackWrite => {
+  const filenameGuess = filenameTrackFallback(track.path);
+  const fieldSources = { ...track.fieldSources };
+  const title = sanitizeLibraryText(track.title, filenameGuess.title);
+  const artist = sanitizeLibraryText(track.artist, filenameGuess.artist ?? unknownArtist);
+  const album = sanitizeLibraryText(track.album, '');
+  const albumArtist = sanitizeLibraryText(track.albumArtist, artist);
+  const genre = sanitizeNullableLibraryText(track.genre);
+  const codec = sanitizeNullableLibraryText(track.codec, maxLibraryTechnicalTextLength);
+
+  if (title !== track.title && title === filenameGuess.title) {
+    fieldSources.title = 'filename_fallback';
+  }
+  if (artist !== track.artist) {
+    fieldSources.artist = filenameGuess.artist ? 'filename_fallback' : 'unknown';
+  }
+  if (album !== track.album) {
+    fieldSources.album = 'unknown';
+  }
+  if (albumArtist !== track.albumArtist) {
+    fieldSources.albumArtist = 'artist_fallback';
+  }
+  if (genre !== track.genre) {
+    fieldSources.genre = 'unknown';
+  }
+  if (codec !== track.codec) {
+    fieldSources.codec = codec ? 'filename_fallback' : 'unknown';
+  }
+
+  return {
+    ...track,
+    title,
+    artist,
+    album,
+    albumArtist,
+    genre,
+    codec,
+    fieldSources,
+  };
+};
 
 const pageFromQuery = (query?: LibraryPageQuery): { page: number; pageSize: number; search: string; sort: string; sourceProvider: string | null } => ({
   page: Math.max(1, Math.floor(Number(query?.page ?? 1))),
@@ -124,6 +290,12 @@ const pageFromQuery = (query?: LibraryPageQuery): { page: number; pageSize: numb
 
 const libraryMediaTypeFromSourceProvider = (sourceProvider: string | null): 'local' | 'remote' | null =>
   sourceProvider === 'local' || sourceProvider === 'remote' ? sourceProvider : null;
+
+const pageFromQualityQuery = (query: LibraryQualityIssueQuery): { page: number; pageSize: number; search: string } => ({
+  page: Math.max(1, Math.floor(Number(query.page ?? 1))),
+  pageSize: Math.min(libraryQualityMaxPageSize, Math.max(1, Math.floor(Number(query.pageSize ?? libraryQualityPageSize)))),
+  search: typeof query.search === 'string' ? query.search.trim() : '',
+});
 
 const pageFromHistoryQuery = (
   query?: PlaybackHistoryQuery,
@@ -268,9 +440,13 @@ const parseErrors = (value: unknown): string[] => {
     return [];
   }
 
+  if (value.length > maxLibraryJsonTextLength || binaryLibraryTextPattern.test(value)) {
+    return ['[unsafe scan error payload removed]'];
+  }
+
   try {
     const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+    return Array.isArray(parsed) ? sanitizeErrorList(parsed.filter((item): item is string => typeof item === 'string')) : [];
   } catch {
     return [];
   }
@@ -835,6 +1011,7 @@ export class LibraryStore {
       ...update,
       errors: update.errors ?? current.errors,
     };
+    const safeErrors = sanitizeErrorList(next.errors);
     const errorCount = update.errorCount ?? next.errors.length;
 
     this.run(
@@ -871,7 +1048,7 @@ export class LibraryStore {
       next.updatedTracks,
       next.removedTracks,
       errorCount,
-      JSON.stringify(next.errors),
+      JSON.stringify(safeErrors),
       typeof update.cancelRequested === 'boolean' ? (update.cancelRequested ? 1 : 0) : null,
       next.startedAt,
       next.finishedAt,
@@ -949,6 +1126,114 @@ export class LibraryStore {
     }
 
     return count;
+  }
+
+  getLibraryQualityOverview(): LibraryQualityOverviewItem[] {
+    return libraryQualityOverviewDefinitions.map((definition) => {
+      const { conditionSql } = this.libraryQualityIssueFilter(definition.kind);
+      const row = this.getRow(
+        `SELECT COUNT(*) AS total
+         FROM tracks
+         WHERE tracks.missing = 0
+           AND (${conditionSql})`,
+      );
+
+      return {
+        ...definition,
+        count: Number(row?.total ?? 0),
+        lastError: null,
+      };
+    });
+  }
+
+  getLibraryQualityIssues(query: LibraryQualityIssueQuery): LibraryQualityIssuePage {
+    const { page, pageSize, search } = pageFromQualityQuery(query);
+    const offset = (page - 1) * pageSize;
+    const { conditionSql } = this.libraryQualityIssueFilter(query.kind);
+    const searchQuery = buildFtsSearchQuery(search, this.readSearchOptions());
+    const searchJoinSql = searchQuery ? 'INNER JOIN tracks_fts ON tracks_fts.rowid = tracks.rowid' : '';
+    const searchWhereSql = searchQuery ? ' AND tracks_fts MATCH ?' : '';
+    const params = searchQuery ? [searchQuery] : [];
+    const whereSql = `WHERE tracks.missing = 0 AND (${conditionSql})${searchWhereSql}`;
+    const totalRow = this.getRow(
+      `SELECT COUNT(*) AS total
+       FROM tracks
+       ${searchJoinSql}
+       ${whereSql}`,
+      ...params,
+    );
+    const rows = this.allRows(
+      `SELECT
+        tracks.id,
+        'local' AS media_type,
+        tracks.path,
+        NULL AS source_id,
+        NULL AS provider,
+        NULL AS remote_path,
+        NULL AS stable_key,
+        tracks.title,
+        tracks.artist,
+        tracks.album,
+        tracks.album_artist,
+        tracks.track_no,
+        tracks.disc_no,
+        tracks.year,
+        tracks.genre,
+        tracks.duration,
+        tracks.codec,
+        tracks.sample_rate,
+        tracks.bit_depth,
+        tracks.bitrate,
+        tracks.bpm,
+        tracks.bpm_confidence,
+        tracks.beat_offset_ms,
+        tracks.analysis_status,
+        tracks.analysis_updated_at,
+        tracks.replay_gain_track_gain_db,
+        tracks.replay_gain_album_gain_db,
+        tracks.replay_gain_track_peak,
+        tracks.replay_gain_album_peak,
+        tracks.replay_gain_integrated_lufs,
+        tracks.replay_gain_source,
+        tracks.replay_gain_status,
+        tracks.replay_gain_updated_at,
+        tracks.cover_id,
+        tracks.metadata_status,
+        tracks.embedded_metadata_status,
+        tracks.embedded_cover_status,
+        tracks.network_metadata_status,
+        tracks.field_sources_json,
+        'available' AS availability,
+        (
+          SELECT COUNT(*) FROM network_metadata_candidates WHERE network_metadata_candidates.track_id = tracks.id
+        ) AS metadata_candidate_count,
+        (
+          SELECT COUNT(*) FROM network_cover_candidates WHERE network_cover_candidates.track_id = tracks.id
+        ) AS cover_candidate_count
+       FROM tracks
+       ${searchJoinSql}
+       ${whereSql}
+       ORDER BY tracks.updated_at DESC, tracks.title COLLATE NOCASE
+       LIMIT ? OFFSET ?`,
+      ...params,
+      pageSize,
+      offset,
+    );
+    const total = Number(totalRow?.total ?? 0);
+    const items: LibraryQualityIssueItem[] = rows.map((row) => ({
+      track: this.mapTrack(row),
+      reasons: this.libraryQualityIssueReasons(query.kind, row),
+      candidateCount: Number(row.metadata_candidate_count ?? 0) + Number(row.cover_candidate_count ?? 0),
+    }));
+
+    return {
+      items,
+      page,
+      pageSize,
+      total,
+      hasMore: offset + items.length < total,
+      kind: query.kind,
+    };
   }
 
   isScanCancelled(jobId: string): boolean {
@@ -1204,20 +1489,21 @@ export class LibraryStore {
     const createdAt = textOrNull(existing?.created_at) ?? track.createdAt ?? track.updatedAt;
     const id = textOrNull(existing?.id) ?? track.id;
     const normalizedPath = resolve(track.path);
+    const safeTrack = sanitizeTrackWrite(track);
     const searchTerms = buildTrackSearchTerms({
-      title: track.title,
-      artist: track.artist,
-      album: track.album,
-      albumArtist: track.albumArtist,
-      genre: track.genre,
+      title: safeTrack.title,
+      artist: safeTrack.artist,
+      album: safeTrack.album,
+      albumArtist: safeTrack.albumArtist,
+      genre: safeTrack.genre,
       path: normalizedPath,
     });
     const hasReplayGainTag =
-      track.replayGainTrackGainDb !== null && track.replayGainTrackGainDb !== undefined ||
-      track.replayGainAlbumGainDb !== null && track.replayGainAlbumGainDb !== undefined;
+      safeTrack.replayGainTrackGainDb !== null && safeTrack.replayGainTrackGainDb !== undefined ||
+      safeTrack.replayGainAlbumGainDb !== null && safeTrack.replayGainAlbumGainDb !== undefined;
     const replayGainSource = hasReplayGainTag ? 'tag' : 'none';
     const replayGainStatus = hasReplayGainTag ? 'tagged' : 'none';
-    const replayGainUpdatedAt = hasReplayGainTag ? track.updatedAt : null;
+    const replayGainUpdatedAt = hasReplayGainTag ? safeTrack.updatedAt : null;
 
     this.run(
       `INSERT INTO tracks (
@@ -1282,67 +1568,67 @@ export class LibraryStore {
         updated_at = excluded.updated_at`,
       id,
       normalizedPath,
-      track.folderId,
-      track.sizeBytes,
-      track.mtimeMs,
-      track.title,
-      track.artist,
-      track.album,
-      track.albumArtist,
-      track.trackNo,
-      track.discNo,
-      track.year,
-      track.genre,
-      track.duration,
-      track.codec,
-      track.sampleRate,
-      track.bitDepth,
-      track.bitrate,
-      track.bpm,
-      track.bpm ? 1 : null,
+      safeTrack.folderId,
+      safeTrack.sizeBytes,
+      safeTrack.mtimeMs,
+      safeTrack.title,
+      safeTrack.artist,
+      safeTrack.album,
+      safeTrack.albumArtist,
+      safeTrack.trackNo,
+      safeTrack.discNo,
+      safeTrack.year,
+      safeTrack.genre,
+      safeTrack.duration,
+      safeTrack.codec,
+      safeTrack.sampleRate,
+      safeTrack.bitDepth,
+      safeTrack.bitrate,
+      safeTrack.bpm,
+      safeTrack.bpm ? 1 : null,
       null,
-      track.bpm ? 'complete' : 'none',
-      track.bpm ? 1 : 0,
+      safeTrack.bpm ? 'complete' : 'none',
+      safeTrack.bpm ? 1 : 0,
       null,
-      track.bpm ? track.updatedAt : null,
-      track.replayGainTrackGainDb ?? null,
-      track.replayGainAlbumGainDb ?? null,
-      track.replayGainTrackPeak ?? null,
-      track.replayGainAlbumPeak ?? null,
-      track.replayGainIntegratedLufs ?? null,
+      safeTrack.bpm ? safeTrack.updatedAt : null,
+      safeTrack.replayGainTrackGainDb ?? null,
+      safeTrack.replayGainAlbumGainDb ?? null,
+      safeTrack.replayGainTrackPeak ?? null,
+      safeTrack.replayGainAlbumPeak ?? null,
+      safeTrack.replayGainIntegratedLufs ?? null,
       replayGainSource,
       replayGainStatus,
       hasReplayGainTag ? REPLAY_GAIN_ANALYSIS_VERSION : 0,
       null,
       replayGainUpdatedAt,
-      track.fileIdentity ?? null,
-      track.fileIdentitySource ?? null,
-      track.quickHash ?? null,
-      track.quickHashVersion ?? null,
-      track.identityStatus ?? null,
-      track.identityUpdatedAt ?? null,
-      track.identityError ?? null,
+      safeTrack.fileIdentity ?? null,
+      safeTrack.fileIdentitySource ?? null,
+      safeTrack.quickHash ?? null,
+      safeTrack.quickHashVersion ?? null,
+      safeTrack.identityStatus ?? null,
+      safeTrack.identityUpdatedAt ?? null,
+      safeTrack.identityError ?? null,
       searchTerms,
-      track.coverId,
-      track.metadataStatus ?? 'ok',
-      track.embeddedMetadataStatus ?? 'pending',
-      track.embeddedCoverStatus ?? 'pending',
+      safeTrack.coverId,
+      safeTrack.metadataStatus ?? 'ok',
+      safeTrack.embeddedMetadataStatus ?? 'pending',
+      safeTrack.embeddedCoverStatus ?? 'pending',
       'none',
-      JSON.stringify(track.fieldSources),
+      JSON.stringify(safeTrack.fieldSources),
       0,
       createdAt,
-      track.updatedAt,
+      safeTrack.updatedAt,
     );
 
     this.relinkLocalPlaylistItemsToTrack({
       id,
       path: normalizedPath,
-      title: track.title,
-      artist: track.artist,
-      album: track.album,
-      duration: track.duration,
-      coverId: track.coverId,
-      timestamp: track.updatedAt,
+      title: safeTrack.title,
+      artist: safeTrack.artist,
+      album: safeTrack.album,
+      duration: safeTrack.duration,
+      coverId: safeTrack.coverId,
+      timestamp: safeTrack.updatedAt,
     });
 
     return existing ? 'updated' : 'added';
@@ -2244,12 +2530,36 @@ export class LibraryStore {
     timestamp = nowIso(),
   ): LibraryTrack {
     const current = this.getTrack(trackId);
+    const filenameGuess = filenameTrackFallback(current?.path ?? update.title);
+    const safeTitle = sanitizeLibraryText(update.title, filenameGuess.title);
+    const safeArtist = sanitizeLibraryText(update.artist, filenameGuess.artist ?? unknownArtist);
+    const safeAlbum = sanitizeLibraryText(update.album, '');
+    const safeAlbumArtist = sanitizeLibraryText(update.albumArtist, safeArtist);
+    const safeGenre = sanitizeNullableLibraryText(update.genre);
+    const safeFieldSources = { ...update.fieldSources };
+
+    if (safeTitle !== update.title && safeTitle === filenameGuess.title) {
+      safeFieldSources.title = 'filename_fallback';
+    }
+    if (safeArtist !== update.artist) {
+      safeFieldSources.artist = filenameGuess.artist ? 'filename_fallback' : 'unknown';
+    }
+    if (safeAlbum !== update.album) {
+      safeFieldSources.album = 'unknown';
+    }
+    if (safeAlbumArtist !== update.albumArtist) {
+      safeFieldSources.albumArtist = 'artist_fallback';
+    }
+    if (safeGenre !== update.genre) {
+      safeFieldSources.genre = 'unknown';
+    }
+
     const searchTerms = buildTrackSearchTerms({
-      title: update.title,
-      artist: update.artist,
-      album: update.album,
-      albumArtist: update.albumArtist,
-      genre: update.genre,
+      title: safeTitle,
+      artist: safeArtist,
+      album: safeAlbum,
+      albumArtist: safeAlbumArtist,
+      genre: safeGenre,
       path: current?.path,
     });
 
@@ -2275,20 +2585,20 @@ export class LibraryStore {
       WHERE id = ? AND missing = 0`,
       update.sizeBytes,
       update.mtimeMs,
-      update.title,
-      update.artist,
-      update.album,
-      update.albumArtist,
+      safeTitle,
+      safeArtist,
+      safeAlbum,
+      safeAlbumArtist,
       update.trackNo,
       update.discNo,
       update.year,
-      update.genre,
+      safeGenre,
       update.bpm ?? null,
       searchTerms,
       update.metadataStatus ?? 'ok',
       update.embeddedMetadataStatus ?? null,
       update.embeddedCoverStatus ?? null,
-      JSON.stringify(update.fieldSources),
+      JSON.stringify(safeFieldSources),
       timestamp,
       trackId,
     );
@@ -4031,11 +4341,12 @@ export class LibraryStore {
             source_item_id = ?,
             cover_id = COALESCE(cover_id, ?),
             unavailable = 0,
-            added_from = 'streaming-download'
+            added_from = ?
            WHERE id = ?`,
           track.id,
           track.path,
           track.coverId,
+          streamingDownloadAddedFrom(provider, providerTrackId),
           row.id,
         );
         this.run('UPDATE playlists SET updated_at = ? WHERE id = ?', timestamp, row.playlist_id);
@@ -5046,6 +5357,99 @@ export class LibraryStore {
     return Boolean(remoteRow);
   }
 
+  private libraryQualityIssueFilter(kind: LibraryQualityIssueKind): { conditionSql: string } {
+    switch (kind) {
+      case 'missing_cover':
+        return { conditionSql: "tracks.cover_id IS NULL OR tracks.embedded_cover_status = 'missing'" };
+      case 'fallback_metadata':
+        return { conditionSql: "tracks.metadata_status = 'fallback'" };
+      case 'unknown_artist_album':
+        return {
+          conditionSql: `(
+            lower(trim(tracks.artist)) IN ('', 'unknown', 'unknown artist')
+            OR lower(trim(tracks.album)) IN ('', 'unknown', 'unknown album')
+            OR lower(trim(tracks.album_artist)) IN ('', 'unknown', 'unknown artist', 'unknown album')
+          )`,
+        };
+      case 'embedded_read_failed':
+        return { conditionSql: "tracks.embedded_metadata_status = 'error' OR tracks.embedded_cover_status = 'error'" };
+      case 'network_candidate':
+        return {
+          conditionSql: `(
+            tracks.network_metadata_status = 'candidate_found'
+            OR EXISTS (SELECT 1 FROM network_metadata_candidates WHERE network_metadata_candidates.track_id = tracks.id)
+            OR EXISTS (SELECT 1 FROM network_cover_candidates WHERE network_cover_candidates.track_id = tracks.id)
+          )`,
+        };
+      default:
+        throw new Error(`Unsupported library quality issue kind: ${String(kind)}`);
+    }
+  }
+
+  private libraryQualityIssueReasons(kind: LibraryQualityIssueKind, row: DbRow): LibraryQualityIssueReason[] {
+    const reasons: LibraryQualityIssueReason[] = [];
+    const coverId = textOrNull(row.cover_id);
+    const metadataStatus = textOrNull(row.metadata_status);
+    const embeddedMetadataStatus = textOrNull(row.embedded_metadata_status);
+    const embeddedCoverStatus = textOrNull(row.embedded_cover_status);
+    const networkMetadataStatus = textOrNull(row.network_metadata_status);
+    const artist = String(row.artist ?? '').trim().toLowerCase();
+    const album = String(row.album ?? '').trim().toLowerCase();
+    const albumArtist = String(row.album_artist ?? '').trim().toLowerCase();
+
+    if (kind === 'missing_cover') {
+      if (!coverId || embeddedCoverStatus === 'missing') {
+        reasons.push('missing_cover');
+      }
+    }
+
+    if (kind === 'fallback_metadata') {
+      const fieldSources = parseJsonObject(row.field_sources_json);
+      if (metadataStatus === 'fallback') {
+        reasons.push('metadata_fallback');
+      }
+      if (Object.values(fieldSources).includes('filename_fallback')) {
+        reasons.push('filename_fallback');
+      }
+    }
+
+    if (kind === 'unknown_artist_album') {
+      if (!artist || artist === 'unknown' || artist === 'unknown artist') {
+        reasons.push('unknown_artist');
+      }
+      if (!album) {
+        reasons.push('missing_album');
+      } else if (album === 'unknown' || album === 'unknown album') {
+        reasons.push('unknown_album');
+      }
+      if (!albumArtist || albumArtist === 'unknown' || albumArtist === 'unknown artist' || albumArtist === 'unknown album') {
+        reasons.push('missing_album_artist');
+      }
+    }
+
+    if (kind === 'embedded_read_failed') {
+      if (embeddedMetadataStatus === 'error') {
+        reasons.push('embedded_metadata_error');
+      }
+      if (embeddedCoverStatus === 'error') {
+        reasons.push('embedded_cover_error');
+      }
+    }
+
+    if (kind === 'network_candidate') {
+      const metadataCandidateCount = Number(row.metadata_candidate_count ?? 0);
+      const coverCandidateCount = Number(row.cover_candidate_count ?? 0);
+      if (networkMetadataStatus === 'candidate_found' || metadataCandidateCount > 0) {
+        reasons.push('network_metadata_candidate');
+      }
+      if (coverCandidateCount > 0) {
+        reasons.push('network_cover_candidate');
+      }
+    }
+
+    return [...new Set(reasons)];
+  }
+
   private trackOrderSql(sort: string): string {
     switch (sort) {
       case 'artist':
@@ -5313,25 +5717,31 @@ export class LibraryStore {
 
   private mapTrack(row: DbRow): LibraryTrack {
     const mediaType = row.media_type === 'remote' || row.media_type === 'streaming' ? row.media_type : 'local';
+    const path = String(row.path);
+    const filenameGuess = filenameTrackFallback(path);
+    const title = sanitizeLibraryText(row.title, filenameGuess.title);
+    const artist = sanitizeLibraryText(row.artist, filenameGuess.artist ?? unknownArtist);
+    const album = sanitizeLibraryText(row.album, '');
+    const albumArtist = sanitizeLibraryText(row.album_artist, artist);
 
     return {
       id: String(row.id),
       mediaType,
-      path: String(row.path),
+      path,
       sourceId: textOrNull(row.source_id),
       provider: textOrNull(row.provider),
       remotePath: textOrNull(row.remote_path),
       stableKey: textOrNull(row.stable_key),
-      title: String(row.title),
-      artist: String(row.artist),
-      album: String(row.album),
-      albumArtist: String(row.album_artist),
+      title,
+      artist,
+      album,
+      albumArtist,
       trackNo: numberOrNull(row.track_no),
       discNo: numberOrNull(row.disc_no),
       year: numberOrNull(row.year),
-      genre: textOrNull(row.genre),
+      genre: sanitizeNullableLibraryText(row.genre),
       duration: Number(row.duration ?? 0),
-      codec: textOrNull(row.codec),
+      codec: sanitizeNullableLibraryText(row.codec, maxLibraryTechnicalTextLength),
       sampleRate: numberOrNull(row.sample_rate),
       bitDepth: numberOrNull(row.bit_depth),
       bitrate: numberOrNull(row.bitrate),
@@ -5376,8 +5786,8 @@ export class LibraryStore {
       mediaType: row.media_type === 'remote' ? 'remote' : 'local',
       sourceId: textOrNull(row.source_id),
       provider: textOrNull(row.provider),
-      name: String(row.name),
-      sortName: String(row.sort_name ?? row.name),
+      name: sanitizeLibraryText(row.name, unknownArtist),
+      sortName: sanitizeLibraryText(row.sort_name ?? row.name, sanitizeLibraryText(row.name, unknownArtist)),
       role: trackCount > 0 && albumCount > 0 ? 'both' : albumCount > 0 ? 'album' : 'track',
       trackCount,
       albumCount,
@@ -5452,14 +5862,17 @@ export class LibraryStore {
   }
 
   private mapAlbum(row: DbRow): LibraryAlbum {
+    const title = sanitizeLibraryText(row.title, '');
+    const albumArtist = sanitizeLibraryText(row.album_artist, unknownArtist);
+
     return {
       id: String(row.id),
       mediaType: row.media_type === 'remote' ? 'remote' : 'local',
       sourceId: textOrNull(row.source_id),
       provider: textOrNull(row.provider),
       albumKey: String(row.album_key),
-      title: String(row.title),
-      albumArtist: String(row.album_artist),
+      title,
+      albumArtist,
       year: numberOrNull(row.year),
       trackCount: Number(row.track_count ?? 0),
       duration: Number(row.duration ?? 0),

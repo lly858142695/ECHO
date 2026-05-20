@@ -45,7 +45,7 @@ import {
   type GlobalShortcutAction,
   type GlobalShortcutSettings,
 } from '../../shared/types/globalShortcuts';
-import type { CoverCacheMigrationResult } from '../../shared/types/coverCache';
+import type { AppCacheInventory, CoverCacheMigrationResult } from '../../shared/types/coverCache';
 import type { LastCrashSummary } from '../../shared/types/diagnostics';
 import type { DiscordPresenceStatus } from '../../shared/types/discordPresence';
 import type { DownloadSettings } from '../../shared/types/downloads';
@@ -62,7 +62,9 @@ import type {
 import type { UpdateStatus } from '../../shared/types/updates';
 import { EqPanel } from '../components/audio/EqPanel';
 import { LibraryDiagnosticsPanel } from '../components/library/LibraryDiagnosticsPanel';
+import { LibraryHealthReportPanel } from '../components/library/LibraryHealthReportPanel';
 import { LibraryFoldersPanel } from '../components/library/LibraryFoldersPanel';
+import { LibraryQualityPanel } from '../components/library/LibraryQualityPanel';
 import { NetworkMetadataPanel } from '../components/library/NetworkMetadataPanel';
 import { LyricsSettingsPanel } from '../components/lyrics/LyricsSettingsDrawer';
 import { PlaybackStabilityDiagnosticsPanel } from '../components/player/PlaybackStabilityDiagnosticsPanel';
@@ -712,6 +714,18 @@ const settingsSearchAliases: Record<SettingsNavKey, string[]> = {
     '重复歌曲',
     '内嵌标签',
     'BPM',
+    '\u7f13\u5b58',
+    '\u6062\u590d',
+    '\u6570\u636e\u5e93',
+    '\u7f51\u76d8',
+    '\u5b9e\u65f6\u66f4\u65b0',
+    '\u6b4c\u8bcd',
+    'MV',
+    '\u66f2\u5e93\u4f53\u68c0',
+    '\u5065\u5eb7\u62a5\u544a',
+    '\u5bfc\u51fa\u62a5\u544a',
+    'health report',
+    'library health',
   ],
   about: ['about', 'version', 'update', 'diagnostics', 'crash', 'repository', '关于', '版本', '更新', '诊断', '崩溃', '仓库'],
   danger: ['danger', 'reset', 'clear cache', 'delete cache', 'restore defaults', 'rebuild database', 'repair database', 'delete database', 'database recovery', 'database snapshot', 'database health', '危险', '重置', '清空缓存', '恢复默认', '重建数据库', '修复数据库', '删除数据库', '数据库恢复', '曲库恢复', '健康快照'],
@@ -2510,6 +2524,14 @@ const formatUpdateBytes = (bytes: number | null | undefined): string => {
   return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
 };
 
+const formatCacheBytes = (bytes: number | null | undefined): string => {
+  if (!Number.isFinite(bytes) || bytes === null || bytes === undefined || bytes <= 0) {
+    return '0 B';
+  }
+
+  return formatUpdateBytes(bytes);
+};
+
 const formatProtectionTimestamp = (value: string | null | undefined): string => {
   if (!value) {
     return '暂无';
@@ -2928,6 +2950,8 @@ export const SettingsPage = (): JSX.Element => {
   const [cacheDirectoryBusy, setCacheDirectoryBusy] = useState(false);
   const [cacheDirectoryResult, setCacheDirectoryResult] = useState<CoverCacheMigrationResult | null>(null);
   const [cacheDirectoryMessage, setCacheDirectoryMessage] = useState<string | null>(null);
+  const [cacheInventory, setCacheInventory] = useState<AppCacheInventory | null>(null);
+  const [cacheInventoryBusy, setCacheInventoryBusy] = useState(false);
   const [downloadSettings, setDownloadSettings] = useState<DownloadSettings | null>(null);
   const [downloadDirectoryBusy, setDownloadDirectoryBusy] = useState(false);
   const [downloadDirectoryMessage, setDownloadDirectoryMessage] = useState<string | null>(null);
@@ -2953,7 +2977,7 @@ export const SettingsPage = (): JSX.Element => {
   const [audioResetBusy, setAudioResetBusy] = useState(false);
   const [windowsAudioRestartBusy, setWindowsAudioRestartBusy] = useState(false);
   const [audioResetMessage, setAudioResetMessage] = useState<string | null>(null);
-  const [settingsBackupBusy, setSettingsBackupBusy] = useState<'export' | 'import' | null>(null);
+  const [settingsBackupBusy, setSettingsBackupBusy] = useState<'export' | 'import' | 'dataPackage' | null>(null);
   const [settingsBackupMessage, setSettingsBackupMessage] = useState<string | null>(null);
   const [pluginSettingsMessage, setPluginSettingsMessage] = useState<string | null>(null);
   const [recordingShortcutAction, setRecordingShortcutAction] = useState<GlobalShortcutAction | null>(null);
@@ -2962,7 +2986,7 @@ export const SettingsPage = (): JSX.Element => {
   const [fontPickerTarget, setFontPickerTarget] = useState<FontPickerTarget | null>(null);
   const [fontPickerQuery, setFontPickerQuery] = useState('');
   const [databaseProtectionStatus, setDatabaseProtectionStatus] = useState<LibraryDatabaseProtectionStatus | null>(null);
-  const [databaseProtectionBusyAction, setDatabaseProtectionBusyAction] = useState<'refresh' | 'snapshot' | 'restore' | 'open' | null>(null);
+  const [databaseProtectionBusyAction, setDatabaseProtectionBusyAction] = useState<'refresh' | 'snapshot' | 'restore' | 'scrub' | 'open' | null>(null);
   const [dangerBusy, setDangerBusy] = useState(false);
   const [dangerMessage, setDangerMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -3177,18 +3201,45 @@ export const SettingsPage = (): JSX.Element => {
         ],
       },
       {
-        id: 'row-live-library-auto-hide-deleted',
+        id: 'row-library-quality',
         sectionKey: 'library',
-        targetId: 'settings-row-live-library-auto-hide-deleted',
-        title: '\u5220\u9664\u540e\u81ea\u52a8\u9690\u85cf\u66f2\u76ee',
-        description: '\u5220\u9664\u4e8b\u4ef6\u53ea\u628a\u7cbe\u786e\u8def\u5f84\u6807\u8bb0\u4e3a missing\uff0c\u4e0d\u5220\u9664\u78c1\u76d8\u6587\u4ef6\u3002',
+        targetId: 'settings-row-library-quality',
+        title: '\u8d44\u6599\u8d28\u91cf\u6574\u7406',
+        description: '\u67e5\u770b\u7f3a\u5c01\u9762\u3001\u56de\u9000\u5143\u6570\u636e\u3001\u672a\u77e5\u827a\u4eba\u4e13\u8f91\u548c\u7f51\u7edc\u5019\u9009\u3002',
         terms: [
-          '\u5220\u9664\u540e\u81ea\u52a8\u9690\u85cf\u66f2\u76ee',
-          'auto hide deleted',
-          'missing',
-          'delete watcher',
-          '\u5220\u9664\u6b4c\u66f2',
-          '\u81ea\u52a8\u9690\u85cf',
+          '\u8d44\u6599\u8d28\u91cf\u6574\u7406',
+          '\u7f3a\u5c01\u9762',
+          '\u56de\u9000\u5143\u6570\u636e',
+          '\u672a\u77e5\u827a\u4eba',
+          '\u672a\u77e5\u4e13\u8f91',
+          '\u7f51\u7edc\u5019\u9009',
+          '\u5143\u6570\u636e',
+          '\u8d44\u6599\u8865\u5168',
+          'metadata quality',
+          'missing cover',
+          'fallback metadata',
+          'network candidate',
+        ],
+      },
+      {
+        id: 'row-library-health-report',
+        sectionKey: 'library',
+        targetId: 'settings-row-library-health-report',
+        title: '\u66f2\u5e93\u4f53\u68c0\u62a5\u544a',
+        description: '\u6c47\u603b\u6570\u636e\u5e93\u3001\u626b\u63cf\u3001\u7f13\u5b58\u3001\u8d44\u6599\u8d28\u91cf\u3001\u5b9e\u65f6\u66f4\u65b0\u548c\u8fdc\u7a0b\u6e90\u72b6\u6001\u3002',
+        terms: [
+          '\u66f2\u5e93\u4f53\u68c0',
+          '\u5065\u5eb7\u62a5\u544a',
+          '\u6570\u636e\u5e93\u5065\u5eb7',
+          '\u626b\u63cf\u9519\u8bef',
+          '\u7f13\u5b58\u5360\u7528',
+          '\u8d44\u6599\u8d28\u91cf',
+          '\u5b9e\u65f6\u66f4\u65b0',
+          '\u8fdc\u7a0b\u6e90',
+          '\u5bfc\u51fa Markdown',
+          'library health',
+          'health report',
+          'diagnostics',
         ],
       },
       {
@@ -3427,6 +3478,23 @@ export const SettingsPage = (): JSX.Element => {
     }
   }, []);
 
+  const refreshCacheInventory = useCallback(async () => {
+    const app = getAppBridge();
+    if (!app?.getCacheInventory) {
+      setCacheInventory(null);
+      return;
+    }
+
+    setCacheInventoryBusy(true);
+    try {
+      setCacheInventory(await app.getCacheInventory());
+    } catch {
+      setCacheInventory(null);
+    } finally {
+      setCacheInventoryBusy(false);
+    }
+  }, []);
+
   useEffect(() => {
     const app = getAppBridge();
     void app?.getSettings().then((settings) => {
@@ -3500,10 +3568,11 @@ export const SettingsPage = (): JSX.Element => {
       const app = getAppBridge();
       const downloads = getDownloadsBridge();
       void app?.getDefaultCacheDirectory().then(setDefaultCacheDirectory).catch(() => undefined);
+      void refreshCacheInventory();
       void downloads?.getSettings().then(setDownloadSettings).catch(() => undefined);
       void refreshDuplicateSummary();
     });
-  }, [activeSection, refreshDuplicateSummary]);
+  }, [activeSection, refreshCacheInventory, refreshDuplicateSummary]);
 
   useEffect(() => {
     if (activeSection !== 'about') {
@@ -4938,6 +5007,7 @@ export const SettingsPage = (): JSX.Element => {
 
       const settings = await app.getSettings();
       setAppSettings(settings);
+      await refreshCacheInventory();
       setPendingCacheDirectory(undefined);
       setCacheDirectoryMessage(migrate ? '缓存目录已切换，封面缓存路径已更新。' : '缓存目录已切换，后续扫描会按需重新生成封面缓存。');
       window.dispatchEvent(new Event('library:changed'));
@@ -4957,16 +5027,8 @@ export const SettingsPage = (): JSX.Element => {
     const nextEnabled = !(appSettings?.liveLibraryUpdatesEnabled ?? false);
     patchAppSettings({
       liveLibraryUpdatesEnabled: nextEnabled,
-      liveLibraryAutoHideDeletedEnabled: nextEnabled ? appSettings?.liveLibraryAutoHideDeletedEnabled === true : false,
+      liveLibraryAutoHideDeletedEnabled: false,
     });
-  };
-
-  const handleLiveLibraryAutoHideDeletedToggle = (): void => {
-    if (!appSettings?.liveLibraryUpdatesEnabled) {
-      return;
-    }
-
-    patchAppSettings({ liveLibraryAutoHideDeletedEnabled: !(appSettings?.liveLibraryAutoHideDeletedEnabled ?? false) });
   };
 
   const handleArtistWallAlbumArtworkToggle = (): void => {
@@ -5636,6 +5698,35 @@ export const SettingsPage = (): JSX.Element => {
     }
   };
 
+  const handleScrubQuarantinedDatabase = async (): Promise<void> => {
+    if (!requireDangerConfirmWord('修复隔离曲库', 'ECHO 会先修复隔离库的副本，验证通过后才替换当前曲库；原隔离库和当前库都会保留归档，音乐文件不会被删除。')) {
+      return;
+    }
+
+    const library = getLibraryBridge();
+    if (!library?.scrubQuarantinedDatabase) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to repair the quarantined library database.');
+      return;
+    }
+
+    try {
+      setDatabaseProtectionBusyAction('scrub');
+      setDangerBusy(true);
+      setDangerMessage(null);
+      setError(null);
+      const result = await library.scrubQuarantinedDatabase();
+      setDangerMessage(`已修复隔离曲库副本并恢复：清理 ${result.scrubbedRows} 行，当前检查：${getDatabaseHealthLabel(result.health.status)}。`);
+      window.dispatchEvent(new Event('library:changed'));
+      await refreshDatabaseProtectionStatus();
+    } catch (scrubError) {
+      setDangerMessage(null);
+      setError(scrubError instanceof Error ? scrubError.message : String(scrubError));
+    } finally {
+      setDangerBusy(false);
+      setDatabaseProtectionBusyAction(null);
+    }
+  };
+
   const handleRebuildEmptyLibraryDatabase = async (): Promise<void> => {
     if (!requireDangerConfirmWord('重建空库', '数据库无法从健康快照恢复。此操作会先归档当前坏库和数据库三件套，再重建为空库；音乐文件不会被删除。')) {
       return;
@@ -5881,6 +5972,32 @@ export const SettingsPage = (): JSX.Element => {
     }
   };
 
+  const handleExportDataPackage = async (): Promise<void> => {
+    const app = getAppBridge();
+
+    if (!app?.exportDataPackage) {
+      setError('桌面桥接不可用。请在 ECHO Next 桌面端导出迁移数据包。');
+      return;
+    }
+
+    try {
+      setSettingsBackupBusy('dataPackage');
+      setSettingsBackupMessage(null);
+      setError(null);
+      const result = await app.exportDataPackage();
+
+      if (result) {
+        const warningText = result.warnings.length > 0 ? `，警告 ${result.warnings.length} 条` : '';
+        setSettingsBackupMessage(`ECHO 数据包已导出：${result.filePath}${warningText}`);
+      }
+    } catch (exportError) {
+      setSettingsBackupMessage(null);
+      setError(exportError instanceof Error ? exportError.message : String(exportError));
+    } finally {
+      setSettingsBackupBusy(null);
+    }
+  };
+
   const handleFontPickerOpen = (target: FontPickerTarget): void => {
     setFontPickerTarget(target);
     setFontPickerQuery('');
@@ -5944,16 +6061,26 @@ export const SettingsPage = (): JSX.Element => {
   const latestHealthySnapshot = databaseProtectionStatus?.latestHealthySnapshot ?? null;
   const databaseProtectionBusy = databaseProtectionBusyAction !== null || dangerBusy;
   const databaseRecommendedAction = databaseProtectionStatus?.recommendedAction ?? 'none';
+  const databaseQuarantined = databaseRecommendedAction === 'scrub-quarantined-database';
   const databaseUnrecoverable = databaseRecommendedAction === 'rebuild-empty-database';
   const databaseHealthLabel = getDatabaseHealthLabel(databaseHealthStatus);
+  const databaseHealthBadgeLabel = databaseQuarantined ? '已隔离' : databaseHealthLabel;
   const databaseProtectionDescription = !databaseProtectionStatus
     ? '正在读取数据库健康状态、健康快照和最近维护记录。'
+    : databaseQuarantined
+    ? '曲库因损坏嵌入标签或超大文本已被隔离。ECHO 会先打开恢复界面，音乐文件不会被删除。'
     : databaseHealthStatus === 'ok'
     ? '当前数据库检查正常。这里会保留健康快照、坏库归档和最近维护记录。'
     : databaseUnrecoverable
     ? '数据库无法从健康快照恢复。音乐文件不会被删除；请先导出诊断和查看保护目录，再确认归档坏库并重建空库。'
     : '检测到数据库不可用时，先尝试恢复健康快照；恢复会先归档当前数据库，音乐文件不会被删除。';
-  const databaseRecoverySteps = databaseUnrecoverable
+  const databaseRecoverySteps = databaseQuarantined
+    ? [
+        '当前曲库已被移出活动位置，ECHO 不会继续读取那批危险标签。',
+        '优先使用“修复隔离库副本”，它只处理归档副本，验证通过后才恢复。',
+        '如果修复失败，再选择恢复健康快照或归档并重建空曲库；音乐文件不会被删除。',
+      ]
+    : databaseUnrecoverable
     ? [
         '先确认扫描没有运行；扫描中会拒绝恢复、重建和删除。',
         '优先导出诊断并打开保护目录，保留坏库归档线索。',
@@ -5964,13 +6091,19 @@ export const SettingsPage = (): JSX.Element => {
         '优先点“恢复最近健康快照”，它只接受主进程枚举出的快照。',
         '没有健康快照或恢复后仍损坏时，使用“归档坏库并重建空库”。',
       ];
-  const databasePrimaryActionLabel = databaseUnrecoverable ? '归档坏库并重建空库' : '恢复最近健康快照';
-  const databasePrimaryActionBusyLabel = databaseUnrecoverable ? '重建中...' : '恢复中...';
+  const databasePrimaryActionLabel = databaseQuarantined
+    ? '修复隔离库副本'
+    : databaseUnrecoverable
+    ? '归档坏库并重建空库'
+    : '恢复最近健康快照';
+  const databasePrimaryActionBusyLabel = databaseQuarantined ? '修复中...' : databaseUnrecoverable ? '重建中...' : '恢复中...';
   const databasePrimaryActionDisabled =
     databaseProtectionBusy ||
     databaseProtectionStatus?.hasRunningScan ||
-    (databaseUnrecoverable ? !databaseProtectionStatus : !latestHealthySnapshot);
-  const handleDatabasePrimaryRecoveryAction = databaseUnrecoverable
+    (databaseQuarantined ? !databaseProtectionStatus?.canScrubQuarantinedDatabase : databaseUnrecoverable ? !databaseProtectionStatus : !latestHealthySnapshot);
+  const handleDatabasePrimaryRecoveryAction = databaseQuarantined
+    ? handleScrubQuarantinedDatabase
+    : databaseUnrecoverable
     ? handleRebuildEmptyLibraryDatabase
     : handleRestoreDatabaseSnapshot;
   const databasePathLabel = databaseProtectionStatus?.databasePath ?? '待加载';
@@ -6168,6 +6301,27 @@ export const SettingsPage = (): JSX.Element => {
                   </button>
                 </div>
                 {settingsBackupMessage ? <StatusText tone="good">{settingsBackupMessage}</StatusText> : null}
+              </SettingRow>
+              <SettingRow
+                title="一键导出 / 迁移 ECHO 数据包"
+                description="导出设置、曲库索引、歌单快照、封面缓存路径和账号状态说明。不会复制音乐文件，也不会导出登录密钥。"
+              >
+                <div className="settings-chip-row">
+                  <button
+                    className="settings-action-button"
+                    type="button"
+                    disabled={settingsBackupBusy !== null}
+                    onClick={() => void handleExportDataPackage()}
+                  >
+                    <Download size={15} />
+                    {settingsBackupBusy === 'dataPackage' ? '打包中...' : '导出 ECHO 数据包'}
+                  </button>
+                  <button className="settings-action-button" type="button" disabled={databaseProtectionBusy} onClick={() => void handleOpenDataProtectionFolder()}>
+                    <FolderOpen size={15} />
+                    恢复入口
+                  </button>
+                </div>
+                <p className="settings-inline-note">恢复前请先在危险区创建健康快照；迁移包里的 RESTORE.md 会说明每个文件的用途。</p>
               </SettingRow>
             </SettingSection>
 
@@ -7421,16 +7575,22 @@ export const SettingsPage = (): JSX.Element => {
                 />
               </SettingRow>
               <SettingRow
-                id="settings-row-live-library-auto-hide-deleted"
-                highlighted={highlightedSettingId === 'settings-row-live-library-auto-hide-deleted'}
-                title={'\u5220\u9664\u540e\u81ea\u52a8\u9690\u85cf\u66f2\u76ee'}
-                description={'\u5371\u9669\u5f00\u5173\u3002\u4ec5\u5728\u5b9e\u65f6\u66f4\u65b0\u66f2\u5e93\u5f00\u542f\u65f6\u751f\u6548\uff0c\u53ea\u628a\u7cbe\u786e\u5220\u9664\u8def\u5f84\u6807\u8bb0\u4e3a missing\uff0c\u4e0d\u5220\u9664\u78c1\u76d8\u6587\u4ef6\u3002'}
+                className="setting-row--full setting-row--compact-panel"
+                id="settings-row-library-quality"
+                highlighted={highlightedSettingId === 'settings-row-library-quality'}
+                title={'\u8d44\u6599\u8d28\u91cf\u6574\u7406'}
+                description={'\u7edf\u8ba1\u7f3a\u5c01\u9762\u3001\u56de\u9000\u5143\u6570\u636e\u548c\u7f51\u7edc\u5019\u9009\uff0c\u53ea\u505a\u5b9a\u5411\u67e5\u770b\u548c\u624b\u52a8\u8865\u5168\u5165\u53e3\u3002'}
               >
-                <ToggleButton
-                  active={appSettings?.liveLibraryAutoHideDeletedEnabled ?? false}
-                  disabled={!appSettings || !appSettings.liveLibraryUpdatesEnabled}
-                  onClick={handleLiveLibraryAutoHideDeletedToggle}
-                />
+                <LibraryQualityPanel networkMetadataEnabled={appSettings?.networkMetadataEnabled ?? false} />
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                id="settings-row-library-health-report"
+                highlighted={highlightedSettingId === 'settings-row-library-health-report'}
+                title={'曲库体检报告'}
+                description={'汇总数据库、扫描、缓存、资料质量、实时更新和远程源状态；只读导出，不自动修复。'}
+              >
+                <LibraryHealthReportPanel />
               </SettingRow>
               <div id="settings-row-library-lab" data-search-highlight={highlightedSettingId === 'settings-row-library-lab' ? 'true' : undefined}>
                 <LibraryDiagnosticsPanel />
@@ -7700,6 +7860,24 @@ export const SettingsPage = (): JSX.Element => {
                 description="迁移只会复制缓存，不会移动或删除你的音乐文件。"
               >
                 <div className="settings-cache-panel settings-cache-panel--cover">
+                  {cacheInventory ? (
+                    <div className="settings-cache-result">
+                      <span>
+                        <em>缓存合计</em>
+                        <strong>{formatCacheBytes(cacheInventory.totalSizeBytes)}</strong>
+                      </span>
+                      {cacheInventory.items.map((item) => (
+                        <span key={item.kind}>
+                          <em>{item.label}</em>
+                          <strong>{formatCacheBytes(item.sizeBytes)} · {item.fileCount} 个文件</strong>
+                          <p title={item.path}>{item.path}</p>
+                          <p>{item.movable ? '可迁移' : '暂不迁移'} · {item.reason}{item.lastError ? ` · ${item.lastError}` : ''}</p>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="settings-inline-note">{cacheInventoryBusy ? '正在统计缓存...' : '缓存清单暂不可用。'}</p>
+                  )}
                   <div className="settings-cache-path">
                     <em>当前缓存目录</em>
                     <strong title={currentCacheDirectoryLabel}>{currentCacheDirectoryLabel}</strong>
@@ -8058,7 +8236,7 @@ export const SettingsPage = (): JSX.Element => {
                     <p>{databaseProtectionDescription}</p>
                   </div>
                   <span className={`settings-database-health settings-database-health--${databaseHealthStatus ?? 'unknown'}`}>
-                    {databaseHealthLabel}
+                    {databaseHealthBadgeLabel}
                   </span>
                 </header>
                 <div className="settings-database-grid">
@@ -8078,7 +8256,7 @@ export const SettingsPage = (): JSX.Element => {
                     <small>{databaseProtectionStatus?.latestArchive?.id ?? '恢复/重建前会自动归档'}</small>
                   </span>
                 </div>
-                {databaseHealthStatus && databaseHealthStatus !== 'ok' ? (
+                {databaseQuarantined || (databaseHealthStatus && databaseHealthStatus !== 'ok') ? (
                   <ol className="settings-database-steps">
                     {databaseRecoverySteps.map((step) => (
                       <li key={step}>{step}</li>
@@ -8104,7 +8282,7 @@ export const SettingsPage = (): JSX.Element => {
                     onClick={() => void handleDatabasePrimaryRecoveryAction()}
                   >
                     <ShieldAlert size={15} />
-                    {databaseProtectionBusyAction === 'restore' ? databasePrimaryActionBusyLabel : databasePrimaryActionLabel}
+                    {databaseProtectionBusyAction === 'restore' || databaseProtectionBusyAction === 'scrub' ? databasePrimaryActionBusyLabel : databasePrimaryActionLabel}
                   </button>
                   <button className="settings-action-button" type="button" disabled={databaseProtectionBusyAction === 'open'} onClick={() => void handleOpenDataProtectionFolder()}>
                     <FolderOpen size={15} />

@@ -135,16 +135,16 @@ const createTemporaryTrack = async (filePath: string): Promise<LibraryTrack> => 
 };
 
 const createTemporaryTracks = async (filePath: string): Promise<LibraryTrack[]> => {
-  if (extname(filePath).toLowerCase() !== '.cue') {
-    return [await createTemporaryTrack(filePath)];
-  }
-
   const cueSheet = readCueSheet(filePath);
-  if (cueSheet.tracks.length === 0) {
+  if (cueSheet.tracks.length > 0) {
+    return Promise.all(cueSheet.tracks.map((track) => createTemporaryTrack(createCueTrackPath(filePath, track.trackNumber))));
+  }
+
+  if (extname(filePath).toLowerCase() === '.cue') {
     return [await createTemporaryTrack(filePath)];
   }
 
-  return Promise.all(cueSheet.tracks.map((track) => createTemporaryTrack(createCueTrackPath(filePath, track.trackNumber))));
+  return [await createTemporaryTrack(filePath)];
 };
 
 export const parseLocalAudioFileArguments = (argv: string[]): string[] => {

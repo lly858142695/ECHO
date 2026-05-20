@@ -5,14 +5,16 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { AppSettings } from '../../shared/types/appSettings';
-import type { SettingsBackupPayload, SettingsImportResult } from '../../shared/types/settingsBackup';
+import type { DataPackageExportResult, SettingsBackupPayload, SettingsImportResult } from '../../shared/types/settingsBackup';
 import type { TaskbarPlaybackStatus } from '../../shared/types/taskbarPlayback';
-import type { CoverCacheMigrationResult, SetCoverCacheDirectoryRequest } from '../../shared/types/coverCache';
+import type { AppCacheInventory, CoverCacheMigrationResult, SetCoverCacheDirectoryRequest } from '../../shared/types/coverCache';
 import type { UpdateStatus } from '../../shared/types/updates';
 import type { FontFileAsset } from '../../preload/apiTypes';
 import { defaultSettings, getAppSettings, getAppWallpaperDirectory, getLyricsWallpaperDirectory, normalizeSettings, setAppSettings } from '../app/appSettings';
+import { getAppCacheInventory as collectAppCacheInventory } from '../app/cacheInventory';
 import { checkForUpdates, getUpdateStatus, setAutoUpdateEnabled } from '../app/autoUpdater';
 import { refreshBackgroundSpaceRegistration, validateGlobalShortcut } from '../app/backgroundPlaybackShortcuts';
+import { exportEchoDataPackage } from '../app/dataPackage';
 import { getTaskbarPlaybackStatus, refreshTaskbarPlaybackIntegration } from '../app/taskbarPlaybackIntegration';
 import { destroyTray, ensureTray } from '../app/tray';
 import { ensureCoverCacheDirectory } from '../library/CoverCacheManager';
@@ -47,6 +49,7 @@ const appWallpaperExtensions = new Set([...imageWallpaperExtensions, ...videoWal
 const settingsBackupFormat = 'echo-next-settings-backup';
 const settingsBackupVersion = 1;
 const settingsBackupFilters = [{ name: 'ECHO Next Settings', extensions: ['json'] }];
+const dataPackageFilters = [{ name: 'ECHO Next Data Package', extensions: ['zip'] }];
 
 const requireFontPath = (value: unknown): string => {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -149,6 +152,8 @@ const normalizeCoverCacheRequest = (value: unknown): SetCoverCacheDirectoryReque
     migrate: input.migrate === true,
   };
 };
+
+const getAppCacheInventory = (): AppCacheInventory => collectAppCacheInventory(app.getPath('userData'));
 
 const formatBackupTimestamp = (): string => new Date().toISOString().replace(/[:.]/g, '-');
 
@@ -320,6 +325,19 @@ export const registerIpc = (): void => {
       warnings: [],
     };
   });
+  ipcMain.handle(IpcChannels.AppExportDataPackage, async (): Promise<DataPackageExportResult | null> => {
+    const result = await dialog.showSaveDialog({
+      title: 'Export ECHO Next data package',
+      defaultPath: join(app.getPath('downloads'), `echo-next-data-package-${formatBackupTimestamp()}.zip`),
+      filters: dataPackageFilters,
+    });
+
+    if (result.canceled || !result.filePath) {
+      return null;
+    }
+
+    return exportEchoDataPackage(result.filePath);
+  });
   ipcMain.handle(IpcChannels.AppValidateGlobalShortcut, (_event: IpcMainInvokeEvent, accelerator: unknown) =>
     validateGlobalShortcut(accelerator),
   );
@@ -383,6 +401,7 @@ export const registerIpc = (): void => {
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
   ipcMain.handle(IpcChannels.AppGetDefaultCacheDirectory, (): string => getLibraryService().getDefaultCoverCacheDir());
+  ipcMain.handle(IpcChannels.AppGetCacheInventory, (): AppCacheInventory => getAppCacheInventory());
   ipcMain.handle(IpcChannels.AppGetUpdateStatus, (): UpdateStatus => getUpdateStatus());
   ipcMain.handle(IpcChannels.AppCheckForUpdates, (): Promise<UpdateStatus> => checkForUpdates());
   ipcMain.handle(IpcChannels.AppOpenRepository, async (): Promise<void> => {

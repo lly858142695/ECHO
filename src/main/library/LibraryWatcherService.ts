@@ -78,7 +78,6 @@ type PendingEvent = {
 export type LibraryWatcherRescanCoordinator = {
   rescanPaths: (folderId: string, paths: string[]) => unknown;
   previewRescanPaths?: (folderId: string, paths: string[]) => unknown;
-  markMissingPaths?: (folderId: string, paths: string[]) => unknown;
   hasRunningJobs?: () => boolean;
   shouldDelayRescan?: () => boolean | Promise<boolean>;
 };
@@ -265,11 +264,8 @@ export class LibraryWatcherService {
   private pendingEvents = new Map<string, PendingEvent>();
   private pendingRescanPaths = new Map<string, Set<string>>();
   private previewedRescanPaths = new Map<string, Set<string>>();
-  private pendingMissingPaths = new Map<string, Set<string>>();
   private rescanTimers = new Map<string, NodeJS.Timeout>();
-  private missingTimers = new Map<string, NodeJS.Timeout>();
   private folderRescansInFlight = new Set<string>();
-  private folderMissingInFlight = new Set<string>();
   private stormWindowTimer: NodeJS.Timeout | null = null;
   private stormWindowEventCount = 0;
   private stormWindowTripped = false;
@@ -426,7 +422,6 @@ export class LibraryWatcherService {
     if (eventType === 'unlink') {
       this.recordRecentEvent(pending, eventType, null);
       this.diagnostics.skippedDeleteEventCount += 1;
-      this.enqueueAutoMissing(pending.folderId, pending.path);
       this.pendingEvents.delete(key);
       return;
     }
@@ -515,27 +510,6 @@ export class LibraryWatcherService {
     this.pendingRescanPaths.set(folderId, folderPaths);
     this.updatePendingPathCount();
     this.scheduleRescanFlush(folderId);
-  }
-
-  private enqueueAutoMissing(folderId: string, filePath: string): void {
-    if (!this.rescanCoordinator?.markMissingPaths) {
-      return;
-    }
-
-    const normalizedPath = resolve(filePath);
-    const folderPaths = this.pendingMissingPaths.get(folderId) ?? new Set<string>();
-    const alreadyQueued = folderPaths.has(normalizedPath);
-
-    if (!alreadyQueued && this.getPendingPathCount() >= this.maxPendingPathCount) {
-      this.diagnostics.droppedPathCount += 1;
-      this.diagnostics.eventStormCount += 1;
-      return;
-    }
-
-    folderPaths.add(normalizedPath);
-    this.pendingMissingPaths.set(folderId, folderPaths);
-    this.updatePendingPathCount();
-    this.scheduleMissingFlush(folderId);
   }
 
   private scheduleRescanFlush(folderId: string): void {
@@ -627,56 +601,6 @@ export class LibraryWatcherService {
     }
   }
 
-  private scheduleMissingFlush(folderId: string): void {
-    const existing = this.missingTimers.get(folderId);
-    if (existing) {
-      clearTimeout(existing);
-    }
-
-    const timer = setTimeout(() => this.flushMissingFolder(folderId), this.rescanDebounceMs);
-    timer.unref?.();
-    this.missingTimers.set(folderId, timer);
-  }
-
-  private flushMissingFolder(folderId: string): void {
-    this.missingTimers.delete(folderId);
-    const paths = this.pendingMissingPaths.get(folderId);
-    if (!paths || paths.size === 0) {
-      this.updatePendingPathCount();
-      return;
-    }
-
-    if (this.folderMissingInFlight.has(folderId) || this.rescanCoordinator?.hasRunningJobs?.() === true) {
-      this.scheduleMissingFlush(folderId);
-      return;
-    }
-
-    const batch = Array.from(paths);
-    this.pendingMissingPaths.delete(folderId);
-    this.updatePendingPathCount();
-    this.folderMissingInFlight.add(folderId);
-
-    try {
-      const result = this.rescanCoordinator?.markMissingPaths?.(folderId, batch);
-      this.diagnostics.lastRescanError = null;
-      void Promise.resolve(result).finally(() => {
-        this.folderMissingInFlight.delete(folderId);
-        if ((this.pendingMissingPaths.get(folderId)?.size ?? 0) > 0) {
-          this.scheduleMissingFlush(folderId);
-        }
-      });
-    } catch (error) {
-      this.diagnostics.lastRescanError = error instanceof Error ? error.message : String(error);
-      const merged = this.pendingMissingPaths.get(folderId) ?? new Set<string>();
-      for (const filePath of batch) {
-        merged.add(filePath);
-      }
-      this.pendingMissingPaths.set(folderId, merged);
-      this.updatePendingPathCount();
-      this.folderMissingInFlight.delete(folderId);
-    }
-  }
-
   private recordStormWindowEvent(): void {
     this.stormWindowEventCount += 1;
     if (this.stormWindowEventCount > this.stormThreshold && !this.stormWindowTripped) {
@@ -710,25 +634,16 @@ export class LibraryWatcherService {
     for (const timer of this.rescanTimers.values()) {
       clearTimeout(timer);
     }
-    for (const timer of this.missingTimers.values()) {
-      clearTimeout(timer);
-    }
     this.rescanTimers.clear();
-    this.missingTimers.clear();
     this.pendingRescanPaths.clear();
     this.previewedRescanPaths.clear();
-    this.pendingMissingPaths.clear();
     this.folderRescansInFlight.clear();
-    this.folderMissingInFlight.clear();
     this.updatePendingPathCount();
   }
 
   private getPendingPathCount(): number {
     let count = 0;
     for (const paths of this.pendingRescanPaths.values()) {
-      count += paths.size;
-    }
-    for (const paths of this.pendingMissingPaths.values()) {
       count += paths.size;
     }
     return count;

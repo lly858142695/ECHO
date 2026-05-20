@@ -6,13 +6,145 @@ import { streamingProviderNames, streamingStableKey } from '../../shared/types/s
 
 type DbRow = Record<string, unknown>;
 type PlaylistBackupCallback = (playlistId: string) => void;
+type PreservedDownloadedPlaylistItem = {
+  mediaId: string;
+  sourceProvider: string;
+  sourceItemId: string | null;
+  titleSnapshot: string | null;
+  artistSnapshot: string | null;
+  albumSnapshot: string | null;
+  durationSnapshot: number | null;
+  coverId: string | null;
+  addedAt: string;
+};
+type PlaylistItemPreservation = {
+  bySource: Map<string, PreservedDownloadedPlaylistItem[]>;
+  byMetadata: Map<string, PreservedDownloadedPlaylistItem[]>;
+};
 
 const nowIso = (): string => new Date().toISOString();
 const likedSongsSourcePlaylistId = 'liked-tracks';
+const streamingDownloadAddedFromPrefix = 'streaming-download:';
 
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value.length > 0 ? value : null);
 
 const numberOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+const normalizedPlaylistLookupText = (value: unknown): string =>
+  typeof value === 'string' ? value.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase() : '';
+
+const durationLookupValue = (value: unknown): string => {
+  const duration = numberOrNull(value);
+  return duration && duration > 0 ? String(Math.round(duration)) : '';
+};
+
+const playlistMetadataKey = (input: {
+  title?: unknown;
+  artist?: unknown;
+  album?: unknown;
+  duration?: unknown;
+}): string | null => {
+  const title = normalizedPlaylistLookupText(input.title);
+  const artist = normalizedPlaylistLookupText(input.artist);
+  if (!title || !artist) {
+    return null;
+  }
+
+  return [title, artist, normalizedPlaylistLookupText(input.album), durationLookupValue(input.duration)].join('\u001f');
+};
+
+const playlistSourceKey = (provider: unknown, providerTrackId: unknown): string | null => {
+  const normalizedProvider = textOrNull(provider);
+  const normalizedProviderTrackId = textOrNull(providerTrackId);
+  return normalizedProvider && normalizedProviderTrackId ? `${normalizedProvider}:${normalizedProviderTrackId}` : null;
+};
+
+const streamingDownloadAddedFrom = (provider: string, providerTrackId: string): string =>
+  `${streamingDownloadAddedFromPrefix}${provider}:${providerTrackId}`;
+
+const parseStreamingDownloadAddedFrom = (value: unknown): { provider: string; providerTrackId: string } | null => {
+  const text = textOrNull(value);
+  if (!text?.startsWith(streamingDownloadAddedFromPrefix)) {
+    return null;
+  }
+
+  const rest = text.slice(streamingDownloadAddedFromPrefix.length);
+  const separator = rest.indexOf(':');
+  if (separator <= 0 || separator >= rest.length - 1) {
+    return null;
+  }
+
+  return {
+    provider: rest.slice(0, separator),
+    providerTrackId: rest.slice(separator + 1),
+  };
+};
+
+const addPreservedItem = (
+  map: Map<string, PreservedDownloadedPlaylistItem[]>,
+  key: string | null,
+  item: PreservedDownloadedPlaylistItem,
+): void => {
+  if (!key) {
+    return;
+  }
+
+  const current = map.get(key);
+  if (current) {
+    current.push(item);
+  } else {
+    map.set(key, [item]);
+  }
+};
+
+const removePreservedItem = (
+  map: Map<string, PreservedDownloadedPlaylistItem[]>,
+  item: PreservedDownloadedPlaylistItem,
+): void => {
+  for (const [key, items] of map.entries()) {
+    const nextItems = items.filter((candidate) => candidate !== item);
+    if (nextItems.length === 0) {
+      map.delete(key);
+    } else if (nextItems.length !== items.length) {
+      map.set(key, nextItems);
+    }
+  }
+};
+
+const takePreservedItem = (
+  preservation: PlaylistItemPreservation | null | undefined,
+  track: StreamingTrack,
+): PreservedDownloadedPlaylistItem | null => {
+  if (!preservation) {
+    return null;
+  }
+
+  const sourceKey = playlistSourceKey(track.provider, track.providerTrackId);
+  const sourceMatch = sourceKey ? preservation.bySource.get(sourceKey) : null;
+  if (sourceMatch?.length) {
+    const item = sourceMatch.shift() ?? null;
+    if (item) {
+      removePreservedItem(preservation.byMetadata, item);
+    }
+    return item;
+  }
+
+  const metadataKey = playlistMetadataKey({
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    duration: track.duration,
+  });
+  const metadataMatch = metadataKey ? preservation.byMetadata.get(metadataKey) : null;
+  const item = metadataMatch?.shift() ?? null;
+  if (item) {
+    removePreservedItem(preservation.bySource, item);
+  }
+  return item;
+};
+
+const hasPreservedItems = (preservation: PlaylistItemPreservation): boolean =>
+  [...preservation.bySource.values(), ...preservation.byMetadata.values()].some((items) => items.length > 0);
 
 const parseJson = <T>(value: unknown, fallback: T): T => {
   if (typeof value !== 'string') {
@@ -102,6 +234,8 @@ const sanitizeForCache = (value: unknown, depth = 0): unknown => {
 };
 
 export class StreamingCacheStore {
+  private readonly preservedDownloadedItemsByPlaylistId = new Map<string, PlaylistItemPreservation>();
+
   constructor(
     private readonly database: EchoDatabase,
     private readonly backupPlaylistBeforeReset?: PlaylistBackupCallback,
@@ -282,10 +416,10 @@ export class StreamingCacheStore {
     this.database.prepare('DELETE FROM playlist_items WHERE playlist_id = ?').run(playlistId);
   }
 
-  appendStreamingPlaylistTracks(
+  private appendStreamingPlaylistTracks(
     playlistId: string,
     tracks: StreamingTrack[],
-    options: { startPosition: number; addedFrom?: string | null },
+    options: { startPosition: number; addedFrom?: string | null; preservation?: PlaylistItemPreservation | null },
   ): number {
     if (tracks.length === 0) {
       return options.startPosition;
@@ -302,21 +436,22 @@ export class StreamingCacheStore {
     let nextPosition = options.startPosition;
 
     for (const track of tracks) {
+      const preserved = takePreservedItem(options.preservation, track);
       insertItem.run(
         randomUUID(),
         playlistId,
-        'stream_track',
-        track.stableKey || streamingStableKey(track.provider, track.providerTrackId),
-        track.provider,
-        track.providerTrackId,
+        preserved ? 'track' : 'stream_track',
+        preserved?.mediaId ?? track.stableKey ?? streamingStableKey(track.provider, track.providerTrackId),
+        preserved?.sourceProvider ?? track.provider,
+        preserved?.sourceItemId ?? track.providerTrackId,
         track.title,
         track.artist,
         track.album,
         track.duration,
-        null,
+        preserved?.coverId ?? null,
         nextPosition,
-        timestamp,
-        options.addedFrom ?? 'streaming-playlist',
+        preserved?.addedAt ?? timestamp,
+        preserved ? streamingDownloadAddedFrom(track.provider, track.providerTrackId) : (options.addedFrom ?? 'streaming-playlist'),
         0,
       );
       nextPosition += 1;
@@ -352,27 +487,111 @@ export class StreamingCacheStore {
     return this.mapPlaylist(row);
   }
 
+  private collectDownloadedPlaylistItemPreservation(playlistId: string): PlaylistItemPreservation | null {
+    const rows = this.database
+      .prepare<[string], DbRow>(
+        `SELECT
+          playlist_items.media_id,
+          playlist_items.source_provider,
+          playlist_items.source_item_id,
+          playlist_items.title_snapshot,
+          playlist_items.artist_snapshot,
+          playlist_items.album_snapshot,
+          playlist_items.duration_snapshot,
+          playlist_items.cover_id,
+          playlist_items.added_at,
+          playlist_items.added_from,
+          tracks.path AS track_path,
+          tracks.title AS track_title,
+          tracks.artist AS track_artist,
+          tracks.album AS track_album,
+          tracks.duration AS track_duration
+         FROM playlist_items
+         INNER JOIN tracks ON tracks.id = playlist_items.media_id AND tracks.missing = 0
+         WHERE playlist_items.playlist_id = ?
+           AND playlist_items.media_type = 'track'
+           AND (
+             playlist_items.added_from = 'streaming-download'
+             OR playlist_items.added_from LIKE 'streaming-download:%'
+           )`,
+      )
+      .all(playlistId);
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    const preservation: PlaylistItemPreservation = {
+      bySource: new Map(),
+      byMetadata: new Map(),
+    };
+
+    for (const row of rows) {
+      const mediaId = textOrNull(row.media_id);
+      if (!mediaId) {
+        continue;
+      }
+
+      const item: PreservedDownloadedPlaylistItem = {
+        mediaId,
+        sourceProvider: textOrNull(row.source_provider) ?? 'local',
+        sourceItemId: textOrNull(row.source_item_id) ?? textOrNull(row.track_path),
+        titleSnapshot: textOrNull(row.title_snapshot) ?? textOrNull(row.track_title),
+        artistSnapshot: textOrNull(row.artist_snapshot) ?? textOrNull(row.track_artist),
+        albumSnapshot: textOrNull(row.album_snapshot) ?? textOrNull(row.track_album),
+        durationSnapshot: numberOrNull(row.duration_snapshot) ?? numberOrNull(row.track_duration),
+        coverId: textOrNull(row.cover_id),
+        addedAt: textOrNull(row.added_at) ?? nowIso(),
+      };
+      const parsedSource = parseStreamingDownloadAddedFrom(row.added_from);
+      addPreservedItem(preservation.bySource, playlistSourceKey(parsedSource?.provider, parsedSource?.providerTrackId), item);
+      addPreservedItem(
+        preservation.byMetadata,
+        playlistMetadataKey({
+          title: item.titleSnapshot,
+          artist: item.artistSnapshot,
+          album: item.albumSnapshot,
+          duration: item.durationSnapshot,
+        }),
+        item,
+      );
+    }
+
+    return hasPreservedItems(preservation) ? preservation : null;
+  }
+
   importStreamingPlaylistPage(
     playlist: StreamingPlaylistDetail,
     options: { reset: boolean; startPosition: number; kind?: LibraryPlaylist['kind']; addedFrom?: string | null },
   ): { playlist: LibraryPlaylist; nextPosition: number } {
     return this.database.transaction(() => {
       const savedPlaylist = this.upsertImportedPlaylist(playlist, options);
+      let preservation = this.preservedDownloadedItemsByPlaylistId.get(savedPlaylist.id) ?? null;
       if (options.reset) {
         const currentItemCount = Number(
           this.database.prepare<[string], DbRow>('SELECT COUNT(*) AS total FROM playlist_items WHERE playlist_id = ?').get(savedPlaylist.id)?.total ?? 0,
         );
+        preservation = this.collectDownloadedPlaylistItemPreservation(savedPlaylist.id);
         if (currentItemCount > 0) {
           this.backupPlaylistBeforeReset?.(savedPlaylist.id);
         }
         this.replacePlaylistItems(savedPlaylist.id);
+        if (preservation) {
+          this.preservedDownloadedItemsByPlaylistId.set(savedPlaylist.id, preservation);
+        } else {
+          this.preservedDownloadedItemsByPlaylistId.delete(savedPlaylist.id);
+        }
       }
 
       this.upsertTracks(playlist.tracks);
       const nextPosition = this.appendStreamingPlaylistTracks(savedPlaylist.id, playlist.tracks, {
         startPosition: options.startPosition,
         addedFrom: options.addedFrom,
+        preservation,
       });
+      if (preservation && !hasPreservedItems(preservation)) {
+        this.preservedDownloadedItemsByPlaylistId.delete(savedPlaylist.id);
+      }
       return { playlist: this.refreshPlaylistItemCount(savedPlaylist.id), nextPosition };
     })();
   }

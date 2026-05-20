@@ -56,6 +56,9 @@ import type {
   LibraryFolderTracksQuery,
   LibraryPage,
   LibraryPageQuery,
+  LibraryQualityIssuePage,
+  LibraryQualityIssueQuery,
+  LibraryQualityOverviewItem,
   LibraryPlaylist,
   LibraryPlaylistItem,
   LibraryScanStatus,
@@ -283,6 +286,14 @@ export class LibraryService {
 
   getTracks(query?: LibraryPageQuery): LibraryPage<LibraryTrack> {
     return this.store.getTracks(query);
+  }
+
+  getLibraryQualityOverview(): LibraryQualityOverviewItem[] {
+    return this.store.getLibraryQualityOverview();
+  }
+
+  getLibraryQualityIssues(query: LibraryQualityIssueQuery): LibraryQualityIssuePage {
+    return this.store.getLibraryQualityIssues(query);
   }
 
   refreshDuplicateTracks(mode: DuplicateTrackMode = 'strict'): DuplicateTrackIndexSummary {
@@ -1812,20 +1823,6 @@ export class LibraryService {
     return changed;
   }
 
-  private markMissingPathsFromWatcher(folderId: string, paths: string[]): number {
-    if (this.readAppSettings().liveLibraryAutoHideDeletedEnabled !== true) {
-      return 0;
-    }
-
-    const changed = this.store.markTracksMissingByPaths(folderId, paths);
-    if (changed > 0) {
-      this.scheduleGroupingRefresh();
-      this.notifyLibraryChanged();
-    }
-
-    return changed;
-  }
-
   private getWatcherService(): LibraryWatcherService {
     if (!this.watcherService) {
       this.watcherService = new LibraryWatcherService({
@@ -1861,7 +1858,6 @@ export class LibraryService {
             return job;
           },
           previewRescanPaths: (folderId, paths) => this.previewRescanPathsFromWatcher(folderId, paths),
-          markMissingPaths: (folderId, paths) => this.markMissingPathsFromWatcher(folderId, paths),
           hasRunningJobs: () => this.scanJobQueue.hasRunningJobs(),
         },
       });

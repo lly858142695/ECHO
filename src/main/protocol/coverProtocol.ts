@@ -92,6 +92,15 @@ export const registerCoverProtocolScheme = (): void => {
       },
     },
     {
+      scheme: 'echo-audio',
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        stream: true,
+      },
+    },
+    {
       scheme: 'echo-video',
       privileges: {
         standard: true,

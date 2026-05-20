@@ -8,10 +8,10 @@ import type {
 } from '../shared/types/audio';
 import type { AppSettings } from '../shared/types/appSettings';
 import type { TaskbarPlaybackStatus } from '../shared/types/taskbarPlayback';
-import type { SettingsImportResult } from '../shared/types/settingsBackup';
+import type { DataPackageExportResult, SettingsImportResult } from '../shared/types/settingsBackup';
 import type { UpdateStatus } from '../shared/types/updates';
 import type { AccountLoginStartResult, AccountProvider, AccountStatus, YouTubeBrowser } from '../shared/types/accounts';
-import type { CoverCacheMigrationResult, SetCoverCacheDirectoryRequest } from '../shared/types/coverCache';
+import type { AppCacheInventory, CoverCacheMigrationResult, SetCoverCacheDirectoryRequest } from '../shared/types/coverCache';
 import type { AirPlayReceiverStatus, ConnectDevice, ConnectReceiverStatus, ConnectSessionStatus, ConnectStartRequest } from '../shared/types/connect';
 import type { EqPreset, EqSavePresetRequest, EqSetBandFrequencyRequest, EqSetBandGainRequest, EqState } from '../shared/types/eq';
 import type { GlobalShortcutAction, GlobalShortcutValidationResult } from '../shared/types/globalShortcuts';
@@ -20,6 +20,7 @@ import type {
   AlbumOnlineInfo,
   AlbumOnlineInfoRequestOptions,
   EmbeddedTrackTagsLoadResult,
+  ImportAudioFilesResult,
   ImportPathClassification,
   LibraryAlbum,
   LibraryAlbumDetail,
@@ -31,6 +32,7 @@ import type {
   LibraryDatabaseRepairResult,
   LibraryDatabaseProtectionStatus,
   LibraryDatabaseRestoreResult,
+  LibraryDatabaseScrubResult,
   LibraryMaintenanceCleanupResult,
   LibraryDiagnostics,
   LibraryLabState,
@@ -45,8 +47,12 @@ import type {
   LibraryFolderPathRequest,
   LibraryFolderTracksQuery,
   ImportPlaylistFileResult,
+  LibraryHealthReport,
   LibraryPage,
   LibraryPageQuery,
+  LibraryQualityIssuePage,
+  LibraryQualityIssueQuery,
+  LibraryQualityOverviewItem,
   LibraryPlaylist,
   LibraryPlaylistItem,
   LibraryScanStatus,
@@ -175,12 +181,14 @@ export type EchoApi = {
     resetSettings: () => Promise<AppSettings>;
     exportSettings: () => Promise<string | null>;
     importSettings: () => Promise<SettingsImportResult | null>;
+    exportDataPackage: () => Promise<DataPackageExportResult | null>;
     chooseFontFile: () => Promise<FontFileAsset | null>;
     chooseLyricsWallpaper: () => Promise<string | null>;
     chooseAppWallpaper: () => Promise<string | null>;
     loadFontFile: (path: string) => Promise<FontFileAsset>;
     chooseCacheDirectory: () => Promise<string | null>;
     getDefaultCacheDirectory: () => Promise<string>;
+    getCacheInventory: () => Promise<AppCacheInventory>;
     setCoverCacheDirectory: (request: SetCoverCacheDirectoryRequest) => Promise<CoverCacheMigrationResult | null>;
     getUpdateStatus: () => Promise<UpdateStatus>;
     checkForUpdates: () => Promise<UpdateStatus>;
@@ -195,6 +203,7 @@ export type EchoApi = {
     addFolder: (path: string) => Promise<LibraryFolder>;
     classifyImportPaths: (paths: string[]) => Promise<ImportPathClassification>;
     importDroppedFiles: (files: File[]) => Promise<DroppedFileImportResult>;
+    importAudioFiles: (paths: string[]) => Promise<ImportAudioFilesResult>;
     getFolders: () => Promise<LibraryFolder[]>;
     getFolderOverviews: () => Promise<LibraryFolderOverview[]>;
     getFolderChildren: (query: LibraryFolderChildrenQuery) => Promise<LibraryFolderNode[]>;
@@ -207,6 +216,10 @@ export type EchoApi = {
     cancelScan: (jobId: string) => Promise<LibraryScanStatus>;
     getTrack: (trackId: string) => Promise<LibraryTrack | null>;
     getTracks: (query?: LibraryPageQuery) => Promise<LibraryPage<LibraryTrack>>;
+    getLibraryQualityOverview: () => Promise<LibraryQualityOverviewItem[]>;
+    getLibraryQualityIssues: (query: LibraryQualityIssueQuery) => Promise<LibraryQualityIssuePage>;
+    getHealthReport: () => Promise<LibraryHealthReport>;
+    exportHealthReport: () => Promise<string | null>;
     refreshDuplicateTracks: (mode?: DuplicateTrackMode) => Promise<DuplicateTrackIndexSummary>;
     getDuplicateTrackVersions: (trackId: string) => Promise<DuplicateTrackMember[]>;
     getDuplicateHiddenCounts: (trackIds: string[], mode?: DuplicateTrackMode) => Promise<Record<string, number>>;
@@ -303,6 +316,7 @@ export type EchoApi = {
     getDatabaseProtectionStatus: () => Promise<LibraryDatabaseProtectionStatus>;
     createDatabaseSnapshot: () => Promise<LibraryDatabaseProtectionStatus>;
     restoreDatabaseSnapshot: (snapshotId: string) => Promise<LibraryDatabaseRestoreResult>;
+    scrubQuarantinedDatabase: () => Promise<LibraryDatabaseScrubResult>;
     openDataProtectionFolder: () => Promise<void>;
     repairMissingMetadata: (trackId: string) => Promise<NetworkRepairResult>;
     scanMissingMetadata: (options?: number | MissingMetadataScanOptions) => Promise<MissingMetadataScanResult>;

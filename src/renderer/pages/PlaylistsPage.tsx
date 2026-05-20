@@ -73,6 +73,15 @@ const readPlaylistDownloadMemory = (): PlaylistDownloadMemory => {
     const session = parsed.session;
     const downloadJobIdsByTrackId =
       parsed.downloadJobIdsByTrackId && typeof parsed.downloadJobIdsByTrackId === 'object' ? parsed.downloadJobIdsByTrackId : {};
+    const jobIds = Array.isArray(session?.jobIds) ? session.jobIds.filter((jobId): jobId is string => typeof jobId === 'string') : [];
+    const sessionEnqueued = session?.enqueued;
+    const sessionFailedToQueue = session?.failedToQueue;
+    const sessionTotal = session?.total;
+    const enqueued = typeof sessionEnqueued === 'number' && Number.isFinite(sessionEnqueued) ? sessionEnqueued : jobIds.length;
+    const failedToQueue =
+      typeof sessionFailedToQueue === 'number' && Number.isFinite(sessionFailedToQueue) ? sessionFailedToQueue : 0;
+    const queuedTotal = Math.max(jobIds.length + failedToQueue, enqueued + failedToQueue);
+    const storedTotal = typeof sessionTotal === 'number' && Number.isFinite(sessionTotal) ? sessionTotal : queuedTotal;
     return {
       session:
         session &&
@@ -83,11 +92,11 @@ const readPlaylistDownloadMemory = (): PlaylistDownloadMemory => {
               runId: Number.isFinite(session.runId) ? session.runId : 0,
               playlistId: session.playlistId,
               playlistName: session.playlistName,
-              total: Number.isFinite(session.total) ? session.total : session.jobIds.length,
-              enqueued: Number.isFinite(session.enqueued) ? session.enqueued : session.jobIds.length,
-              failedToQueue: Number.isFinite(session.failedToQueue) ? session.failedToQueue : 0,
-              jobIds: session.jobIds.filter((jobId): jobId is string => typeof jobId === 'string'),
-              active: Boolean(session.active),
+              total: session.active ? queuedTotal : storedTotal,
+              enqueued,
+              failedToQueue,
+              jobIds,
+              active: false,
             }
           : null,
       downloadJobIdsByTrackId,
@@ -314,6 +323,10 @@ export const PlaylistsPage = (): JSX.Element => {
 
     const jobsById = new Map(downloadJobs.map((job) => [job.id, job]));
     const sessionJobs = playlistDownloadSession.jobIds.map((jobId) => jobsById.get(jobId)).filter((job): job is DownloadJob => Boolean(job));
+    if (!playlistDownloadSession.active && sessionJobs.length === 0) {
+      return null;
+    }
+
     const completed = sessionJobs.filter((job) => job.status === 'completed').length;
     const failed = sessionJobs.filter((job) => failedDownloadStatuses.has(job.status)).length + playlistDownloadSession.failedToQueue;
     const running = sessionJobs.some((job) => runningDownloadStatuses.has(job.status));
@@ -321,7 +334,8 @@ export const PlaylistsPage = (): JSX.Element => {
     const total = Math.max(playlistDownloadSession.total, 1);
     const progress = Math.max(0, Math.min(100, Math.round(progressTotal / total)));
     const finished = completed + failed;
-    const isActive = playlistDownloadSession.active || running || finished < playlistDownloadSession.total;
+    const hasKnownWork = sessionJobs.length > 0 || failed > 0;
+    const isActive = playlistDownloadSession.active || running || (hasKnownWork && finished < playlistDownloadSession.total);
 
     return {
       completed,

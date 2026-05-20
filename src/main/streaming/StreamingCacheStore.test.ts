@@ -44,6 +44,47 @@ const playlist = (tracks: StreamingTrack[]): StreamingPlaylistDetail => ({
   hasMore: false,
 });
 
+const insertLocalTrack = (
+  database: EchoDatabase,
+  overrides: {
+    id?: string;
+    path?: string;
+    title?: string;
+    artist?: string;
+    album?: string;
+    duration?: number;
+  } = {},
+): string => {
+  const now = new Date('2026-05-19T00:00:00.000Z').toISOString();
+  const id = overrides.id ?? 'local-track-1';
+  database
+    .prepare(
+      `INSERT OR IGNORE INTO folders (id, path, name, created_at, updated_at)
+       VALUES ('folder-downloads', 'D:\\Downloads', 'Downloads', ?, ?)`,
+    )
+    .run(now, now);
+  database
+    .prepare(
+      `INSERT INTO tracks (
+        id, path, folder_id, size_bytes, mtime_ms,
+        title, artist, album, album_artist, duration,
+        field_sources_json, created_at, updated_at
+      ) VALUES (?, ?, 'folder-downloads', 4, 1, ?, ?, ?, ?, ?, '{}', ?, ?)`,
+    )
+    .run(
+      id,
+      overrides.path ?? `D:\\Downloads\\${id}.flac`,
+      overrides.title ?? 'Imported Song',
+      overrides.artist ?? 'Imported Artist',
+      overrides.album ?? 'Imported Album',
+      overrides.artist ?? 'Imported Artist',
+      overrides.duration ?? 180,
+      now,
+      now,
+    );
+  return id;
+};
+
 describe('StreamingCacheStore', () => {
   let database: EchoDatabase | null = null;
 
@@ -123,5 +164,45 @@ describe('StreamingCacheStore', () => {
     });
 
     expect(backup).toHaveBeenCalledWith(firstImport.playlist.id);
+  });
+
+  it('keeps downloaded local playlist items when a streaming playlist refresh resets rows', () => {
+    database = createDatabase(':memory:');
+    const cache = new StreamingCacheStore(database);
+    const library = new LibraryStore(database);
+
+    const firstImport = cache.importStreamingPlaylistPage(playlist([track()]), {
+      reset: true,
+      startPosition: 0,
+    });
+    const localTrackId = insertLocalTrack(database);
+    expect(
+      library.linkStreamingPlaylistItemsToLocalTrack({
+        provider: 'netease',
+        providerTrackId: 'track-1',
+        stableKey: 'streaming:netease:track-1',
+        trackId: localTrackId,
+      }),
+    ).toBe(1);
+
+    const [linkedBeforeRefresh] = library.getPlaylistItems(firstImport.playlist.id, { pageSize: 10 }).items;
+    database.prepare('UPDATE playlist_items SET added_from = ? WHERE id = ?').run('streaming-download', linkedBeforeRefresh.id);
+
+    cache.importStreamingPlaylistPage(playlist([track()]), {
+      reset: true,
+      startPosition: 0,
+    });
+    const [linkedAfterRefresh] = library.getPlaylistItems(firstImport.playlist.id, { pageSize: 10 }).items;
+
+    expect(linkedAfterRefresh).toMatchObject({
+      mediaType: 'track',
+      mediaId: localTrackId,
+      sourceProvider: 'local',
+      sourceItemId: 'D:\\Downloads\\local-track-1.flac',
+      addedFrom: 'streaming-download:netease:track-1',
+      unavailable: false,
+    });
+    expect(linkedAfterRefresh.track?.id).toBe(localTrackId);
+    expect(linkedAfterRefresh.track?.mediaType).toBe('local');
   });
 });

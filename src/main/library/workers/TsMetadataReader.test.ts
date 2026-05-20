@@ -80,6 +80,23 @@ const writeWaveWithInfo = (filePath: string, tags: Record<string, string>): void
   );
 };
 
+const writeFlacWithCueSheet = (filePath: string, cueSheet: string): void => {
+  const vendor = Buffer.from('ECHO Next', 'utf8');
+  const comment = Buffer.from(`CUESHEET=${cueSheet}`, 'utf8');
+  const vorbisComment = Buffer.concat([
+    uint32Le(vendor.length),
+    vendor,
+    uint32Le(1),
+    uint32Le(comment.length),
+    comment,
+  ]);
+  const blockHeader = Buffer.alloc(4);
+  blockHeader[0] = 0x80 | 4;
+  blockHeader.writeUIntBE(vorbisComment.length, 1, 3);
+
+  writeFileSync(filePath, Buffer.concat([Buffer.from('fLaC', 'ascii'), blockHeader, vorbisComment, Buffer.from('audio')]));
+};
+
 describe('TsMetadataReader WAV INFO text decoding', () => {
   it('recovers legacy GBK-encoded Japanese WAV INFO text', () => {
     const raw = Buffer.from(
@@ -301,6 +318,45 @@ describe('TsMetadataReader parser fallbacks', () => {
     expect(result.fields.title).toBe('Fran\u00e7oise Hardy');
     expect(result.fields.artist).toBe('\u591c\u306b\u99c6\u3051\u308b');
     expect(result.fields.album).toBe('\u6b63\u5e38\u4e2d\u6587\u4e13\u8f91');
+  });
+
+  it('falls back to the filename when an embedded title contains binary cover payload text', async () => {
+    parseFileMock.mockResolvedValue(emptyMetadata({
+      common: {
+        title: `\u0000\u000fAPIC image/jpeg Front cover JFIF ${'x'.repeat(4096)}`,
+      },
+      format: {
+        duration: 180,
+      },
+    }));
+
+    const result = await new TsMetadataReader().read('D:\\Music\\majiko - \u72c2\u304a\u3057\u3044\u307b\u3069\u50d5\u306b\u306f\u7f8e\u3057\u3044.mp3');
+
+    expect(result.fields.title).toBe('\u72c2\u304a\u3057\u3044\u307b\u3069\u50d5\u306b\u306f\u7f8e\u3057\u3044');
+    expect(result.fields.artist).toBe('majiko');
+    expect(result.fieldSources.title).toBe('filename_fallback');
+    expect(result.fieldSources.artist).toBe('filename_fallback');
+  });
+
+  it('ignores overlong native title frames before they reach the renderer payload', async () => {
+    parseFileMock.mockResolvedValue(emptyMetadata({
+      native: {
+        'ID3v2.3': [
+          { id: 'TIT2', value: 'native-title'.repeat(80) },
+          { id: 'TPE1', value: 'Native Artist' },
+        ],
+      },
+      format: {
+        duration: 180,
+      },
+    }));
+
+    const result = await new TsMetadataReader().read('D:\\Music\\Fallback Artist - Native Safe.mp3');
+
+    expect(result.fields.title).toBe('Native Safe');
+    expect(result.fields.artist).toBe('Native Artist');
+    expect(result.fieldSources.title).toBe('filename_fallback');
+    expect(result.fieldSources.artist).toBe('embedded');
   });
 
   it('uses native container tags when common metadata mapping is sparse', async () => {
@@ -534,6 +590,50 @@ describe('TsMetadataReader parser fallbacks', () => {
     expect(result.fieldSources.title).toBe('sidecar');
     expect(result.fieldSources.artist).toBe('sidecar');
     expect(result.fieldSources.album).toBe('sidecar');
+  });
+
+  it('reads embedded CUESHEET virtual-track tags from the source audio file', async () => {
+    const root = makeTempRoot();
+    const audioPath = join(root, 'album.flac');
+    writeFlacWithCueSheet(
+      audioPath,
+      [
+        'PERFORMER "Album Artist"',
+        'TITLE "Album Title"',
+        'FILE "ignored.wav" WAVE',
+        '  TRACK 01 AUDIO',
+        '    TITLE "First Song"',
+        '    INDEX 01 00:00:00',
+        '  TRACK 02 AUDIO',
+        '    TITLE "Second Song"',
+        '    PERFORMER "Second Artist"',
+        '    INDEX 01 04:00:00',
+      ].join('\n'),
+    );
+    parseFileMock.mockResolvedValue(emptyMetadata({
+      common: {
+        title: 'Source Title',
+        artist: 'Source Artist',
+        album: 'Source Album',
+      },
+      format: {
+        duration: 300,
+        codec: 'FLAC',
+      },
+    }));
+
+    const result = await new TsMetadataReader().read(`${audioPath}#cueTrack=2`);
+
+    expect(parseFileMock).toHaveBeenCalledWith(audioPath, { duration: true, skipCovers: false });
+    expect(result.fields.title).toBe('Second Song');
+    expect(result.fields.artist).toBe('Second Artist');
+    expect(result.fields.album).toBe('Album Title');
+    expect(result.fields.albumArtist).toBe('Album Artist');
+    expect(result.fields.trackNo).toBe(2);
+    expect(result.fields.duration).toBe(60);
+    expect(result.fields.codec).toBe('CUE/FLAC');
+    expect(result.fieldSources.title).toBe('embedded');
+    expect(result.fieldSources.duration).toBe('embedded');
   });
 });
 

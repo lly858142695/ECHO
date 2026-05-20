@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
-import type { LibraryDatabaseProtectionStatus, LibraryDatabaseRepairResult, LibraryDatabaseRestoreResult } from '../../shared/types/library';
+import type {
+  LibraryDatabaseProtectionStatus,
+  LibraryDatabaseRepairResult,
+  LibraryDatabaseRestoreResult,
+  LibraryHealthReport,
+} from '../../shared/types/library';
+import type { RemoteBackgroundGlobalStatus, RemoteSource } from '../../shared/types/remoteSources';
 
 const handlers: Record<string, (...args: unknown[]) => unknown> = {};
 const handleMock = vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
@@ -18,6 +24,21 @@ const openPathMock = vi.fn();
 const showItemInFolderMock = vi.fn();
 const trashItemMock = vi.fn();
 const getLibraryServiceMock = vi.fn();
+const remoteSourceServiceMock = vi.hoisted(() => ({
+  listSources: vi.fn<() => RemoteSource[]>(() => []),
+  getBackgroundGlobalStatus: vi.fn<() => RemoteBackgroundGlobalStatus>(() => ({
+    paused: false,
+    playbackActive: false,
+    concurrency: {
+      metadata: 0,
+      cover: 0,
+      lyrics: 0,
+      mv: 0,
+      'duration-backfill': 0,
+    },
+    updatedAt: null,
+  })),
+}));
 const closeDatabaseUserMocks = vi.hoisted(() => ({
   library: vi.fn(),
   remote: vi.fn(),
@@ -81,6 +102,7 @@ vi.mock('../library/LibraryService', () => ({
 
 vi.mock('../library/remote/RemoteSourceService', () => ({
   closeDefaultRemoteSourceService: closeDatabaseUserMocks.remote,
+  getRemoteSourceService: () => remoteSourceServiceMock,
 }));
 
 vi.mock('../lyrics/LyricsService', () => ({
@@ -257,6 +279,15 @@ const installLibraryService = () => {
     getScanStatus: vi.fn(),
     cancelScan: vi.fn(),
     getTracks: vi.fn(),
+    getLibraryQualityOverview: vi.fn(() => []),
+    getLibraryQualityIssues: vi.fn((query: unknown) => ({
+      items: [],
+      page: 1,
+      pageSize: 20,
+      total: 0,
+      hasMore: false,
+      kind: (query as { kind?: string }).kind,
+    })),
     getDuplicateHiddenCounts: vi.fn(() => ({ 'track-1': 1, 'track-2': 0 })),
     getAlbums: vi.fn(),
     getAlbum: vi.fn(),
@@ -296,9 +327,70 @@ const installLibraryService = () => {
     })),
     clearArtistImageCache: vi.fn(() => ({ removedRows: 0, deletedFiles: 0, freedBytes: 0 })),
     getAlbumTracks: vi.fn(),
-    getSummary: vi.fn(),
+    getSummary: vi.fn(() => ({ songCount: 2, albumCount: 1, artistCount: 2, folderCount: 1, totalDuration: 2, lastScanAt: null })),
     refreshAlbumGrouping: vi.fn(() => ({ songCount: 2, albumCount: 1, artistCount: 2, folderCount: 1, totalDuration: 2, lastScanAt: null })),
-    getDiagnostics: vi.fn(),
+    getDiagnostics: vi.fn(() => ({
+      foldersCount: 1,
+      tracksCount: 2,
+      albumsCount: 1,
+      artistsCount: 2,
+      coversCount: 0,
+      lastScan: null,
+      lastQueryMs: {
+        getTracks: null,
+        getAlbums: null,
+      },
+      averageAlbumPayloadBytes: null,
+      databasePath: 'D:\\UserData\\echo-library.sqlite',
+      databaseSizeBytes: 4096,
+      coverCachePath: 'D:\\UserData\\covers',
+      coverCacheSizeBytes: 0,
+      coverCacheVersion: 2,
+      cpuCount: 4,
+      scanPerformanceMode: 'balanced',
+      metadataConcurrency: 2,
+      coverConcurrency: 2,
+      groupingRefreshQueued: false,
+      lastGroupingRefreshError: null,
+    })),
+    getCoverCacheDir: vi.fn(() => 'D:\\UserData\\covers'),
+    getLibraryLabState: vi.fn(() => ({
+      watcherEnabled: false,
+      watcherRunning: false,
+      autoRescanEnabled: false,
+      moveCandidateEnabled: false,
+      moveRepairLabEnabled: false,
+      watchedFolderCount: 0,
+      totalEventCount: 0,
+      pendingPathCount: 0,
+      triggeredRescanCount: 0,
+      droppedPathCount: 0,
+      skippedDeleteEventCount: 0,
+      skippedRenameEventCount: 0,
+      lastTriggeredRescanAt: null,
+      lastRescanError: null,
+      watcherLastError: null,
+      lastWatcherEventAt: null,
+      lastRescanStartedAt: null,
+      lastRescanFinishedAt: null,
+      lastRescanPathCount: 0,
+      lastMetadataBackfillCount: 0,
+      placeholderTrackCount: 0,
+      lastSkippedByCacheCount: 0,
+      moveCandidateCount: 0,
+      highConfidenceCount: 0,
+      mediumConfidenceCount: 0,
+      lowConfidenceCount: 0,
+      ambiguousCount: 0,
+      lastMoveRepairAt: null,
+      lastMoveRepairError: null,
+      groupingRefreshQueued: false,
+      lastGroupingRefreshDurationMs: null,
+      lastGroupingRefreshAt: null,
+      groupingRefreshDelayedForPlaybackCount: 0,
+      lastGroupingRefreshError: null,
+      recentWatcherEvents: [],
+    })),
     clearCache: vi.fn(() => ({ scannedCount: 1, removedCount: 1, deletedCoverCacheFiles: 2, freedCoverCacheBytes: 128 })),
     hasRunningJobs: vi.fn(() => false),
     updateTrackTags: vi.fn(),
@@ -327,6 +419,21 @@ describe('library IPC', () => {
     showItemInFolderMock.mockReset();
     trashItemMock.mockReset();
     getLibraryServiceMock.mockReset();
+    remoteSourceServiceMock.listSources.mockReset();
+    remoteSourceServiceMock.getBackgroundGlobalStatus.mockReset();
+    remoteSourceServiceMock.listSources.mockReturnValue([]);
+    remoteSourceServiceMock.getBackgroundGlobalStatus.mockReturnValue({
+      paused: false,
+      playbackActive: false,
+      concurrency: {
+        metadata: 0,
+        cover: 0,
+        lyrics: 0,
+        mv: 0,
+        'duration-backfill': 0,
+      },
+      updatedAt: null,
+    });
     Object.values(closeDatabaseUserMocks).forEach((mock) => mock.mockReset());
     databaseManagerMock.closeAllUsers.mockReset();
     databaseManagerMock.getState.mockClear();
@@ -357,6 +464,83 @@ describe('library IPC', () => {
     const result = await handlers[IpcChannels.LibraryChooseFolder]!();
 
     expect(result).toBe('D:\\Music');
+  });
+
+  it('normalizes library quality issue queries to local bounded pages', async () => {
+    const service = installLibraryService();
+
+    await handlers[IpcChannels.LibraryGetQualityIssues]!(null, {
+      kind: 'missing_cover',
+      page: 2.8,
+      pageSize: 999,
+      sourceProvider: 'local',
+      search: 'needle',
+    });
+
+    expect(service.getLibraryQualityIssues).toHaveBeenCalledWith({
+      kind: 'missing_cover',
+      page: 2,
+      pageSize: 100,
+      sourceProvider: 'local',
+      search: 'needle',
+    });
+  });
+
+  it('rejects unsupported library quality issue kinds and remote source filters', async () => {
+    expect(() => handlers[IpcChannels.LibraryGetQualityIssues]!(null, { kind: 'bad-kind' })).toThrow(
+      'library quality issue kind must be supported',
+    );
+    expect(() => handlers[IpcChannels.LibraryGetQualityIssues]!(null, { kind: 'missing_cover', sourceProvider: 'remote' })).toThrow(
+      'library quality dashboard currently supports local sourceProvider only',
+    );
+  });
+
+  it('returns and exports a sanitized library health report', async () => {
+    const root = makeTempRoot();
+    const exportPath = join(root, 'health.md');
+    const { app } = await import('electron');
+    vi.mocked(app.getPath).mockImplementation((name: string) => (name === 'downloads' ? root : root));
+    createHealthyLibrary(root);
+    const service = installLibraryService();
+    service.getDiagnostics.mockReturnValue({
+      ...service.getDiagnostics(),
+      databasePath: join(root, 'echo-library.sqlite'),
+      coverCachePath: join(root, 'covers'),
+    });
+    service.getCoverCacheDir.mockReturnValue(join(root, 'covers'));
+    remoteSourceServiceMock.listSources.mockReturnValue([
+      {
+        id: 'remote-1',
+        provider: 'webdav',
+        displayName: 'NAS',
+        status: 'enabled',
+        baseUrl: 'https://example.invalid/token=secret',
+        username: 'secret-user',
+        authType: 'token',
+        config: { secret: 'do-not-export' },
+        syncMode: 'index',
+        lastTestAt: null,
+        lastSyncAt: null,
+        lastError: 'token=secret',
+        indexedTrackCount: 5,
+        createdAt: '2026-05-20T00:00:00.000Z',
+        updatedAt: '2026-05-20T00:00:00.000Z',
+      },
+    ]);
+    showSaveDialogMock.mockResolvedValue({ canceled: false, filePath: exportPath });
+
+    const report = await handlers[IpcChannels.LibraryGetHealthReport]!() as LibraryHealthReport;
+    expect(report.database.databasePath?.basename).toBe('echo-library.sqlite');
+    expect(report.remoteSources).toMatchObject({ total: 1, enabled: 1, indexedTrackCount: 5 });
+
+    const result = await handlers[IpcChannels.LibraryExportHealthReport]!();
+    const markdown = readFileSync(result as string, 'utf8');
+
+    expect(result).toBe(exportPath);
+    expect(markdown).toContain('ECHO Next 曲库体检报告');
+    expect(markdown).not.toContain(root);
+    expect(markdown).not.toContain('token=secret');
+    expect(markdown).not.toContain('do-not-export');
   });
 
   it('saves dropped audio files to downloads and imports them', async () => {

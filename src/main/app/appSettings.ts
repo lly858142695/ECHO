@@ -176,6 +176,7 @@ export const defaultChannelBalanceSettings: ChannelBalanceState = {
 
 export const defaultSettings: AppSettings = {
   appMemoryVersion,
+  onboardingCompleted: false,
   locale: 'zh-CN',
   appearanceTheme: 'dark',
   appearanceThemePreset: 'classic',
@@ -750,6 +751,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
 
   return {
     appMemoryVersion,
+    onboardingCompleted: settings.onboardingCompleted !== false,
     locale: normalizeLocale(settings.locale),
     appearanceTheme: normalizeAppearanceTheme(settings.appearanceTheme),
     appearanceThemePreset: normalizeAppearanceThemePreset(settings.appearanceThemePreset),

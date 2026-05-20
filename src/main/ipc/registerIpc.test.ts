@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
@@ -257,6 +257,50 @@ describe('app IPC cover cache directory', () => {
     expect(ensureCoverCacheDirectoryMock).toHaveBeenCalledWith('D:\\Echo\\cover-cache');
     expect(setAppSettingsMock).toHaveBeenCalledWith({ coverCacheDir: null });
     expect(service.setCoverCacheDir).toHaveBeenCalledWith('D:\\Echo\\cover-cache');
+  });
+
+  it('lists app cache inventory without marking durable data movable', async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'echo-cache-inventory-'));
+    const coverCache = join(tempRoot, 'covers');
+    const artistImages = join(tempRoot, 'artist-images');
+    const smtcCovers = join(appPathMock('userData'), 'smtc-covers');
+    const databasePath = join(tempRoot, 'echo-library.sqlite');
+    mkdirSync(coverCache, { recursive: true });
+    mkdirSync(artistImages, { recursive: true });
+    mkdirSync(smtcCovers, { recursive: true });
+    writeFileSync(join(coverCache, 'cover.webp'), Buffer.alloc(10));
+    writeFileSync(join(artistImages, 'artist.webp'), Buffer.alloc(20));
+    writeFileSync(join(smtcCovers, 'smtc.webp'), Buffer.alloc(30));
+    writeFileSync(databasePath, Buffer.alloc(40));
+
+    getLibraryServiceMock.mockReturnValue({
+      getCoverCacheDir: () => coverCache,
+      getDiagnostics: () => ({ databasePath }),
+    });
+
+    try {
+      const inventory = (await handlers[IpcChannels.AppGetCacheInventory]!()) as {
+        items: Array<{ kind: string; path: string; sizeBytes: number; movable: boolean; reason: string }>;
+        totalSizeBytes: number;
+      };
+
+      expect(inventory.items.map((item) => item.kind)).toEqual(['cover', 'artist-image', 'smtc-cover', 'download', 'lyrics-mv']);
+      expect(inventory.items.find((item) => item.kind === 'cover')).toMatchObject({
+        path: coverCache,
+        sizeBytes: 10,
+        movable: true,
+      });
+      expect(inventory.items.find((item) => item.kind === 'lyrics-mv')).toMatchObject({
+        path: databasePath,
+        sizeBytes: 40,
+        movable: false,
+      });
+      expect(inventory.items.filter((item) => item.kind !== 'cover').every((item) => item.movable === false)).toBe(true);
+      expect(inventory.totalSizeBytes).toBeGreaterThanOrEqual(100);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+      rmSync(appPathMock('userData'), { recursive: true, force: true });
+    }
   });
 
   it('resets app settings and restores the default cover cache directory', async () => {

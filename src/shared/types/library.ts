@@ -46,6 +46,36 @@ export type LibraryDatabaseHealthInfo = {
   detail?: string;
 };
 
+export type LibraryDatabaseProtectionMode = 'ok' | 'degraded' | 'quarantined' | 'needs_recovery';
+export type LibraryDatabaseProtectionReason =
+  | 'none'
+  | 'corrupt_database'
+  | 'poisoned_metadata'
+  | 'oversized_payload'
+  | 'startup_timeout';
+
+export type LibraryDatabasePoisonReport = {
+  status: 'ok' | 'poisoned' | 'unreadable';
+  reason: LibraryDatabaseProtectionReason;
+  checkedAt: string;
+  databasePath: string;
+  suspectCounts: Record<string, number>;
+  maxFieldLengths: Record<string, number>;
+  message?: string;
+};
+
+export type LibraryDatabaseScrubResult = {
+  databasePath: string;
+  sourceArchivePath: string;
+  scrubbedDatabasePath: string;
+  archivePath: string | null;
+  replacedDatabaseFiles: string[];
+  scrubbedRows: number;
+  health: LibraryDatabaseHealthInfo;
+  poisonReportBefore: LibraryDatabasePoisonReport;
+  poisonReportAfter: LibraryDatabasePoisonReport;
+};
+
 export type LibraryDatabaseSnapshotInfo = {
   id: string;
   path: string;
@@ -71,12 +101,21 @@ export type LibraryDatabaseArchiveInfo = {
 
 export type LibraryDatabaseMaintenanceEventInfo = {
   createdAt: string;
-  action: 'manual-repair' | 'manual-delete' | 'manual-restore' | 'startup-protected' | 'scan-health-failed' | 'scan-auto-restore';
+  action:
+    | 'manual-repair'
+    | 'manual-delete'
+    | 'manual-restore'
+    | 'manual-scrub-quarantined'
+    | 'startup-protected'
+    | 'startup-poisoned'
+    | 'scan-health-failed'
+    | 'scan-auto-restore';
   databasePath: string;
   archivePath?: string | null;
   removedDatabaseFiles?: string[];
   restoredSnapshotId?: string;
   health?: LibraryDatabaseHealthInfo;
+  poisonReport?: LibraryDatabasePoisonReport;
   scan?: {
     jobId: string;
     folderId: string;
@@ -103,22 +142,27 @@ export type LibraryDatabaseManagerStateInfo = {
   lastCheckpointReason: string | null;
   lastCheckpointHealth: LibraryDatabaseHealthInfo | null;
   protected: boolean;
-  protectionRecoveryAction: 'none' | 'protected' | 'archivedOnly' | 'autoRestoredFromScanGuard' | 'failed' | null;
+  protectionRecoveryAction: 'none' | 'protected' | 'archivedOnly' | 'quarantined' | 'autoRestoredFromScanGuard' | 'failed' | null;
 };
 
 export type LibraryDatabaseProtectionStatus = {
+  status: LibraryDatabaseProtectionMode;
+  reason: LibraryDatabaseProtectionReason;
   dataProtectionPath: string;
   databasePath: string;
   databaseSizeBytes: number | null;
+  archivePath?: string | null;
+  poisonReport?: LibraryDatabasePoisonReport | null;
   health: LibraryDatabaseHealthInfo;
   snapshots: LibraryDatabaseSnapshotInfo[];
   latestHealthySnapshot: LibraryDatabaseSnapshotInfo | null;
   latestArchive: LibraryDatabaseArchiveInfo | null;
   maintenanceEvents: LibraryDatabaseMaintenanceEventInfo[];
   canRestoreSnapshot: boolean;
+  canScrubQuarantinedDatabase?: boolean;
   hasRunningScan: boolean;
-  protectionMode?: 'normal' | 'protected' | 'archivedOnly' | 'autoRestoredFromScanGuard';
-  recommendedAction: 'none' | 'restore-snapshot' | 'rebuild-empty-database';
+  protectionMode?: 'normal' | 'protected' | 'archivedOnly' | 'quarantined' | 'autoRestoredFromScanGuard';
+  recommendedAction: 'none' | 'restore-snapshot' | 'scrub-quarantined-database' | 'rebuild-empty-database';
   unrecoverableReason?: string;
   managerState?: LibraryDatabaseManagerStateInfo;
 };
@@ -532,6 +576,14 @@ export type AddLocalAudioFilesToPlaylistResult = {
   items: LibraryPlaylistItem[];
 };
 
+export type ImportAudioFilesResult = {
+  importedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  trackIds: string[];
+  tracks: LibraryTrack[];
+};
+
 export type PlaybackHistoryEntry = {
   id: string;
   trackId: string | null;
@@ -931,6 +983,167 @@ export type LibraryPage<T> = {
   pageSize: number;
   total: number;
   hasMore: boolean;
+};
+
+export type LibraryQualityIssueKind =
+  | 'missing_cover'
+  | 'fallback_metadata'
+  | 'unknown_artist_album'
+  | 'embedded_read_failed'
+  | 'network_candidate';
+
+export type LibraryQualityIssueSeverity = 'info' | 'warning' | 'danger';
+
+export type LibraryQualityIssueReason =
+  | MissingMetadataReason
+  | 'metadata_fallback'
+  | 'missing_album_artist'
+  | 'unknown_album'
+  | 'embedded_metadata_error'
+  | 'embedded_cover_error'
+  | 'network_metadata_candidate'
+  | 'network_cover_candidate';
+
+export type LibraryQualityOverviewItem = {
+  kind: LibraryQualityIssueKind;
+  label: string;
+  count: number;
+  severity: LibraryQualityIssueSeverity;
+  description: string;
+  actionAvailable: boolean;
+  lastError?: string | null;
+};
+
+export type LibraryQualityIssueQuery = {
+  kind: LibraryQualityIssueKind;
+  page?: number;
+  pageSize?: number;
+  sourceProvider?: PlaylistSourceProvider;
+  search?: string;
+};
+
+export type LibraryQualityIssueItem = {
+  track: LibraryTrack;
+  reasons: LibraryQualityIssueReason[];
+  candidateCount?: number;
+};
+
+export type LibraryQualityIssuePage = {
+  items: LibraryQualityIssueItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+  kind: LibraryQualityIssueKind;
+};
+
+export type LibraryHealthSafePath = {
+  basename: string;
+  pathHash: string;
+};
+
+export type LibraryHealthReportSummary = LibrarySummary & {
+  warningCount: number;
+};
+
+export type LibraryHealthReportDatabase = {
+  status: LibraryDatabaseProtectionMode | 'unknown';
+  healthStatus: LibraryDatabaseHealthStatus | 'unknown';
+  recommendedAction: LibraryDatabaseProtectionStatus['recommendedAction'];
+  unrecoverableReason: string | null;
+  canRestoreSnapshot: boolean;
+  hasRunningScan: boolean;
+  databaseSizeBytes: number | null;
+  databasePath: LibraryHealthSafePath | null;
+  latestHealthySnapshotId: string | null;
+  managerProtected: boolean | null;
+  managerOpenConnections: number | null;
+  maintenanceInProgress: boolean;
+};
+
+export type LibraryHealthReportScan = {
+  status: LibraryScanStatus['status'] | 'idle' | 'unknown';
+  phase: LibraryScanStatus['phase'] | 'idle' | 'unknown';
+  startedAt: string | null;
+  finishedAt: string | null;
+  discoveredCount: number;
+  parsedCount: number;
+  skippedCount: number;
+  coverCount: number;
+  errorCount: number;
+  performanceMode: LibraryDiagnostics['scanPerformanceMode'] | 'unknown';
+  metadataConcurrency: number | null;
+  coverConcurrency: number | null;
+  groupingRefreshQueued: boolean;
+  lastGroupingRefreshError: string | null;
+};
+
+export type LibraryHealthReportCacheItem = {
+  kind: string;
+  label: string;
+  path: LibraryHealthSafePath | null;
+  sizeBytes: number;
+  fileCount: number;
+  movable: boolean;
+  reason: string;
+  lastError: string | null;
+};
+
+export type LibraryHealthReportCache = {
+  generatedAt: string | null;
+  totalSizeBytes: number;
+  items: LibraryHealthReportCacheItem[];
+  lastError: string | null;
+};
+
+export type LibraryHealthReportWatcher = {
+  enabled: boolean;
+  running: boolean;
+  autoRescanEnabled: boolean;
+  watchedFolderCount: number;
+  pendingPathCount: number;
+  triggeredRescanCount: number;
+  skippedDeleteEventCount: number;
+  skippedRenameEventCount: number;
+  lastError: string | null;
+  lastRescanError: string | null;
+  lastTriggeredRescanAt: string | null;
+};
+
+export type LibraryHealthReportRemoteSource = {
+  id: string;
+  provider: string;
+  displayName: string;
+  status: string;
+  syncMode: string;
+  indexedTrackCount: number;
+  lastSyncAt: string | null;
+  lastError: string | null;
+};
+
+export type LibraryHealthReportRemoteSources = {
+  total: number;
+  enabled: number;
+  disabled: number;
+  error: number;
+  indexedTrackCount: number;
+  backgroundPaused: boolean;
+  backgroundPlaybackActive: boolean;
+  backgroundUpdatedAt: string | null;
+  lastError: string | null;
+  sources: LibraryHealthReportRemoteSource[];
+};
+
+export type LibraryHealthReport = {
+  generatedAt: string;
+  summary: LibraryHealthReportSummary;
+  database: LibraryHealthReportDatabase;
+  scan: LibraryHealthReportScan;
+  quality: LibraryQualityOverviewItem[];
+  cache: LibraryHealthReportCache;
+  watcher: LibraryHealthReportWatcher;
+  remoteSources: LibraryHealthReportRemoteSources;
+  warnings: string[];
 };
 
 export type NetworkMetadataCandidate = {

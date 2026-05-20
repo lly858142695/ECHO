@@ -25,6 +25,29 @@ const makeTempRoot = (): string => {
   return root;
 };
 
+const uint32Le = (value: number): Buffer => {
+  const buffer = Buffer.alloc(4);
+  buffer.writeUInt32LE(value, 0);
+  return buffer;
+};
+
+const writeFlacWithCueSheet = (filePath: string, cueSheet: string): void => {
+  const vendor = Buffer.from('ECHO Next', 'utf8');
+  const comment = Buffer.from(`CUESHEET=${cueSheet}`, 'utf8');
+  const vorbisComment = Buffer.concat([
+    uint32Le(vendor.length),
+    vendor,
+    uint32Le(1),
+    uint32Le(comment.length),
+    comment,
+  ]);
+  const blockHeader = Buffer.alloc(4);
+  blockHeader[0] = 0x80 | 4;
+  blockHeader.writeUIntBE(vorbisComment.length, 1, 3);
+
+  writeFileSync(filePath, Buffer.concat([Buffer.from('fLaC', 'ascii'), blockHeader, vorbisComment, Buffer.from('audio')]));
+};
+
 describe('local file open helpers', () => {
   beforeEach(() => {
     getTrackByPathMock.mockReset();
@@ -134,6 +157,41 @@ describe('local file open helpers', () => {
       artist: 'Album Artist',
       trackNo: 2,
       path: `${resolve(cue)}#cueTrack=2`,
+    });
+  });
+
+  it('expands embedded cue sheets from local audio files into temporary cue track entries', async () => {
+    const root = makeTempRoot();
+    const flac = join(root, 'album.flac');
+    writeFlacWithCueSheet(
+      flac,
+      [
+        'PERFORMER "Album Artist"',
+        'TITLE "Album Title"',
+        'FILE "ignored.wav" WAVE',
+        '  TRACK 01 AUDIO',
+        '    TITLE "First Song"',
+        '    INDEX 01 00:00:00',
+        '  TRACK 02 AUDIO',
+        '    TITLE "Second Song"',
+        '    INDEX 01 02:00:00',
+      ].join('\n'),
+    );
+
+    const result = await resolveLocalAudioFiles([flac]);
+
+    expect(result.rejected).toEqual([]);
+    expect(result.tracks).toHaveLength(2);
+    expect(result.tracks[0]).toMatchObject({
+      title: 'First Song',
+      artist: 'Album Artist',
+      path: `${resolve(flac)}#cueTrack=1`,
+    });
+    expect(result.tracks[1]).toMatchObject({
+      title: 'Second Song',
+      album: 'Album Title',
+      trackNo: 2,
+      path: `${resolve(flac)}#cueTrack=2`,
     });
   });
 });

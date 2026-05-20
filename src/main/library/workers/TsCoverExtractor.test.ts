@@ -133,6 +133,22 @@ describe('TsCoverExtractor', () => {
     expect(result.sourceHash).toBe(hashBytes(folderCover));
   });
 
+  it('skips oversized embedded covers before sharp processes them', async () => {
+    const root = makeTempRoot();
+    const cacheRoot = join(root, 'cover-cache');
+    const filePath = join(root, 'song.flac');
+    writeFileSync(filePath, 'fake audio');
+
+    const result = await new TsCoverExtractor().extract(filePath, {
+      cacheRoot,
+      metadata: metadataWithCover(Buffer.alloc(21 * 1024 * 1024)),
+    });
+
+    expect(result.source).toBe('default');
+    expect(result.sourceHash).toBe(defaultCoverSourceHash);
+    expect(result.warnings.join(' ')).toContain('embedded cover skipped');
+  });
+
   it('uses a shared default SVG cache when no cover exists', async () => {
     const root = makeTempRoot();
     const musicRoot = join(root, 'music');

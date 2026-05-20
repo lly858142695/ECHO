@@ -613,11 +613,10 @@ describe('PlaylistsPage actions menu', () => {
       }),
     );
     expect(await screen.findByText('已按歌单顺序加入下载队列：2 首')).toBeTruthy();
-    expect(await screen.findByText('下载歌单：Daily Mix')).toBeTruthy();
 
     cleanup();
     renderPlaylistsPage();
 
-    expect(await screen.findByText('下载歌单：Daily Mix')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('下载歌单：Daily Mix')).toBeNull());
   });
 });

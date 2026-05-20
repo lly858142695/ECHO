@@ -10,6 +10,7 @@ import {
   ensureDataProtection,
   getLibraryDatabaseProtectionStatus,
   getProtectedUserDataPath,
+  inspectLibraryDatabaseForPoison,
   initializeProtectedUserDataPath,
   isProtectedLibraryAvailable,
   migrateLegacyProtectedData,
@@ -17,6 +18,7 @@ import {
   restoreProtectedLibraryDatabaseSnapshot,
   restoreProtectedLibraryDatabaseFromScanGuard,
   restoreMissingProtectedData,
+  scrubQuarantinedLibraryDatabase,
   writeDataProtectionManifest,
 } from './dataProtection';
 import type { LibraryScanStatus } from '../../shared/types/library';
@@ -36,6 +38,29 @@ const createHealthyLibrary = (path: string): void => {
   const database = new Database(path);
   database.exec('CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT)');
   database.prepare('INSERT INTO tracks (id, title) VALUES (?, ?)').run('track-1', 'Song');
+  database.close();
+};
+
+const createPoisonedLibrary = (path: string): void => {
+  const database = new Database(path);
+  database.exec(`
+    CREATE TABLE tracks (
+      id TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      title TEXT,
+      artist TEXT,
+      album TEXT,
+      album_artist TEXT,
+      genre TEXT,
+      codec TEXT,
+      search_terms TEXT
+    )
+  `);
+  const badTitle = `APIC image/jpeg JFIF ${'x'.repeat(8192)}`;
+  database.prepare(
+    `INSERT INTO tracks (id, path, title, artist, album, album_artist, genre, codec, search_terms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run('track-1', 'D:\\Music\\Safe Artist - Safe Title.mp3', badTitle, badTitle, badTitle, badTitle, badTitle, badTitle, badTitle);
   database.close();
 };
 
@@ -368,6 +393,49 @@ describe('dataProtection', () => {
     const archiveNames = readdirSync(archivesPath);
     expect(archiveNames.length).toBeGreaterThan(0);
     expect(readText(join(archivesPath, archiveNames[0], 'echo-library.sqlite'))).toBe('bad current database');
+  });
+
+  it('quarantines a structurally healthy database with poisoned metadata before startup library access', async () => {
+    const databasePath = join(tempDir, 'echo-library.sqlite');
+    createPoisonedLibrary(databasePath);
+
+    const poisonReport = inspectLibraryDatabaseForPoison(databasePath);
+    expect(poisonReport.status).toBe('poisoned');
+    expect(poisonReport.suspectCounts['tracks.title']).toBe(1);
+
+    const result = await ensureDataProtection('startup', tempDir);
+    const status = getLibraryDatabaseProtectionStatus(tempDir);
+
+    expect(result.recovery.action).toBe('quarantined');
+    expect(result.libraryHealth.status).toBe('corrupt');
+    expect(existsSync(databasePath)).toBe(false);
+    expect(status.status).toBe('quarantined');
+    expect(status.reason).toBe('poisoned_metadata');
+    expect(status.recommendedAction).toBe('scrub-quarantined-database');
+    expect(status.canScrubQuarantinedDatabase).toBe(true);
+    expect(isProtectedLibraryAvailable()).toBe(false);
+  });
+
+  it('scrubs a quarantined database copy before restoring it to the active slot', async () => {
+    const databasePath = join(tempDir, 'echo-library.sqlite');
+    createPoisonedLibrary(databasePath);
+    await ensureDataProtection('startup', tempDir);
+
+    const result = scrubQuarantinedLibraryDatabase(tempDir, new Date('2026-05-20T00:00:00.000Z'));
+    const restoredDatabase = new Database(databasePath, { readonly: true });
+    const row = restoredDatabase.prepare<[string], { title: string; artist: string; search_terms: string }>(
+      'SELECT title, artist, search_terms FROM tracks WHERE id = ?',
+    ).get('track-1');
+    restoredDatabase.close();
+
+    expect(result.health.status).toBe('ok');
+    expect(result.poisonReportAfter.status).toBe('ok');
+    expect(result.scrubbedRows).toBeGreaterThan(0);
+    expect(row).toMatchObject({ title: 'Safe Title', artist: 'Safe Artist' });
+    expect(row?.search_terms).toContain('safe title');
+    expect(row?.search_terms).not.toContain('APIC');
+    expect(getLibraryDatabaseProtectionStatus(tempDir).recommendedAction).toBe('none');
+    expect(isProtectedLibraryAvailable()).toBe(true);
   });
 
   it('does not globally block the library for unreadable health checks', async () => {

@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AlbumService } from './AlbumService';
 import type { LibraryStore } from './LibraryStore';
@@ -29,6 +29,29 @@ const makeTempRoot = (): string => {
   mkdirSync(root, { recursive: true });
   tempRoots.push(root);
   return root;
+};
+
+const uint32Le = (value: number): Buffer => {
+  const buffer = Buffer.alloc(4);
+  buffer.writeUInt32LE(value, 0);
+  return buffer;
+};
+
+const writeFlacWithCueSheet = (filePath: string, cueSheet: string): void => {
+  const vendor = Buffer.from('ECHO Next', 'utf8');
+  const comment = Buffer.from(`CUESHEET=${cueSheet}`, 'utf8');
+  const vorbisComment = Buffer.concat([
+    uint32Le(vendor.length),
+    vendor,
+    uint32Le(1),
+    uint32Le(comment.length),
+    comment,
+  ]);
+  const blockHeader = Buffer.alloc(4);
+  blockHeader[0] = 0x80 | 4;
+  blockHeader.writeUIntBE(vorbisComment.length, 1, 3);
+
+  writeFileSync(filePath, Buffer.concat([Buffer.from('fLaC', 'ascii'), blockHeader, vorbisComment, Buffer.from('audio')]));
 };
 
 const baseFolder = (root: string): LibraryFolder => ({
@@ -218,6 +241,15 @@ class FakeMetadataReader implements MetadataReader {
   async read(filePath: string): Promise<MetadataResult> {
     this.paths.push(filePath);
     return this.result;
+  }
+}
+
+class ThrowingMetadataReader implements MetadataReader {
+  readonly paths: string[] = [];
+
+  async read(filePath: string): Promise<MetadataResult> {
+    this.paths.push(filePath);
+    throw new Error('metadata boom');
   }
 }
 
@@ -530,6 +562,69 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
     expect(store.findTrackCoverStateCalls).toBe(0);
   });
 
+  it('expands embedded cue audio files into virtual library tracks during folder scans', async () => {
+    const root = makeTempRoot();
+    const folder = baseFolder(root);
+    mkdirSync(folder.path, { recursive: true });
+    const audioPath = join(folder.path, 'album.flac');
+    writeFlacWithCueSheet(
+      audioPath,
+      [
+        'PERFORMER "Album Artist"',
+        'TITLE "Album Title"',
+        'FILE "ignored.wav" WAVE',
+        '  TRACK 01 AUDIO',
+        '    TITLE "First Song"',
+        '    INDEX 01 00:00:00',
+        '  TRACK 02 AUDIO',
+        '    TITLE "Second Song"',
+        '    INDEX 01 03:00:00',
+      ].join('\n'),
+    );
+    const file = {
+      path: audioPath,
+      sizeBytes: statSync(audioPath).size,
+      mtimeMs: Math.round(statMtimeMs(audioPath)),
+    };
+    const cacheRoot = join(root, 'custom-cache');
+    mkdirSync(cacheRoot, { recursive: true });
+    const cachedCover = join(cacheRoot, 'cached.webp');
+    writeFileSync(cachedCover, 'cached');
+    const metadataReader = new FakeMetadataReader();
+    const store = new FakeStore(
+      coverStateMap([file], (item) =>
+        coverState(item, {
+          thumbPath: cachedCover,
+          albumPath: cachedCover,
+          largePath: cachedCover,
+          originalRef: cachedCover,
+        }),
+      ),
+    );
+
+    const status = await runQueue(
+      store,
+      new FakeScanner([file]),
+      metadataReader,
+      new CapturingCoverExtractor(),
+      cacheRoot,
+      folder,
+    );
+
+    expect(status.totalFiles).toBe(2);
+    expect(status.addedTracks).toBe(2);
+    expect(status.removedTracks).toBe(1);
+    expect(metadataReader.paths).toEqual([
+      `${resolve(audioPath)}#cueTrack=1`,
+      `${resolve(audioPath)}#cueTrack=2`,
+    ]);
+    expect(store.upsertedTracks.map((track) => track.path)).toEqual([
+      `${resolve(audioPath)}#cueTrack=1`,
+      `${resolve(audioPath)}#cueTrack=2`,
+    ]);
+    expect(store.missingPaths).toEqual([audioPath]);
+  });
+
   it('notifies when a scan job settles so renderer library views can refresh after completion', async () => {
     const root = makeTempRoot();
     const [file] = makeFiles(root, 1);
@@ -734,6 +829,39 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
 
     expect(status.errorCount).toBe(250);
     expect(status.errors).toHaveLength(200);
+    expect(status.errors[0]).toBe('[summary] metadata: 250 issue(s)');
+  });
+
+  it('keeps a fallback track row when embedded metadata parsing fails', async () => {
+    const root = makeTempRoot();
+    const folder = baseFolder(root);
+    const filePath = join(folder.path, 'broken-file.flac');
+    const store = new FakeStore();
+    const metadataReader = new ThrowingMetadataReader();
+
+    const status = await runQueue(
+      store,
+      new FakeScanner([{ path: filePath, sizeBytes: 10, mtimeMs: 1 }]),
+      metadataReader,
+      new CapturingCoverExtractor(),
+      join(root, 'custom-cache'),
+      folder,
+    );
+
+    expect(status.status).toBe('completed');
+    expect(status.addedTracks).toBe(1);
+    expect(status.errorCount).toBeGreaterThanOrEqual(1);
+    expect(status.errors.some((error) => error.includes('metadata boom'))).toBe(true);
+    expect(store.upsertedTracks[0]).toMatchObject({
+      path: filePath,
+      title: 'broken file',
+      artist: 'Unknown Artist',
+      album: 'music',
+      metadataStatus: 'fallback',
+      embeddedMetadataStatus: 'error',
+      embeddedCoverStatus: 'missing',
+    });
+    expect(store.upsertedTracks[0]?.errors).toEqual(['metadata boom']);
   });
 
   it('flushes a final failed state when scanning fails', async () => {

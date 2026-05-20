@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { LibraryFolderNode, LibraryFolderOverview, LibraryPage, LibraryTrack } from '../../shared/types/library';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { LibraryFolderNode, LibraryFolderOverview, LibraryPage, LibraryScanStatus, LibraryTrack } from '../../shared/types/library';
 import { I18nProvider } from '../i18n/I18nProvider';
 import { PlaybackQueueProvider } from '../stores/PlaybackQueueProvider';
+import { rememberLibraryScanStatus, resetLibraryScanSessionForTests } from '../stores/libraryScanSession';
 import { FoldersPage } from './FoldersPage';
 
 vi.mock('../components/library/TrackList', () => ({
@@ -102,6 +103,25 @@ const page = (items: LibraryTrack[], total = items.length): LibraryPage<LibraryT
   hasMore: false,
 });
 
+const scanStatus = (overrides: Partial<LibraryScanStatus> = {}): LibraryScanStatus => ({
+  id: 'scan-1',
+  folderId: 'folder-1',
+  status: 'running',
+  phase: 'reading_metadata',
+  totalFiles: 2,
+  processedFiles: 1,
+  skippedFiles: 0,
+  addedTracks: 0,
+  updatedTracks: 0,
+  removedTracks: 0,
+  coverCount: 0,
+  errorCount: 0,
+  errors: [],
+  startedAt: '2026-01-01T00:00:00.000Z',
+  finishedAt: null,
+  ...overrides,
+});
+
 const renderFoldersPage = () =>
   render(
     <I18nProvider>
@@ -124,6 +144,8 @@ let libraryMock: {
 };
 
 beforeEach(() => {
+  resetLibraryScanSessionForTests();
+
   libraryMock = {
     getFolderOverviews: vi.fn().mockResolvedValue([overview()]),
     getFolderChildren: vi.fn().mockResolvedValue([childNode()]),
@@ -133,7 +155,7 @@ beforeEach(() => {
     addFolder: vi.fn(),
     scanFolder: vi.fn(),
     removeFolder: vi.fn(),
-    getScanStatus: vi.fn(),
+    getScanStatus: vi.fn().mockResolvedValue(scanStatus()),
   };
 
   Object.defineProperty(window, 'echo', {
@@ -147,6 +169,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  resetLibraryScanSessionForTests();
 });
 
 describe('FoldersPage', () => {
@@ -192,6 +215,19 @@ describe('FoldersPage', () => {
     );
   });
 
+  it('marks a single folder cover so it can fill the cover tile', async () => {
+    libraryMock.getFolderOverviews.mockResolvedValue([overview({ coverThumbs: ['echo-cover://album/cover-1'] })]);
+
+    const { container } = renderFoldersPage();
+
+    await waitFor(() => expect(container.querySelector('.folder-cover-stack img')).toBeTruthy());
+    const coverImage = container.querySelector('.folder-cover-stack img');
+    const coverStack = coverImage?.closest('.folder-cover-stack');
+
+    expect(coverImage?.getAttribute('src')).toBe('echo-cover://album/cover-1');
+    expect(coverStack?.getAttribute('data-cover-count')).toBe('1');
+  });
+
   it('opens the shared track context menu for folder tracks', async () => {
     renderFoldersPage();
 
@@ -222,5 +258,59 @@ describe('FoldersPage', () => {
 
     expect(await screen.findByRole('dialog', { name: 'osu! Timing' })).toBeTruthy();
     expect(screen.getByText('24,400,4,1,0,100,1,0')).toBeTruthy();
+  });
+
+  it('does not broadcast a global library change when folder import only starts a scan', async () => {
+    const changedHandler = vi.fn();
+    libraryMock.addFolder.mockResolvedValue(overview({ path: 'D:\\New Music', name: 'New Music' }));
+    libraryMock.scanFolder.mockResolvedValue(scanStatus({ folderId: 'folder-1' }));
+    window.addEventListener('library:changed', changedHandler);
+
+    try {
+      const { container } = renderFoldersPage();
+
+      await screen.findByRole('heading', { name: 'Folders' });
+      fireEvent.change(container.querySelector('.folder-import-box input')!, { target: { value: 'D:\\New Music' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Add + scan' }));
+
+      await waitFor(() => expect(libraryMock.scanFolder).toHaveBeenCalledWith('folder-1'));
+      expect(changedHandler).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('library:changed', changedHandler);
+    }
+  });
+
+  it('refreshes folder overviews once for each terminal scan job', async () => {
+    renderFoldersPage();
+
+    await waitFor(() => expect(libraryMock.getFolderOverviews).toHaveBeenCalledTimes(1));
+    libraryMock.getFolderOverviews.mockClear();
+
+    act(() => {
+      rememberLibraryScanStatus(scanStatus({
+        id: 'scan-complete',
+        status: 'completed',
+        phase: 'finished',
+        processedFiles: 2,
+        addedTracks: 2,
+        finishedAt: '2026-01-01T00:01:00.000Z',
+      }));
+    });
+
+    await waitFor(() => expect(libraryMock.getFolderOverviews).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      rememberLibraryScanStatus(scanStatus({
+        id: 'scan-complete',
+        status: 'completed',
+        phase: 'finished',
+        processedFiles: 2,
+        updatedTracks: 1,
+        finishedAt: '2026-01-01T00:01:05.000Z',
+      }));
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(libraryMock.getFolderOverviews).toHaveBeenCalledTimes(1);
   });
 });

@@ -8,6 +8,7 @@ import { LyricsSettingsDrawer } from '../components/lyrics/LyricsSettingsDrawer'
 import { MvSettingsDrawer } from '../components/lyrics/MvSettingsDrawer';
 import { parseHexColor, sampleImageUrl, type ReadableColorSample, type Rgb } from '../components/lyrics/lyricsReadableColor';
 import { DragDropImportOverlay } from '../components/import/DragDropImportOverlay';
+import { FirstRunWizard } from '../components/onboarding/FirstRunWizard';
 import { loadPersistedRememberedAudioOutput } from '../components/player/audioOutputMemory';
 import { Sidebar } from '../components/layout/Sidebar';
 import { AppTitleBar } from '../components/layout/AppTitleBar';
@@ -185,6 +186,8 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const suppressAccountExpiryNoticesRef = useRef(false);
   const [audioErrorNotice, setAudioErrorNotice] = useState<{ message: string } | null>(null);
   const [diagnosticsNotice, setDiagnosticsNotice] = useState(false);
+  const [firstRunSettings, setFirstRunSettings] = useState<AppSettings | null>(null);
+  const [isFirstRunWizardOpen, setIsFirstRunWizardOpen] = useState(false);
   const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
   const [isLyricsDrawerOpen, setIsLyricsDrawerOpen] = useState(false);
   const [isMvDrawerOpen, setIsMvDrawerOpen] = useState(false);
@@ -345,6 +348,25 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     appWallpaperSettings.appWallpaperUnifiedOpacityEnabled,
     isAppWallpaperReady,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void window.echo?.app?.getSettings?.()
+      .then((settings) => {
+        if (cancelled) {
+          return;
+        }
+
+        setFirstRunSettings(settings);
+        setIsFirstRunWizardOpen(settings.onboardingCompleted === false);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!appWallpaperKey) {
@@ -1043,6 +1065,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
   const handleImportFile = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
+    const library = window.echo?.library;
 
     if (!playback) {
       fileInputRef.current?.click();
@@ -1057,6 +1080,23 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         return;
       }
 
+      if (library?.importAudioFiles) {
+        const result = await library.importAudioFiles(filePaths);
+        if (result.importedCount > 0) {
+          clearSongsFirstPageSnapshot();
+          await notifyLibraryChanged();
+          navigateRoute('songs');
+        }
+
+        const details = [
+          result.importedCount > 0 ? `已入库 ${result.importedCount} 个文件` : null,
+          result.skippedCount > 0 ? `忽略 ${result.skippedCount} 个不支持或不可用文件` : null,
+          result.failedCount > 0 ? `${result.failedCount} 个文件导入失败` : null,
+        ].filter(Boolean).join('，');
+        setChromeNotice(details || '没有可导入的音频文件。');
+        return;
+      }
+
       const result = await playbackQueue.openTemporaryLocalFiles(filePaths);
       navigateRoute('queue');
       if (result.rejected.length > 0) {
@@ -1065,7 +1105,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     } catch (error) {
       console.error('Failed to open local audio file from app chrome', error);
     }
-  }, [navigateRoute, playbackQueue, t]);
+  }, [navigateRoute, notifyLibraryChanged, playbackQueue, t]);
 
   useEffect(() => {
     const unsubscribe = window.echo?.playback?.onLocalAudioFilesOpened?.((paths) => {
@@ -1237,6 +1277,20 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       })}
 
       {isStandaloneRoute ? null : <DragDropImportOverlay onNotice={setChromeNotice} />}
+
+      {isFirstRunWizardOpen ? (
+        <FirstRunWizard
+          initialSettings={firstRunSettings}
+          onClose={() => setIsFirstRunWizardOpen(false)}
+          onCompleted={(settings) => {
+            if (settings) {
+              setFirstRunSettings(settings);
+              setAppWallpaperSettings(selectAppWallpaperSettings(settings));
+              setLyricsMiniPlayerSettings(selectLyricsMiniPlayerSettings(settings));
+            }
+          }}
+        />
+      ) : null}
 
       <input
         ref={folderInputRef}

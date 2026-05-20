@@ -13,8 +13,11 @@ import {
   Play,
   Repeat1,
   Repeat2,
+  RotateCcw,
+  Save,
   Shuffle,
   Trash2,
+  Wand2,
   X,
 } from 'lucide-react';
 import type { EditableTrackTags, LibraryPlaylist, LibraryTrack, PlaybackHistoryEntry } from '../../shared/types/library';
@@ -97,10 +100,64 @@ type TrackMenuState = {
   position: { x: number; y: number };
 };
 
+type SavedQueueSnapshot = {
+  id: string;
+  name: string;
+  createdAt: string;
+  currentTrackId: string | null;
+  tracks: LibraryTrack[];
+};
+
+const savedQueueStorageKey = 'echo-next:saved-queues';
+const maxSavedQueueSnapshots = 12;
+
+const isSavedQueueSnapshot = (value: unknown): value is SavedQueueSnapshot => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const snapshot = value as Partial<SavedQueueSnapshot>;
+  return (
+    typeof snapshot.id === 'string' &&
+    typeof snapshot.name === 'string' &&
+    typeof snapshot.createdAt === 'string' &&
+    Array.isArray(snapshot.tracks)
+  );
+};
+
+const readSavedQueueSnapshots = (): SavedQueueSnapshot[] => {
+  try {
+    const raw = window.localStorage.getItem(savedQueueStorageKey);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter(isSavedQueueSnapshot).slice(0, maxSavedQueueSnapshots) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeSavedQueueSnapshots = (snapshots: SavedQueueSnapshot[]): void => {
+  try {
+    window.localStorage.setItem(savedQueueStorageKey, JSON.stringify(snapshots.slice(0, maxSavedQueueSnapshots)));
+  } catch {
+    // Queue snapshots are convenience state only.
+  }
+};
+
+const formatSavedQueueDate = (value: string): string => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+};
+
 export const QueuePage = (): JSX.Element => {
   const { t } = useI18n();
   const queue = usePlaybackQueue();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [savedQueues, setSavedQueues] = useState<SavedQueueSnapshot[]>(() => readSavedQueueSnapshots());
   const [isGeneratingRandomQueue, setIsGeneratingRandomQueue] = useState(false);
   const [isGeneratingHistoryQueue, setIsGeneratingHistoryQueue] = useState(false);
   const [draggedQueueId, setDraggedQueueId] = useState<string | null>(null);
@@ -152,11 +209,99 @@ export const QueuePage = (): JSX.Element => {
   const runQueueAction = useCallback(async (action: () => Promise<unknown> | unknown): Promise<void> => {
     try {
       setActionError(null);
+      setActionNotice(null);
       await action();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
     }
   }, []);
+
+  const updateSavedQueues = useCallback((updater: (current: SavedQueueSnapshot[]) => SavedQueueSnapshot[]): void => {
+    setSavedQueues((current) => {
+      const next = updater(current).slice(0, maxSavedQueueSnapshots);
+      writeSavedQueueSnapshots(next);
+      return next;
+    });
+  }, []);
+
+  const handleSaveQueueSnapshot = useCallback((): void => {
+    if (queue.items.length === 0) {
+      setActionError('当前队列为空，暂时没有可保存的内容。');
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    const name = nowPlaying?.title ? `${nowPlaying.title} 等 ${queue.items.length} 首` : `队列 ${formatSavedQueueDate(createdAt)}`;
+    const snapshot: SavedQueueSnapshot = {
+      id: `queue-${Date.now()}`,
+      name,
+      createdAt,
+      currentTrackId: queue.currentTrackId,
+      tracks: queue.items.map((item) => item.track),
+    };
+
+    updateSavedQueues((current) => [snapshot, ...current]);
+    setActionError(null);
+    setActionNotice(`已保存队列：${name}`);
+  }, [nowPlaying?.title, queue.currentTrackId, queue.items, updateSavedQueues]);
+
+  const handleRestoreSavedQueue = useCallback(
+    (snapshot: SavedQueueSnapshot): void => {
+      if (snapshot.tracks.length === 0) {
+        setActionError('这个队列快照没有可恢复的歌曲。');
+        return;
+      }
+
+      queue.replaceQueue(snapshot.tracks, {
+        startTrackId: snapshot.currentTrackId ?? snapshot.tracks[0]?.id,
+        source: { type: 'manual', label: `保存队列：${snapshot.name}` },
+      });
+      setActionError(null);
+      setActionNotice(`已恢复队列：${snapshot.name}`);
+    },
+    [queue],
+  );
+
+  const handleDeleteSavedQueue = useCallback(
+    (snapshotId: string): void => {
+      updateSavedQueues((current) => current.filter((snapshot) => snapshot.id !== snapshotId));
+      setActionError(null);
+      setActionNotice('已删除队列快照。');
+    },
+    [updateSavedQueues],
+  );
+
+  const handleSaveQueueAsPlaylist = useCallback(async (): Promise<void> => {
+    const library = window.echo?.library;
+    if (!library?.createPlaylist || !library.addTracksToPlaylist) {
+      setActionError('桌面桥接不可用，暂时不能保存为歌单。');
+      return;
+    }
+
+    const trackIds = queue.items
+      .map((item) => item.track)
+      .filter((track) => track.isTemporary !== true && (track.mediaType ?? 'local') === 'local')
+      .map((track) => track.id);
+
+    if (trackIds.length === 0) {
+      setActionError('当前队列没有已入库的本地歌曲，不能保存为歌单。');
+      return;
+    }
+
+    try {
+      setActionError(null);
+      setActionNotice(null);
+      const playlist = await library.createPlaylist({
+        name: `队列 ${formatSavedQueueDate(new Date().toISOString())}`,
+        description: '从播放队列保存。',
+      });
+      await library.addTracksToPlaylist(playlist.id, trackIds);
+      window.dispatchEvent(new Event('library:playlists-changed'));
+      setActionNotice(`已保存为歌单：${playlist.name}`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    }
+  }, [queue.items]);
 
   const handleOpenCurrentFolder = useCallback((): void => {
     if (!nowPlaying) {
@@ -589,6 +734,22 @@ export const QueuePage = (): JSX.Element => {
           <History size={16} />
           {isGeneratingHistoryQueue ? t('queue.action.generatingHistory') : t('queue.action.generateFromHistory')}
         </button>
+        <button className={`queue-tool-button ${queue.automixEnabled ? 'is-active' : ''}`} type="button" aria-pressed={queue.automixEnabled} onClick={() => queue.setAutomixEnabled(!queue.automixEnabled)}>
+          <Wand2 size={16} />
+          智能下一首
+        </button>
+        <button className="queue-tool-button" type="button" disabled={queue.items.length === 0} onClick={handleSaveQueueSnapshot}>
+          <Save size={16} />
+          保存队列
+        </button>
+        <button className="queue-tool-button" type="button" disabled={savedQueues.length === 0} onClick={() => savedQueues[0] ? handleRestoreSavedQueue(savedQueues[0]) : undefined}>
+          <RotateCcw size={16} />
+          恢复上次队列
+        </button>
+        <button className="queue-tool-button" type="button" disabled={queue.items.length === 0} onClick={() => void handleSaveQueueAsPlaylist()}>
+          <Music2 size={16} />
+          保存为歌单
+        </button>
         <div className="queue-repeat-group" aria-label={t('queue.repeat.mode')}>
           {(['off', 'one', 'all'] as RepeatMode[]).map((mode) => (
             <button
@@ -608,6 +769,35 @@ export const QueuePage = (): JSX.Element => {
           {t('queue.action.clear')}
         </button>
       </section>
+
+      {savedQueues.length > 0 ? (
+        <section className="queue-saved-panel" aria-label="已保存队列">
+          <div className="queue-section-heading">
+            <div>
+              <span className="queue-kicker">Saved Queues</span>
+              <h2>已保存队列</h2>
+            </div>
+            <span>{savedQueues.length} 个快照</span>
+          </div>
+          <div className="queue-saved-list">
+            {savedQueues.slice(0, 4).map((snapshot) => (
+              <article className="queue-saved-item" key={snapshot.id}>
+                <div>
+                  <strong>{snapshot.name}</strong>
+                  <span>{snapshot.tracks.length} 首 / {formatSavedQueueDate(snapshot.createdAt)}</span>
+                </div>
+                <button className="queue-tool-button" type="button" onClick={() => handleRestoreSavedQueue(snapshot)}>
+                  <RotateCcw size={15} />
+                  恢复
+                </button>
+                <button className="queue-icon-button danger" type="button" aria-label={`删除队列快照 ${snapshot.name}`} title="删除队列快照" onClick={() => handleDeleteSavedQueue(snapshot.id)}>
+                  <X size={15} />
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="queue-list-section" aria-label={t('queue.upNext.kicker')}>
         <div className="queue-section-heading">
@@ -707,6 +897,7 @@ export const QueuePage = (): JSX.Element => {
         )}
 
         {actionError ? <p className="queue-error">{actionError}</p> : null}
+        {actionNotice ? <p className="queue-note">{actionNotice}</p> : null}
       </section>
 
       {trackMenu ? (

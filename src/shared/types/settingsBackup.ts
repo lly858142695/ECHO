@@ -14,3 +14,12 @@ export type SettingsImportResult = {
   importedPath: string;
   warnings: string[];
 };
+
+export type DataPackageExportResult = {
+  filePath: string;
+  exportedAt: string;
+  snapshotPath: string;
+  includedEntries: string[];
+  skippedEntries: string[];
+  warnings: string[];
+};

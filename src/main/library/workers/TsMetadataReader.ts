@@ -37,7 +37,10 @@ const tagLibTechnicalFallbackFields = ['duration', 'codec', 'sampleRate', 'bitDe
 const replaceableMetadataSources = new Set<FieldSource>(['unknown', 'filename_fallback', 'folder_structure', 'artist_fallback']);
 const replaceableTechnicalSources = new Set<FieldSource>(['unknown', 'filename_fallback']);
 const mojibakeCandidateEncodings = ['latin1', 'win1252', 'gbk', 'big5', 'shift_jis'] as const;
+const maxMetadataTextLength = 512;
+const maxRawMetadataTextLength = 4096;
 const suspiciousMojibakePattern = /(?:[\u00c0-\u00ff]{2,}|[\u00c2-\u00f4][\u0080-\u00bf]|[\u00c3\u00c2][\u0080-\u00ffA-Za-z]|[\u93c4\u71b7\u5a07\u9287\u958e\u59b5\u7d0b]{2,}|\u{fffd}|\?{2,})/u;
+const binaryMetadataTextPattern = /(?:APIC|image\/(?:jpeg|jpg|png|webp|gif)|JFIF|Exif|\u0000)/iu;
 const mojibakeFragments = [
   '\u00c3',
   '\u00c2',
@@ -96,6 +99,29 @@ const countControlCharacters = (text: string): number => {
   }
 
   return count;
+};
+
+const countHardControlCharacters = (text: string): number =>
+  countMatches(text, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu);
+
+const normalizeMetadataTextWhitespace = (text: string): string =>
+  text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, ' ').replace(/\s+/gu, ' ').trim();
+
+const isSafeMetadataText = (text: string): boolean => {
+  if (!text || text.length > maxRawMetadataTextLength) {
+    return false;
+  }
+
+  if (text.length > maxMetadataTextLength) {
+    return false;
+  }
+
+  if (binaryMetadataTextPattern.test(text)) {
+    return false;
+  }
+
+  const controlCount = countControlCharacters(text);
+  return controlCount < 8 && controlCount / Math.max(1, text.length) <= 0.02;
 };
 
 const textQualityScore = (text: string): number => {
@@ -176,8 +202,22 @@ const cleanText = (value: unknown): string | null => {
     return null;
   }
 
-  const trimmed = repairMojibakeText(value);
-  return trimmed.length > 0 ? trimmed : null;
+  const raw = value.trim();
+  if (!raw || raw.length > maxRawMetadataTextLength || binaryMetadataTextPattern.test(raw)) {
+    return null;
+  }
+
+  const rawControlCount = countHardControlCharacters(raw);
+  if (rawControlCount >= 8 || rawControlCount / Math.max(1, raw.length) > 0.02) {
+    return null;
+  }
+
+  const repaired = normalizeMetadataTextWhitespace(repairMojibakeText(raw));
+  if (!isSafeMetadataText(repaired)) {
+    return null;
+  }
+
+  return repaired.length > 0 ? repaired : null;
 };
 
 const cleanTextList = (value: unknown): string | null => {
@@ -637,6 +677,7 @@ export class TsMetadataReader implements MetadataReader {
       const artist = cueTrack.performer ?? cueTrack.albumArtist ?? normalized.fields.artist;
       const album = cueTrack.album ?? normalized.fields.album;
       const albumArtist = cueTrack.albumArtist ?? artist;
+      const cueFieldSource = cueTrack.source === 'embedded' ? 'embedded' : 'sidecar';
 
       return {
         ...normalized,
@@ -652,12 +693,12 @@ export class TsMetadataReader implements MetadataReader {
         },
         fieldSources: {
           ...normalized.fieldSources,
-          title: cueTrack.title ? 'sidecar' : normalized.fieldSources.title,
-          artist: cueTrack.performer || cueTrack.albumArtist ? 'sidecar' : normalized.fieldSources.artist,
-          album: cueTrack.album ? 'sidecar' : normalized.fieldSources.album,
-          albumArtist: cueTrack.albumArtist ? 'sidecar' : normalized.fieldSources.albumArtist,
-          trackNo: 'sidecar',
-          duration: 'sidecar',
+          title: cueTrack.title ? cueFieldSource : normalized.fieldSources.title,
+          artist: cueTrack.performer || cueTrack.albumArtist ? cueFieldSource : normalized.fieldSources.artist,
+          album: cueTrack.album ? cueFieldSource : normalized.fieldSources.album,
+          albumArtist: cueTrack.albumArtist ? cueFieldSource : normalized.fieldSources.albumArtist,
+          trackNo: cueFieldSource,
+          duration: cueFieldSource,
           codec: normalized.fieldSources.codec ?? 'technical',
         },
         embeddedMetadataStatus: 'present',
@@ -667,6 +708,7 @@ export class TsMetadataReader implements MetadataReader {
       };
     } catch (error) {
       if (cueTrack) {
+        const cueFieldSource = cueTrack.source === 'embedded' ? 'embedded' : 'sidecar';
         return {
           fields: {
             title: cueTrack.title ?? `Track ${cueTrack.trackNumber}`,
@@ -690,16 +732,16 @@ export class TsMetadataReader implements MetadataReader {
             replayGainIntegratedLufs: null,
           },
           fieldSources: {
-            title: cueTrack.title ? 'sidecar' : 'filename_fallback',
-            artist: cueTrack.performer || cueTrack.albumArtist ? 'sidecar' : 'unknown',
-            album: cueTrack.album ? 'sidecar' : 'folder_structure',
-            albumArtist: cueTrack.albumArtist || cueTrack.performer ? 'sidecar' : 'unknown',
-            trackNo: 'sidecar',
+            title: cueTrack.title ? cueFieldSource : 'filename_fallback',
+            artist: cueTrack.performer || cueTrack.albumArtist ? cueFieldSource : 'unknown',
+            album: cueTrack.album ? cueFieldSource : 'folder_structure',
+            albumArtist: cueTrack.albumArtist || cueTrack.performer ? cueFieldSource : 'unknown',
+            trackNo: cueFieldSource,
             discNo: 'unknown',
             year: 'unknown',
             genre: 'unknown',
-            duration: cueTrack.endSeconds !== null ? 'sidecar' : 'unknown',
-            codec: 'sidecar',
+            duration: cueTrack.endSeconds !== null ? cueFieldSource : 'unknown',
+            codec: cueFieldSource,
             sampleRate: 'unknown',
             bitDepth: 'unknown',
             bitrate: 'unknown',

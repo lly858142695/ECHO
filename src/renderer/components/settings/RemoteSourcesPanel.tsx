@@ -35,6 +35,12 @@ const syncModeOptions: Array<{ value: RemoteSourceSyncMode; label: string }> = [
   { value: 'mirror', label: '镜像缓存，未来支持' },
 ];
 
+const syncModeLabels: Record<RemoteSourceSyncMode, string> = {
+  browse: '仅浏览，不写入曲库索引',
+  index: '建立索引，播放时按需取流',
+  mirror: '镜像缓存尚未开放，不会静默复制整库音频',
+};
+
 const jobKinds: RemoteBackgroundJobKind[] = ['metadata', 'cover', 'lyrics', 'mv', 'duration-backfill'];
 
 const jobLabels: Record<RemoteBackgroundJobKind, string> = {
@@ -492,6 +498,13 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         <Server size={28} />
       </section>
 
+      <section className="remote-source-guardrail" aria-label="远程库同步边界">
+        <strong>本地播放优先</strong>
+        <span>
+          远程同步和封面/元数据补齐都在后台限速执行；播放活跃时会降并发。当前离线边界是索引、封面和小型元数据缓存，不会静默镜像整库音乐文件。
+        </span>
+      </section>
+
       <nav className="remote-source-tabs" aria-label="远程音乐库类型">
         {tabs.map((tab) => (
           <button key={tab.provider} type="button" className={tab.provider === activeProvider ? 'active' : ''} onClick={() => setActiveProvider(tab.provider)}>
@@ -535,16 +548,22 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                 <span><em>已索引歌曲</em><strong>{source.indexedTrackCount}</strong></span>
                 <span><em>上次测试</em><strong>{formatDate(source.lastTestAt)}</strong></span>
                 <span><em>上次同步</em><strong>{formatDate(source.lastSyncAt)}</strong></span>
+                <span><em>同步模式</em><strong>{syncModeLabels[source.syncMode]}</strong></span>
                 <span><em>后台并发</em><strong>scan {readConfigNumber(source, 'scanConcurrency', 3)} / metadata {readConfigNumber(source, 'metadataConcurrency', 2)} / cover {readConfigNumber(source, 'coverConcurrency', readConfigNumber(source, 'metadataConcurrency', 2))}</strong></span>
               </div>
               {source.lastError ? <p className="settings-inline-note">错误：{source.lastError}</p> : null}
               <div className="remote-sync-status">
-                <span>阶段：<strong>{syncStatus.phase}</strong></span>
+                <span>阶段：<strong>{phaseLabels[syncStatus.phase] ?? syncStatus.phase}</strong></span>
                 <span>发现：<strong>{syncStatus.discoveredCount}</strong></span>
                 <span>成功写入：<strong>{syncStatus.writtenCount}</strong></span>
                 <span>跳过：<strong>{syncStatus.skippedCount}</strong></span>
                 <span>失败：<strong>{syncStatus.failedCount}</strong></span>
               </div>
+              {(syncStatus.failedCount > 0 || hasFailedMetadata) ? (
+                <p className="settings-inline-note">
+                  有失败项时优先重试元数据/时长任务；封面、歌词和 MV 仍按小批量后台任务处理，避免拖慢本地播放。
+                </p>
+              ) : null}
               <div
                 className={`remote-scan-progress${syncProgress.active ? ' remote-scan-progress--active' : ''}`}
                 role="progressbar"

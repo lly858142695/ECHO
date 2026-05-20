@@ -98,6 +98,7 @@ export type RememberedWindowSize = {
 
 export type AppSettings = {
   appMemoryVersion?: number;
+  onboardingCompleted?: boolean;
   locale?: AppLocale;
   appearanceTheme: AppThemeMode;
   appearanceThemePreset?: AppThemePreset;

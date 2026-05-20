@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
 import sharp from 'sharp';
 import {
@@ -31,6 +31,7 @@ type CacheMeta = {
 
 const sidecarNames = ['cover', 'folder', 'front'];
 const sidecarExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+const maxCoverCandidateBytes = 20 * 1024 * 1024;
 
 export const defaultCoverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
 <rect width="512" height="512" fill="#20242b"/>
@@ -208,6 +209,17 @@ export class TsCoverExtractor implements CoverExtractor {
     const embeddedCover = embeddedCoverFromMetadata(metadata);
 
     if (embeddedCover) {
+      if (embeddedCover.data.byteLength > maxCoverCandidateBytes) {
+        return {
+          source: 'default',
+          data: defaultCoverBytes,
+          mimeType: 'image/svg+xml',
+          originalPath: null,
+          warnings: [`embedded cover skipped: ${embeddedCover.data.byteLength} bytes exceeds ${maxCoverCandidateBytes}`],
+          errors: [],
+        };
+      }
+
       return {
         source: 'embedded',
         data: embeddedCover.data,
@@ -245,6 +257,18 @@ export class TsCoverExtractor implements CoverExtractor {
         }
 
         try {
+          const coverSize = statSync(coverPath).size;
+          if (coverSize > maxCoverCandidateBytes) {
+            return {
+              source: 'default',
+              data: defaultCoverBytes,
+              mimeType: 'image/svg+xml',
+              originalPath: null,
+              warnings: [`${coverPath}: sidecar cover skipped: ${coverSize} bytes exceeds ${maxCoverCandidateBytes}`],
+              errors: [],
+            };
+          }
+
           return {
             source: 'folder',
             data: readFileSync(coverPath),

@@ -991,6 +991,57 @@ describe('DownloadService', () => {
     expect(saveJobs).toHaveBeenCalled();
   });
 
+  it('fails restored unfinished jobs that no longer have enough data to resume', async () => {
+    const commandRunner = vi.fn(() => ({
+      promise: Promise.resolve({ stdout: '', stderr: 'should not run', exitCode: 1 }),
+      kill: vi.fn(),
+    }));
+    const saveJobs = vi.fn();
+    const service = new DownloadService(commandRunner, () => null, {
+      loadJobs: () => ({
+        version: 1,
+        jobs: [
+          {
+            id: 'job-stale',
+            sourceUrl: 'https://cdn.example/stale.mp3',
+            provider: 'unknown',
+            audioStrategy: 'best_available',
+            status: 'downloading',
+            title: 'Stale Song',
+            durationSeconds: null,
+            thumbnailUrl: null,
+            webpageUrl: null,
+            outputPath: null,
+            downloadedBytes: null,
+            totalBytes: null,
+            speedBytesPerSecond: null,
+            etaSeconds: null,
+            importedTrackId: null,
+            progress: 42,
+            error: null,
+            createdAt: '2026-05-19T00:00:00.000Z',
+            updatedAt: '2026-05-19T00:00:01.000Z',
+            completedAt: null,
+          },
+        ],
+        jobOptions: {},
+      }),
+      saveJobs,
+    });
+
+    await flushMicrotasks();
+
+    const [job] = service.getJobs();
+    expect(commandRunner).not.toHaveBeenCalled();
+    expect(job).toMatchObject({
+      id: 'job-stale',
+      status: 'failed',
+      progress: 100,
+      error: 'Download resume data is incomplete. Add the track to downloads again.',
+    });
+    expect(saveJobs).toHaveBeenCalled();
+  });
+
   it('adds provider auth headers to direct NetEase audio downloads in the main process', async () => {
     const ytDlpPath = makeToolPath();
     const outputDirectory = makeTempRoot();

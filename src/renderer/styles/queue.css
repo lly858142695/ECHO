@@ -228,6 +228,47 @@
   border-color: transparent;
 }
 
+.queue-saved-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: 14px;
+}
+
+.queue-saved-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.queue-saved-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--theme-legacy-surface-a72);
+  padding: 10px;
+}
+
+.queue-saved-item strong,
+.queue-saved-item span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-saved-item span {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
 .queue-list-section {
   display: flex;
   min-height: 0;
@@ -394,6 +435,12 @@
   font-weight: 700;
 }
 
+.queue-note {
+  margin: 0;
+  color: var(--color-accent-strong);
+  font-weight: 700;
+}
+
 html[data-theme="dark"] .page-surface:has(.queue-page) {
   background:
     radial-gradient(circle at 66% 8%, rgba(44, 118, 145, 0.1), transparent 34%),
@@ -403,6 +450,8 @@ html[data-theme="dark"] .page-surface:has(.queue-page) {
 
 html[data-theme="dark"] .queue-now-card,
 html[data-theme="dark"] .queue-toolbar,
+html[data-theme="dark"] .queue-saved-panel,
+html[data-theme="dark"] .queue-saved-item,
 html[data-theme="dark"] .queue-repeat-group,
 html[data-theme="dark"] .queue-row,
 html[data-theme="dark"] .queue-empty-state,
@@ -427,6 +476,11 @@ html[data-theme="dark"] .queue-now-card {
 
 html[data-theme="dark"] .queue-toolbar {
   background: rgba(17, 22, 30, 0.84);
+}
+
+html[data-theme="dark"] .queue-saved-panel,
+html[data-theme="dark"] .queue-saved-item {
+  background: rgba(17, 22, 30, 0.78);
 }
 
 html[data-theme="dark"] .queue-row {
@@ -493,6 +547,7 @@ html[data-theme="dark"] .queue-empty-state {
 }
 
 html[data-theme="dark"] .queue-row-copy span,
+html[data-theme="dark"] .queue-saved-item span,
 html[data-theme="dark"] .queue-row-duration,
 html[data-theme="dark"] .queue-now-main p,
 html[data-theme="dark"] .queue-kicker,
@@ -542,7 +597,8 @@ html[data-theme="dark"] .queue-icon-button.danger {
   }
 
   .queue-now-card,
-  .queue-toolbar {
+  .queue-toolbar,
+  .queue-saved-item {
     align-items: stretch;
     grid-template-columns: 1fr;
   }

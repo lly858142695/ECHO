@@ -10,11 +10,15 @@ import type {
   EditableTrackTags,
   FinishPlaybackHistoryRequest,
   ImportPathClassification,
+  ImportAudioFilesResult,
   ImportPlaylistFileResult,
   LibraryFolderChildrenQuery,
   LibraryFolderPathRequest,
   LibraryFolderTracksQuery,
   LibraryPageQuery,
+  LibraryQualityIssueKind,
+  LibraryQualityIssueQuery,
+  LibraryHealthReport,
   LibraryPlaylist,
   LibraryPlaylistItem,
   PlaylistExportFormat,
@@ -35,19 +39,22 @@ import type {
   LibraryScanMode,
 } from '../../shared/types/library';
 import { getAppSettings } from '../app/appSettings';
+import { getAppCacheInventory } from '../app/cacheInventory';
 import {
   createManualLibraryDatabaseSnapshot,
   deleteProtectedLibraryDatabase,
   getLibraryDatabaseProtectionStatus,
   repairProtectedLibraryDatabase,
   restoreProtectedLibraryDatabaseSnapshot,
+  scrubQuarantinedLibraryDatabase,
 } from '../app/dataProtection';
 import { getLibraryDatabaseManager } from '../database/LibraryDatabaseManager';
 import { closeDefaultLibraryService, getLibraryService } from '../library/LibraryService';
-import { closeDefaultRemoteSourceService } from '../library/remote/RemoteSourceService';
+import { closeDefaultRemoteSourceService, getRemoteSourceService } from '../library/remote/RemoteSourceService';
 import { closeDefaultLyricsService } from '../lyrics/LyricsService';
 import { closeDefaultMvService } from '../mv/MvService';
 import { SongCardRenderer } from '../library/SongCardRenderer';
+import { createLibraryHealthReport, writeLibraryHealthReportMarkdown } from '../library/LibraryHealthReport';
 import { closeDefaultStreamingService, getStreamingService } from '../streaming/StreamingService';
 import { decodeM3u8ProviderTrackId } from '../streaming/M3u8Playlist';
 
@@ -71,6 +78,13 @@ const sortValues = new Set<LibrarySort>([
   'recent',
 ]);
 const sourceProviderValues = new Set(['local', 'netease', 'qqmusic', 'spotify', 'remote', 'm3u8']);
+const libraryQualityIssueKinds = new Set<LibraryQualityIssueKind>([
+  'missing_cover',
+  'fallback_metadata',
+  'unknown_artist_album',
+  'embedded_read_failed',
+  'network_candidate',
+]);
 const songCardRenderer = new SongCardRenderer();
 
 const closeLibraryDatabaseUsers = (): void => {
@@ -86,6 +100,20 @@ const getDatabaseProtectionStatusForRenderer = () => ({
   ...getLibraryDatabaseProtectionStatus(app.getPath('userData'), isLibraryScanRunning()),
   managerState: getLibraryDatabaseManager().getState(),
 });
+
+const formatReportTimestamp = (): string => new Date().toISOString().replace(/[:.]/g, '-');
+
+const createLibraryHealthReportForRenderer = (): LibraryHealthReport =>
+  createLibraryHealthReport({
+    getSummary: () => getLibraryService().getSummary(),
+    getDiagnostics: () => getLibraryService().getDiagnostics(),
+    getDatabaseProtectionStatus: getDatabaseProtectionStatusForRenderer,
+    getQualityOverview: () => getLibraryService().getLibraryQualityOverview(),
+    getLibraryLabState: () => getLibraryService().getLibraryLabState(),
+    getCacheInventory: () => getAppCacheInventory(app.getPath('userData')),
+    listRemoteSources: () => getRemoteSourceService().listSources(),
+    getRemoteBackgroundGlobalStatus: () => getRemoteSourceService().getBackgroundGlobalStatus(),
+  });
 
 const isLibraryScanRunning = (): boolean => {
   try {
@@ -189,6 +217,32 @@ const normalizeQuery = (value: unknown): LibraryPageQuery => {
   }
 
   return query;
+};
+
+const normalizeLibraryQualityIssueQuery = (value: unknown): LibraryQualityIssueQuery => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('library quality issue query must be an object');
+  }
+
+  const input = value as Record<string, unknown>;
+  const rawKind = input.kind;
+  if (typeof rawKind !== 'string' || !libraryQualityIssueKinds.has(rawKind as LibraryQualityIssueKind)) {
+    throw new Error('library quality issue kind must be supported');
+  }
+
+  if (typeof input.sourceProvider === 'string' && input.sourceProvider !== 'local') {
+    throw new Error('library quality dashboard currently supports local sourceProvider only');
+  }
+
+  const pageSize = Number(input.pageSize);
+  const page = Number(input.page);
+  return {
+    kind: rawKind as LibraryQualityIssueKind,
+    page: Number.isFinite(page) ? Math.max(1, Math.floor(page)) : undefined,
+    pageSize: Number.isFinite(pageSize) ? Math.max(1, Math.min(100, Math.floor(pageSize))) : undefined,
+    sourceProvider: 'local',
+    search: typeof input.search === 'string' ? input.search : undefined,
+  };
 };
 
 const httpUrlPattern = /^https?:\/\//iu;
@@ -878,6 +932,29 @@ const addLocalAudioFilesToPlaylist = async (playlistId: string, paths: string[])
   };
 };
 
+const importAudioFiles = async (paths: string[]): Promise<ImportAudioFilesResult> => {
+  const service = getLibraryService();
+  const classification = classifyImportPaths(paths);
+  const tracks: ImportAudioFilesResult['tracks'] = [];
+  let failedCount = 0;
+
+  for (const filePath of classification.audioFiles) {
+    try {
+      tracks.push(await service.importAudioFile(filePath));
+    } catch {
+      failedCount += 1;
+    }
+  }
+
+  return {
+    importedCount: tracks.length,
+    skippedCount: classification.folders.length + classification.unsupportedFiles.length + classification.missingPaths.length,
+    failedCount,
+    trackIds: tracks.map((track) => track.id),
+    tracks,
+  };
+};
+
 const normalizeEmbeddedTagRescanMode = (value: unknown): Exclude<LibraryScanMode, 'normal'> => {
   if (value === 'embedded-tags-all' || value === 'embedded-tags-missing-cover') {
     return value;
@@ -1164,6 +1241,7 @@ export const registerLibraryIpc = (): void => {
     classifyImportPaths(normalizePathList(paths)),
   );
   ipcMain.handle(IpcChannels.LibraryImportDroppedFiles, (_event, files: unknown) => importDroppedFiles(files));
+  ipcMain.handle(IpcChannels.LibraryImportAudioFiles, (_event, paths: unknown) => importAudioFiles(normalizePathList(paths)));
   ipcMain.handle(IpcChannels.LibraryGetFolders, () => getLibraryService().getFolders());
   ipcMain.handle(IpcChannels.LibraryGetFolderOverviews, () => getLibraryService().getFolderOverviews());
   ipcMain.handle(IpcChannels.LibraryGetFolderChildren, (_event, query: unknown) =>
@@ -1200,6 +1278,26 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryGetTracks, (_event, query: unknown) =>
     getLibraryService().getTracks(normalizeQuery(query)),
   );
+  ipcMain.handle(IpcChannels.LibraryGetQualityOverview, () =>
+    getLibraryService().getLibraryQualityOverview(),
+  );
+  ipcMain.handle(IpcChannels.LibraryGetQualityIssues, (_event, query: unknown) =>
+    getLibraryService().getLibraryQualityIssues(normalizeLibraryQualityIssueQuery(query)),
+  );
+  ipcMain.handle(IpcChannels.LibraryGetHealthReport, () => createLibraryHealthReportForRenderer());
+  ipcMain.handle(IpcChannels.LibraryExportHealthReport, async (): Promise<string | null> => {
+    const result = await dialog.showSaveDialog({
+      title: '导出曲库体检报告',
+      defaultPath: join(app.getPath('downloads'), `echo-library-health-${formatReportTimestamp()}.md`),
+      filters: [{ name: 'Markdown', extensions: ['md'] }],
+    });
+
+    if (result.canceled || !result.filePath) {
+      return null;
+    }
+
+    return writeLibraryHealthReportMarkdown(createLibraryHealthReportForRenderer(), result.filePath);
+  });
   ipcMain.handle(IpcChannels.LibraryRefreshDuplicateTracks, (_event, mode: unknown) =>
     getLibraryService().refreshDuplicateTracks(normalizeDuplicateMode(mode)),
   );
@@ -1559,6 +1657,13 @@ export const registerLibraryIpc = (): void => {
     return getLibraryDatabaseManager().runExclusiveMaintenance('manual-library-database-restore', () => {
       closeLibraryDatabaseUsers();
       return restoreProtectedLibraryDatabaseSnapshot(requireText(snapshotId, 'snapshotId'), app.getPath('userData'));
+    });
+  });
+  ipcMain.handle(IpcChannels.LibraryScrubQuarantinedDatabase, () => {
+    assertNoRunningLibraryScan();
+    return getLibraryDatabaseManager().runExclusiveMaintenance('manual-library-database-scrub-quarantined', () => {
+      closeLibraryDatabaseUsers();
+      return scrubQuarantinedLibraryDatabase(app.getPath('userData'));
     });
   });
   ipcMain.handle(IpcChannels.LibraryOpenDataProtectionFolder, async () => {

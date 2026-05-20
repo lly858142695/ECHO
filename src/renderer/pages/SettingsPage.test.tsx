@@ -98,6 +98,7 @@ const clearCacheMock = vi.fn();
 const getDatabaseProtectionStatusMock = vi.fn();
 const createDatabaseSnapshotMock = vi.fn();
 const restoreDatabaseSnapshotMock = vi.fn();
+const scrubQuarantinedDatabaseMock = vi.fn();
 const openDataProtectionFolderMock = vi.fn();
 const repairDatabaseMock = vi.fn();
 const chooseLyricsWallpaperMock = vi.fn();
@@ -105,6 +106,7 @@ const chooseAppWallpaperMock = vi.fn();
 const openExternalUrlMock = vi.fn();
 const getDownloadSettingsMock = vi.fn();
 const chooseDownloadOutputDirectoryMock = vi.fn();
+const getCacheInventoryMock = vi.fn();
 const audioGetStatusMock = vi.fn();
 const audioListDevicesMock = vi.fn();
 const audioSetOutputMock = vi.fn();
@@ -127,6 +129,8 @@ const downloadSettings: DownloadSettings = {
 };
 
 const healthyDatabaseProtectionStatus: LibraryDatabaseProtectionStatus = {
+  status: 'ok',
+  reason: 'none',
   dataProtectionPath: 'D:\\Echo\\data-protection',
   databasePath: 'D:\\Echo\\echo-library.sqlite',
   databaseSizeBytes: 4096,
@@ -157,6 +161,7 @@ const healthyDatabaseProtectionStatus: LibraryDatabaseProtectionStatus = {
   latestArchive: null,
   maintenanceEvents: [],
   canRestoreSnapshot: false,
+  canScrubQuarantinedDatabase: false,
   hasRunningScan: false,
   recommendedAction: 'none',
 };
@@ -220,6 +225,7 @@ vi.mock('../utils/echoBridge', () => ({
   getAppBridge: () => ({
     chooseCacheDirectory: vi.fn(),
     getDefaultCacheDirectory: vi.fn().mockResolvedValue('D:\\Cache'),
+    getCacheInventory: getCacheInventoryMock,
     getSettings: getSettingsMock,
     getVersion: vi.fn().mockResolvedValue('1.0.1'),
     chooseAppWallpaper: chooseAppWallpaperMock,
@@ -277,6 +283,7 @@ vi.mock('../utils/echoBridge', () => ({
     getDatabaseProtectionStatus: getDatabaseProtectionStatusMock,
     createDatabaseSnapshot: createDatabaseSnapshotMock,
     restoreDatabaseSnapshot: restoreDatabaseSnapshotMock,
+    scrubQuarantinedDatabase: scrubQuarantinedDatabaseMock,
     openDataProtectionFolder: openDataProtectionFolderMock,
     repairDatabase: repairDatabaseMock,
     getArtistImageJobStatus: getArtistImageJobStatusMock,
@@ -316,6 +323,14 @@ vi.mock('../components/library/LibraryDiagnosticsPanel', () => ({
   LibraryDiagnosticsPanel: () => <div />,
 }));
 
+vi.mock('../components/library/LibraryHealthReportPanel', () => ({
+  LibraryHealthReportPanel: () => <div />,
+}));
+
+vi.mock('../components/library/LibraryQualityPanel', () => ({
+  LibraryQualityPanel: () => <div />,
+}));
+
 vi.mock('../components/library/NetworkMetadataPanel', () => ({
   NetworkMetadataPanel: () => <div />,
 }));
@@ -335,6 +350,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   getDownloadSettingsMock.mockResolvedValue(downloadSettings);
   chooseDownloadOutputDirectoryMock.mockResolvedValue({ ...downloadSettings, outputDirectory: 'E:\\Music Downloads' });
+  getCacheInventoryMock.mockResolvedValue({
+    generatedAt: '2026-05-20T00:00:00.000Z',
+    totalSizeBytes: 0,
+    items: [],
+  });
   getDatabaseProtectionStatusMock.mockResolvedValue(healthyDatabaseProtectionStatus);
   createDatabaseSnapshotMock.mockResolvedValue(healthyDatabaseProtectionStatus);
   restoreDatabaseSnapshotMock.mockResolvedValue({
@@ -343,6 +363,31 @@ beforeEach(() => {
     restoredSnapshot: healthyDatabaseProtectionStatus.snapshots[0],
     restoredDatabaseFiles: ['echo-library.sqlite'],
     health: healthyDatabaseProtectionStatus.health,
+  });
+  scrubQuarantinedDatabaseMock.mockResolvedValue({
+    databasePath: healthyDatabaseProtectionStatus.databasePath,
+    sourceArchivePath: 'D:\\Echo\\data-protection\\corrupt-archives\\poisoned',
+    scrubbedDatabasePath: 'D:\\Echo\\data-protection\\scrubbed-libraries\\metadata-scrub\\echo-library.sqlite',
+    archivePath: null,
+    replacedDatabaseFiles: [],
+    scrubbedRows: 1,
+    health: healthyDatabaseProtectionStatus.health,
+    poisonReportBefore: {
+      status: 'poisoned',
+      reason: 'poisoned_metadata',
+      checkedAt: '2026-05-18T00:00:00.000Z',
+      databasePath: 'D:\\Echo\\data-protection\\corrupt-archives\\poisoned\\echo-library.sqlite',
+      suspectCounts: { 'tracks.title': 1 },
+      maxFieldLengths: { 'tracks.title': 1000000 },
+    },
+    poisonReportAfter: {
+      status: 'ok',
+      reason: 'none',
+      checkedAt: '2026-05-18T00:00:01.000Z',
+      databasePath: 'D:\\Echo\\data-protection\\scrubbed-libraries\\metadata-scrub\\echo-library.sqlite',
+      suspectCounts: {},
+      maxFieldLengths: {},
+    },
   });
   repairDatabaseMock.mockResolvedValue({
     databasePath: healthyDatabaseProtectionStatus.databasePath,
@@ -655,6 +700,48 @@ describe('SettingsPage', () => {
     await screen.findByText('疑似损坏');
     expect(screen.getByText(/数据库无法从健康快照恢复/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /归档坏库并重建空库/ })).toBeTruthy();
+  });
+
+  it('repairs a quarantined poisoned library through the scrub action', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+    getDatabaseProtectionStatusMock.mockResolvedValueOnce({
+      ...healthyDatabaseProtectionStatus,
+      status: 'quarantined',
+      reason: 'poisoned_metadata',
+      archivePath: 'D:\\Echo\\data-protection\\corrupt-archives\\poisoned',
+      latestArchive: {
+        id: 'poisoned',
+        path: 'D:\\Echo\\data-protection\\corrupt-archives\\poisoned',
+        createdAt: '2026-05-20T00:00:00.000Z',
+        reason: 'startup-poisoned-library',
+        copied: ['echo-library.sqlite'],
+        databasePath: 'D:\\Echo\\data-protection\\corrupt-archives\\poisoned\\echo-library.sqlite',
+        databaseSizeBytes: 4096,
+      },
+      poisonReport: {
+        status: 'poisoned',
+        reason: 'poisoned_metadata',
+        checkedAt: '2026-05-20T00:00:00.000Z',
+        databasePath: 'D:\\Echo\\data-protection\\corrupt-archives\\poisoned\\echo-library.sqlite',
+        suspectCounts: { 'tracks.title': 1 },
+        maxFieldLengths: { 'tracks.title': 1000000 },
+      },
+      canScrubQuarantinedDatabase: true,
+      recommendedAction: 'scrub-quarantined-database',
+    }).mockResolvedValueOnce(healthyDatabaseProtectionStatus);
+    vi.spyOn(window, 'prompt').mockReturnValue('修复隔离曲库');
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.danger\\.label');
+    fireEvent.click(await screen.findByRole('button', { name: /修复隔离库副本/ }));
+
+    await waitFor(() => expect(scrubQuarantinedDatabaseMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/已修复隔离曲库副本并恢复/)).toBeTruthy();
   });
 
   it('does not rebuild an unrecoverable database when the confirmation word is wrong', async () => {

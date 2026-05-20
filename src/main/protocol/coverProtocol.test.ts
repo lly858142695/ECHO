@@ -4,13 +4,14 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const handleMock = vi.fn();
+const registerSchemesAsPrivilegedMock = vi.fn();
 const getAppSettingsMock = vi.fn();
 let wallpaperDirectory = '';
 const tempRoots: string[] = [];
 
 vi.mock('electron', () => ({
   protocol: {
-    registerSchemesAsPrivileged: vi.fn(),
+    registerSchemesAsPrivileged: registerSchemesAsPrivilegedMock,
     handle: handleMock,
   },
 }));
@@ -52,6 +53,33 @@ afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   }
+});
+
+describe('echo protocol schemes', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    registerSchemesAsPrivilegedMock.mockClear();
+  });
+
+  it('registers echo-audio as a streaming-capable privileged scheme', async () => {
+    const module = await import('./coverProtocol');
+
+    module.registerCoverProtocolScheme();
+
+    expect(registerSchemesAsPrivilegedMock).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scheme: 'echo-audio',
+          privileges: expect.objectContaining({
+            standard: true,
+            secure: true,
+            supportFetchAPI: true,
+            stream: true,
+          }),
+        }),
+      ]),
+    );
+  });
 });
 
 describe('echo-wallpaper protocol', () => {
