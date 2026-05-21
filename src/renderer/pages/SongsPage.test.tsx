@@ -400,6 +400,26 @@ describe('SongsPage', () => {
     );
   });
 
+  it('filters the song list to duplicate tracks from the sort menu', async () => {
+    installEcho([makeTrack(), makeTrack({ id: 'track-2', title: 'Song Two' })]);
+
+    await renderSongsPage();
+    await screen.findByText('Song One');
+    fireEvent.click(screen.getByRole('button', { name: /默认排序/ }));
+    fireEvent.click(screen.getByRole('option', { name: '只看重复歌曲' }));
+
+    await waitFor(() =>
+      expect(window.echo.library.getTracks).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          hideDuplicates: false,
+          showDuplicatesOnly: true,
+          duplicateMode: 'strict',
+        }),
+      ),
+    );
+    expect(screen.getByRole('button', { name: /只看重复歌曲/ })).toBeTruthy();
+  });
+
   it('loads liked state for loaded tracks outside the visible virtual window', async () => {
     const tracks = [
       makeTrack({ id: 'track-1', title: 'Song One' }),

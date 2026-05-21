@@ -34,6 +34,7 @@ import { providerResultToTrackLyrics, StubLyricsProvider } from './LyricsProvide
 import { extractLyricsVersionFlags, serializeLyricsVersionFlags } from './lyricsVersionFlags';
 import { sortLyricsCandidates } from './lyricsCandidateDedup';
 import { fillMissingRomanization, hasMissingRomanization } from './lyricsRomanization';
+import { hasJapaneseLyricsText, UtatenKanaProvider, type UtatenKanaProviderLike } from './UtatenKanaProvider';
 
 type LyricsSettings = Pick<
   AppSettings,
@@ -49,6 +50,7 @@ type LyricsSettings = Pick<
   | 'lyricsCoverAutoAcceptScore'
   | 'lyricsDefaultOffsetMs'
   | 'lyricsRomanizationEnabled'
+  | 'lyricsUtatenKanaEnabled'
   | 'lyricsTranslationEnabled'
 >;
 
@@ -523,6 +525,7 @@ const safeSettings = (readSettings: () => AppSettings): LyricsSettings => {
         : (defaultSettings.lyricsCoverAutoAcceptScore ?? 0.97),
       lyricsDefaultOffsetMs: clampOffset(Number(settings.lyricsDefaultOffsetMs ?? 0)),
       lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled !== false,
+      lyricsUtatenKanaEnabled: settings.lyricsUtatenKanaEnabled === true,
       lyricsTranslationEnabled: settings.lyricsTranslationEnabled !== false,
     };
   } catch {
@@ -539,6 +542,7 @@ const safeSettings = (readSettings: () => AppSettings): LyricsSettings => {
       lyricsCoverAutoAcceptScore: defaultSettings.lyricsCoverAutoAcceptScore ?? 0.97,
       lyricsDefaultOffsetMs: defaultSettings.lyricsDefaultOffsetMs,
       lyricsRomanizationEnabled: defaultSettings.lyricsRomanizationEnabled,
+      lyricsUtatenKanaEnabled: defaultSettings.lyricsUtatenKanaEnabled === true,
       lyricsTranslationEnabled: defaultSettings.lyricsTranslationEnabled,
     };
   }
@@ -553,6 +557,7 @@ export class LyricsService {
   private readonly matchEngine: LyricsMatchEngine;
   private readonly secondaryLyricsRefreshMisses = new Set<string>();
   private readonly wordTimingRefreshMisses = new Set<string>();
+  private readonly utatenKanaRefreshMisses = new Set<string>();
 
   constructor(
     private readonly database: EchoDatabase,
@@ -561,6 +566,7 @@ export class LyricsService {
     private readonly onlineProvider: OnlineProvider = new LrclibProvider(),
     private readonly readAppSettings: () => AppSettings = getAppSettings,
     private readonly closeDatabase: () => void = () => this.database.close(),
+    private readonly utatenKanaProvider: UtatenKanaProviderLike = new UtatenKanaProvider(),
   ) {
     this.matchEngine = new LyricsMatchEngine([
       adaptLocalProvider(this.localProvider),
@@ -596,7 +602,8 @@ export class LyricsService {
     if (cached) {
       const wordTimedCached = await this.refreshCachedNeteaseWordTimings(query, cached, settings);
       const enrichedCached = await this.fillCachedRomanization(query, wordTimedCached);
-      return this.refreshCachedLyricsForPreferredSecondary(query, enrichedCached, settings);
+      const refreshedCached = await this.refreshCachedLyricsForPreferredSecondary(query, enrichedCached, settings);
+      return this.fillCachedUtatenKana(query, refreshedCached, settings);
     }
 
     try {
@@ -616,7 +623,7 @@ export class LyricsService {
       if (result.accepted) {
         const lyrics = providerResultToTrackLyrics(query, result.accepted.providerResult, result.accepted.score);
         if (lyrics) {
-          return this.writeLyricsCacheWithRepair(query, await this.fillLyricsRomanization(lyrics));
+          return this.writeLyricsCacheWithRepair(query, await this.enrichLyricsForCache(query, lyrics, settings));
         }
       }
 
@@ -744,7 +751,7 @@ export class LyricsService {
       throw new Error('Lyrics candidate is no longer available');
     }
 
-    const cached = this.writeLyricsCacheWithRepair(query, await this.fillLyricsRomanization(lyrics));
+    const cached = this.writeLyricsCacheWithRepair(query, await this.enrichLyricsForCache(query, lyrics));
     this.database
       .prepare('UPDATE lyrics_candidates SET status = ?, updated_at = ? WHERE id = ?')
       .run('accepted', nowIso(), candidateId);
@@ -774,7 +781,7 @@ export class LyricsService {
       throw new Error('Lyrics candidate is no longer available');
     }
 
-    const cached = this.writeLyricsCacheWithRepair(query, await this.fillLyricsRomanization(lyrics));
+    const cached = this.writeLyricsCacheWithRepair(query, await this.enrichLyricsForCache(query, lyrics));
     this.database
       .prepare('UPDATE lyrics_candidates SET status = ?, updated_at = ? WHERE id = ?')
       .run('accepted', nowIso(), candidateId);
@@ -818,7 +825,7 @@ export class LyricsService {
       updatedAt: nowIso(),
     };
 
-    return this.writeLyricsCacheWithRepair(query, await this.fillLyricsRomanization(lyrics));
+    return this.writeLyricsCacheWithRepair(query, await this.enrichLyricsForCache(query, lyrics));
   }
 
   async markTrackInstrumental(trackId: string): Promise<TrackLyrics> {
@@ -1242,7 +1249,7 @@ export class LyricsService {
     const cachedLines = kind === 'synced'
       ? normalizeSyncedLyricAlternates(deserializeLyricLines(row.lines_json))
       : deserializeLyricLines(row.lines_json);
-    const hasCachedLineEnhancements = cachedLines.some((line) => line.romanization || line.translation);
+    const hasCachedLineEnhancements = cachedLines.some((line) => line.romanization || line.translation || line.kana);
     const hasCachedWordTimings = cachedLines.some((line) => line.words?.length);
     let lines = cachedLines;
 
@@ -1289,8 +1296,69 @@ export class LyricsService {
     return lines === lyrics.lines ? lyrics : { ...lyrics, lines };
   }
 
+  private async enrichLyricsForCache(
+    query: LyricsQuery,
+    lyrics: TrackLyrics,
+    settings: LyricsSettings = safeSettings(this.readAppSettings),
+  ): Promise<TrackLyrics> {
+    const romanized = await this.fillLyricsRomanization(lyrics);
+    return this.fillLyricsUtatenKana(query, romanized, settings);
+  }
+
   private async fillCachedRomanization(query: LyricsQuery, lyrics: TrackLyrics): Promise<TrackLyrics> {
     const enriched = await this.fillLyricsRomanization(lyrics);
+    if (enriched === lyrics) {
+      return lyrics;
+    }
+
+    return this.writeLyricsCacheWithRepair(query, enriched);
+  }
+
+  private async fillLyricsUtatenKana(
+    query: LyricsQuery,
+    lyrics: TrackLyrics,
+    settings: LyricsSettings,
+  ): Promise<TrackLyrics> {
+    if (
+      !settings.lyricsUtatenKanaEnabled ||
+      !settings.lyricsRomanizationEnabled ||
+      !settings.lyricsNetworkEnabled ||
+      lyrics.lines.length === 0 ||
+      !hasJapaneseLyricsText(lyrics.lines) ||
+      !lyrics.lines.some((line) => !line.kana?.trim())
+    ) {
+      return lyrics;
+    }
+
+    const trackKey = query.trackId ?? cacheKeyFor(query, lyrics.provider);
+    const lyricTextKey = hashJson(lyrics.lines.map((line) => line.text));
+    const refreshKey = `${trackKey}:${lyrics.provider}:${lyrics.providerLyricsId ?? ''}:${lyricTextKey}:utaten-kana`;
+    if (this.utatenKanaRefreshMisses.has(refreshKey)) {
+      return lyrics;
+    }
+
+    try {
+      const lines = await this.utatenKanaProvider.enrichLines(query, lyrics.lines, {
+        timeoutMs: Math.min(settings.lyricsProviderTimeoutMs ?? 2500, 2500),
+      });
+      if (lines === lyrics.lines) {
+        this.utatenKanaRefreshMisses.add(refreshKey);
+        return lyrics;
+      }
+
+      return { ...lyrics, lines };
+    } catch {
+      this.utatenKanaRefreshMisses.add(refreshKey);
+      return lyrics;
+    }
+  }
+
+  private async fillCachedUtatenKana(
+    query: LyricsQuery,
+    lyrics: TrackLyrics,
+    settings: LyricsSettings,
+  ): Promise<TrackLyrics> {
+    const enriched = await this.fillLyricsUtatenKana(query, lyrics, settings);
     if (enriched === lyrics) {
       return lyrics;
     }
@@ -1358,7 +1426,7 @@ export class LyricsService {
         return cached;
       }
 
-      return this.writeLyricsCacheWithRepair(query, await this.fillLyricsRomanization(lyrics));
+      return this.writeLyricsCacheWithRepair(query, await this.enrichLyricsForCache(query, lyrics, settings));
     } catch {
       this.secondaryLyricsRefreshMisses.add(refreshKey);
       return cached;
@@ -1412,7 +1480,7 @@ export class LyricsService {
         return cached;
       }
 
-      return this.writeLyricsCacheWithRepair(query, await this.fillLyricsRomanization(lyrics));
+      return this.writeLyricsCacheWithRepair(query, await this.enrichLyricsForCache(query, lyrics, settings));
     } catch {
       this.wordTimingRefreshMisses.add(refreshKey);
       return cached;

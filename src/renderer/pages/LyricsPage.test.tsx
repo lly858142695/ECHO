@@ -143,6 +143,7 @@ const makeAppSettings = (
   lyricsHeaderHidden: false,
   lyricsEmptyStateHidden: true,
   lyricsRomanizationEnabled: true,
+  lyricsUtatenKanaEnabled: false,
   lyricsTranslationEnabled: true,
   lyricsWordHighlightEnabled: true,
   lyricsFontSizePx: 40,
@@ -1754,7 +1755,15 @@ describe("LyricsPage", () => {
     const track = makeTrack();
     mockEcho(track);
     window.echo.lyrics = {
-      getForTrack: vi.fn().mockResolvedValue(makeTrackLyrics()),
+      getForTrack: vi.fn().mockResolvedValue(
+        makeTrackLyrics({
+          lines: [
+            { timeMs: 0, text: "First line", romanization: "first roman", kana: "ふぁーすと" },
+            lyrics[1],
+            lyrics[2],
+          ],
+        }),
+      ),
       searchCandidates: vi.fn().mockResolvedValue([]),
       applyCandidate: vi.fn(),
       markInstrumental: vi.fn(),
@@ -1774,7 +1783,7 @@ describe("LyricsPage", () => {
     expect(await screen.findByText("First line")).toBeTruthy();
     fireEvent.contextMenu(container.querySelector(".lyrics-scroll") as HTMLElement);
 
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("First line\nSecond line\nThird line"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("First line\nふぁーすと\nSecond line\nThird line"));
     expect(await screen.findByText("已复制歌词")).toBeTruthy();
   });
 

@@ -10,6 +10,7 @@ export type LyricLine = {
   words?: LyricWordTiming[];
   translation?: string | null;
   romanization?: string | null;
+  kana?: string | null;
 };
 
 export type LyricsKind = 'empty' | 'plain' | 'synced' | 'instrumental';

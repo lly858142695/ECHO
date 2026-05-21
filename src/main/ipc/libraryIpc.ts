@@ -248,6 +248,10 @@ const normalizeQuery = (value: unknown): LibraryPageQuery => {
     query.hideDuplicates = input.hideDuplicates;
   }
 
+  if (typeof input.showDuplicatesOnly === 'boolean') {
+    query.showDuplicatesOnly = input.showDuplicatesOnly;
+  }
+
   if (typeof input.duplicateMode === 'string' && duplicateTrackModes.has(input.duplicateMode as DuplicateTrackMode)) {
     query.duplicateMode = input.duplicateMode as DuplicateTrackMode;
   }
@@ -337,9 +341,10 @@ const normalizeLibraryInboxPlaylistRequest = (value: unknown): LibraryInboxCreat
 
 const normalizeLibraryInboxUpdateStateRequest = (value: unknown): LibraryInboxUpdateStateRequest => {
   const input = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-  const status = typeof input.status === 'string' && libraryInboxItemStatuses.has(input.status as LibraryInboxItemStatus)
-    ? input.status as LibraryInboxItemStatus
-    : 'processed';
+  if (typeof input.status !== 'string' || !libraryInboxItemStatuses.has(input.status as LibraryInboxItemStatus)) {
+    throw new Error('inbox item status must be supported');
+  }
+  const status = input.status as LibraryInboxItemStatus;
   const items = Array.isArray(input.items)
     ? input.items
         .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))

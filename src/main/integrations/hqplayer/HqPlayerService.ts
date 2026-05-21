@@ -98,14 +98,14 @@ const probeTcpEndpoint: HqPlayerTcpProbe = async ({ host, port, timeoutMs }) => 
     { connectionMode: 'localDesktop', host, port },
     { timeoutMs },
   );
-  return {
-    ok: result.ok,
-    elapsedMs: result.elapsedMs,
-    error: result.error ?? result.message,
-    controlInfo: result.controlInfo,
-    playbackStatus: result.playbackStatus,
+    return {
+      ok: result.ok,
+      elapsedMs: result.elapsedMs,
+      error: result.ok ? null : result.error ?? result.message,
+      controlInfo: result.controlInfo,
+      playbackStatus: result.playbackStatus,
+    };
   };
-};
 
 const defaultSettingsStore: HqPlayerSettingsStore = {
   read: () => normalizeHqPlayerSettings(getAppSettings().hqPlayer),

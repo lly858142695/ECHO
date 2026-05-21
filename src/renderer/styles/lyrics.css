@@ -1834,6 +1834,11 @@ html[data-theme="dark"] .lyrics-page[data-background="theme"] .lyrics-line[data-
   opacity: 0.58;
 }
 
+.lyrics-line small[data-pronunciation="kana"] {
+  font-weight: 720;
+  opacity: 0.62;
+}
+
 .lyrics-line em {
   font-size: calc(var(--lyrics-secondary-font-size) * 0.9);
   font-weight: 760;

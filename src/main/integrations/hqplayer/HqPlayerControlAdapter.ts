@@ -16,11 +16,14 @@ const createControlSendState = (
   reason: HqPlayerPlaybackControlSendReason | null,
 ): HqPlayerPlaybackControlSendResult => {
   const at = plan.createdAt;
+  const command = plan.source?.startSeconds != null && plan.source.startSeconds >= 1
+    ? 'PlayNextURI+Play+Seek'
+    : 'PlayNextURI+Play';
   return {
     state: reason ? 'skipped' : 'prepared',
     reason,
     transport: 'official-control-tcp',
-    command: reason ? 'none' : 'PlayNextURI',
+    command: reason ? 'none' : command,
     endpoint: cloneEndpoint(plan),
     startedAt: at,
     finishedAt: at,

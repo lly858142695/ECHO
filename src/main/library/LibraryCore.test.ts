@@ -955,6 +955,8 @@ describe('Library Core', () => {
     const summary = harness.service.refreshDuplicateTracks('strict');
     const visible = harness.service.getTracks({ pageSize: 10, sort: 'titleAsc', hideDuplicates: true, duplicateMode: 'strict' });
     const hiddenSearch = harness.service.getTracks({ pageSize: 10, search: 'MP3 Album', hideDuplicates: true, duplicateMode: 'strict' });
+    const duplicateOnly = harness.service.getTracks({ pageSize: 10, sort: 'titleAsc', showDuplicatesOnly: true, duplicateMode: 'strict' });
+    const duplicateOnlySearch = harness.service.getTracks({ pageSize: 10, search: 'MP3 Album', showDuplicatesOnly: true, duplicateMode: 'strict' });
     const firstPage = harness.service.getTracks({ page: 1, pageSize: 1, sort: 'titleAsc', hideDuplicates: true, duplicateMode: 'strict' });
     const secondPage = harness.service.getTracks({ page: 2, pageSize: 1, sort: 'titleAsc', hideDuplicates: true, duplicateMode: 'strict' });
     const representative = visible.items.find((track) => track.title === 'Duplicate Song');
@@ -973,6 +975,10 @@ describe('Library Core', () => {
     expect(visible.total).toBe(2);
     expect(visible.items.map((track) => track.album).sort()).toEqual(['Hi-Res Album', 'Unique Album']);
     expect(hiddenSearch.total).toBe(0);
+    expect(duplicateOnly.total).toBe(2);
+    expect(duplicateOnly.items.map((track) => track.album).sort()).toEqual(['Hi-Res Album', 'MP3 Album']);
+    expect(duplicateOnlySearch.total).toBe(1);
+    expect(duplicateOnlySearch.items[0].album).toBe('MP3 Album');
     expect(firstPage.items).toHaveLength(1);
     expect(secondPage.items).toHaveLength(1);
     expect(firstPage.items[0].id).not.toBe(secondPage.items[0].id);

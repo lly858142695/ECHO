@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Disc3, Folder, FolderOpen, ListPlus, RefreshCw, Search, UserRound } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, Disc3, Folder, FolderOpen, ListMusic, ListPlus, RefreshCw, Search, UserRound } from 'lucide-react';
 import type {
   LibraryInboxAlbumSummary,
   LibraryInboxBatch,
   LibraryInboxFilterKind,
+  LibraryInboxItemStatus,
   LibraryInboxIssueReason,
   LibraryInboxScope,
+  LibraryInboxStatusFilter,
   LibraryInboxTrackItem,
   LibraryInboxTrackPage,
 } from '../../shared/types/library';
 import { getLibraryBridge } from '../utils/echoBridge';
+import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 
 const pageSize = 60;
 
@@ -23,6 +26,7 @@ const emptyInboxPage = (scope: LibraryInboxScope, filter: LibraryInboxFilterKind
   selectedBatch: null,
   scope,
   filter,
+  status: 'all',
   story: {
     trackCount: 0,
     albumCount: 0,
@@ -32,6 +36,12 @@ const emptyInboxPage = (scope: LibraryInboxScope, filter: LibraryInboxFilterKind
     metadataIssueCount: 0,
     unknownArtistCount: 0,
     unknownAlbumCount: 0,
+    suspiciousCount: 0,
+    pendingCount: 0,
+    processedCount: 0,
+    ignoredCount: 0,
+    coverCompleteness: 0,
+    metadataCompleteness: 0,
     totalDuration: 0,
     topFolders: [],
     topArtists: [],
@@ -50,6 +60,14 @@ const filterOptions: Array<{ value: LibraryInboxFilterKind; label: string }> = [
   { value: 'metadata_issue', label: '资料异常' },
   { value: 'unknown_artist', label: '未知艺人' },
   { value: 'unknown_album', label: '未知专辑' },
+  { value: 'suspicious_file', label: '疑似异常' },
+];
+
+const statusOptions: Array<{ value: LibraryInboxStatusFilter; label: string }> = [
+  { value: 'all', label: '全部状态' },
+  { value: 'pending', label: '待处理' },
+  { value: 'processed', label: '已处理' },
+  { value: 'ignored', label: '已忽略' },
 ];
 
 const reasonLabels: Record<LibraryInboxIssueReason, string> = {
@@ -71,9 +89,16 @@ const reasonLabels: Record<LibraryInboxIssueReason, string> = {
   embedded_cover_error: '内嵌封面读取失败',
   network_metadata_candidate: '网络元数据候选',
   network_cover_candidate: '网络封面候选',
+  suspicious_file: '疑似异常',
 };
 
 const formatReason = (reason: LibraryInboxIssueReason): string => reasonLabels[reason] ?? reason;
+
+const statusLabels: Record<LibraryInboxItemStatus, string> = {
+  pending: '待处理',
+  processed: '已处理',
+  ignored: '已忽略',
+};
 
 const formatDateTime = (value: string | null | undefined): string => {
   if (!value) {
@@ -127,10 +152,16 @@ const buildStoryLine = (
 
 const albumKey = (album: LibraryInboxAlbumSummary): string => `${album.album}\0${album.albumArtist}`;
 
+const inboxItemKey = (item: Pick<LibraryInboxTrackItem, 'batchId' | 'track'>): string => `${item.batchId}\0${item.track.id}`;
+
+const formatPercent = (value: number): string => `${Math.max(0, Math.min(100, Math.round(value)))}%`;
+
 export const InboxPage = (): JSX.Element => {
+  const queue = usePlaybackQueue();
   const [scope, setScope] = useState<LibraryInboxScope>('latest');
   const [batchId, setBatchId] = useState<string | null>(null);
   const [filter, setFilter] = useState<LibraryInboxFilterKind>('all');
+  const [status, setStatus] = useState<LibraryInboxStatusFilter>('all');
   const [folderId, setFolderId] = useState<string | null>(null);
   const [album, setAlbum] = useState<string | null>(null);
   const [artist, setArtist] = useState<string | null>(null);
@@ -140,6 +171,9 @@ export const InboxPage = (): JSX.Element => {
   const [items, setItems] = useState<LibraryInboxTrackItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
+  const [isAddingToQueue, setIsAddingToQueue] = useState(false);
+  const [isUpdatingState, setIsUpdatingState] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Record<string, LibraryInboxTrackItem>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
@@ -169,6 +203,7 @@ export const InboxPage = (): JSX.Element => {
           scope,
           batchId: scope === 'batch' ? batchId : null,
           filter,
+          status,
           folderId,
           album,
           artist,
@@ -195,12 +230,16 @@ export const InboxPage = (): JSX.Element => {
         }
       }
     },
-    [album, artist, batchId, filter, folderId, scope, search],
+    [album, artist, batchId, filter, folderId, scope, search, status],
   );
 
   useEffect(() => {
     void loadInbox(1, 'replace');
   }, [loadInbox]);
+
+  useEffect(() => {
+    setSelectedItems({});
+  }, [album, artist, batchId, filter, folderId, scope, search, status]);
 
   useEffect(() => {
     const unsubscribe = getLibraryBridge()?.onLibraryChanged?.(() => {
@@ -213,8 +252,25 @@ export const InboxPage = (): JSX.Element => {
   const selectedBatch = pageData.selectedBatch;
   const story = pageData.story;
   const albumSummaries = pageData.albums;
-  const hasFilters = filter !== 'all' || Boolean(folderId || album || artist || search);
+  const hasFilters = filter !== 'all' || status !== 'all' || Boolean(folderId || album || artist || search);
   const visibleCount = items.length;
+  const selectedItemList = useMemo(() => Object.values(selectedItems), [selectedItems]);
+  const selectedCount = selectedItemList.length;
+  const allVisibleSelected = items.length > 0 && items.every((item) => Boolean(selectedItems[inboxItemKey(item)]));
+
+  const currentInboxQuery = useMemo(
+    () => ({
+      scope,
+      batchId: scope === 'batch' ? batchId : null,
+      filter,
+      status,
+      folderId,
+      album,
+      artist,
+      search,
+    }),
+    [album, artist, batchId, filter, folderId, scope, search, status],
+  );
 
   const selectedScopeLabel = useMemo(() => {
     if (scope === 'all') {
@@ -262,13 +318,8 @@ export const InboxPage = (): JSX.Element => {
 
     try {
       const result = await library.createPlaylistFromLibraryInbox({
-        scope,
-        batchId: scope === 'batch' ? batchId : null,
-        filter,
-        folderId,
-        album,
-        artist,
-        search,
+        ...currentInboxQuery,
+        name: '新歌待听清单',
       });
       const suffix = result.truncated ? `，已按性能保护加入前 ${result.limit} 首` : '';
       setMessage(`已生成歌单「${result.playlist.name}」，加入 ${result.addedCount} 首${suffix}。`);
@@ -277,7 +328,76 @@ export const InboxPage = (): JSX.Element => {
     } finally {
       setIsCreatingPlaylist(false);
     }
-  }, [album, artist, batchId, filter, folderId, scope, search]);
+  }, [currentInboxQuery]);
+
+  const handleAddToQueue = useCallback(async (): Promise<void> => {
+    const library = getLibraryBridge();
+    const source = { type: 'manual' as const, label: '新歌收件箱' };
+
+    setIsAddingToQueue(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      if (selectedItemList.length > 0) {
+        queue.appendTracksToQueue(selectedItemList.map((item) => item.track), source);
+        setMessage(`已加入队列 ${selectedItemList.length} 首。`);
+        return;
+      }
+
+      if (!library?.addLibraryInboxToQueue) {
+        setError('桌面桥接暂不可用，无法加入队列。');
+        return;
+      }
+
+      const result = await library.addLibraryInboxToQueue(currentInboxQuery);
+      if (result.tracks.length === 0) {
+        setError('当前筛选没有可加入队列的本地歌曲。');
+        return;
+      }
+
+      queue.appendTracksToQueue(result.tracks, source);
+      const suffix = result.truncated ? `，已按性能保护加入前 ${result.limit} 首` : '';
+      setMessage(`已加入队列 ${result.addedCount} 首${suffix}。`);
+    } catch (queueError) {
+      setError(queueError instanceof Error ? queueError.message : String(queueError));
+    } finally {
+      setIsAddingToQueue(false);
+    }
+  }, [currentInboxQuery, queue, selectedItemList]);
+
+  const handleUpdateState = useCallback(
+    async (nextStatus: LibraryInboxItemStatus): Promise<void> => {
+      const library = getLibraryBridge();
+      if (!library?.updateLibraryInboxItemState) {
+        setError('桌面桥接暂不可用，无法更新收件箱状态。');
+        return;
+      }
+
+      setIsUpdatingState(true);
+      setMessage(null);
+      setError(null);
+
+      try {
+        const result = await library.updateLibraryInboxItemState({
+          status: nextStatus,
+          items: selectedItemList.length > 0
+            ? selectedItemList.map((item) => ({ batchId: item.batchId, trackId: item.track.id }))
+            : undefined,
+          query: selectedItemList.length > 0 ? undefined : currentInboxQuery,
+        });
+        setSelectedItems({});
+        await loadInbox(1, 'replace');
+        const suffix = result.truncated ? `，已按上限处理前 ${result.limit} 首` : '';
+        setMessage(`已标记为${statusLabels[nextStatus]} ${result.updatedCount} 首${suffix}。`);
+      } catch (stateError) {
+        setError(stateError instanceof Error ? stateError.message : String(stateError));
+      } finally {
+        setIsUpdatingState(false);
+      }
+    },
+    [currentInboxQuery, loadInbox, selectedItemList],
+  );
 
   const handleOpenTrack = useCallback(async (trackId: string): Promise<void> => {
     const library = getLibraryBridge();
@@ -295,6 +415,7 @@ export const InboxPage = (): JSX.Element => {
 
   const clearFilters = (): void => {
     setFilter('all');
+    setStatus('all');
     setFolderId(null);
     setAlbum(null);
     setArtist(null);
@@ -307,6 +428,44 @@ export const InboxPage = (): JSX.Element => {
     setMessage(null);
     setAlbum(summary.album === 'Unknown Album' ? null : summary.album);
     setArtist(null);
+  };
+
+  const toggleSelectedItem = (item: LibraryInboxTrackItem): void => {
+    const key = inboxItemKey(item);
+    setSelectedItems((current) => {
+      if (current[key]) {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      }
+      return { ...current, [key]: item };
+    });
+  };
+
+  const toggleVisibleSelection = (): void => {
+    setSelectedItems((current) => {
+      if (allVisibleSelected) {
+        const next = { ...current };
+        items.forEach((item) => {
+          delete next[inboxItemKey(item)];
+        });
+        return next;
+      }
+
+      const next = { ...current };
+      items.forEach((item) => {
+        next[inboxItemKey(item)] = item;
+      });
+      return next;
+    });
+  };
+
+  const openSingleSelected = async (): Promise<void> => {
+    const selectedItem = selectedItemList[0];
+    if (selectedItemList.length !== 1 || !selectedItem) {
+      return;
+    }
+    await handleOpenTrack(selectedItem.track.id);
   };
 
   return (
@@ -369,6 +528,80 @@ export const InboxPage = (): JSX.Element => {
         </div>
       </section>
 
+      <section className="inbox-processing-panel" aria-label="本批待处理">
+        <div className="inbox-processing-cards">
+          <button
+            className="inbox-processing-card"
+            data-active={status === 'pending' ? 'true' : undefined}
+            onClick={() => {
+              setFilter('all');
+              setStatus('pending');
+            }}
+            type="button"
+          >
+            <Clock3 size={18} />
+            <span>
+              <strong>{story.pendingCount}</strong>
+              <em>待听 / 待处理</em>
+            </span>
+          </button>
+          <button
+            className="inbox-processing-card"
+            data-active={filter === 'missing_cover' ? 'true' : undefined}
+            onClick={() => setFilter('missing_cover')}
+            type="button"
+          >
+            <Disc3 size={18} />
+            <span>
+              <strong>{story.missingCoverCount}</strong>
+              <em>缺封面</em>
+            </span>
+          </button>
+          <button
+            className="inbox-processing-card"
+            data-active={filter === 'metadata_issue' ? 'true' : undefined}
+            onClick={() => setFilter('metadata_issue')}
+            type="button"
+          >
+            <CheckCircle2 size={18} />
+            <span>
+              <strong>{story.metadataIssueCount}</strong>
+              <em>资料异常</em>
+            </span>
+          </button>
+          <button
+            className="inbox-processing-card"
+            data-active={filter === 'suspicious_file' ? 'true' : undefined}
+            onClick={() => setFilter('suspicious_file')}
+            type="button"
+          >
+            <AlertTriangle size={18} />
+            <span>
+              <strong>{story.suspiciousCount}</strong>
+              <em>疑似异常文件</em>
+            </span>
+          </button>
+        </div>
+        <div className="inbox-quality-summary" aria-label="入库质量摘要">
+          <span>
+            <strong>{formatPercent(story.coverCompleteness)}</strong>
+            <em>封面完整率</em>
+          </span>
+          <span>
+            <strong>{formatPercent(story.metadataCompleteness)}</strong>
+            <em>资料完整率</em>
+          </span>
+          <span>
+            <strong>{story.unknownArtistCount + story.unknownAlbumCount}</strong>
+            <em>未知艺人 / 专辑</em>
+          </span>
+          <span>
+            <strong>{story.processedCount}</strong>
+            <em>已处理</em>
+          </span>
+        </div>
+      </section>
+
       <section className="inbox-toolbar" aria-label="新歌收件箱筛选">
         <label className="inbox-select-field">
           <span>批次</span>
@@ -404,7 +637,16 @@ export const InboxPage = (): JSX.Element => {
           type="button"
         >
           <ListPlus size={17} />
-          <span>生成歌单</span>
+          <span>生成待听歌单</span>
+        </button>
+        <button
+          className="inbox-command-button"
+          disabled={isAddingToQueue || pageData.total === 0}
+          onClick={() => void handleAddToQueue()}
+          type="button"
+        >
+          <ListMusic size={17} />
+          <span>加入队列</span>
         </button>
       </section>
 
@@ -428,6 +670,23 @@ export const InboxPage = (): JSX.Element => {
             清空筛选
           </button>
         ) : null}
+      </section>
+
+      <section className="inbox-filter-row" aria-label="处理状态筛选">
+        {statusOptions.map((option) => (
+          <button
+            className="list-filter-chip"
+            data-active={status === option.value ? 'true' : undefined}
+            key={option.value}
+            onClick={() => {
+              setMessage(null);
+              setStatus(option.value);
+            }}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
       </section>
 
       <section className="inbox-facet-row" aria-label="新歌收件箱维度筛选">
@@ -504,6 +763,32 @@ export const InboxPage = (): JSX.Element => {
         </div>
       ) : null}
 
+      {items.length > 0 ? (
+        <section className="inbox-bulk-bar" aria-label="收件箱批量操作">
+          <button className="inbox-selection-toggle" onClick={toggleVisibleSelection} type="button">
+            {allVisibleSelected ? '取消本页选择' : '选择本页'}
+          </button>
+          <span>{selectedCount > 0 ? `已选 ${selectedCount} 首` : `当前筛选 ${pageData.total} 首`}</span>
+          <button className="inbox-command-button" disabled={isAddingToQueue} onClick={() => void handleAddToQueue()} type="button">
+            <ListMusic size={16} />
+            <span>加入队列</span>
+          </button>
+          <button className="inbox-command-button" disabled={selectedCount !== 1} onClick={() => void openSingleSelected()} type="button">
+            <FolderOpen size={16} />
+            <span>定位文件</span>
+          </button>
+          <button className="inbox-command-button" disabled={isUpdatingState} onClick={() => void handleUpdateState('processed')} type="button">
+            标记已处理
+          </button>
+          <button className="inbox-command-button" disabled={isUpdatingState} onClick={() => void handleUpdateState('ignored')} type="button">
+            忽略问题
+          </button>
+          <button className="inbox-command-button" disabled={isUpdatingState} onClick={() => void handleUpdateState('pending')} type="button">
+            设为待处理
+          </button>
+        </section>
+      ) : null}
+
       <section className="inbox-list" aria-label="新歌列表" data-loading={isLoading ? 'true' : undefined}>
         {items.length === 0 ? (
           <div className="inbox-empty-state">
@@ -513,6 +798,14 @@ export const InboxPage = (): JSX.Element => {
         ) : (
           items.map((item) => (
             <article className="inbox-track-row" key={`${item.batchId}:${item.track.id}`}>
+              <label className="inbox-row-check">
+                <input
+                  checked={Boolean(selectedItems[inboxItemKey(item)])}
+                  onChange={() => toggleSelectedItem(item)}
+                  type="checkbox"
+                />
+                <span />
+              </label>
               <div className="inbox-track-cover" data-empty={!item.track.coverThumb ? 'true' : undefined}>
                 {item.track.coverThumb ? <img alt="" loading="lazy" src={item.track.coverThumb} /> : <Disc3 size={20} />}
               </div>
@@ -526,11 +819,15 @@ export const InboxPage = (): JSX.Element => {
                   <span>{item.track.album || 'Unknown Album'}</span>
                 </div>
                 <div className="inbox-track-path">{readTrackPath(item)}</div>
-                {item.reasons.length > 0 ? (
+                <div className="inbox-reason-row">
+                  <span data-status={item.inboxStatus}>{statusLabels[item.inboxStatus]}</span>
+                  {item.reasons.slice(0, 4).map((reason) => (
+                    <span key={reason}>{formatReason(reason)}</span>
+                  ))}
+                </div>
+                {item.reasons.length > 4 ? (
                   <div className="inbox-reason-row">
-                    {item.reasons.slice(0, 4).map((reason) => (
-                      <span key={reason}>{formatReason(reason)}</span>
-                    ))}
+                    <span>还有 {item.reasons.length - 4} 项</span>
                   </div>
                 ) : null}
               </div>

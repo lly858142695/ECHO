@@ -88,6 +88,7 @@ describe('lyricsParser', () => {
           { text: 'Hello ', startMs: 1000, endMs: 1500 },
           { text: 'world', startMs: 1500, endMs: null },
         ],
+        kana: 'はろーわーるど',
       },
     ];
 

@@ -16,6 +16,20 @@ describe('LyricsLine', () => {
     expect(screen.getByText('sakura')).toBeTruthy();
   });
 
+  it('prefers kana over romanization when both are available', () => {
+    render(
+      <LyricsLine
+        active={false}
+        line={{ ...line, kana: 'さくら' }}
+        past={false}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('さくら')).toBeTruthy();
+    expect(screen.queryByText('sakura')).toBeNull();
+  });
+
   it('hides romanization when disabled', () => {
     render(<LyricsLine active={false} line={line} past={false} showRomanization={false} onSeek={vi.fn()} />);
 

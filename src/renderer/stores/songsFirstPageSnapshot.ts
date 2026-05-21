@@ -22,7 +22,7 @@ const diagnosticsStorageKey = 'echo-next.songs.startup-load';
 const snapshotVersion = 1;
 const maxSnapshotItems = 100;
 
-type SnapshotQuery = Pick<LibraryPageQuery, 'search' | 'sort' | 'hideDuplicates' | 'duplicateMode'> & {
+type SnapshotQuery = Pick<LibraryPageQuery, 'search' | 'sort' | 'hideDuplicates' | 'showDuplicatesOnly' | 'duplicateMode'> & {
   pageSize: number;
   sourceProvider?: 'local' | 'remote';
   sourceId?: string | null;
@@ -67,6 +67,7 @@ export const createSongsFirstPageSnapshotQueryKey = (query: SnapshotQuery): stri
     sourceProvider: query.sourceProvider === 'remote' ? 'remote' : 'local',
     sourceId: query.sourceProvider === 'remote' ? query.sourceId ?? null : null,
     hideDuplicates: query.hideDuplicates === true,
+    showDuplicatesOnly: query.showDuplicatesOnly === true,
     duplicateMode: query.duplicateMode === 'strict' ? 'strict' : 'strict',
   });
 

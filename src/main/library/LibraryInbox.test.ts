@@ -105,13 +105,81 @@ describe('LibraryStore new-songs inbox', () => {
       missingCoverCount: 2,
       metadataIssueCount: 1,
       unknownAlbumCount: 1,
+      pendingCount: 2,
+      processedCount: 0,
+      ignoredCount: 0,
+      coverCompleteness: 0,
+      metadataCompleteness: 50,
     });
+    expect(firstPage.items[0].inboxStatus).toBe('pending');
     expect(firstPage.albums.map((item) => item.album)).toEqual(expect.arrayContaining(['Album', 'Unknown Album']));
 
     const issuePage = store.getLibraryInboxTracks({ filter: 'metadata_issue', pageSize: 10 });
     expect(issuePage.total).toBe(1);
     expect(issuePage.items[0].track.id).toBe('track-2');
     expect(issuePage.items[0].reasons).toEqual(expect.arrayContaining(['metadata_fallback', 'unknown_album']));
+  });
+
+  it('tracks inbox item state without modifying tracks', () => {
+    const store = makeStore();
+    const folder = store.addFolder('D:\\Music');
+    const scan = store.createScanJob(folder.id);
+
+    store.upsertTrack(baseTrack(folder, 'track-1'));
+    store.upsertTrack(baseTrack(folder, 'track-2'));
+    const batch = store.recordLibraryInboxBatch({
+      scanJobId: scan.id,
+      folder,
+      trackIds: ['track-1', 'track-2'],
+      createdAt: '2026-05-20T01:00:00.000Z',
+      finishedAt: '2026-05-20T01:00:00.000Z',
+    });
+
+    expect(batch).toBeTruthy();
+    const result = store.updateLibraryInboxItemState({
+      status: 'processed',
+      items: [{ batchId: batch!.id, trackId: 'track-1' }],
+    });
+
+    expect(result).toMatchObject({ updatedCount: 1, matchedCount: 1, truncated: false });
+    expect(store.getLibraryInboxTracks({ status: 'processed' }).items.map((item) => item.track.id)).toEqual(['track-1']);
+    const pendingPage = store.getLibraryInboxTracks({ status: 'pending' });
+    expect(pendingPage.items.map((item) => item.track.id)).toEqual(['track-2']);
+    expect(pendingPage.story).toMatchObject({ pendingCount: 1, processedCount: 0 });
+
+    store.updateLibraryInboxItemState({
+      status: 'pending',
+      items: [{ batchId: batch!.id, trackId: 'track-1' }],
+    });
+
+    expect(store.getLibraryInboxTracks({ status: 'pending' }).total).toBe(2);
+  });
+
+  it('returns bounded local queue tracks from the current inbox filter', () => {
+    const store = makeStore();
+    const folder = store.addFolder('D:\\Music');
+    const scan = store.createScanJob(folder.id);
+    const trackIds = Array.from({ length: 1005 }, (_value, index) => `track-${index + 1}`);
+
+    for (const trackId of trackIds) {
+      store.upsertTrack(baseTrack(folder, trackId));
+    }
+
+    store.recordLibraryInboxBatch({
+      scanJobId: scan.id,
+      folder,
+      trackIds,
+      createdAt: '2026-05-20T02:00:00.000Z',
+      finishedAt: '2026-05-20T02:00:00.000Z',
+    });
+
+    const result = store.getLibraryInboxQueueTracks({ scope: 'latest' });
+
+    expect(result.matchedCount).toBe(1005);
+    expect(result.addedCount).toBe(1000);
+    expect(result.skippedCount).toBe(5);
+    expect(result.truncated).toBe(true);
+    expect(result.tracks[0]).toMatchObject({ id: 'track-1', mediaType: 'local' });
   });
 
   it('caps playlist creation from a large inbox batch', () => {

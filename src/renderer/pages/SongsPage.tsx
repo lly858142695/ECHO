@@ -131,6 +131,7 @@ const summarizeScanJobs = (statuses: LibraryScanStatus[]): string => {
 
 type InitialSongsState = {
   hideDuplicates: boolean;
+  showDuplicatesOnly: boolean;
   snapshot: SongsFirstPageSnapshot | null;
   sort: LibrarySort;
   sourceMode: LibrarySourceMode;
@@ -146,12 +147,14 @@ const readInitialSongsState = (): InitialSongsState => {
     sort,
     sourceProvider: sourceMode,
     hideDuplicates,
+    showDuplicatesOnly: false,
     duplicateMode: 'strict' as const,
   };
   const queryKey = createSongsFirstPageSnapshotQueryKey(query);
 
   return {
     hideDuplicates,
+    showDuplicatesOnly: false,
     sourceMode,
     sort,
     snapshot: canUseSongsFirstPageSnapshot(query) ? readSongsFirstPageSnapshot(queryKey) : null,
@@ -184,6 +187,7 @@ export const SongsPage = (): JSX.Element => {
   const [isLoading, setIsLoading] = useState(false);
   const [isMaintainingLibrary, setIsMaintainingLibrary] = useState(false);
   const [hideDuplicates, setHideDuplicates] = useState(() => initialSongsState.hideDuplicates);
+  const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(() => initialSongsState.showDuplicatesOnly);
   const [duplicateSummary, setDuplicateSummary] = useState<DuplicateTrackIndexSummary | null>(null);
   const [, setDuplicateMessage] = useState<string | null>(null);
   const [duplicateHiddenCounts, setDuplicateHiddenCounts] = useState<Record<string, number>>({});
@@ -221,9 +225,18 @@ export const SongsPage = (): JSX.Element => {
   const { currentTrackId, playTrack, appendToQueue, appendTracksToQueue, playTrackNext, removeTrackFromQueue } = usePlaybackQueue();
   const visibleTrackIdsKey = useMemo(() => visibleTrackIds.join('\0'), [visibleTrackIds]);
   const loadedTrackIdsKey = useMemo(() => uniqueIds(tracks.map((track) => track.id)).join('\0'), [tracks]);
+  const activeSortLabel = sortOptions.find((option) => option.value === sort)?.label ?? '默认排序';
+  const effectiveHideDuplicates = showDuplicatesOnly ? false : hideDuplicates;
   const queueSource = useMemo(
-    () => ({ type: 'songs' as const, label: sourceMode === 'remote' ? '网盘歌曲' : '歌曲列表', search: search || undefined, sort, hideDuplicates }),
-    [hideDuplicates, search, sort, sourceMode],
+    () => ({
+      type: 'songs' as const,
+      label: showDuplicatesOnly ? '重复歌曲' : sourceMode === 'remote' ? '网盘歌曲' : '歌曲列表',
+      search: search || undefined,
+      sort,
+      hideDuplicates: effectiveHideDuplicates,
+      showDuplicatesOnly,
+    }),
+    [effectiveHideDuplicates, search, showDuplicatesOnly, sort, sourceMode],
   );
   const reportSongsError = useCallback((value: unknown): void => {
     if (isLibraryDatabaseCorruptionError(value)) {
@@ -277,6 +290,9 @@ export const SongsPage = (): JSX.Element => {
     setSourceModeState(mode);
     if (mode !== 'remote') {
       setRemoteSourceId(null);
+    }
+    if (mode !== 'local') {
+      setShowDuplicatesOnly(false);
     }
     writeStoredLibrarySourceMode(mode);
     clearSongsFirstPageSnapshot();
@@ -345,6 +361,25 @@ export const SongsPage = (): JSX.Element => {
     return () => window.removeEventListener('pointerdown', handlePointerDown);
   }, [isSortOpen]);
 
+  const handleToggleDuplicateFilter = useCallback((): void => {
+    const nextShowDuplicatesOnly = !showDuplicatesOnly;
+    setShowDuplicatesOnly(nextShowDuplicatesOnly);
+    setIsSortOpen(false);
+    setSelectedTrackIds({});
+    clearSongsFirstPageSnapshot();
+    clearListMetadataCache();
+
+    if (nextShowDuplicatesOnly) {
+      if (sourceMode !== 'local') {
+        setSourceModeState('local');
+        setRemoteSourceId(null);
+        writeStoredLibrarySourceMode('local');
+      }
+
+      void window.echo?.library?.getDuplicateIndexSummary('strict').then(setDuplicateSummary).catch(() => undefined);
+    }
+  }, [clearListMetadataCache, showDuplicatesOnly, sourceMode]);
+
   const loadTracks = useCallback(
     async (
       nextPage: number,
@@ -390,7 +425,8 @@ export const SongsPage = (): JSX.Element => {
           sort,
           sourceProvider: sourceMode,
           ...(sourceMode === 'remote' && remoteSourceId ? { sourceId: remoteSourceId } : {}),
-          hideDuplicates,
+          hideDuplicates: effectiveHideDuplicates,
+          showDuplicatesOnly,
           duplicateMode: 'strict',
         } as const;
         const queryKey = createSongsFirstPageSnapshotQueryKey(query);
@@ -452,7 +488,7 @@ export const SongsPage = (): JSX.Element => {
         }
       }
     },
-    [clearListMetadataCache, hideDuplicates, remoteSourceId, reportSongsError, search, sort, sourceMode],
+    [clearListMetadataCache, effectiveHideDuplicates, remoteSourceId, reportSongsError, search, showDuplicatesOnly, sort, sourceMode],
   );
 
   useEffect(() => {
@@ -1278,11 +1314,22 @@ export const SongsPage = (): JSX.Element => {
             onClick={() => setIsSortOpen((current) => !current)}
           >
             <ListFilter className="sort-button-icon" size={16} aria-hidden="true" />
-            <span className="sort-button-label">{sortOptions.find((option) => option.value === sort)?.label ?? '默认排序'}</span>
+            <span className="sort-button-label">{showDuplicatesOnly ? '只看重复歌曲' : activeSortLabel}</span>
             <ChevronDown className="sort-button-chevron" size={15} aria-hidden="true" />
           </button>
           {isSortOpen ? (
             <div className="sort-menu" role="listbox" aria-label="歌曲排序">
+              <button
+                className="sort-option sort-option--filter"
+                type="button"
+                role="option"
+                aria-selected={showDuplicatesOnly}
+                onClick={handleToggleDuplicateFilter}
+              >
+                <span>只看重复歌曲</span>
+                {showDuplicatesOnly ? <Check size={14} /> : null}
+              </button>
+              <div className="sort-menu-divider" role="presentation" />
               {sortOptions.map((option) => (
                 <button
                   key={option.value}

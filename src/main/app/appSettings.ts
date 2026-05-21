@@ -339,6 +339,7 @@ export const defaultSettings: AppSettings = {
   lyricsPlayerBarDrawerColorMode: 'default',
   lyricsPlayerBarDrawerColor: defaultLyricsMiniPlayerColor,
   lyricsRomanizationEnabled: true,
+  lyricsUtatenKanaEnabled: false,
   lyricsTranslationEnabled: true,
   lyricsWordHighlightEnabled: true,
   lyricsWordHighlightClarityPercent: 70,
@@ -1229,6 +1230,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     lyricsPlayerBarDrawerColorMode: normalizeLyricsMiniPlayerColorMode(settings.lyricsPlayerBarDrawerColorMode),
     lyricsPlayerBarDrawerColor: normalizeHexColor(settings.lyricsPlayerBarDrawerColor, defaultLyricsMiniPlayerColor),
     lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled !== false,
+    lyricsUtatenKanaEnabled: settings.lyricsUtatenKanaEnabled === true,
     lyricsTranslationEnabled: settings.lyricsTranslationEnabled !== false,
     lyricsWordHighlightEnabled: settings.lyricsWordHighlightEnabled !== false,
     lyricsWordHighlightClarityPercent: Number.isFinite(lyricsWordHighlightClarityPercent)

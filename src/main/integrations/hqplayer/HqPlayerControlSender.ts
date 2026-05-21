@@ -26,7 +26,7 @@ export type HqPlayerControlProbeResult = {
 
 const hqPlayerControlSendTimeoutMs = 2500;
 
-type HqPlayerControlCommand = 'PlayNextURI' | 'Seek' | 'GetInfo' | 'Status';
+type HqPlayerControlCommand = 'PlayNextURI' | 'Play' | 'Seek' | 'GetInfo' | 'Status';
 
 type XmlElementResponse = {
   attributes: Record<string, string>;
@@ -179,6 +179,9 @@ const buildPlayNextUriCommand = (plan: HqPlayerPlaybackControlPlan): string => {
 const buildSeekCommand = (positionSeconds: number): string =>
   `<?xml version="1.0" encoding="UTF-8"?>\n<Seek position="${Math.max(0, Math.floor(positionSeconds))}"/>`;
 
+const buildPlayCommand = (): string =>
+  '<?xml version="1.0" encoding="UTF-8"?>\n<Play last="1"/>';
+
 const buildGetInfoCommand = (): string =>
   '<?xml version="1.0" encoding="UTF-8"?>\n<GetInfo/>';
 
@@ -253,7 +256,7 @@ const waitForXmlElement = (
 
 const waitForCommandResponse = (
   socket: Socket,
-  command: 'PlayNextURI' | 'Seek',
+  command: 'PlayNextURI' | 'Play' | 'Seek',
   timeoutMs: number,
 ): Promise<{ raw: string; message: string | null }> =>
   new Promise((resolve, reject) => {
@@ -318,6 +321,38 @@ const connectSocket = (endpoint: HqPlayerEndpoint, timeoutMs: number): Promise<S
     socket.once('timeout', onTimeout);
     socket.connect({ host: endpoint.host, port: endpoint.port ?? 0 });
   });
+
+const readControlElement = async (
+  endpoint: HqPlayerEndpoint,
+  command: Extract<HqPlayerControlCommand, 'GetInfo' | 'Status'>,
+  xml: string,
+  timeoutMs: number,
+): Promise<XmlElementResponse> => {
+  let socket: Socket | null = null;
+  try {
+    socket = await connectSocket(endpoint, timeoutMs);
+    socket.write(xml);
+    return await waitForXmlElement(socket, command, timeoutMs);
+  } finally {
+    socket?.destroy();
+  }
+};
+
+const sendControlCommand = async (
+  endpoint: HqPlayerEndpoint,
+  command: Extract<HqPlayerControlCommand, 'PlayNextURI' | 'Play' | 'Seek'>,
+  xml: string,
+  timeoutMs: number,
+): Promise<{ raw: string; message: string | null }> => {
+  let socket: Socket | null = null;
+  try {
+    socket = await connectSocket(endpoint, timeoutMs);
+    socket.write(xml);
+    return await waitForCommandResponse(socket, command, timeoutMs);
+  } finally {
+    socket?.destroy();
+  }
+};
 
 const nullIfBlank = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim() ?? '';
@@ -449,21 +484,25 @@ export const probeHqPlayerControlEndpoint = async (
     });
   }
 
-  let socket: Socket | null = null;
   try {
-    socket = await connectSocket(endpoint, timeoutMs);
-    socket.write(buildGetInfoCommand());
-    const infoResponse = await waitForXmlElement(socket, 'GetInfo', timeoutMs);
-    socket.write(buildStatusCommand());
-    const statusResponse = await waitForXmlElement(socket, 'Status', timeoutMs);
+    const infoResponse = await readControlElement(endpoint, 'GetInfo', buildGetInfoCommand(), timeoutMs);
+    const controlInfo = parseControlInfo(infoResponse);
+    let playbackStatus: HqPlayerRemotePlaybackStatus | null = null;
+    try {
+      const statusResponse = await readControlElement(endpoint, 'Status', buildStatusCommand(), timeoutMs);
+      playbackStatus = parsePlaybackStatus(statusResponse);
+    } catch {
+      playbackStatus = null;
+    }
+
     return createProbeResult({
       ok: true,
       endpoint,
       startedAt,
       error: null,
       message: null,
-      controlInfo: parseControlInfo(infoResponse),
-      playbackStatus: parsePlaybackStatus(statusResponse),
+      controlInfo,
+      playbackStatus,
     });
   } catch (error) {
     const reason = error instanceof Error
@@ -476,8 +515,6 @@ export const probeHqPlayerControlEndpoint = async (
       error: reason,
       message: error instanceof Error ? error.message : String(error),
     });
-  } finally {
-    socket?.destroy();
   }
 };
 
@@ -488,7 +525,7 @@ export const sendHqPlayerPlaybackControlPlan = async (
   const timeoutMs = options.timeoutMs ?? hqPlayerControlSendTimeoutMs;
   const startedAt = Date.now();
   const endpoint = plan.endpoint;
-  const command = plan.startSeconds && plan.startSeconds >= 1 ? 'PlayNextURI+Seek' : 'PlayNextURI';
+  const command = plan.startSeconds && plan.startSeconds >= 1 ? 'PlayNextURI+Play+Seek' : 'PlayNextURI+Play';
 
   if (plan.state !== 'prepared') {
     return createSendResult({
@@ -531,16 +568,13 @@ export const sendHqPlayerPlaybackControlPlan = async (
     });
   }
 
-  let socket: Socket | null = null;
   try {
-    socket = await connectSocket(endpoint, timeoutMs);
-    socket.write(buildPlayNextUriCommand(plan));
-    const playResponse = await waitForCommandResponse(socket, 'PlayNextURI', timeoutMs);
-    let rawResponse = playResponse.raw;
+    const nextUriResponse = await sendControlCommand(endpoint, 'PlayNextURI', buildPlayNextUriCommand(plan), timeoutMs);
+    const playResponse = await sendControlCommand(endpoint, 'Play', buildPlayCommand(), timeoutMs);
+    let rawResponse = `${nextUriResponse.raw}\n${playResponse.raw}`;
 
     if (plan.startSeconds && plan.startSeconds >= 1) {
-      socket.write(buildSeekCommand(plan.startSeconds));
-      const seekResponse = await waitForCommandResponse(socket, 'Seek', timeoutMs);
+      const seekResponse = await sendControlCommand(endpoint, 'Seek', buildSeekCommand(plan.startSeconds), timeoutMs);
       rawResponse = `${rawResponse}\n${seekResponse.raw}`;
     }
 
@@ -574,7 +608,5 @@ export const sendHqPlayerPlaybackControlPlan = async (
       message: error instanceof Error ? error.message : String(error),
       response,
     });
-  } finally {
-    socket?.destroy();
   }
 };

@@ -101,7 +101,7 @@ const hqControl = (sendState: HqPlayerPlaybackControlSendState = 'prepared'): Hq
     state: sendState,
     reason: null,
     transport: 'official-control-tcp',
-    command: sendState === 'sent' ? 'PlayNextURI+Seek' : 'PlayNextURI',
+    command: 'PlayNextURI+Play+Seek',
     endpoint: {
       connectionMode: 'localDesktop',
       host: '127.0.0.1',
@@ -111,7 +111,7 @@ const hqControl = (sendState: HqPlayerPlaybackControlSendState = 'prepared'): Hq
     finishedAt: sendState === 'sent' ? '2026-05-21T01:00:00.012Z' : '2026-05-21T01:00:00.000Z',
     elapsedMs: sendState === 'sent' ? 12 : 0,
     message: null,
-    response: sendState === 'sent' ? '<PlayNextURI result="OK"/>' : null,
+    response: sendState === 'sent' ? '<PlayNextURI result="OK"/>\n<Play result="OK"/>\n<Seek result="OK"/>' : null,
   },
 });
 
@@ -345,6 +345,86 @@ describe('ConnectPage HQPlayer controls', () => {
         port: 4321,
       }),
     );
+  });
+
+  it('shows read-only HQPlayer probe details in the diagnostics area', async () => {
+    installEchoBridge({
+      ...hqStatus('available'),
+      controlInfo: {
+        name: 'Living Room',
+        product: 'HQPlayer Desktop',
+        version: '5.17.2',
+        platform: 'Windows',
+        engine: '5.29.2',
+        receivedAt: '2026-05-21T01:00:00.000Z',
+      },
+      playbackStatus: {
+        state: 'playing',
+        stateCode: 2,
+        track: 1,
+        trackId: 'track-1',
+        tracksTotal: 1,
+        queued: false,
+        positionSeconds: 12,
+        durationSeconds: 180,
+        volume: -3,
+        activeMode: 'poly-sinc',
+        activeFilter: 'sinc-M',
+        activeShaper: 'ASDM7',
+        activeRate: 2822400,
+        activeBits: 1,
+        activeChannels: 2,
+        inputFill: 0.5,
+        outputFill: 0.7,
+        outputDelayUs: 12000,
+        apodizing: 1,
+        metadata: null,
+        receivedAt: '2026-05-21T01:00:00.000Z',
+      },
+    });
+    render(<ConnectPage />);
+
+    await screen.findByText('HQPlayer Desktop 5.17.2');
+    expect(screen.getByText('5.29.2')).toBeTruthy();
+    expect(screen.getByText(/播放中/u)).toBeTruthy();
+    expect(screen.getByText(/2822400Hz/u)).toBeTruthy();
+  });
+
+  it('auto refreshes an enabled local HQPlayer before keeping a stale unavailable state', async () => {
+    const bridge = installEchoBridge(hqStatus('unavailable'), hqSettings);
+    bridge.hqPlayer.testConnection.mockResolvedValueOnce({
+      ok: true,
+      state: 'available',
+      endpoint: {
+        connectionMode: 'localDesktop',
+        host: '127.0.0.1',
+        port: 4321,
+      },
+      elapsedMs: 9,
+      checkedAt: '2026-05-21T01:00:01.000Z',
+      error: null,
+      controlInfo: {
+        name: 'Moekotori',
+        product: 'Signalyst HQPlayer Desktop',
+        version: '5',
+        platform: 'Windows',
+        engine: '5.25.0',
+        receivedAt: '2026-05-21T01:00:01.000Z',
+      },
+      playbackStatus: null,
+    });
+    render(<ConnectPage />);
+
+    await waitFor(() => expect(bridge.hqPlayer.testConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: true,
+        connectionMode: 'localDesktop',
+        host: '127.0.0.1',
+        port: 4321,
+      }),
+    ));
+    expect(await screen.findByText('Signalyst HQPlayer Desktop 5')).toBeTruthy();
+    expect(screen.getByText('5.25.0')).toBeTruthy();
   });
 
   it('disables unsupported transport controls while HQPlayer is the active output', async () => {

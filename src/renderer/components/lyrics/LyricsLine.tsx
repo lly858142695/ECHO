@@ -19,8 +19,9 @@ const getLyricDensity = (
   showTranslation: boolean,
 ): 'short' | 'medium' | 'long' | 'dense' => {
   const textLength = Array.from(line.text.replace(/\s+/g, ' ').trim()).length;
+  const pronunciation = line.kana ?? line.romanization ?? '';
   const secondaryLength = Array.from(
-    `${showRomanization ? (line.romanization ?? '') : ''}${showTranslation ? (line.translation ?? '') : ''}`.replace(/\s+/g, ' ').trim(),
+    `${showRomanization ? pronunciation : ''}${showTranslation ? (line.translation ?? '') : ''}`.replace(/\s+/g, ' ').trim(),
   ).length;
   const weightedLength = textLength + Math.round(secondaryLength * 0.45);
 
@@ -51,8 +52,10 @@ export const LyricsLine = ({
   focusDistance = 4,
 }: LyricsLineProps): JSX.Element => {
   const density = getLyricDensity(line, showRomanization, showTranslation);
+  const pronunciation = line.kana ?? line.romanization ?? null;
+  const pronunciationKind = line.kana ? 'kana' : line.romanization ? 'romanization' : 'none';
   const visibleSecondaryLines =
-    (showRomanization && line.romanization ? 1 : 0) +
+    (showRomanization && pronunciation ? 1 : 0) +
     (showTranslation && line.translation ? 1 : 0);
   const hasWordHighlight = wordHighlightEnabled && Boolean(line.words?.length && line.words.length >= 2);
 
@@ -88,7 +91,7 @@ export const LyricsLine = ({
           ))
           : line.text}
       </span>
-      {showRomanization && line.romanization ? <small>{line.romanization}</small> : null}
+      {showRomanization && pronunciation ? <small data-pronunciation={pronunciationKind}>{pronunciation}</small> : null}
       {showTranslation && line.translation ? <em>{line.translation}</em> : null}
     </button>
   );

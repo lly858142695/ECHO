@@ -3823,31 +3823,37 @@ export class LibraryStore {
     const offset = (page - 1) * pageSize;
     const mediaTypeFilter = libraryMediaTypeFromSourceProvider(sourceProvider);
     const hideDuplicates = query?.hideDuplicates === true;
+    const showDuplicatesOnly = query?.showDuplicatesOnly === true;
     const duplicateMode = query?.duplicateMode === 'strict' ? query.duplicateMode : 'strict';
     const searchQuery = buildFtsSearchQuery(search, searchOptions);
     const searchJoinSql = searchQuery ? 'INNER JOIN tracks_fts ON tracks_fts.rowid = tracks.rowid' : '';
-    const remoteSearchJoinSql = searchQuery ? 'INNER JOIN remote_tracks_fts ON remote_tracks_fts.rowid = remote_tracks.rowid' : '';
+    const remoteSearchJoinSql = searchQuery && !showDuplicatesOnly ? 'INNER JOIN remote_tracks_fts ON remote_tracks_fts.rowid = remote_tracks.rowid' : '';
     const localSearchRankSql = searchQuery ? 'bm25(tracks_fts)' : '0';
-    const remoteSearchRankSql = searchQuery ? 'bm25(remote_tracks_fts)' : '0';
-    const duplicateJoinSql = hideDuplicates
+    const remoteSearchRankSql = searchQuery && !showDuplicatesOnly ? 'bm25(remote_tracks_fts)' : '0';
+    const useDuplicateJoin = hideDuplicates || showDuplicatesOnly;
+    const duplicateJoinSql = useDuplicateJoin
       ? `LEFT JOIN duplicate_track_members AS duplicate_members
           ON duplicate_members.track_id = tracks.id
           AND duplicate_members.group_id IN (
             SELECT id FROM duplicate_track_groups WHERE mode = ?
           )`
       : '';
-    const duplicateFilterSql = hideDuplicates ? ' AND COALESCE(duplicate_members.hidden, 0) = 0' : '';
+    const duplicateFilterSql = showDuplicatesOnly
+      ? ' AND duplicate_members.track_id IS NOT NULL'
+      : hideDuplicates ? ' AND COALESCE(duplicate_members.hidden, 0) = 0' : '';
     const whereSql = searchQuery
       ? `WHERE tracks.missing = 0${duplicateFilterSql} AND tracks_fts MATCH ?`
       : `WHERE tracks.missing = 0${duplicateFilterSql}`;
     const baseParams = [
-      ...(hideDuplicates ? [duplicateMode] : []),
+      ...(useDuplicateJoin ? [duplicateMode] : []),
       ...(searchQuery ? [searchQuery] : []),
     ];
-    const remoteWhereSql = searchQuery
+    const remoteWhereSql = showDuplicatesOnly
+      ? 'WHERE 0 = 1'
+      : searchQuery
       ? "WHERE remote_tracks.availability != 'missing' AND remote_sources.status = 'enabled' AND remote_tracks_fts MATCH ?"
       : "WHERE remote_tracks.availability != 'missing' AND remote_sources.status = 'enabled'";
-    const allParams = [...baseParams, ...(searchQuery ? [searchQuery] : [])];
+    const allParams = [...baseParams, ...(searchQuery && !showDuplicatesOnly ? [searchQuery] : [])];
     const libraryWhereParts = [
       mediaTypeFilter ? 'media_type = ?' : '',
       sourceId ? 'source_id = ?' : '',

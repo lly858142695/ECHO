@@ -153,11 +153,13 @@ const createHarness = ({
   localProvider,
   onlineProvider,
   appSettings,
+  utatenKanaProvider,
 }: {
   currentTrack?: LibraryTrack;
   localProvider?: ConstructorParameters<typeof LyricsService>[2];
   onlineProvider?: ConstructorParameters<typeof LyricsService>[3];
   appSettings?: AppSettings;
+  utatenKanaProvider?: ConstructorParameters<typeof LyricsService>[6];
 } = {}) => {
   const database = createDatabase(':memory:');
   const library = { getTrack: vi.fn(() => currentTrack) };
@@ -170,7 +172,7 @@ const createHarness = ({
     getLyrics: vi.fn(async () => null),
     searchCandidates: vi.fn(async () => []),
   };
-  const service = new LyricsService(database, library, local, online, () => appSettings ?? settings());
+  const service = new LyricsService(database, library, local, online, () => appSettings ?? settings(), undefined, utatenKanaProvider);
 
   return { database, library, local, online, service };
 };
@@ -213,6 +215,131 @@ describe('LyricsService', () => {
     expect(lyrics?.lines[0].text).toBe('Cached');
     expect(local.getLyrics).not.toHaveBeenCalled();
     expect(online.getLyrics).not.toHaveBeenCalled();
+  });
+
+  it('does not request UtaTen kana while the setting is disabled', async () => {
+    const utatenKanaProvider = { enrichLines: vi.fn(async (_query, lines) => lines) };
+    const { database, service } = createHarness({ utatenKanaProvider });
+    database
+      .prepare(
+        `INSERT INTO lyrics_cache (
+          id, cache_key, track_id, provider, provider_lyrics_id, title, artist, album,
+          duration_seconds, kind, plain_lyrics, synced_lyrics, lines_json, offset_ms, score,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'cached-kana-off',
+        'lrclib|echo song|echo artist|echo album|120',
+        'track-1',
+        'lrclib',
+        'lrclib-1',
+        'Echo Song',
+        'Echo Artist',
+        'Echo Album',
+        120,
+        'synced',
+        '君が好き',
+        '[00:01.00]君が好き',
+        JSON.stringify([{ timeMs: 1000, text: '君が好き', romanization: 'kimi ga suki' }]),
+        0,
+        0.99,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      );
+
+    const lyrics = await service.getLyricsForTrack('track-1');
+
+    expect(lyrics?.lines[0].romanization).toBe('kimi ga suki');
+    expect(utatenKanaProvider.enrichLines).not.toHaveBeenCalled();
+  });
+
+  it('enriches cached Japanese lyrics with UtaTen kana and stores the result', async () => {
+    const utatenKanaProvider = {
+      enrichLines: vi.fn(async (_query, lines: TrackLyrics['lines']) =>
+        lines.map((line) => (line.text === '君が好き' ? { ...line, kana: 'きみがすき' } : line)),
+      ),
+    };
+    const { database, service } = createHarness({
+      appSettings: settings({ lyricsUtatenKanaEnabled: true }),
+      utatenKanaProvider,
+    });
+    database
+      .prepare(
+        `INSERT INTO lyrics_cache (
+          id, cache_key, track_id, provider, provider_lyrics_id, title, artist, album,
+          duration_seconds, kind, plain_lyrics, synced_lyrics, lines_json, offset_ms, score,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'cached-kana-on',
+        'lrclib|echo song|echo artist|echo album|120',
+        'track-1',
+        'lrclib',
+        'lrclib-1',
+        'Echo Song',
+        'Echo Artist',
+        'Echo Album',
+        120,
+        'synced',
+        '君が好き',
+        '[00:01.00]君が好き',
+        JSON.stringify([{ timeMs: 1000, text: '君が好き', romanization: 'kimi ga suki' }]),
+        0,
+        0.99,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      );
+
+    const lyrics = await service.getLyricsForTrack('track-1');
+    const cached = database
+      .prepare<[string], { lines_json: string }>('SELECT lines_json FROM lyrics_cache WHERE id = ? LIMIT 1')
+      .get('cached-kana-on');
+
+    expect(utatenKanaProvider.enrichLines).toHaveBeenCalledOnce();
+    expect(lyrics?.lines[0]).toMatchObject({ text: '君が好き', romanization: 'kimi ga suki', kana: 'きみがすき' });
+    expect(JSON.parse(cached?.lines_json ?? '[]')[0].kana).toBe('きみがすき');
+  });
+
+  it('keeps cached romanization when UtaTen kana cannot be aligned', async () => {
+    const utatenKanaProvider = { enrichLines: vi.fn(async (_query, lines) => lines) };
+    const { database, service } = createHarness({
+      appSettings: settings({ lyricsUtatenKanaEnabled: true }),
+      utatenKanaProvider,
+    });
+    database
+      .prepare(
+        `INSERT INTO lyrics_cache (
+          id, cache_key, track_id, provider, provider_lyrics_id, title, artist, album,
+          duration_seconds, kind, plain_lyrics, synced_lyrics, lines_json, offset_ms, score,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'cached-kana-miss',
+        'lrclib|echo song|echo artist|echo album|120',
+        'track-1',
+        'lrclib',
+        'lrclib-1',
+        'Echo Song',
+        'Echo Artist',
+        'Echo Album',
+        120,
+        'synced',
+        '君が好き',
+        '[00:01.00]君が好き',
+        JSON.stringify([{ timeMs: 1000, text: '君が好き', romanization: 'kimi ga suki' }]),
+        0,
+        0.99,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      );
+
+    const lyrics = await service.getLyricsForTrack('track-1');
+
+    expect(utatenKanaProvider.enrichLines).toHaveBeenCalledOnce();
+    expect(lyrics?.lines[0]).toEqual({ timeMs: 1000, text: '君が好き', romanization: 'kimi ga suki' });
   });
 
   it('re-parses cached local synced lyrics from source text', async () => {

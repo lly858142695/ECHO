@@ -39,6 +39,7 @@ const makeSettings = (overrides: Partial<AppSettings> = {}): AppSettings => ({
   lyricsPlayerBarDrawerColorMode: 'default',
   lyricsPlayerBarDrawerColor: '#232120',
   lyricsRomanizationEnabled: true,
+  lyricsUtatenKanaEnabled: false,
   lyricsTranslationEnabled: true,
   lyricsWordHighlightEnabled: true,
   lyricsWordHighlightClarityPercent: 70,
@@ -516,6 +517,25 @@ describe('LyricsSettingsDrawer', () => {
     fireEvent.click(toggle);
 
     await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsRomanizationEnabled: false }));
+  });
+
+  it('lets users enable UtaTen kana while romanization is enabled', async () => {
+    const setSettings = vi.fn().mockResolvedValue(makeSettings({ lyricsUtatenKanaEnabled: true }));
+    Object.assign(window, {
+      echo: {
+        app: {
+          getSettings: vi.fn().mockResolvedValue(makeSettings({ lyricsUtatenKanaEnabled: false })),
+          setSettings,
+        },
+      },
+    });
+
+    render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+    const toggle = (await screen.findByRole('checkbox', { name: /UtaTen 假名注音/ })) as HTMLInputElement;
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(setSettings).toHaveBeenCalledWith({ lyricsUtatenKanaEnabled: true }));
   });
 
   it('lets users toggle translation display', async () => {

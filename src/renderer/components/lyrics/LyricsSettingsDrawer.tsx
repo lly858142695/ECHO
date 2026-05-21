@@ -71,6 +71,7 @@ type LyricsDrawerSettings = Pick<
   | 'lyricsPlayerBarDrawerColorMode'
   | 'lyricsPlayerBarDrawerColor'
   | 'lyricsRomanizationEnabled'
+  | 'lyricsUtatenKanaEnabled'
   | 'lyricsTranslationEnabled'
   | 'lyricsWordHighlightEnabled'
   | 'lyricsWordHighlightClarityPercent'
@@ -115,6 +116,7 @@ const fallbackSettings: LyricsDrawerSettings = {
   lyricsPlayerBarDrawerColorMode: 'default',
   lyricsPlayerBarDrawerColor: '#232120',
   lyricsRomanizationEnabled: true,
+  lyricsUtatenKanaEnabled: false,
   lyricsTranslationEnabled: true,
   lyricsWordHighlightEnabled: true,
   lyricsWordHighlightClarityPercent: 70,
@@ -365,6 +367,7 @@ const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
   lyricsPlayerBarDrawerColorMode: settings.lyricsPlayerBarDrawerColorMode ?? fallbackSettings.lyricsPlayerBarDrawerColorMode,
   lyricsPlayerBarDrawerColor: settings.lyricsPlayerBarDrawerColor ?? fallbackSettings.lyricsPlayerBarDrawerColor,
   lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled,
+  lyricsUtatenKanaEnabled: settings.lyricsUtatenKanaEnabled === true,
   lyricsTranslationEnabled: settings.lyricsTranslationEnabled,
   lyricsWordHighlightEnabled: settings.lyricsWordHighlightEnabled !== false,
   lyricsWordHighlightClarityPercent: settings.lyricsWordHighlightClarityPercent ?? fallbackSettings.lyricsWordHighlightClarityPercent,
@@ -1451,6 +1454,20 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
             />
           </label>
           <p>优先使用歌词源提供的罗马音；没有时会为日文歌词本地生成。</p>
+
+          <label className="audio-toggle-row">
+            <span>
+              <Captions size={17} />
+              <strong>优先 UtaTen 假名注音</strong>
+            </span>
+            <input
+              type="checkbox"
+              checked={effectiveSettings.lyricsUtatenKanaEnabled === true}
+              disabled={isBusy || !effectiveSettings.lyricsRomanizationEnabled || !effectiveSettings.lyricsNetworkEnabled}
+              onChange={(event) => void patchSettings({ lyricsUtatenKanaEnabled: event.currentTarget.checked })}
+            />
+          </label>
+          <p>默认关闭；开启后日文歌词会尝试用 UtaTen 的ふりがな替代罗马音显示，匹配不到会自动回退。</p>
 
           <label className="audio-toggle-row">
             <span>

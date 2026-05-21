@@ -122,6 +122,7 @@ type LyricsDisplaySettings = Pick<
   | "lyricsBackgroundMode"
   | "lyricsCustomWallpaperPath"
   | "lyricsRomanizationEnabled"
+  | "lyricsUtatenKanaEnabled"
   | "lyricsTranslationEnabled"
   | "lyricsWordHighlightEnabled"
   | "lyricsWordHighlightClarityPercent"
@@ -169,6 +170,7 @@ const fallbackLyricsDisplaySettings: LyricsDisplaySettings = {
   lyricsBackgroundMode: "theme",
   lyricsCustomWallpaperPath: null,
   lyricsRomanizationEnabled: true,
+  lyricsUtatenKanaEnabled: false,
   lyricsTranslationEnabled: true,
   lyricsWordHighlightEnabled: true,
   lyricsWordHighlightClarityPercent: 70,
@@ -649,7 +651,7 @@ const formatLyricsForClipboard = (
     .map((line) =>
       [
         normalizeClipboardLine(line.text),
-        showRomanization ? normalizeClipboardLine(line.romanization) : null,
+        showRomanization ? normalizeClipboardLine(line.kana ?? line.romanization) : null,
         showTranslation ? normalizeClipboardLine(line.translation) : null,
       ]
         .filter((text): text is string => Boolean(text))
@@ -697,6 +699,7 @@ const selectLyricsDisplaySettings = (
   lyricsBackgroundMode: settings.lyricsBackgroundMode,
   lyricsCustomWallpaperPath: settings.lyricsCustomWallpaperPath,
   lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled,
+  lyricsUtatenKanaEnabled: settings.lyricsUtatenKanaEnabled === true,
   lyricsTranslationEnabled: settings.lyricsTranslationEnabled,
   lyricsWordHighlightEnabled: settings.lyricsWordHighlightEnabled !== false,
   lyricsWordHighlightClarityPercent:
@@ -760,6 +763,7 @@ const lyricsDisplaySettingsKeys = [
   "lyricsBackgroundMode",
   "lyricsCustomWallpaperPath",
   "lyricsRomanizationEnabled",
+  "lyricsUtatenKanaEnabled",
   "lyricsTranslationEnabled",
   "lyricsWordHighlightEnabled",
   "lyricsWordHighlightClarityPercent",
@@ -2226,6 +2230,8 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     lyricsDisplaySettings.lyricsAutoSearch,
     lyricsDisplaySettings.lyricsCandidatePanelAutoOpenEnabled,
     lyricsDisplaySettings.lyricsEnabled,
+    lyricsDisplaySettings.lyricsRomanizationEnabled,
+    lyricsDisplaySettings.lyricsUtatenKanaEnabled,
     searchLyricsCandidatesForProvider,
     streamingTarget,
     trackId,

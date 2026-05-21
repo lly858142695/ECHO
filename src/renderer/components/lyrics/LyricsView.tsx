@@ -13,6 +13,7 @@ const lyricsLayoutSettingKeys = new Set([
   'lyricsLineSpacingPercent',
   'lyricsLineMaxChars',
   'lyricsRomanizationEnabled',
+  'lyricsUtatenKanaEnabled',
   'lyricsTranslationEnabled',
   'lyricsContextOpacityPercent',
 ]);

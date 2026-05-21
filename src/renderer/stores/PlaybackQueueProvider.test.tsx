@@ -1289,6 +1289,7 @@ describe('PlaybackQueueProvider playback modes', () => {
       search: undefined,
       sort: 'random',
       hideDuplicates: undefined,
+      showDuplicatesOnly: undefined,
       duplicateMode: 'strict',
     });
   });

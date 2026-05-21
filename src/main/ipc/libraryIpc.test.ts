@@ -307,6 +307,7 @@ const installLibraryService = () => {
       selectedBatch: null,
       scope: (query as { scope?: string }).scope ?? 'latest',
       filter: (query as { filter?: string }).filter ?? 'all',
+      status: (query as { status?: string }).status ?? 'all',
       story: {
         trackCount: 0,
         albumCount: 0,
@@ -316,6 +317,12 @@ const installLibraryService = () => {
         metadataIssueCount: 0,
         unknownArtistCount: 0,
         unknownAlbumCount: 0,
+        suspiciousCount: 0,
+        pendingCount: 0,
+        processedCount: 0,
+        ignoredCount: 0,
+        coverCompleteness: 0,
+        metadataCompleteness: 0,
         totalDuration: 0,
         topFolders: [],
         topArtists: [],
@@ -326,6 +333,21 @@ const installLibraryService = () => {
     createPlaylistFromLibraryInbox: vi.fn(() => ({
       playlist: { id: 'playlist-1', name: 'Inbox', description: null, kind: 'manual', sourceProvider: 'local', sourcePlaylistId: null, coverId: null, coverThumb: null, coverUrl: null, sortMode: 'manual', itemCount: 1, createdAt: '2026-05-20T00:00:00.000Z', updatedAt: '2026-05-20T00:00:00.000Z' },
       addedCount: 1,
+      matchedCount: 1,
+      skippedCount: 0,
+      truncated: false,
+      limit: 1000,
+    })),
+    getLibraryInboxQueueTracks: vi.fn(() => ({
+      tracks: [],
+      addedCount: 0,
+      matchedCount: 0,
+      skippedCount: 0,
+      truncated: false,
+      limit: 1000,
+    })),
+    updateLibraryInboxItemState: vi.fn(() => ({
+      updatedCount: 1,
       matchedCount: 1,
       skippedCount: 0,
       truncated: false,
@@ -580,6 +602,7 @@ describe('library IPC', () => {
     await handlers[IpcChannels.LibraryGetInboxTracks]!(null, {
       scope: 'all',
       filter: 'metadata_issue',
+      status: 'pending',
       page: 3.9,
       pageSize: 999,
       folderId: ' folder-1 ',
@@ -591,6 +614,7 @@ describe('library IPC', () => {
     expect(service.getLibraryInboxTracks).toHaveBeenCalledWith({
       scope: 'all',
       filter: 'metadata_issue',
+      status: 'pending',
       page: 3,
       pageSize: 100,
       folderId: 'folder-1',
@@ -598,6 +622,30 @@ describe('library IPC', () => {
       artist: 'Artist',
       batchId: null,
       search: 'needle',
+    });
+  });
+
+  it('normalizes inbox queue requests through the library service', async () => {
+    const service = installLibraryService();
+
+    await handlers[IpcChannels.LibraryAddInboxToQueue]!(null, {
+      scope: 'latest',
+      filter: 'suspicious_file',
+      status: 'ignored',
+      pageSize: 999,
+    });
+
+    expect(service.getLibraryInboxQueueTracks).toHaveBeenCalledWith({
+      scope: 'latest',
+      filter: 'suspicious_file',
+      status: 'ignored',
+      batchId: null,
+      folderId: null,
+      album: null,
+      artist: null,
+      page: undefined,
+      pageSize: 100,
+      search: undefined,
     });
   });
 
@@ -624,6 +672,35 @@ describe('library IPC', () => {
       pageSize: 100,
       search: undefined,
       name: 'Inbox Picks',
+    });
+  });
+
+  it('normalizes inbox state updates through the library service', async () => {
+    const service = installLibraryService();
+
+    await handlers[IpcChannels.LibraryUpdateInboxItemState]!(null, {
+      status: 'ignored',
+      items: [
+        { batchId: ' batch-1 ', trackId: ' track-1 ' },
+        { batchId: '', trackId: 'track-2' },
+      ],
+      query: { scope: 'all', status: 'pending' },
+    });
+
+    expect(service.updateLibraryInboxItemState).toHaveBeenCalledWith({
+      status: 'ignored',
+      items: [{ batchId: 'batch-1', trackId: 'track-1' }],
+      query: {
+        scope: 'all',
+        status: 'pending',
+        batchId: null,
+        folderId: null,
+        album: null,
+        artist: null,
+        page: undefined,
+        pageSize: undefined,
+        search: undefined,
+      },
     });
   });
 
@@ -896,6 +973,7 @@ describe('library IPC', () => {
       page: 1,
       pageSize: 50,
       hideDuplicates: true,
+      showDuplicatesOnly: true,
       duplicateMode: 'balanced',
     });
 
@@ -906,6 +984,7 @@ describe('library IPC', () => {
       page: 1,
       pageSize: 50,
       hideDuplicates: true,
+      showDuplicatesOnly: true,
       duplicateMode: 'balanced',
     });
   });

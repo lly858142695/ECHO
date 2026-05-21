@@ -733,6 +733,7 @@ export const deserializeLyricLines = (linesJson: string): LyricLine[] => {
           ...(words ? { words } : {}),
           ...(typeof line.translation === 'string' ? { translation: line.translation } : {}),
           ...(typeof line.romanization === 'string' ? { romanization: line.romanization } : {}),
+          ...(typeof line.kana === 'string' ? { kana: line.kana } : {}),
         };
       })
       .filter((line) => Number.isFinite(line.timeMs) && line.text.trim().length > 0);

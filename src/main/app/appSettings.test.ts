@@ -105,6 +105,7 @@ describe('app settings normalization', () => {
     expect(settings.lyricsPlayerBarDrawerColorMode).toBe('default');
     expect(settings.lyricsPlayerBarDrawerColor).toBe('#232120');
     expect(settings.lyricsRomanizationEnabled).toBe(true);
+    expect(settings.lyricsUtatenKanaEnabled).toBe(false);
     expect(settings.lyricsTranslationEnabled).toBe(true);
     expect(settings.lyricsWordHighlightEnabled).toBe(true);
     expect(settings.lyricsWordHighlightClarityPercent).toBe(70);
@@ -953,6 +954,7 @@ describe('app settings normalization', () => {
         lyricsPlayerBarDrawerColorMode: 'neon' as never,
         lyricsPlayerBarDrawerColor: 'red',
         lyricsRomanizationEnabled: false,
+        lyricsUtatenKanaEnabled: 'yes' as never,
         lyricsTranslationEnabled: false,
         lyricsWordHighlightEnabled: false,
         lyricsWordHighlightClarityPercent: 999,
@@ -995,6 +997,7 @@ describe('app settings normalization', () => {
       lyricsPlayerBarDrawerColorMode: 'default',
       lyricsPlayerBarDrawerColor: '#232120',
       lyricsRomanizationEnabled: false,
+      lyricsUtatenKanaEnabled: false,
       lyricsTranslationEnabled: false,
       lyricsWordHighlightEnabled: false,
       lyricsWordHighlightClarityPercent: 100,

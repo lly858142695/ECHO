@@ -624,6 +624,7 @@ export type LibraryPageQuery = {
   sourceProvider?: PlaylistSourceProvider;
   sourceId?: string | null;
   hideDuplicates?: boolean;
+  showDuplicatesOnly?: boolean;
   duplicateMode?: DuplicateTrackMode;
   prioritizeArtistAvatars?: boolean;
 };

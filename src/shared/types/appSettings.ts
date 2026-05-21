@@ -229,6 +229,7 @@ export type AppSettings = {
   lyricsPlayerBarDrawerColorMode?: LyricsMiniPlayerColorMode;
   lyricsPlayerBarDrawerColor?: string;
   lyricsRomanizationEnabled: boolean;
+  lyricsUtatenKanaEnabled?: boolean;
   lyricsTranslationEnabled: boolean;
   lyricsWordHighlightEnabled?: boolean;
   lyricsWordHighlightClarityPercent?: number;

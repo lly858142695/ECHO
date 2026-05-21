@@ -61,13 +61,13 @@ const createSentResult = (plan: HqPlayerPlaybackControlPlan) => ({
   state: 'sent' as const,
   reason: null,
   transport: 'official-control-tcp' as const,
-  command: 'PlayNextURI' as const,
+  command: 'PlayNextURI+Play' as const,
   endpoint: plan.endpoint,
   startedAt: '2026-05-21T01:00:00.000Z',
   finishedAt: '2026-05-21T01:00:00.012Z',
   elapsedMs: 12,
   message: null,
-  response: '<PlayNextURI result="OK"/>',
+  response: '<PlayNextURI result="OK"/>\n<Play result="OK"/>',
 });
 
 const localTrack: PlayableTrack = {

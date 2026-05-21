@@ -5,9 +5,16 @@ import type { LibraryInboxTrackPage, LibraryTrack } from '../../shared/types/lib
 import { InboxPage } from './InboxPage';
 
 let libraryBridge: Record<string, unknown> | null = null;
+const queueMock = vi.hoisted(() => ({
+  appendTracksToQueue: vi.fn(),
+}));
 
 vi.mock('../utils/echoBridge', () => ({
   getLibraryBridge: () => libraryBridge,
+}));
+
+vi.mock('../stores/PlaybackQueueProvider', () => ({
+  usePlaybackQueue: () => queueMock,
 }));
 
 const track = (id: string, overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
@@ -43,6 +50,7 @@ const inboxPage = (overrides: Partial<LibraryInboxTrackPage> = {}): LibraryInbox
   hasMore: false,
   scope: 'latest',
   filter: 'all',
+  status: 'all',
   batches: [
     {
       id: 'batch-1',
@@ -78,6 +86,12 @@ const inboxPage = (overrides: Partial<LibraryInboxTrackPage> = {}): LibraryInbox
     metadataIssueCount: 0,
     unknownArtistCount: 0,
     unknownAlbumCount: 0,
+    suspiciousCount: 0,
+    pendingCount: 1,
+    processedCount: 0,
+    ignoredCount: 0,
+    coverCompleteness: 0,
+    metadataCompleteness: 100,
     totalDuration: 180,
     topFolders: [{ value: 'folder-1', label: 'Music', count: 1 }],
     topArtists: [{ value: 'Artist', label: 'Artist', count: 1 }],
@@ -105,6 +119,7 @@ const inboxPage = (overrides: Partial<LibraryInboxTrackPage> = {}): LibraryInbox
       addedAt: '2026-05-20T00:00:00.000Z',
       track: track('track-1'),
       reasons: ['missing_cover'],
+      inboxStatus: 'pending',
     },
   ],
   ...overrides,
@@ -113,6 +128,7 @@ const inboxPage = (overrides: Partial<LibraryInboxTrackPage> = {}): LibraryInbox
 afterEach(() => {
   cleanup();
   libraryBridge = null;
+  queueMock.appendTracksToQueue.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -129,13 +145,15 @@ describe('InboxPage', () => {
     expect(await screen.findByText('Song track-1')).toBeTruthy();
     expect(screen.getByText('新增专辑墙')).toBeTruthy();
     expect(screen.getByText(/新增 1 首/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '资料异常' }));
+    expect(screen.getByText('封面完整率')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: /资料异常/ })[0]);
 
     await waitFor(() =>
       expect(getLibraryInboxTracks).toHaveBeenLastCalledWith(
         expect.objectContaining({
           scope: 'latest',
           filter: 'metadata_issue',
+          status: 'all',
           page: 1,
           pageSize: 60,
         }),
@@ -162,16 +180,82 @@ describe('InboxPage', () => {
     render(<InboxPage />);
 
     await screen.findByText('Song track-1');
-    fireEvent.click(screen.getByRole('button', { name: /生成歌单/ }));
+    fireEvent.click(screen.getByRole('button', { name: /生成待听歌单/ }));
 
     await waitFor(() =>
       expect(createPlaylistFromLibraryInbox).toHaveBeenCalledWith(
         expect.objectContaining({
           scope: 'latest',
           filter: 'all',
+          name: '新歌待听清单',
         }),
       ),
     );
     expect(await screen.findByText(/Inbox Picks/)).toBeTruthy();
+  });
+
+  it('adds the current inbox filter to queue through the bridge', async () => {
+    const queuedTrack = track('queued-1');
+    const getLibraryInboxTracks = vi.fn().mockResolvedValue(inboxPage());
+    const addLibraryInboxToQueue = vi.fn().mockResolvedValue({
+      tracks: [queuedTrack],
+      addedCount: 1,
+      matchedCount: 1,
+      skippedCount: 0,
+      truncated: false,
+      limit: 1000,
+    });
+    libraryBridge = {
+      getLibraryInboxTracks,
+      addLibraryInboxToQueue,
+      onLibraryChanged: vi.fn(),
+    };
+
+    render(<InboxPage />);
+
+    await screen.findByText('Song track-1');
+    fireEvent.click(screen.getAllByRole('button', { name: /加入队列/ })[0]);
+
+    await waitFor(() =>
+      expect(addLibraryInboxToQueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: 'latest',
+          filter: 'all',
+          status: 'all',
+        }),
+      ),
+    );
+    expect(queueMock.appendTracksToQueue).toHaveBeenCalledWith([queuedTrack], { type: 'manual', label: '新歌收件箱' });
+  });
+
+  it('marks selected inbox rows without changing playback', async () => {
+    const getLibraryInboxTracks = vi.fn().mockResolvedValue(inboxPage());
+    const updateLibraryInboxItemState = vi.fn().mockResolvedValue({
+      updatedCount: 1,
+      matchedCount: 1,
+      skippedCount: 0,
+      truncated: false,
+      limit: 1000,
+    });
+    libraryBridge = {
+      getLibraryInboxTracks,
+      updateLibraryInboxItemState,
+      onLibraryChanged: vi.fn(),
+    };
+
+    render(<InboxPage />);
+
+    await screen.findByText('Song track-1');
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: '标记已处理' }));
+
+    await waitFor(() =>
+      expect(updateLibraryInboxItemState).toHaveBeenCalledWith({
+        status: 'processed',
+        items: [{ batchId: 'batch-1', trackId: 'track-1' }],
+        query: undefined,
+      }),
+    );
+    expect(queueMock.appendTracksToQueue).not.toHaveBeenCalled();
   });
 });

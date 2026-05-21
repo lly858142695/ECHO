@@ -150,9 +150,39 @@ describe('HqPlayerControlSender', () => {
     });
   });
 
-  it('sends the official PlayNextURI XML command and records success', async () => {
-    const server = await createTcpServer((_data, socket) => {
-      socket.write('<?xml version="1.0"?><PlayNextURI result="OK"/>\n');
+  it('keeps the endpoint available when Status times out after GetInfo succeeds', async () => {
+    const server = await createTcpServer((data, socket) => {
+      if (data.includes('<GetInfo')) {
+        socket.write('<?xml version="1.0"?><GetInfo name="Living Room" product="HQPlayer Desktop" version="5" platform="Windows" engine="5.25.0"/>\n');
+      }
+    });
+
+    const result = await probeHqPlayerControlEndpoint({
+      connectionMode: 'localDesktop',
+      host: '127.0.0.1',
+      port: server.port,
+    }, { timeoutMs: 25 });
+
+    expect(result).toMatchObject({
+      ok: true,
+      error: null,
+      controlInfo: {
+        product: 'HQPlayer Desktop',
+        engine: '5.25.0',
+      },
+      playbackStatus: null,
+    });
+  });
+
+  it('sends the official PlayNextURI and Play XML commands and records success', async () => {
+    const server = await createTcpServer((data, socket) => {
+      if (data.includes('<PlayNextURI')) {
+        socket.end('<?xml version="1.0"?><PlayNextURI result="OK"/>\n');
+      }
+
+      if (data.includes('<Play ')) {
+        socket.end('<?xml version="1.0"?><Play result="OK"/>\n');
+      }
     });
 
     const result = await sendHqPlayerPlaybackControlPlan(basePlan(server.port), { timeoutMs: 250 });
@@ -160,11 +190,41 @@ describe('HqPlayerControlSender', () => {
     expect(result).toMatchObject({
       state: 'sent',
       reason: null,
-      command: 'PlayNextURI',
+      command: 'PlayNextURI+Play',
     });
     expect(server.received.join('')).toContain('<PlayNextURI');
+    expect(server.received.join('')).toContain('<Play last="1"');
     expect(server.received.join('')).toContain('value="http://127.0.0.1:17890/hqplayer-media/song.flac?token=a&amp;b=1"');
     expect(server.received.join('')).toContain('song="Song &amp; Test"');
+  });
+
+  it('seeks after Play when the handoff carries a start position', async () => {
+    const server = await createTcpServer((data, socket) => {
+      if (data.includes('<PlayNextURI')) {
+        socket.end('<?xml version="1.0"?><PlayNextURI result="OK"/>\n');
+      }
+
+      if (data.includes('<Play ')) {
+        socket.end('<?xml version="1.0"?><Play result="OK"/>\n');
+      }
+
+      if (data.includes('<Seek')) {
+        socket.end('<?xml version="1.0"?><Seek result="OK"/>\n');
+      }
+    });
+
+    const plan = {
+      ...basePlan(server.port),
+      startSeconds: 12.9,
+    };
+    const result = await sendHqPlayerPlaybackControlPlan(plan, { timeoutMs: 250 });
+
+    expect(result).toMatchObject({
+      state: 'sent',
+      reason: null,
+      command: 'PlayNextURI+Play+Seek',
+    });
+    expect(server.received.join('')).toContain('<Seek position="12"');
   });
 
   it('reports timeout when HQPlayer accepts the socket but does not answer', async () => {

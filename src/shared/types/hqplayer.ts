@@ -174,7 +174,7 @@ export type HqPlayerPlaybackControlSendResult = {
   state: HqPlayerPlaybackControlSendState;
   reason: HqPlayerPlaybackControlSendReason | null;
   transport: 'official-control-tcp';
-  command: 'PlayNextURI' | 'PlayNextURI+Seek' | 'none';
+  command: 'PlayNextURI+Play' | 'PlayNextURI+Play+Seek' | 'none';
   endpoint: HqPlayerEndpoint;
   startedAt: string;
   finishedAt: string;

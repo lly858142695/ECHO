@@ -21,7 +21,7 @@ export const isPlaybackCancellationError = (error: unknown): boolean => {
 };
 
 export type QueueSource =
-  | { type: 'songs'; label: string; search?: string; sort?: string; hideDuplicates?: boolean }
+  | { type: 'songs'; label: string; search?: string; sort?: string; hideDuplicates?: boolean; showDuplicatesOnly?: boolean }
   | { type: 'album'; label: string; albumId: string }
   | { type: 'artist'; label: string; artistId?: string }
   | { type: 'folder'; label: string; folderId: string; path: string; recursive: boolean }
@@ -1552,6 +1552,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
           search: source.search,
           sort: 'random',
           hideDuplicates: source.hideDuplicates,
+          showDuplicatesOnly: source.showDuplicatesOnly,
           duplicateMode: 'strict',
         });
         const freshTrack = pickRandom(result.items.filter((track) => !excludedTrackIds.has(track.id))) ?? null;
