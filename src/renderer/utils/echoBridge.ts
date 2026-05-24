@@ -132,6 +132,19 @@ const sanitizePresetId = (name: string): string =>
     .replace(/^-|-$/g, '')
     .slice(0, 48) || `preset-${Date.now()}`;
 
+const uniquePresetId = (name: string, existingIds: Set<string>): string => {
+  const baseId = sanitizePresetId(name);
+  let candidate = baseId;
+  let suffix = 2;
+
+  while (existingIds.has(candidate)) {
+    candidate = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return candidate;
+};
+
 const normalizeBands = (bands: unknown, fallback = createBands()): EqBand[] => {
   if (!Array.isArray(bands) || bands.length !== eqBandCount) {
     return cloneBands(fallback);
@@ -509,6 +522,42 @@ class BrowserEqBridge implements EqBridgeApi {
     anchor.click();
     URL.revokeObjectURL(url);
     return fileName;
+  }
+
+  async importPreset(): Promise<EqPreset | null> {
+    if (typeof document === 'undefined') {
+      return null;
+    }
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+
+    const file = await new Promise<File | null>((resolve) => {
+      input.onchange = () => resolve(input.files?.[0] ?? null);
+      input.click();
+    });
+
+    if (!file) {
+      return null;
+    }
+
+    const parsed = JSON.parse(await file.text()) as unknown;
+    const payload = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as { preset?: Partial<EqSavePresetRequest>; name?: unknown; preampDb?: unknown; bands?: unknown }
+      : null;
+    const candidate = payload?.preset && typeof payload.preset === 'object' ? payload.preset : payload;
+
+    if (!candidate || typeof candidate.name !== 'string') {
+      throw new Error('invalid_eq_preset_import');
+    }
+
+    return this.savePreset({
+      id: uniquePresetId(candidate.name, new Set(this.allPresets().map((preset) => preset.id))),
+      name: candidate.name,
+      preampDb: Number(candidate.preampDb ?? 0),
+      bands: candidate.bands as EqSavePresetRequest['bands'],
+    });
   }
 
   async deletePreset(presetId: string): Promise<EqPreset[]> {

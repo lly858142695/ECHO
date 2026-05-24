@@ -13,7 +13,7 @@ body:has(.desktop-lyrics-app),
   --desktop-lyrics-color: #ffffff;
   --desktop-lyrics-stroke-color: #111827;
   --desktop-lyrics-opacity: 0.96;
-  --desktop-lyrics-font-family: "Outfit", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --desktop-lyrics-font-family: "Microsoft YaHei", "Noto Sans SC", "Segoe UI", sans-serif;
   display: grid;
   width: 100vw;
   height: 100vh;
@@ -53,22 +53,22 @@ body:has(.desktop-lyrics-app),
   white-space: nowrap;
   letter-spacing: 0;
   text-shadow:
-    0 1px 1px var(--desktop-lyrics-stroke-color),
-    0 0 2px var(--desktop-lyrics-stroke-color),
-    0 3px 10px rgb(0 0 0 / 0.28);
-  -webkit-text-stroke: 0.025em var(--desktop-lyrics-stroke-color);
+    0 1px 1px rgb(0 0 0 / 0.48),
+    0 0 3px color-mix(in srgb, var(--desktop-lyrics-stroke-color) 72%, transparent),
+    0 3px 12px rgb(0 0 0 / 0.28);
+  -webkit-font-smoothing: antialiased;
 }
 
 .desktop-lyrics-lines strong {
   font-size: var(--desktop-lyrics-font-size);
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.18;
 }
 
 .desktop-lyrics-lines span {
   color: color-mix(in srgb, var(--desktop-lyrics-color) 82%, transparent);
   font-size: calc(var(--desktop-lyrics-font-size) * 0.56);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.2;
 }
 

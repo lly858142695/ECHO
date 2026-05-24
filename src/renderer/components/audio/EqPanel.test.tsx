@@ -129,6 +129,7 @@ beforeEach(() => {
       reset: vi.fn().mockResolvedValue(eqState()),
       savePreset: vi.fn().mockResolvedValue(presets[2]),
       exportPreset: vi.fn().mockResolvedValue('D:\\Exports\\Desk Headphones.json'),
+      importPreset: vi.fn().mockResolvedValue(presets[3]),
       deletePreset: vi.fn().mockResolvedValue(presets.slice(0, 2)),
       listProfiles: vi.fn().mockResolvedValue([]),
       saveProfile: vi.fn().mockResolvedValue({
@@ -460,6 +461,16 @@ describe('EqPanel', () => {
       })),
     );
     expect(window.echo.eq.savePreset).not.toHaveBeenCalledWith(expect.objectContaining({ name: 'Desk Headphones' }));
+  });
+
+  it('imports an EQ preset file and applies the imported preset', async () => {
+    renderEqPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Import preset' }));
+
+    await waitFor(() => expect(window.echo.eq.importPreset).toHaveBeenCalled());
+    await waitFor(() => expect(window.echo.eq.listPresets).toHaveBeenCalled());
+    await waitFor(() => expect(window.echo.eq.setPreset).toHaveBeenCalledWith('user-bright'));
   });
 
   it('filters presets by search and target curve category', async () => {

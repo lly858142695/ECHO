@@ -674,6 +674,7 @@ export type EchoApi = {
     listPresets: () => Promise<EqPreset[]>;
     savePreset: (request: EqSavePresetRequest) => Promise<EqPreset>;
     exportPreset: (request: EqSavePresetRequest) => Promise<string | null>;
+    importPreset: () => Promise<EqPreset | null>;
     deletePreset: (presetId: string) => Promise<EqPreset[]>;
     listProfiles: () => Promise<EqProfile[]>;
     saveProfile: (request: EqSaveProfileRequest) => Promise<EqProfile>;

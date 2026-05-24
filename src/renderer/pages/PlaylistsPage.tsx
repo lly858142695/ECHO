@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Check, ChevronDown, Download, FilePlus2, ImagePlus, Link, ListPlus, Loader2, MoreHorizontal, Music2, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, SlidersHorizontal, Trash2, Upload, WifiOff, X } from 'lucide-react';
+import type { AppSettings } from '../../shared/types/appSettings';
 import type { DownloadJob, DownloadJobStatus } from '../../shared/types/downloads';
 import type { LibraryPage, LibraryPlaylist, LibraryPlaylistItem, LibraryTrack, PlaylistExportFormat, PlaylistSortMode } from '../../shared/types/library';
 import type { StreamingAudioQuality, StreamingProviderName } from '../../shared/types/streaming';
@@ -261,6 +262,7 @@ export const PlaylistsPage = (): JSX.Element => {
   const [isImportingPlaylistFile, setIsImportingPlaylistFile] = useState(false);
   const [isAddingLocalFiles, setIsAddingLocalFiles] = useState(false);
   const [isRefreshingStreamingPlaylist, setIsRefreshingStreamingPlaylist] = useState(false);
+  const [downloadsFeatureUnlocked, setDownloadsFeatureUnlocked] = useState(false);
   const [downloadingTrackId, setDownloadingTrackId] = useState<string | null>(null);
   const [downloadJobs, setDownloadJobs] = useState<DownloadJob[]>([]);
   const [downloadJobIdsByTrackId, setDownloadJobIdsByTrackId] = useState<Record<string, string>>(() => readPlaylistDownloadMemory().downloadJobIdsByTrackId);
@@ -288,7 +290,8 @@ export const PlaylistsPage = (): JSX.Element => {
   const isSelectedPlaylistRemote = Boolean(selectedPlaylist && selectedPlaylist.sourceProvider !== 'local');
   const selectedStreamingPlaylistUrl = selectedPlaylist ? streamingPlaylistUrl(selectedPlaylist) : null;
   const currentStreamingQuality = streamingQualityOptions.find((option) => option.value === streamingQuality) ?? streamingQualityOptions[0];
-  const canDownloadSelectedPlaylist = selectedPlaylist?.sourceProvider === 'netease' || selectedPlaylist?.sourceProvider === 'qqmusic';
+  const canDownloadSelectedPlaylist =
+    downloadsFeatureUnlocked && (selectedPlaylist?.sourceProvider === 'netease' || selectedPlaylist?.sourceProvider === 'qqmusic');
   const displayTracks = useMemo(
     () => itemsPage.items.map((item) => itemToTrack(item, isSelectedPlaylistRemote ? streamingQuality : undefined)),
     [isSelectedPlaylistRemote, itemsPage.items, streamingQuality],
@@ -452,6 +455,47 @@ export const PlaylistsPage = (): JSX.Element => {
   useEffect(() => {
     void loadPlaylists();
   }, [loadPlaylists]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
+      if (!settings || !Object.prototype.hasOwnProperty.call(settings, 'downloadsFeatureUnlocked')) {
+        return;
+      }
+
+      setDownloadsFeatureUnlocked(settings.downloadsFeatureUnlocked === true);
+    };
+
+    const refreshSettings = (): void => {
+      void window.echo?.app?.getSettings?.()
+        .then((settings) => {
+          if (!cancelled) {
+            applySettings(settings);
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    const handleSettingsChanged = (event: Event): void => {
+      if (event instanceof CustomEvent) {
+        applySettings(event.detail as Partial<AppSettings> | null | undefined);
+        return;
+      }
+
+      if (!cancelled) {
+        refreshSettings();
+      }
+    };
+
+    refreshSettings();
+    window.addEventListener('settings:changed', handleSettingsChanged);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('settings:changed', handleSettingsChanged);
+    };
+  }, []);
 
   useEffect(() => {
     const handleChanged = (): void => {

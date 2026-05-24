@@ -24,6 +24,8 @@ type DesktopLyricsSettings = Required<Pick<
   | 'desktopLyricsColor'
   | 'desktopLyricsStrokeColor'
   | 'desktopLyricsOpacityPercent'
+  | 'desktopLyricsRomanizationEnabled'
+  | 'desktopLyricsTranslationEnabled'
 >> & Pick<AppSettings, 'desktopLyricsBounds'>;
 
 type DesktopLyricsStateSnapshot = {
@@ -47,11 +49,13 @@ const fallbackSettings: DesktopLyricsSettings = {
   desktopLyricsLocked: false,
   desktopLyricsFontSizePx: 34,
   desktopLyricsScalePercent: 100,
-  desktopLyricsFontFamily: 'Outfit',
+  desktopLyricsFontFamily: 'Microsoft YaHei',
   desktopLyricsFontFilePath: null,
   desktopLyricsColor: '#FFFFFF',
   desktopLyricsStrokeColor: '#111827',
   desktopLyricsOpacityPercent: 96,
+  desktopLyricsRomanizationEnabled: true,
+  desktopLyricsTranslationEnabled: true,
   desktopLyricsBounds: null,
 };
 
@@ -109,6 +113,8 @@ const pickDesktopLyricsSettings = (settings: Partial<AppSettings> | null | undef
   desktopLyricsColor: settings?.desktopLyricsColor ?? fallbackSettings.desktopLyricsColor,
   desktopLyricsStrokeColor: settings?.desktopLyricsStrokeColor ?? fallbackSettings.desktopLyricsStrokeColor,
   desktopLyricsOpacityPercent: settings?.desktopLyricsOpacityPercent ?? fallbackSettings.desktopLyricsOpacityPercent,
+  desktopLyricsRomanizationEnabled: settings?.desktopLyricsRomanizationEnabled ?? fallbackSettings.desktopLyricsRomanizationEnabled,
+  desktopLyricsTranslationEnabled: settings?.desktopLyricsTranslationEnabled ?? fallbackSettings.desktopLyricsTranslationEnabled,
   desktopLyricsBounds: settings?.desktopLyricsBounds ?? null,
 });
 
@@ -199,8 +205,9 @@ const secondaryLineText = (
   line: LyricLine | null | undefined,
   nextLine: LyricLine | null | undefined,
   showRomanization: boolean,
+  showTranslation: boolean,
 ): string =>
-  line?.translation?.trim() ||
+  (showTranslation ? line?.translation?.trim() : '') ||
   (showRomanization ? line?.romanization?.trim() : '') ||
   nextLine?.text.trim() ||
   '';
@@ -440,16 +447,21 @@ export const DesktopLyricsApp = (): JSX.Element => {
   const secondaryText =
     lyrics.kind === 'instrumental'
       ? ''
-      : secondaryLineText(currentLine, nextLine, canShowRomanization) || (clockHasIdentity(activeClock) ? 'Desktop Lyrics' : '等待播放');
+      : secondaryLineText(
+        currentLine,
+        nextLine,
+        settings.desktopLyricsRomanizationEnabled && canShowRomanization,
+        settings.desktopLyricsTranslationEnabled,
+      ) || (clockHasIdentity(activeClock) ? 'Desktop Lyrics' : '等待播放');
 
   const style = {
     '--desktop-lyrics-font-size': `${settings.desktopLyricsFontSizePx}px`,
     '--desktop-lyrics-scale': (settings.desktopLyricsScalePercent / 100).toFixed(2),
     '--desktop-lyrics-font-family': [
       serializeFontList(settings.desktopLyricsFontFamily),
-      '"Outfit"',
       '"Noto Sans SC"',
       '"Microsoft YaHei"',
+      '"Segoe UI"',
       'sans-serif',
     ].join(', '),
     '--desktop-lyrics-color': settings.desktopLyricsColor,

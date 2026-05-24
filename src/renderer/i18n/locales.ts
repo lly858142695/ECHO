@@ -846,6 +846,7 @@ export type TranslationKey =
   | 'settings.eq.action.freqUp'
   | 'settings.eq.action.holdBypass'
   | 'settings.eq.action.hideAdvanced'
+  | 'settings.eq.action.importPreset'
   | 'settings.eq.action.applyA'
   | 'settings.eq.action.applyB'
   | 'settings.eq.action.applySafePreamp'
@@ -1287,7 +1288,7 @@ const zhCN: TranslationMap = {
   'audioDrawer.note.currentOutput': '这里显示现在真正使用的输出路径；共享适合日常，ASIO 和 WASAPI 独占会以金色标出。',
   'audioDrawer.note.engine': '这里快速查看输出设备、模式、采样率、EQ 和重采样状态。',
   'audioDrawer.note.juceOutput': '默认主输出。FFmpeg 继续负责解码；JUCE 负责输出，失败会自动回退到兼容路径。',
-  'audioDrawer.note.juceDecode': '默认开启。本地 WAV/FLAC/MP3 在无需重采样时使用长驻原生解码；MP3 走 Windows Media，失败会自动回退 FFmpeg。',
+  'audioDrawer.note.juceDecode': '默认关闭。开启后，本地 WAV/FLAC/MP3 在无需重采样时使用长驻原生解码；MP3 走 Windows Media，失败会自动回退 FFmpeg。',
   'audioDrawer.note.dsdDop': '默认关闭。本地 DSF 在独占或 ASIO 下尝试 DoP 直出；失败会自动回退 FFmpeg PCM，最终以 DAC 显示为准。',
   'audioDrawer.note.asioNativeDsd': '默认关闭。仅 ASIO + 本地 DSF + DoP 开启且无 EQ/音量/变速/DSP 时尝试；失败会退回现有 DoP/PCM。',
   'audioDrawer.note.releaseExclusiveOnPause': '实验功能。暂停时释放 WASAPI 独占，让其它软件临时出声；恢复播放会重新抢独占，失败时临时降到共享。',
@@ -2043,6 +2044,7 @@ const zhCN: TranslationMap = {
   'settings.eq.action.freqUp': '频率 +',
   'settings.eq.action.holdBypass': '按住旁路 EQ',
   'settings.eq.action.hideAdvanced': '隐藏 PEQ 控制台',
+  'settings.eq.action.importPreset': '导入预设',
   'settings.eq.action.applyA': '应用 A',
   'settings.eq.action.applyB': '应用 B',
   'settings.eq.action.applySafePreamp': '应用安全前级',
@@ -2514,7 +2516,7 @@ const zhTW: TranslationMap = {
   'audioDrawer.note.currentOutput': '這裡顯示現在真正使用的輸出路徑；共享適合日常，ASIO 和 WASAPI 獨佔會以金色標出。',
   'audioDrawer.note.engine': '這裡快速查看輸出裝置、模式、取樣率、EQ 和重取樣狀態。',
   'audioDrawer.note.juceOutput': '預設主輸出。FFmpeg 繼續負責解碼；JUCE 負責輸出，失敗會自動退回相容路徑。',
-  'audioDrawer.note.juceDecode': '預設開啟。本機 WAV/FLAC/MP3 在不需重取樣時使用常駐原生解碼；MP3 走 Windows Media，失敗會自動退回 FFmpeg。',
+  'audioDrawer.note.juceDecode': '預設關閉。開啟後，本機 WAV/FLAC/MP3 在不需重取樣時使用常駐原生解碼；MP3 走 Windows Media，失敗會自動退回 FFmpeg。',
   'audioDrawer.note.dsdDop': '預設關閉。本機 DSF 在獨占或 ASIO 下嘗試 DoP 直出；失敗會自動退回 FFmpeg PCM，最終以 DAC 顯示為準。',
   'audioDrawer.note.asioNativeDsd': '預設關閉。僅 ASIO + 本機 DSF + DoP 開啟且無 EQ/音量/變速/DSP 時嘗試；失敗會退回現有 DoP/PCM。',
   'audioDrawer.note.releaseExclusiveOnPause': '實驗功能。暫停時釋放 WASAPI 獨占，讓其他軟體暫時出聲；恢復播放會重新搶獨占，失敗時暫時降到共享。',
@@ -3417,7 +3419,7 @@ const jaJP: TranslationMap = {
   'audioDrawer.note.currentOutput': 'ここには実際に使っている出力経路が表示されます。共有は普段使い向け、ASIO と WASAPI 排他は金色で表示されます。',
   'audioDrawer.note.engine': '出力デバイス、モード、レート、EQ、リサンプル状態をすばやく確認できます。',
   'audioDrawer.note.juceOutput': '既定のメイン出力です。FFmpeg はデコードを続け、JUCE が出力を担当し、失敗時は互換経路へ自動で戻します。',
-  'audioDrawer.note.juceDecode': '既定でオンです。リサンプル不要のローカル WAV/FLAC/MP3 は常駐ネイティブデコードを使います。MP3 は Windows Media 経由で、失敗時は FFmpeg に戻します。',
+  'audioDrawer.note.juceDecode': '既定でオフです。オンにすると、リサンプル不要のローカル WAV/FLAC/MP3 は常駐ネイティブデコードを使います。MP3 は Windows Media 経由で、失敗時は FFmpeg に戻します。',
   'audioDrawer.note.dsdDop': '既定ではオフです。ローカル DSF を排他または ASIO で DoP 直出し、失敗時は FFmpeg PCM に戻します。最終確認は DAC 表示で行います。',
   'audioDrawer.note.asioNativeDsd': '既定ではオフです。ASIO + ローカル DSF + DoP 有効、かつ EQ/音量/速度/DSP なしの時だけ試し、失敗時は既存の DoP/PCM に戻します。',
   'audioDrawer.note.releaseExclusiveOnPause': '実験機能です。一時停止時に WASAPI 排他を解放し、他のアプリの音を通します。再生再開時に排他を取り直し、失敗時は一時的に共有へ戻します。',
@@ -4393,7 +4395,7 @@ const enUS: TranslationMap = {
   'audioDrawer.note.currentOutput': 'This shows the output path in use. Shared is for daily listening; ASIO and WASAPI Exclusive are highlighted in gold.',
   'audioDrawer.note.engine': 'Quickly check the output device, mode, sample rate, EQ, and resampling state.',
   'audioDrawer.note.juceOutput': 'Default main output. FFmpeg keeps decoding; JUCE owns output and falls back to the compatibility path if it fails.',
-  'audioDrawer.note.juceDecode': 'On by default. Uses resident native decode for local WAV/FLAC/MP3 files that need no resampling; MP3 uses Windows Media and falls back to FFmpeg on failure.',
+  'audioDrawer.note.juceDecode': 'Off by default. When enabled, uses resident native decode for local WAV/FLAC/MP3 files that need no resampling; MP3 uses Windows Media and falls back to FFmpeg on failure.',
   'audioDrawer.note.dsdDop': 'Off by default. Tries DoP direct output for local DSF in Exclusive or ASIO; falls back to FFmpeg PCM on failure. Trust the DAC display.',
   'audioDrawer.note.asioNativeDsd': 'Off by default. Tries only for ASIO + local DSF + DoP with no EQ, volume, speed, or DSP; falls back to the existing DoP/PCM path on failure.',
   'audioDrawer.note.releaseExclusiveOnPause': 'Experimental. Pause releases WASAPI Exclusive so other apps can play; resume tries Exclusive again and temporarily falls back to Shared if needed.',
@@ -4834,6 +4836,7 @@ const enUS: TranslationMap = {
   'settings.eq.action.freqUp': 'Freq +',
   'settings.eq.action.holdBypass': 'Hold to Bypass EQ',
   'settings.eq.action.hideAdvanced': 'Hide PEQ console',
+  'settings.eq.action.importPreset': 'Import preset',
   'settings.eq.action.applyA': 'Apply A',
   'settings.eq.action.applyB': 'Apply B',
   'settings.eq.action.applySafePreamp': 'Apply safe preamp',

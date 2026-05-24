@@ -37,6 +37,8 @@ const toDesktopLyricsSettings = (): DesktopLyricsState['settings'] => {
     desktopLyricsColor: settings.desktopLyricsColor,
     desktopLyricsStrokeColor: settings.desktopLyricsStrokeColor,
     desktopLyricsOpacityPercent: settings.desktopLyricsOpacityPercent,
+    desktopLyricsRomanizationEnabled: settings.desktopLyricsRomanizationEnabled,
+    desktopLyricsTranslationEnabled: settings.desktopLyricsTranslationEnabled,
     desktopLyricsBounds: settings.desktopLyricsBounds,
   };
 };

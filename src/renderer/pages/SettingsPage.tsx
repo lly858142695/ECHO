@@ -37,6 +37,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { AudioDeviceInfo, AudioOutputMode, AudioOutputSettings, AudioSharedBackend, AudioStatus, ChannelBalanceState, PlaybackSpeedMode } from '../../shared/types/audio';
 import { QUIET_REPLAY_GAIN_TARGET_LUFS, SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS } from '../../shared/constants/replayGain';
+import { isDownloadFeatureUnlockCode } from '../../shared/constants/featureUnlocks';
 import type { AccountProvider, AccountStatus, YouTubeBrowser } from '../../shared/types/accounts';
 import type {
   HqPlayerConnectionMode,
@@ -3387,6 +3388,8 @@ export const SettingsPage = (): JSX.Element => {
   const [downloadSettings, setDownloadSettings] = useState<DownloadSettings | null>(null);
   const [downloadDirectoryBusy, setDownloadDirectoryBusy] = useState(false);
   const [downloadDirectoryMessage, setDownloadDirectoryMessage] = useState<string | null>(null);
+  const [downloadUnlockInput, setDownloadUnlockInput] = useState('');
+  const [downloadUnlockMessage, setDownloadUnlockMessage] = useState<string | null>(null);
   const [pendingAlbumMergeStrategy, setPendingAlbumMergeStrategy] = useState<AlbumMergeStrategy | null>(null);
   const [albumGroupingBusy, setAlbumGroupingBusy] = useState(false);
   const [albumGroupingMessage, setAlbumGroupingMessage] = useState<string | null>(null);
@@ -3803,6 +3806,14 @@ export const SettingsPage = (): JSX.Element => {
           '艺术家头像',
           '头像缓存',
         ],
+      },
+      {
+        id: 'row-mysterious-key',
+        sectionKey: 'general',
+        targetId: 'settings-row-mysterious-key',
+        title: 'Mysterious key',
+        description: 'Enter a special key to unlock hidden capabilities.',
+        terms: ['Mysterious key', 'key', 'secret', 'unlock', 'hidden', '神秘钥匙', '密钥'],
       },
       {
         id: 'row-streaming-download-actions',
@@ -4646,7 +4657,7 @@ export const SettingsPage = (): JSX.Element => {
         sharedBackend: normalizedSharedBackend,
         latencyProfile: 'lowLatency',
         useJuceOutput: appSettings?.audioUseJuceOutput !== false,
-        useJuceDecode: appSettings?.audioUseJuceDecode !== false,
+        useJuceDecode: appSettings?.audioUseJuceDecode === true,
         dsdOutputMode: appSettings?.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm',
         asioNativeDsdExperimentalEnabled: appSettings?.audioAsioNativeDsdExperimentalEnabled === true,
         asioUnavailableFallbackEnabled: appSettings?.audioAsioUnavailableFallbackEnabled === true,
@@ -4796,7 +4807,7 @@ export const SettingsPage = (): JSX.Element => {
   };
 
   const handleJuceDecodeToggle = async (): Promise<void> => {
-    const nextUseJuceDecode = !(appSettings?.audioUseJuceDecode !== false);
+    const nextUseJuceDecode = appSettings?.audioUseJuceDecode !== true;
     patchAppSettings({ audioUseJuceDecode: nextUseJuceDecode });
 
     const audio = getAudioBridge();
@@ -6185,6 +6196,24 @@ export const SettingsPage = (): JSX.Element => {
   const pendingResolvedCacheDirectory =
     pendingCacheDirectory === undefined ? null : pendingCacheDirectory ?? defaultCacheDirectory;
   const currentDownloadDirectoryLabel = downloadSettings?.outputDirectory ?? '尚未选择下载文件夹';
+  const downloadsFeatureUnlocked = appSettings?.downloadsFeatureUnlocked === true;
+
+  const handleDownloadFeatureUnlock = (): void => {
+    if (!isDownloadFeatureUnlockCode(downloadUnlockInput)) {
+      setDownloadUnlockMessage('Key not accepted.');
+      return;
+    }
+
+    setDownloadUnlockMessage('Key accepted.');
+    setDownloadUnlockInput('');
+    patchAppSettings({ downloadsFeatureUnlocked: true });
+  };
+
+  const handleDownloadUnlockKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Enter') {
+      handleDownloadFeatureUnlock();
+    }
+  };
   const updateDownloadPercent = Math.max(0, Math.min(100, Math.round(updateStatus?.downloadPercent ?? 0)));
   const showUpdateDownloadProgress = updateStatus?.state === 'downloading' || updateStatus?.state === 'downloaded';
   const updateDownloadSizeLabel =
@@ -7888,6 +7917,48 @@ export const SettingsPage = (): JSX.Element => {
                   }
                 />
               </SettingRow>
+              <SettingRow
+                id="settings-row-mysterious-key"
+                highlighted={highlightedSettingId === 'settings-row-mysterious-key'}
+                className="setting-row--full setting-row--compact-panel"
+                title="Mysterious key"
+                description="Enter a special key to unlock hidden capabilities."
+              >
+                {downloadsFeatureUnlocked ? (
+                  <div className="settings-inline-toggle settings-inline-toggle--compact">
+                    <span>Accepted</span>
+                    <Check size={16} />
+                  </div>
+                ) : (
+                  <div className="settings-cache-panel settings-cache-panel--download">
+                    <label className="settings-input-field" htmlFor="mysterious-key">
+                      <input
+                        id="mysterious-key"
+                        type="text"
+                        value={downloadUnlockInput}
+                        onChange={(event) => {
+                          setDownloadUnlockInput(event.target.value);
+                          setDownloadUnlockMessage(null);
+                        }}
+                        onKeyDown={handleDownloadUnlockKeyDown}
+                        placeholder="Enter key"
+                      />
+                    </label>
+                    <div className="settings-chip-row settings-chip-row--left">
+                      <button
+                        className="settings-action-button"
+                        type="button"
+                        disabled={!appSettings || !downloadUnlockInput.trim()}
+                        onClick={handleDownloadFeatureUnlock}
+                      >
+                        <Check size={15} />
+                        Apply
+                      </button>
+                    </div>
+                    {downloadUnlockMessage ? <p className="settings-inline-note">{downloadUnlockMessage}</p> : null}
+                  </div>
+                )}
+              </SettingRow>
               <SettingRow title={t('settings.general.backup.title')} description={t('settings.general.backup.description')}>
                 <div className="settings-chip-row">
                   <button
@@ -8090,9 +8161,9 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() => void handleJuceOutputToggle()}
                 />
               </SettingRow>
-              <SettingRow title="长驻原生解码" description="默认开启。本地 WAV/FLAC/MP3 在无需重采样时使用长驻原生解码；MP3 走 Windows Media，失败会自动回退 FFmpeg。">
+              <SettingRow title="长驻原生解码" description="默认关闭。开启后，本地 WAV/FLAC/MP3 在无需重采样时使用长驻原生解码；MP3 走 Windows Media，失败会自动回退 FFmpeg。">
                 <ToggleButton
-                  active={appSettings?.audioUseJuceDecode !== false}
+                  active={appSettings?.audioUseJuceDecode === true}
                   disabled={!appSettings}
                   onClick={() => void handleJuceDecodeToggle()}
                 />
@@ -9981,45 +10052,49 @@ export const SettingsPage = (): JSX.Element => {
                   ) : null}
                 </div>
               </SettingRow>
-              <SettingRow
-                className="setting-row--full setting-row--compact-panel"
-                title="下载路径"
-                description="选择下载音频保存目录，下载页会同步使用这个位置。"
-              >
-                <div className="settings-cache-panel settings-cache-panel--download">
-                  <div className="settings-cache-path">
-                    <em>当前下载文件夹</em>
-                    <strong title={currentDownloadDirectoryLabel}>{currentDownloadDirectoryLabel}</strong>
-                  </div>
-                  <div className="settings-chip-row settings-chip-row--left">
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void handleDownloadDirectoryChoose()}
-                      disabled={downloadDirectoryBusy}
-                    >
-                      <FolderOpen size={15} />
-                      {downloadSettings?.outputDirectory ? '更换文件夹' : '选择文件夹'}
-                    </button>
-                  </div>
-                  {downloadDirectoryMessage ? <p className="settings-inline-note">{downloadDirectoryMessage}</p> : null}
-                </div>
-              </SettingRow>
-              <SettingRow
-                id="settings-row-streaming-download-actions"
-                highlighted={highlightedSettingId === 'settings-row-streaming-download-actions'}
-                title="流媒体下载按钮"
-                description="默认隐藏流媒体页下载入口；开启后才会在支持的平台歌曲行显示下载按钮。"
-              >
-                <div className="settings-inline-toggle settings-inline-toggle--compact">
-                  <span>{appSettings?.streamingDownloadActionsEnabled ? '已显示' : '已隐藏'}</span>
-                  <ToggleButton
-                    active={appSettings?.streamingDownloadActionsEnabled === true}
-                    disabled={!appSettings}
-                    onClick={() => patchAppSettings({ streamingDownloadActionsEnabled: !(appSettings?.streamingDownloadActionsEnabled ?? false) })}
-                  />
-                </div>
-              </SettingRow>
+              {downloadsFeatureUnlocked ? (
+                <>
+                  <SettingRow
+                    className="setting-row--full setting-row--compact-panel"
+                    title="下载路径"
+                    description="选择下载音频保存目录，下载页会同步使用这个位置。"
+                  >
+                    <div className="settings-cache-panel settings-cache-panel--download">
+                      <div className="settings-cache-path">
+                        <em>当前下载文件夹</em>
+                        <strong title={currentDownloadDirectoryLabel}>{currentDownloadDirectoryLabel}</strong>
+                      </div>
+                      <div className="settings-chip-row settings-chip-row--left">
+                        <button
+                          className="settings-action-button"
+                          type="button"
+                          onClick={() => void handleDownloadDirectoryChoose()}
+                          disabled={downloadDirectoryBusy}
+                        >
+                          <FolderOpen size={15} />
+                          {downloadSettings?.outputDirectory ? '更换文件夹' : '选择文件夹'}
+                        </button>
+                      </div>
+                      {downloadDirectoryMessage ? <p className="settings-inline-note">{downloadDirectoryMessage}</p> : null}
+                    </div>
+                  </SettingRow>
+                  <SettingRow
+                    id="settings-row-streaming-download-actions"
+                    highlighted={highlightedSettingId === 'settings-row-streaming-download-actions'}
+                    title="流媒体下载按钮"
+                    description="默认隐藏流媒体页下载入口；开启后才会在支持的平台歌曲行显示下载按钮。"
+                  >
+                    <div className="settings-inline-toggle settings-inline-toggle--compact">
+                      <span>{appSettings?.streamingDownloadActionsEnabled ? '已显示' : '已隐藏'}</span>
+                      <ToggleButton
+                        active={appSettings?.streamingDownloadActionsEnabled === true}
+                        disabled={!appSettings}
+                        onClick={() => patchAppSettings({ streamingDownloadActionsEnabled: !(appSettings?.streamingDownloadActionsEnabled ?? false) })}
+                      />
+                    </div>
+                  </SettingRow>
+                </>
+              ) : null}
               <SettingRow
                 title="歌单自动备份"
                 description="开启后，刷新、清空或删除歌单前会先在系统下载文件夹保存一份 JSON 备份。"

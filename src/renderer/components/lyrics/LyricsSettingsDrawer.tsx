@@ -98,6 +98,8 @@ type LyricsDrawerSettings = Pick<
   | 'lyricsBackgroundScalePercent'
   | 'desktopLyricsFontFamily'
   | 'desktopLyricsFontFilePath'
+  | 'desktopLyricsRomanizationEnabled'
+  | 'desktopLyricsTranslationEnabled'
 >;
 
 const fallbackSettings: LyricsDrawerSettings = {
@@ -143,8 +145,10 @@ const fallbackSettings: LyricsDrawerSettings = {
   lyricsCoverBlurPx: 10,
   lyricsCoverBrightnessPercent: 100,
   lyricsBackgroundScalePercent: 100,
-  desktopLyricsFontFamily: 'Outfit',
+  desktopLyricsFontFamily: 'Microsoft YaHei',
   desktopLyricsFontFilePath: null,
+  desktopLyricsRomanizationEnabled: true,
+  desktopLyricsTranslationEnabled: true,
 };
 
 const colorSwatches = ['#314054', '#FFFFFF', '#F6D365', '#8FCFBD', '#A8C7FA', '#FF8A80'];
@@ -398,6 +402,8 @@ const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
   lyricsBackgroundScalePercent: settings.lyricsBackgroundScalePercent,
   desktopLyricsFontFamily: settings.desktopLyricsFontFamily ?? fallbackSettings.desktopLyricsFontFamily,
   desktopLyricsFontFilePath: settings.desktopLyricsFontFilePath ?? fallbackSettings.desktopLyricsFontFilePath,
+  desktopLyricsRomanizationEnabled: settings.desktopLyricsRomanizationEnabled ?? fallbackSettings.desktopLyricsRomanizationEnabled,
+  desktopLyricsTranslationEnabled: settings.desktopLyricsTranslationEnabled ?? fallbackSettings.desktopLyricsTranslationEnabled,
 });
 
 export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSettingsPanelProps): JSX.Element => {
@@ -439,12 +445,20 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
     desktopLyricsState?.settings.desktopLyricsFontFamily ??
     effectiveSettings.desktopLyricsFontFamily ??
     fallbackSettings.desktopLyricsFontFamily ??
-    'Outfit';
+    'Microsoft YaHei';
   const desktopLyricsFontFilePath =
     desktopLyricsState?.settings.desktopLyricsFontFilePath ??
     effectiveSettings.desktopLyricsFontFilePath ??
     fallbackSettings.desktopLyricsFontFilePath ??
     null;
+  const desktopLyricsRomanizationEnabled =
+    desktopLyricsState?.settings.desktopLyricsRomanizationEnabled ??
+    effectiveSettings.desktopLyricsRomanizationEnabled ??
+    fallbackSettings.desktopLyricsRomanizationEnabled;
+  const desktopLyricsTranslationEnabled =
+    desktopLyricsState?.settings.desktopLyricsTranslationEnabled ??
+    effectiveSettings.desktopLyricsTranslationEnabled ??
+    fallbackSettings.desktopLyricsTranslationEnabled;
   const wordHighlightClarityPercent = effectiveSettings.lyricsWordHighlightClarityPercent ?? fallbackSettings.lyricsWordHighlightClarityPercent ?? 70;
   const wordHighlightClarityLabel =
     wordHighlightClarityPercent === fallbackSettings.lyricsWordHighlightClarityPercent ? '正常' : `${wordHighlightClarityPercent}%`;
@@ -1450,10 +1464,10 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                   disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
                   onClick={() => openFontPicker('desktopLyrics')}
                 >
-                  <span style={{ fontFamily: `"${desktopLyricsFontFamily}", "Outfit", var(--echo-font-family)` }}>
+                  <span style={{ fontFamily: `"${desktopLyricsFontFamily}", "Microsoft YaHei", var(--echo-font-family)` }}>
                     {desktopLyricsFontFamily}
                   </span>
-                  <em>默认 Outfit，可换系统字体</em>
+                  <em>默认微软雅黑，可换系统字体</em>
                 </button>
                 <div className="lyrics-font-actions">
                   <button

@@ -319,6 +319,39 @@ describe('preload SMTC API', () => {
     });
   });
 
+  it('resets reused system audio playback to the beginning for a new track', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string, request?: unknown) => {
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        const streamRequest = request as { url: string };
+        return Promise.resolve(streamRequest.url.includes('next') ? 'echo-audio://system/next-token' : 'echo-audio://system/current-token');
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+
+    await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\current.mp3',
+      trackId: 'track-current',
+      startSeconds: 119,
+      probe: { durationSeconds: 180 },
+    });
+    expect(fakeAudioInstances[0].currentTime).toBe(119);
+
+    await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\next.mp3',
+      trackId: 'track-next',
+      probe: { durationSeconds: 180 },
+    });
+
+    expect(fakeAudioInstances).toHaveLength(1);
+    expect(fakeAudioInstances[0].src).toBe('echo-audio://system/next-token');
+    expect(fakeAudioInstances[0].currentTime).toBe(0);
+  });
+
   it('reports local system audio ending before duration as a decode failure', async () => {
     vi.resetModules();
     exposedApi = null;

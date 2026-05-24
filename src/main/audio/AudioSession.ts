@@ -551,6 +551,7 @@ const createSharedFallbackSettings = (settings: AudioOutputSettings): AudioOutpu
   sharedBackend: normalizeSharedBackend('windows'),
   requestedOutputSampleRate: undefined,
   useJuceOutput: false,
+  useJuceDecode: false,
   dsdOutputMode: 'pcm',
 });
 
@@ -564,6 +565,7 @@ const createSafeSharedFallbackSettings = (settings: AudioOutputSettings): AudioO
   latencyProfile: 'stable',
   bufferSizeFrames: undefined,
   useJuceOutput: false,
+  useJuceDecode: false,
   dsdOutputMode: 'pcm',
 });
 
@@ -890,7 +892,7 @@ const createOutputRestartSnapshot = (settings: AudioOutputSettings): AudioOutput
     latencyProfile: normalizeLatencyProfile(settings.latencyProfile),
     bufferSizeFrames: normalizePositiveInteger(settings.bufferSizeFrames),
     useJuceOutput: settings.useJuceOutput === true,
-    useJuceDecode: settings.useJuceDecode !== false,
+    useJuceDecode: settings.useJuceDecode === true,
     dsdOutputMode: normalizeDsdOutputMode(settings.dsdOutputMode),
     asioNativeDsdExperimentalEnabled: settings.asioNativeDsdExperimentalEnabled === true,
     asioUnavailableFallbackEnabled: settings.asioUnavailableFallbackEnabled === true,
@@ -1108,7 +1110,7 @@ export class AudioSession extends EventEmitter {
     latencyProfile: 'balanced',
     sharedBackend: 'auto',
     useJuceOutput: true,
-    useJuceDecode: true,
+    useJuceDecode: false,
     dsdOutputMode: 'pcm',
     asioNativeDsdExperimentalEnabled: false,
     asioUnavailableFallbackEnabled: false,
@@ -1133,6 +1135,7 @@ export class AudioSession extends EventEmitter {
   private currentOutputDeviceName: string | null = null;
   private currentUseJuceOutputRequested = false;
   private currentUseJuceDecodeRequested = false;
+  private juceDecodeSuspendedAfterFailure = false;
   private currentDecodeBackendImpl: string | null = null;
   private currentDsdOutputModeRequested: AudioDsdOutputMode = 'pcm';
   private currentActiveDsdOutputMode: ActiveDsdOutputMode = null;
@@ -1405,6 +1408,9 @@ export class AudioSession extends EventEmitter {
       playbackRate: normalizePlaybackRate(settings.playbackRate ?? this.outputSettings.playbackRate),
       playbackSpeedMode: normalizePlaybackSpeedMode(settings.playbackSpeedMode ?? this.outputSettings.playbackSpeedMode),
     };
+    if (settings.useJuceDecode === true) {
+      this.juceDecodeSuspendedAfterFailure = false;
+    }
     if (this.outputSettings.sharedBackend === 'directsound') {
       this.outputSettings.deviceIndex = undefined;
     }
@@ -3087,7 +3093,9 @@ export class AudioSession extends EventEmitter {
       ),
       asioNativeDsdExperimentalEnabled: output?.asioNativeDsdExperimentalEnabled ?? this.outputSettings.asioNativeDsdExperimentalEnabled ?? false,
       asioUnavailableFallbackEnabled: output?.asioUnavailableFallbackEnabled ?? this.outputSettings.asioUnavailableFallbackEnabled ?? false,
-      useJuceDecode: output?.useJuceDecode ?? this.outputSettings.useJuceDecode ?? false,
+      useJuceDecode: this.juceDecodeSuspendedAfterFailure
+        ? false
+        : output?.useJuceDecode ?? this.outputSettings.useJuceDecode ?? false,
       dsdOutputMode: normalizeDsdOutputMode(output?.dsdOutputMode ?? this.outputSettings.dsdOutputMode),
       soxrFallbackEnabled: output?.soxrFallbackEnabled ?? this.outputSettings.soxrFallbackEnabled ?? true,
       releaseExclusiveOnPauseExperimentalEnabled:
@@ -3186,6 +3194,18 @@ export class AudioSession extends EventEmitter {
       juceRun?.done.catch(() => undefined);
       juceRun?.stop();
       this.addOutputWarning('juce_decode_fell_back_to_ffmpeg');
+      this.juceDecodeSuspendedAfterFailure = true;
+      this.outputSettings = {
+        ...this.outputSettings,
+        useJuceDecode: false,
+      };
+      if (this.currentOutputSettings) {
+        this.currentOutputSettings = {
+          ...this.currentOutputSettings,
+          useJuceDecode: false,
+        };
+      }
+      this.currentUseJuceDecodeRequested = false;
       const fallbackError = error instanceof Error ? error : new Error(String(error));
       this.logger(`[AudioSession] JUCE decode failed; falling back to FFmpeg: ${fallbackError.message}`);
       this.reportRecoverableAudioError(fallbackError, 'juce-decode-fallback', {
@@ -6282,7 +6302,7 @@ export class AudioSession extends EventEmitter {
         action: 'rebase_without_restart',
       },
     });
-    this.logger(
+    this.verboseLogger(
       `[AudioSession] guarded playback position jump ignored; rebased clock at ${rebasePositionSeconds.toFixed(3)}s ` +
         `reported=${reportedPositionSeconds.toFixed(3)}s previous=${baselinePositionSeconds.toFixed(3)}s`,
     );
@@ -6371,6 +6391,12 @@ export class AudioSession extends EventEmitter {
 
   private handleUnexpectedPositionJump(jump: UnexpectedPositionJumpSnapshot, token: number): void {
     this.lastUnexpectedPositionJump = jump;
+
+    if (!this.shouldRestartForUnexpectedPositionJump(jump)) {
+      this.rebaseUnexpectedPositionJump(jump, token);
+      return;
+    }
+
     this.recordPlaybackDiagnosticEvent('position_jump_suspected', 'suspect', 'unexpected_playback_position_jump', {
       positionSeconds: jump.expectedPositionSeconds,
       durationSeconds: jump.durationSeconds,
@@ -6389,7 +6415,56 @@ export class AudioSession extends EventEmitter {
     void this.recoverUnexpectedPositionJump(jump, token);
   }
 
-  private reportUnexpectedPositionJump(jump: UnexpectedPositionJumpSnapshot): void {
+  private shouldRestartForUnexpectedPositionJump(jump: UnexpectedPositionJumpSnapshot): boolean {
+    return jump.outputMode === 'exclusive' || jump.outputMode === 'asio';
+  }
+
+  private rebaseUnexpectedPositionJump(jump: UnexpectedPositionJumpSnapshot, token: number): void {
+    if (this.runToken !== token || this.state !== 'playing') {
+      return;
+    }
+
+    const durationSeconds = jump.durationSeconds || this.currentProbe?.durationSeconds || 0;
+    const maxPositionSeconds = durationSeconds > 1 ? durationSeconds - 1 : Number.POSITIVE_INFINITY;
+    const safePositionSeconds = Math.max(0, Math.min(jump.expectedPositionSeconds, maxPositionSeconds));
+    const playbackRate = this.currentOutputSettings?.playbackRate ?? this.outputSettings.playbackRate;
+
+    this.clock.rebase(safePositionSeconds);
+    this.bridge?.rebaseOutputClock?.(safePositionSeconds, playbackRate);
+    this.watchdogLastPositionSeconds = safePositionSeconds;
+    this.lastPositionSample = {
+      token,
+      trackId: this.currentTrackId,
+      filePath: this.currentFilePath,
+      positionSeconds: safePositionSeconds,
+      sampledAtMs: jump.detectedAtMs,
+    };
+    this.markExpectedPositionDiscontinuity(unexpectedPositionJumpGuardMs * 2);
+    this.addOutputWarning('unexpected_playback_position_jump_rebased');
+    this.recordPlaybackDiagnosticEvent('position_jump_suspected', 'suspect', 'unexpected_playback_position_jump', {
+      positionSeconds: safePositionSeconds,
+      durationSeconds,
+      details: {
+        previousPositionSeconds: jump.positionSeconds,
+        reportedPositionSeconds: jump.reportedPositionSeconds,
+        expectedPositionSeconds: jump.expectedPositionSeconds,
+        unexpectedAdvanceSeconds: jump.unexpectedAdvanceSeconds,
+        elapsedSeconds: jump.elapsedSeconds,
+        action: 'rebase_output_clock_at_expected_position',
+      },
+    });
+    this.reportUnexpectedPositionJump(jump, 'rebase_output_clock_at_expected_position');
+    this.verboseLogger(
+      `[AudioSession] unexpected playback position jump; rebased output clock at ${safePositionSeconds.toFixed(3)}s ` +
+        `reported=${jump.reportedPositionSeconds.toFixed(3)}s previous=${jump.positionSeconds.toFixed(3)}s`,
+    );
+    this.emitStatus();
+  }
+
+  private reportUnexpectedPositionJump(
+    jump: UnexpectedPositionJumpSnapshot,
+    recoveryAction = 'restart_same_output_at_expected_position',
+  ): void {
     try {
       const error = new Error('unexpected_playback_position_jump');
       this.reportAudioError({
@@ -6414,7 +6489,7 @@ export class AudioSession extends EventEmitter {
           actualDeviceSampleRate: this.currentPlan?.actualDeviceSampleRate ?? null,
           sharedDeviceSampleRate: this.currentPlan?.sharedDeviceSampleRate ?? this.currentDevice?.sharedDeviceSampleRate ?? null,
           nativeTelemetry: jump.telemetry ?? this.nativeTelemetry,
-          recoveryAction: 'restart_same_output_at_expected_position',
+          recoveryAction,
         },
         audioStatus: this.getStatus(),
       });
@@ -6483,7 +6558,7 @@ export class AudioSession extends EventEmitter {
       });
     } catch (error) {
       if (isAudioSessionRunCancelledError(error)) {
-        this.logger('[AudioSession] unexpected position jump recovery was superseded by a newer playback run');
+        this.verboseLogger('[AudioSession] unexpected position jump recovery was superseded by a newer playback run');
         return;
       }
 
@@ -6846,7 +6921,7 @@ export class AudioSession extends EventEmitter {
 
     try {
       if (!this.isRecoveryRunCurrent(token)) {
-        this.logger(`[AudioSession] ${reason}; stability recovery skipped after playback run changed`);
+        this.verboseLogger(`[AudioSession] ${reason}; stability recovery skipped after playback run changed`);
         return;
       }
 
@@ -6911,14 +6986,14 @@ export class AudioSession extends EventEmitter {
           sharedRecoveryTier,
         },
       });
-      this.logger(
+      this.verboseLogger(
         `[AudioSession] ${reason}; restarting ${outputMode} output buffer=${targetBuffer} file="${redactUrlSecrets(filePath)}" position=${safePositionSeconds.toFixed(
           3,
         )} recovery=${recoveryCount}`,
       );
 
       if (!this.isRecoveryRunCurrent(token)) {
-        this.logger(`[AudioSession] ${reason}; stability recovery aborted before restart after playback run changed`);
+        this.verboseLogger(`[AudioSession] ${reason}; stability recovery aborted before restart after playback run changed`);
         return;
       }
 
@@ -6932,12 +7007,12 @@ export class AudioSession extends EventEmitter {
         inputHeaders: this.currentInputHeaders ?? undefined,
       });
       if (this.runToken !== recoveryRunToken) {
-        this.logger(`[AudioSession] ${reason}; stability recovery was superseded after playback restart`);
+        this.verboseLogger(`[AudioSession] ${reason}; stability recovery was superseded after playback restart`);
         return;
       }
     } catch (error) {
       if (isAudioSessionRunCancelledError(error)) {
-        this.logger('[AudioSession] output stability recovery was superseded by a newer playback run');
+        this.verboseLogger('[AudioSession] output stability recovery was superseded by a newer playback run');
       } else {
         this.handleError(error instanceof Error ? error : new Error(String(error)));
       }

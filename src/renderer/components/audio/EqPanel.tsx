@@ -689,6 +689,27 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
     }
   };
 
+  const importPreset = async (): Promise<void> => {
+    const eq = getEqBridge();
+
+    if (!eq?.importPreset) {
+      setError(t('settings.eq.error.bridgeSavePreset'));
+      return;
+    }
+
+    try {
+      const imported = await eq.importPreset();
+      if (!imported) {
+        return;
+      }
+      setPresets(await eq.listPresets());
+      setSaveName(imported.name);
+      await setPreset(imported.id);
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : String(importError));
+    }
+  };
+
   const overwritePreset = async (): Promise<void> => {
     if (!canOverwritePreset || !selectedPreset) {
       return;
@@ -1677,6 +1698,9 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
             <button type="button" onClick={() => void duplicateCurrentPreset()}>
               <Copy size={15} />
               {t('settings.eq.action.duplicatePreset')}
+            </button>
+            <button type="button" onClick={() => void importPreset()}>
+              {t('settings.eq.action.importPreset')}
             </button>
             <button type="button" disabled={!canOverwritePreset} onClick={() => void overwritePreset()}>
               <Save size={15} />

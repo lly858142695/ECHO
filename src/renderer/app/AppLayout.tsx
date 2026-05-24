@@ -203,6 +203,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [diagnosticsNotice, setDiagnosticsNotice] = useState(false);
   const [firstRunSettings, setFirstRunSettings] = useState<AppSettings | null>(null);
   const [isFirstRunWizardOpen, setIsFirstRunWizardOpen] = useState(false);
+  const [downloadsFeatureUnlocked, setDownloadsFeatureUnlocked] = useState(false);
   const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
   const [isLyricsDrawerOpen, setIsLyricsDrawerOpen] = useState(false);
   const [isMvDrawerOpen, setIsMvDrawerOpen] = useState(false);
@@ -224,9 +225,17 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const previousRouteIdRef = useRef<AppRouteId>('songs');
   const downloadImportedTrackIdsRef = useRef<Map<string, string | null>>(new Map());
   const notifiedUpdateKeysRef = useRef<Set<string>>(new Set());
+  const visibleRoutes = useMemo(
+    () => routes.map((route) => (route.id === 'downloads' && !downloadsFeatureUnlocked ? { ...route, hideFromSidebar: true } : route)),
+    [downloadsFeatureUnlocked, routes],
+  );
+  const navigableRoutes = useMemo(
+    () => routes.filter((route) => route.id !== 'downloads' || downloadsFeatureUnlocked),
+    [downloadsFeatureUnlocked, routes],
+  );
   const activeRoute = useMemo(
-    () => routes.find((route) => route.id === activeRouteId) ?? routes[0],
-    [activeRouteId, routes],
+    () => navigableRoutes.find((route) => route.id === activeRouteId) ?? navigableRoutes[0] ?? routes[0],
+    [activeRouteId, navigableRoutes, routes],
   );
   const [mountedPersistentRouteIds, setMountedPersistentRouteIds] = useState<AppRouteId[]>(() =>
     persistentRouteIds.has(activeRouteId) ? [activeRouteId] : ['songs'],
@@ -235,7 +244,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     const activeRouteIds = new Set<AppRouteId>();
     const nextRoutes: AppRoute[] = [];
 
-    for (const route of routes) {
+    for (const route of navigableRoutes) {
       if (!mountedPersistentRouteIds.includes(route.id)) {
         continue;
       }
@@ -249,7 +258,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     }
 
     return nextRoutes;
-  }, [activeRoute, mountedPersistentRouteIds, routes]);
+  }, [activeRoute, mountedPersistentRouteIds, navigableRoutes]);
   const isStandaloneRoute = activeRoute.chrome === 'standalone';
   const isLyricsRoute = activeRouteId === 'lyrics';
   const shouldUseLyricsPlayerDrawer = isLyricsRoute && lyricsMiniPlayerSettings.lyricsPlayerBarDrawerEnabled === true;
@@ -406,6 +415,53 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       window.removeEventListener('settings:changed', handleSettingsChanged);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
+      if (!settings || !Object.prototype.hasOwnProperty.call(settings, 'downloadsFeatureUnlocked')) {
+        return;
+      }
+
+      setDownloadsFeatureUnlocked(settings.downloadsFeatureUnlocked === true);
+    };
+
+    const refreshSettings = (): void => {
+      void window.echo?.app?.getSettings?.()
+        .then((settings) => {
+          if (!cancelled) {
+            applySettings(settings);
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    const handleSettingsChanged = (event: Event): void => {
+      if (event instanceof CustomEvent) {
+        applySettings(event.detail as Partial<AppSettings> | null | undefined);
+        return;
+      }
+
+      if (!cancelled) {
+        refreshSettings();
+      }
+    };
+
+    refreshSettings();
+    window.addEventListener('settings:changed', handleSettingsChanged);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('settings:changed', handleSettingsChanged);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!downloadsFeatureUnlocked && activeRouteId === 'downloads') {
+      setActiveRouteId('songs');
+    }
+  }, [activeRouteId, downloadsFeatureUnlocked]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1017,7 +1073,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     ])
       .then(([remembered, settings]) => {
         const useJuceOutput = settings?.audioUseJuceOutput !== false;
-        const useJuceDecode = settings?.audioUseJuceDecode !== false;
+        const useJuceDecode = settings?.audioUseJuceDecode === true;
         const dsdOutputMode = settings?.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm';
         const asioNativeDsdExperimentalEnabled = settings?.audioAsioNativeDsdExperimentalEnabled === true;
         const asioUnavailableFallbackEnabled = settings?.audioAsioUnavailableFallbackEnabled === true;
@@ -1342,7 +1398,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
       {isStandaloneRoute ? null : (
         <Sidebar
-          routes={routes}
+          routes={visibleRoutes}
           activeRouteId={activeRouteId}
           onRouteChange={navigateRoute}
           onOpenAudioSettings={() => setIsAudioDrawerOpen(true)}

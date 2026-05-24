@@ -91,6 +91,8 @@ Commands:
 - `eq:reset`
 - `eq:list-presets`
 - `eq:save-preset`
+- `eq:import-preset`
+- `eq:export-preset`
 - `eq:delete-preset`
 
 Example native control request:
@@ -144,6 +146,7 @@ Built-in presets:
 - Classical
 
 `Flat` is readonly. User presets are stored as JSON under Electron `userData`, validated on load, and rejected if malformed.
+Imported presets are saved with a fresh id when a built-in or user preset already has the same id, so importing a shared preset never silently overwrites a local tuning.
 
 ## UI Structure
 

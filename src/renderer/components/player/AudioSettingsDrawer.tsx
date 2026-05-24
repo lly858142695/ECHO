@@ -993,7 +993,7 @@ export const AudioSettingsDrawer = ({
           normalizeAudioSharedBackendForPlatform(settings.rememberedAudioOutput?.sharedBackend ?? remembered.sharedBackend ?? 'auto', rendererPlatform),
         );
         setUseJuceOutput(settings.audioUseJuceOutput !== false);
-        setUseJuceDecode(settings.audioUseJuceDecode !== false);
+        setUseJuceDecode(settings.audioUseJuceDecode === true);
         setUseDsdDop(settings.audioDsdOutputMode === 'dop');
         setAsioNativeDsdExperimentalEnabled(settings.audioAsioNativeDsdExperimentalEnabled === true);
         setAsioUnavailableFallbackEnabled(settings.audioAsioUnavailableFallbackEnabled === true);

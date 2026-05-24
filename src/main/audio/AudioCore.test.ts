@@ -2055,11 +2055,14 @@ describe('Audio Core sample-rate regression guard', () => {
   });
 
   it('falls back to shared output when exclusive opens at the wrong sample rate', async () => {
-    const { bridges, decoder, session } = createSessionHarness([probe('441.flac', 44100)], [48000, 48000]);
+    const juceDecoder = new FakeJuceDecoder();
+    const { bridges, decoder, session } = createSessionHarness([probe('441.flac', 44100)], [48000, 48000], [], {
+      juceDecoder,
+    });
 
     const status = await session.playLocalFile({
       filePath: '441.flac',
-      output: { outputMode: 'exclusive' },
+      output: { outputMode: 'exclusive', useJuceDecode: true },
     });
 
     expect(bridges).toHaveLength(2);
@@ -2075,6 +2078,8 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.warnings).toContain('exclusive_output_fell_back_to_shared');
     expect(status.warnings).toContain('shared_output_resampling_or_mixer_rate_difference');
     expect(status.error).toBeNull();
+    expect(status.useJuceDecodeRequested).toBe(false);
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
     expect(decoder.decodeRequests[0]).toMatchObject({
       filePath: '441.flac',
       decoderOutputSampleRate: 48000,
@@ -2177,7 +2182,7 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.useJuceOutputRequested).toBe(true);
   });
 
-  it('uses JUCE decode by default for local WAV when no resampling is required', async () => {
+  it('keeps FFmpeg decode by default for local WAV when no resampling is required', async () => {
     const juceDecoder = new FakeJuceDecoder();
     const { decoder, session } = createSessionHarness([{ ...probe('pilot.wav', 48000), codec: 'WAV' }], [48000], [], {
       juceDecoder,
@@ -2188,13 +2193,13 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'shared' },
     });
 
-    expect(juceDecoder.decodeRequests).toHaveLength(1);
-    expect(decoder.decodeRequests).toHaveLength(0);
-    expect(status.useJuceDecodeRequested).toBe(true);
-    expect(status.activeDecodeBackendImpl).toBe('juce-wav');
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(false);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
   });
 
-  it('uses JUCE decode by default for local FLAC when no resampling is required', async () => {
+  it('keeps FFmpeg decode by default for local FLAC when no resampling is required', async () => {
     const juceDecoder = new FakeJuceDecoder();
     const { decoder, session } = createSessionHarness([probe('pilot.flac', 48000)], [48000], [], {
       juceDecoder,
@@ -2205,13 +2210,13 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'shared' },
     });
 
-    expect(juceDecoder.decodeRequests).toHaveLength(1);
-    expect(decoder.decodeRequests).toHaveLength(0);
-    expect(status.useJuceDecodeRequested).toBe(true);
-    expect(status.activeDecodeBackendImpl).toBe('juce-flac');
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(false);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
   });
 
-  it('uses JUCE Windows Media decode by default for local MP3 when no resampling is required', async () => {
+  it('keeps FFmpeg decode by default for local MP3 when no resampling is required', async () => {
     const juceDecoder = new FakeJuceDecoder();
     const { decoder, session } = createSessionHarness([{ ...probe('pilot.mp3', 48000), codec: 'MP3' }], [48000], [], {
       juceDecoder,
@@ -2222,10 +2227,10 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'shared' },
     });
 
-    expect(juceDecoder.decodeRequests).toHaveLength(1);
-    expect(decoder.decodeRequests).toHaveLength(0);
-    expect(status.useJuceDecodeRequested).toBe(true);
-    expect(status.activeDecodeBackendImpl).toBe('juce-windows-media-mp3');
+    expect(juceDecoder.decodeRequests).toHaveLength(0);
+    expect(decoder.decodeRequests).toHaveLength(1);
+    expect(status.useJuceDecodeRequested).toBe(false);
+    expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
   });
 
   it('reuses the resident JUCE decode server across seek without reopening the output clock', async () => {
@@ -2236,7 +2241,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const firstStatus = await session.playLocalFile({
       filePath: 'seek.flac',
-      output: { outputMode: 'shared', playbackRate: 1.25, playbackSpeedMode: 'nightcore' },
+      output: { outputMode: 'shared', useJuceDecode: true, playbackRate: 1.25, playbackSpeedMode: 'nightcore' },
     });
     const seekStatus = await session.seek(12.5);
 
@@ -2336,7 +2341,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     expect(juceDecoder.decodeRequests).toHaveLength(1);
     expect(decoder.decodeRequests).toHaveLength(1);
-    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.useJuceDecodeRequested).toBe(false);
     expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
     expect(status.warnings).toContain('juce_decode_fell_back_to_ffmpeg');
   });
@@ -2375,6 +2380,28 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(status.warnings).toContain('juce_decode_fell_back_to_ffmpeg');
   });
 
+  it('suspends JUCE decode after a startup failure so the next playback starts on FFmpeg', async () => {
+    const juceDecoder = new ReadyFailingJuceDecoder(new Error('echo-audio-host juce_decode_timeout_waiting_for_first_pcm'));
+    const { decoder, session } = createSessionHarness([probe('slow-first-pcm.flac', 48000), probe('next.flac', 48000)], [48000], [], {
+      juceDecoder,
+    });
+
+    const firstStatus = await session.playLocalFile({
+      filePath: 'slow-first-pcm.flac',
+      output: { outputMode: 'shared', useJuceDecode: true },
+    });
+    const nextStatus = await session.playLocalFile({
+      filePath: 'next.flac',
+      output: { outputMode: 'shared' },
+    });
+
+    expect(juceDecoder.decodeRequests).toHaveLength(1);
+    expect(decoder.decodeRequests).toHaveLength(2);
+    expect(firstStatus.activeDecodeBackendImpl).toBe('ffmpeg');
+    expect(nextStatus.useJuceDecodeRequested).toBe(false);
+    expect(nextStatus.activeDecodeBackendImpl).toBe('ffmpeg');
+  });
+
   it('falls back to FFmpeg when opt-in JUCE MP3 decode fails before PCM starts', async () => {
     const juceDecoder = new FakeJuceDecoder(new Error('juce windows media mp3 open failed'));
     const { decoder, session } = createSessionHarness([{ ...probe('song.mp3', 48000), codec: 'MP3' }], [48000], [], {
@@ -2388,7 +2415,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     expect(juceDecoder.decodeRequests).toHaveLength(1);
     expect(decoder.decodeRequests).toHaveLength(1);
-    expect(status.useJuceDecodeRequested).toBe(true);
+    expect(status.useJuceDecodeRequested).toBe(false);
     expect(status.activeDecodeBackendImpl).toBe('ffmpeg');
     expect(status.warnings).toContain('juce_decode_fell_back_to_ffmpeg');
   });
@@ -4329,7 +4356,7 @@ describe('AudioSession playback watchdog', () => {
     }
   });
 
-  it('reports and restarts when native position jumps forward unexpectedly', async () => {
+  it('rebases shared output instead of restarting when native position jumps forward unexpectedly', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-20T08:00:00.000Z'));
     const reportAudioError = vi.fn();
@@ -4373,13 +4400,14 @@ describe('AudioSession playback watchdog', () => {
       expect(reportAudioError.mock.calls[0][0].details).toMatchObject({
         previousPositionSeconds: 60,
         reportedPositionSeconds: 180,
-        recoveryAction: 'restart_same_output_at_expected_position',
+        recoveryAction: 'rebase_output_clock_at_expected_position',
       });
-      expect(bridges.reduce((total, bridge) => total + bridge.sessionBegins, 0)).toBeGreaterThanOrEqual(2);
-      expect(decoder.decodeRequests.at(-1)?.startSeconds).toBeGreaterThanOrEqual(60.9);
-      expect(decoder.decodeRequests.at(-1)?.startSeconds).toBeLessThanOrEqual(61.1);
-      expect(session.getStatus().warnings).toContain('unexpected_playback_position_jump_recovered');
-      expect(session.getStatus().error).toContain('播放进度异常跳跃');
+      expect(bridges).toHaveLength(1);
+      expect(bridges[0].positionSeconds).toBeGreaterThanOrEqual(60.9);
+      expect(bridges[0].positionSeconds).toBeLessThanOrEqual(61.1);
+      expect(decoder.decodeRequests).toHaveLength(1);
+      expect(session.getStatus().warnings).toContain('unexpected_playback_position_jump_rebased');
+      expect(session.getStatus().error).toBeNull();
     } finally {
       session.dispose();
       vi.useRealTimers();

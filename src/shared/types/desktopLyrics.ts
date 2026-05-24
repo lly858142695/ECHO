@@ -10,6 +10,8 @@ export type DesktopLyricsStylePatch = Partial<Pick<
   | 'desktopLyricsColor'
   | 'desktopLyricsStrokeColor'
   | 'desktopLyricsOpacityPercent'
+  | 'desktopLyricsRomanizationEnabled'
+  | 'desktopLyricsTranslationEnabled'
 >>;
 
 export type DesktopLyricsState = {
@@ -27,6 +29,8 @@ export type DesktopLyricsState = {
     | 'desktopLyricsColor'
     | 'desktopLyricsStrokeColor'
     | 'desktopLyricsOpacityPercent'
+    | 'desktopLyricsRomanizationEnabled'
+    | 'desktopLyricsTranslationEnabled'
     | 'desktopLyricsBounds'
   >;
 };

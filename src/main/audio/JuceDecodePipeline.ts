@@ -52,7 +52,7 @@ const defaultLogger = (message: string): void => {
 };
 
 const defaultReadyTimeoutMs = 5_000;
-const defaultFirstPcmTimeoutMs = 750;
+const defaultFirstPcmTimeoutMs = 2_500;
 const decodeServerMagic = 'ECDS';
 const decodeServerVersion = 1;
 const frameTypeStart = 1;

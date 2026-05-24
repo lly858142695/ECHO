@@ -53,13 +53,13 @@ const appWallpaperExtensions = new Set([...imageWallpaperExtensions, ...videoWal
 const defaultLyricsColor = '#314054';
 const defaultDesktopLyricsColor = '#FFFFFF';
 const defaultDesktopLyricsStrokeColor = '#111827';
-const defaultDesktopLyricsFontFamily = 'Outfit';
+const defaultDesktopLyricsFontFamily = 'Microsoft YaHei';
 const defaultLyricsMiniPlayerColor = '#232120';
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
 const lyricsProviders: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'musixmatch', 'genius', 'manual'];
 const defaultLyricsProviderOrder: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic'];
 export const defaultNetworkProxyBypassRules = '<local>;localhost;127.0.0.1;::1;*.local;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*';
-const appMemoryVersion = 3;
+const appMemoryVersion = 5;
 const locales: AppLocale[] = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP'];
 const appThemeModes: AppThemeMode[] = ['light', 'dark', 'system'];
 const appThemePresets: AppThemePreset[] = [
@@ -293,7 +293,7 @@ export const defaultSettings: AppSettings = {
   rememberedAudioOutput: { ...defaultRememberedAudioOutput },
   hiddenAudioDeviceKeys: [],
   audioUseJuceOutput: true,
-  audioUseJuceDecode: true,
+  audioUseJuceDecode: false,
   audioDsdOutputMode: 'pcm',
   audioAsioNativeDsdExperimentalEnabled: false,
   audioAsioUnavailableFallbackEnabled: false,
@@ -314,6 +314,7 @@ export const defaultSettings: AppSettings = {
   autoAccountCheckOnStartup: true,
   suppressAccountExpiryNotices: false,
   spotifyAutoLaunchOfficialPlayer: true,
+  downloadsFeatureUnlocked: false,
   streamingDownloadActionsEnabled: false,
   connectAutoStartReceiversEnabled: false,
   hqPlayer: { ...defaultHqPlayerSettings },
@@ -402,6 +403,8 @@ export const defaultSettings: AppSettings = {
   desktopLyricsColor: defaultDesktopLyricsColor,
   desktopLyricsStrokeColor: defaultDesktopLyricsStrokeColor,
   desktopLyricsOpacityPercent: 96,
+  desktopLyricsRomanizationEnabled: true,
+  desktopLyricsTranslationEnabled: true,
   desktopLyricsBounds: null,
   mvEnabled: true,
   mvEnabledProviders: ['bilibili', 'youtube'],
@@ -846,6 +849,22 @@ const normalizeRememberedAudioOutput = (value: unknown): RememberedAudioOutput =
   return normalized;
 };
 
+const migrateRememberedAudioOutput = (
+  remembered: RememberedAudioOutput,
+  sourceAppMemoryVersion: number,
+): RememberedAudioOutput => {
+  if (sourceAppMemoryVersion >= 5 || remembered.outputMode !== 'exclusive') {
+    return remembered;
+  }
+
+  return {
+    enabled: remembered.enabled,
+    outputMode: 'system',
+    sharedBackend: 'auto',
+    latencyProfile: 'balanced',
+  };
+};
+
 const normalizeHiddenAudioDeviceKeys = (value: unknown): string[] => {
   if (!Array.isArray(value)) {
     return [];
@@ -1189,10 +1208,13 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     appearanceThemeCustomId,
     appearancePreferences: normalizeAppearancePreferences(settings.appearancePreferences),
     songsSort: normalizeSongsSort(settings.songsSort),
-    rememberedAudioOutput: normalizeRememberedAudioOutput(settings.rememberedAudioOutput),
+    rememberedAudioOutput: migrateRememberedAudioOutput(
+      normalizeRememberedAudioOutput(settings.rememberedAudioOutput),
+      sourceAppMemoryVersion,
+    ),
     hiddenAudioDeviceKeys: normalizeHiddenAudioDeviceKeys(settings.hiddenAudioDeviceKeys),
     audioUseJuceOutput: sourceAppMemoryVersion < appMemoryVersion ? true : settings.audioUseJuceOutput !== false,
-    audioUseJuceDecode: sourceAppMemoryVersion < appMemoryVersion ? true : settings.audioUseJuceDecode !== false,
+    audioUseJuceDecode: sourceAppMemoryVersion >= 4 && settings.audioUseJuceDecode === true,
     audioDsdOutputMode: settings.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm',
     audioAsioNativeDsdExperimentalEnabled: settings.audioAsioNativeDsdExperimentalEnabled === true,
     audioAsioUnavailableFallbackEnabled: settings.audioAsioUnavailableFallbackEnabled === true,
@@ -1213,6 +1235,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     autoAccountCheckOnStartup: settings.autoAccountCheckOnStartup !== false,
     suppressAccountExpiryNotices: settings.suppressAccountExpiryNotices === true,
     spotifyAutoLaunchOfficialPlayer: settings.spotifyAutoLaunchOfficialPlayer !== false,
+    downloadsFeatureUnlocked: settings.downloadsFeatureUnlocked === true,
     streamingDownloadActionsEnabled: settings.streamingDownloadActionsEnabled === true,
     connectAutoStartReceiversEnabled: settings.connectAutoStartReceiversEnabled === true,
     hqPlayer: normalizeHqPlayerSettings(settings.hqPlayer),
@@ -1352,6 +1375,8 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     desktopLyricsOpacityPercent: Number.isFinite(desktopLyricsOpacityPercent)
       ? Math.round(clamp(desktopLyricsOpacityPercent, 35, 100))
       : defaultSettings.desktopLyricsOpacityPercent,
+    desktopLyricsRomanizationEnabled: settings.desktopLyricsRomanizationEnabled !== false,
+    desktopLyricsTranslationEnabled: settings.desktopLyricsTranslationEnabled !== false,
     desktopLyricsBounds: normalizeDesktopLyricsBounds(settings.desktopLyricsBounds),
     mvEnabled: settings.mvEnabled !== false,
     mvEnabledProviders: normalizeMvProviderList(settings.mvEnabledProviders, defaultSettings.mvEnabledProviders),

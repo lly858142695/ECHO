@@ -803,6 +803,7 @@ describe('app settings normalization', () => {
 
     expect(
       normalizeSettings({
+        appMemoryVersion: 5,
         rememberedAudioOutput: { enabled: true, outputMode: 'asio', latencyProfile: 'balanced' },
       }).rememberedAudioOutput,
     ).toMatchObject({
@@ -847,6 +848,39 @@ describe('app settings normalization', () => {
     ).toBe('auto');
   });
 
+  it('migrates stale remembered exclusive output back to system audio', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(
+      normalizeSettings({
+        appMemoryVersion: 4,
+        rememberedAudioOutput: {
+          enabled: true,
+          outputMode: 'exclusive',
+          sharedBackend: 'auto',
+          latencyProfile: 'balanced',
+          deviceIndex: 6,
+          deviceName: 'TEAC USB AUDIO DEVICE',
+        },
+      }).rememberedAudioOutput,
+    ).toEqual({
+      enabled: true,
+      outputMode: 'system',
+      sharedBackend: 'auto',
+      latencyProfile: 'balanced',
+    });
+    expect(
+      normalizeSettings({
+        appMemoryVersion: 5,
+        rememberedAudioOutput: { enabled: true, outputMode: 'exclusive', latencyProfile: 'balanced' },
+      }).rememberedAudioOutput,
+    ).toMatchObject({
+      enabled: true,
+      outputMode: 'exclusive',
+      latencyProfile: 'balanced',
+    });
+  });
+
   it('sanitizes incompatible remembered low-latency buffer sizes', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
@@ -887,26 +921,26 @@ describe('app settings normalization', () => {
 
     expect(normalizeSettings({}).audioUseJuceOutput).toBe(true);
     expect(normalizeSettings({ audioUseJuceOutput: true }).audioUseJuceOutput).toBe(true);
-    expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceOutput: false }).audioUseJuceOutput).toBe(false);
-    expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceOutput: 'yes' as never }).audioUseJuceOutput).toBe(true);
+    expect(normalizeSettings({ appMemoryVersion: 5, audioUseJuceOutput: false }).audioUseJuceOutput).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 5, audioUseJuceOutput: 'yes' as never }).audioUseJuceOutput).toBe(true);
   });
 
   it('migrates older settings to JUCE main output once', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
     expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceOutput: false }).audioUseJuceOutput).toBe(true);
-    expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceOutput: false }).appMemoryVersion).toBe(3);
+    expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceOutput: false }).appMemoryVersion).toBe(5);
   });
 
-  it('normalizes JUCE decode as the default local decode fast path', async () => {
+  it('normalizes JUCE decode as an opt-in local decode fast path', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
-    expect(normalizeSettings({}).audioUseJuceDecode).toBe(true);
-    expect(normalizeSettings({ audioUseJuceDecode: true }).audioUseJuceDecode).toBe(true);
+    expect(normalizeSettings({}).audioUseJuceDecode).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 5, audioUseJuceDecode: true }).audioUseJuceDecode).toBe(true);
     expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceDecode: false }).audioUseJuceDecode).toBe(false);
-    expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceDecode: 'yes' as never }).audioUseJuceDecode).toBe(true);
-    expect(normalizeSettings({ appMemoryVersion: 1, audioUseJuceDecode: true }).audioUseJuceDecode).toBe(true);
-    expect(normalizeSettings({ appMemoryVersion: 2, audioUseJuceDecode: false }).audioUseJuceDecode).toBe(true);
+    expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceDecode: 'yes' as never }).audioUseJuceDecode).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 3, audioUseJuceDecode: true }).audioUseJuceDecode).toBe(false);
+    expect(normalizeSettings({ appMemoryVersion: 2, audioUseJuceDecode: false }).audioUseJuceDecode).toBe(false);
   });
 
   it('normalizes ASIO unavailable fallback as an opt-in audio setting', async () => {

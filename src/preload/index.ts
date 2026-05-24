@@ -778,12 +778,10 @@ const playSystemSource = async (
   emitSystemAudioStatus();
 
   const safeStartSeconds = finiteSeconds(startSeconds) ?? 0;
-  if (safeStartSeconds > 0) {
-    try {
-      element.currentTime = safeStartSeconds;
-    } catch {
-      // Some HTTP streams reject seeking before metadata is ready; playback can still start.
-    }
+  try {
+    element.currentTime = safeStartSeconds;
+  } catch {
+    // Some HTTP streams reject seeking before metadata is ready; playback can still start.
   }
 
   try {
@@ -1691,6 +1689,7 @@ const echoApi: EchoApi = {
     listPresets: () => ipcRenderer.invoke(IpcChannels.EqListPresets),
     savePreset: (request) => ipcRenderer.invoke(IpcChannels.EqSavePreset, request),
     exportPreset: (request) => ipcRenderer.invoke(IpcChannels.EqExportPreset, request),
+    importPreset: () => ipcRenderer.invoke(IpcChannels.EqImportPreset),
     deletePreset: (presetId) => ipcRenderer.invoke(IpcChannels.EqDeletePreset, presetId),
     listProfiles: () => ipcRenderer.invoke(IpcChannels.EqListProfiles),
     saveProfile: (request) => ipcRenderer.invoke(IpcChannels.EqSaveProfile, request),

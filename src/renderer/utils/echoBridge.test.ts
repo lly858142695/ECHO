@@ -50,4 +50,51 @@ describe('renderer EQ bridge fallback', () => {
     expect(binding).toMatchObject({ profileId: 'browser-desk', profileName: 'Browser Desk' });
     expect(channelBalance).toMatchObject({ enabled: true, balance: 0.25, monoMode: 'sum' });
   });
+
+  it('imports browser fallback presets without overwriting an existing preset id', async () => {
+    const { getEqBridge } = await import('./echoBridge');
+    const eq = getEqBridge();
+
+    await eq?.savePreset({
+      name: 'Browser Bright',
+      preampDb: -4,
+      bands: (await eq.getState()).bands,
+    });
+
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function click(this: HTMLInputElement) {
+      Object.defineProperty(this, 'files', {
+        configurable: true,
+        value: [
+          new File([
+            JSON.stringify({
+              type: 'echo-next-eq-preset',
+              version: 1,
+              preset: {
+                name: 'Browser Bright',
+                preampDb: -6,
+                bands: bandsForImport(),
+              },
+            }),
+          ], 'browser-bright.json', { type: 'application/json' }),
+        ],
+      });
+      this.onchange?.(new Event('change'));
+    });
+
+    const imported = await eq?.importPreset();
+    const presets = await eq?.listPresets();
+
+    expect(imported).toMatchObject({ id: 'browser-bright-2', name: 'Browser Bright', preampDb: -6 });
+    expect(presets?.filter((preset) => preset.name === 'Browser Bright').map((preset) => preset.id)).toEqual(['browser-bright', 'browser-bright-2']);
+    clickSpy.mockRestore();
+  });
 });
+
+const bandsForImport = () =>
+  [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((frequencyHz) => ({
+    frequencyHz,
+    gainDb: 0,
+    q: 1,
+    filterType: 'peaking',
+    enabled: true,
+  }));

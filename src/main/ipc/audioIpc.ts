@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import { normalizeAudioOutputModeForPlatform, normalizeAudioSharedBackendForPlatform } from '../../shared/utils/audioPlatformCapabilities';
@@ -15,6 +15,7 @@ import type {
 } from '../../shared/types/audio';
 import type {
   EqBindProfileRequest,
+  EqPreset,
   EqProfileBindingTarget,
   EqSavePresetRequest,
   EqSaveProfileRequest,
@@ -43,6 +44,27 @@ const safeExportFileName = (value: string): string => {
   // eslint-disable-next-line no-control-regex -- Control chars are illegal in Windows file names.
   const trimmed = value.trim().replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '-').replace(/\s+/g, ' ');
   return trimmed.length > 0 ? trimmed.slice(0, 96) : 'ECHO Next EQ Preset';
+};
+
+const safePresetId = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 48) || `preset-${Date.now()}`;
+
+const uniqueImportedPresetId = (name: string, existingIds: Set<string>): string => {
+  const baseId = safePresetId(name);
+  let candidate = baseId;
+  let suffix = 2;
+
+  while (existingIds.has(candidate)) {
+    candidate = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return candidate;
 };
 
 const exportEqPreset = async (request: EqSavePresetRequest): Promise<string | null> => {
@@ -76,6 +98,37 @@ const exportEqPreset = async (request: EqSavePresetRequest): Promise<string | nu
     'utf8',
   );
   return result.filePath;
+};
+
+const importEqPreset = async (): Promise<EqPreset | null> => {
+  const result = await dialog.showOpenDialog({
+    title: 'Import EQ Preset',
+    filters: [{ name: 'ECHO Next EQ Preset', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+
+  if (result.canceled || !result.filePaths[0]) {
+    return null;
+  }
+
+  const parsed = JSON.parse(readFileSync(result.filePaths[0], 'utf8')) as unknown;
+  const payload = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as { preset?: Partial<EqSavePresetRequest>; name?: unknown; preampDb?: unknown; bands?: unknown }
+    : null;
+  const candidate = payload?.preset && typeof payload.preset === 'object' ? payload.preset : payload;
+
+  if (!candidate || typeof candidate.name !== 'string') {
+    throw new Error('invalid_eq_preset_import');
+  }
+
+  const eqBridge = getEqBridge();
+
+  return eqBridge.savePreset({
+    id: uniqueImportedPresetId(candidate.name, new Set(eqBridge.listPresets().map((preset) => preset.id))),
+    name: candidate.name,
+    preampDb: Number(candidate.preampDb ?? 0),
+    bands: candidate.bands as EqSavePresetRequest['bands'],
+  });
 };
 
 const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
@@ -420,6 +473,7 @@ export const registerAudioIpc = (): void => {
   ipcMain.handle(IpcChannels.EqListPresets, () => getEqBridge().listPresets());
   ipcMain.handle(IpcChannels.EqSavePreset, (_event, request: EqSavePresetRequest) => getEqBridge().savePreset(request));
   ipcMain.handle(IpcChannels.EqExportPreset, (_event, request: EqSavePresetRequest) => exportEqPreset(request));
+  ipcMain.handle(IpcChannels.EqImportPreset, () => importEqPreset());
   ipcMain.handle(IpcChannels.EqDeletePreset, (_event, presetId: unknown) => getEqBridge().deletePreset(String(presetId)));
   ipcMain.handle(IpcChannels.EqListProfiles, () => getEqBridge().listProfiles());
   ipcMain.handle(IpcChannels.EqSaveProfile, (_event, request: EqSaveProfileRequest) => getEqBridge().saveProfile(request));

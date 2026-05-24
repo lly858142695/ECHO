@@ -548,6 +548,14 @@ export class NativeOutputBridge extends EventEmitter {
     return this.actualDeviceSampleRate;
   }
 
+  private logVerbose(message: string): void {
+    if (!verboseAudioLogsEnabled) {
+      return;
+    }
+
+    this.logger(message);
+  }
+
   async start(options: NativeOutputStartOptions): Promise<NativeBridgeReadyResult> {
     return new Promise((resolve, reject) => {
       const bin = this.hostBinary ?? resolveHostBinary();

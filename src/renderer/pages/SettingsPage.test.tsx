@@ -1263,7 +1263,7 @@ describe('SettingsPage', () => {
 
   it('chooses the download folder from Settings', async () => {
     Element.prototype.scrollIntoView = vi.fn();
-    getSettingsMock.mockResolvedValue(settings);
+    getSettingsMock.mockResolvedValue({ ...settings, downloadsFeatureUnlocked: true });
     resetSettingsMock.mockResolvedValue(settings);
     clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
     getDownloadSettingsMock.mockResolvedValue(downloadSettings);
@@ -1284,8 +1284,8 @@ describe('SettingsPage', () => {
 
   it('toggles streaming download actions from Settings', async () => {
     Element.prototype.scrollIntoView = vi.fn();
-    getSettingsMock.mockResolvedValue({ ...settings, streamingDownloadActionsEnabled: false });
-    setSettingsMock.mockResolvedValue({ ...settings, streamingDownloadActionsEnabled: true });
+    getSettingsMock.mockResolvedValue({ ...settings, downloadsFeatureUnlocked: true, streamingDownloadActionsEnabled: false });
+    setSettingsMock.mockResolvedValue({ ...settings, downloadsFeatureUnlocked: true, streamingDownloadActionsEnabled: true });
     resetSettingsMock.mockResolvedValue(settings);
     clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
 

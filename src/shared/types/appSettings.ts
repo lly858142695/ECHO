@@ -180,6 +180,7 @@ export type AppSettings = {
   autoAccountCheckOnStartup?: boolean;
   suppressAccountExpiryNotices?: boolean;
   spotifyAutoLaunchOfficialPlayer?: boolean;
+  downloadsFeatureUnlocked?: boolean;
   streamingDownloadActionsEnabled?: boolean;
   connectAutoStartReceiversEnabled?: boolean;
   hqPlayer?: HqPlayerSettings;
@@ -268,6 +269,8 @@ export type AppSettings = {
   desktopLyricsColor?: string;
   desktopLyricsStrokeColor?: string;
   desktopLyricsOpacityPercent?: number;
+  desktopLyricsRomanizationEnabled?: boolean;
+  desktopLyricsTranslationEnabled?: boolean;
   desktopLyricsBounds?: DesktopLyricsBounds | null;
   mvEnabled?: boolean;
   mvEnabledProviders: NetworkMvProviderId[];

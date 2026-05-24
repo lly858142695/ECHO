@@ -391,6 +391,7 @@ export const IpcChannels = {
   EqListPresets: 'eq:list-presets',
   EqSavePreset: 'eq:save-preset',
   EqExportPreset: 'eq:export-preset',
+  EqImportPreset: 'eq:import-preset',
   EqDeletePreset: 'eq:delete-preset',
   EqListProfiles: 'eq:list-profiles',
   EqSaveProfile: 'eq:save-profile',
