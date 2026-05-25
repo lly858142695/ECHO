@@ -198,6 +198,12 @@ const patchNodeLibraopWindowsBuild = (openSslRoot) => {
     'port.offset = rand() % port_range;',
     'port.offset = 0;',
   );
+  if (!server.includes('response_body_len')) {
+    server = server.replace(
+      '\tchar *response = NULL;\n',
+      '\tchar *response = NULL;\n\tchar *response_body = NULL;\n\tint response_body_len = 0;\n',
+    );
+  }
   if (!server.includes('got_rtsp_request')) {
     server = server.replace(
       [
@@ -267,15 +273,65 @@ const patchNodeLibraopWindowsBuild = (openSslRoot) => {
       ].join('\n'),
     );
   }
-  if (!server.includes('GET PARAMETER keepalive')) {
+  const getParameterBranch = [
+    '\t} else if (!strcmp(method, "GET_PARAMETER")) {',
+    '\t\tif (body && strcasestr(body, "volume") != NULL) {',
+    '\t\t\tresponse_body = strdup("volume: 0.000000\\r\\n");',
+    '\t\t\tresponse_body_len = strlen(response_body);',
+    '\t\t\tkd_add(resp, "Content-Type", "text/parameters");',
+    '\t\t\tkd_vadd(resp, "Content-Length", "%d", response_body_len);',
+    '\t\t\tLOG_INFO("[%p]: GET PARAMETER volume response", ctx);',
+    '\t\t} else {',
+    '\t\t\tkd_add(resp, "Content-Length", "0");',
+    '\t\t\tLOG_INFO("[%p]: GET PARAMETER keepalive", ctx);',
+    '\t\t}',
+    '\t} else if (!strcmp(method, "SET_PARAMETER")) {',
+  ].join('\n');
+  const oldGetParameterBranch = [
+    '\t} else if (!strcmp(method, "GET_PARAMETER")) {',
+    '\t\t// AirPlay clients poll GET_PARAMETER during startup; an empty 200 OK keeps the RTSP session alive.',
+    '\t\tLOG_INFO("[%p]: GET PARAMETER keepalive", ctx);',
+    '\t} else if (!strcmp(method, "SET_PARAMETER")) {',
+  ].join('\n');
+  if (server.includes(oldGetParameterBranch) && !server.includes('GET PARAMETER volume response')) {
+    server = server.replace(oldGetParameterBranch, getParameterBranch);
+  }
+  if (!server.includes('GET PARAMETER volume response')) {
     server = server.replace(
       '\t} else if (!strcmp(method, "SET_PARAMETER")) {',
+      getParameterBranch,
+    );
+  }
+  if (!server.includes('response_body_len > 0')) {
+    server = server.replace(
       [
-        '\t} else if (!strcmp(method, "GET_PARAMETER")) {',
-        '\t\t// AirPlay clients poll GET_PARAMETER during startup; an empty 200 OK keeps the RTSP session alive.',
-        '\t\tLOG_INFO("[%p]: GET PARAMETER keepalive", ctx);',
-        '\t} else if (!strcmp(method, "SET_PARAMETER")) {',
+        '\tif (!response) buf = http_send(sock, "RTSP/1.0 200 OK", resp);',
+        '\telse buf = http_send(sock, response, NULL);',
       ].join('\n'),
+      [
+        '\tif (!response) {',
+        '\t\tbuf = http_send(sock, "RTSP/1.0 200 OK", resp);',
+        '\t\tif (buf && response_body && response_body_len > 0) {',
+        '\t\t\tint sent = send(sock, response_body, response_body_len, 0);',
+        '\t\t\tif (sent != response_body_len) LOG_ERROR("RTSP response body send() error %d/%d", sent, response_body_len);',
+        '\t\t\tsize_t header_len = strlen(buf);',
+        '\t\t\tchar *with_body = malloc(header_len + response_body_len + 1);',
+        '\t\t\tif (with_body) {',
+        '\t\t\t\tmemcpy(with_body, buf, header_len);',
+        '\t\t\t\tmemcpy(with_body + header_len, response_body, response_body_len);',
+        '\t\t\t\twith_body[header_len + response_body_len] = \'\\0\';',
+        '\t\t\t\tNFREE(buf);',
+        '\t\t\t\tbuf = with_body;',
+        '\t\t\t}',
+        '\t\t}',
+        '\t} else buf = http_send(sock, response, NULL);',
+      ].join('\n'),
+    );
+  }
+  if (!server.includes('NFREE(response_body);')) {
+    server = server.replace(
+      '\tNFREE(body);\n',
+      '\tNFREE(response_body);\n\tNFREE(body);\n',
     );
   }
   server = server.replace(

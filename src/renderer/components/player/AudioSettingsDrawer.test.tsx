@@ -30,6 +30,8 @@ const testTranslations: Record<string, string> = {
   'audioDrawer.option.dsdDop': 'DSD DoP Direct Pilot',
   'audioDrawer.option.releaseExclusiveOnPause': 'Release Exclusive on Pause',
   'audioDrawer.note.releaseExclusiveOnPause': 'Pause releases WASAPI Exclusive.',
+  'audioDrawer.guard.exclusiveInstability.title': 'Auto-switch unstable Exclusive',
+  'audioDrawer.guard.exclusiveInstability.description': 'Switch unstable Exclusive to Shared.',
   'audioDrawer.option.set': 'Set',
   'audioDrawer.option.showAsioPanelSettings': 'Show ASIO panel settings',
   'audioDrawer.option.showAsioPanelSettingsDescription': 'Show ASIO panel buttons',
@@ -598,6 +600,19 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
       expect(window.echo?.app?.setSettings).toHaveBeenCalledWith({ audioReleaseExclusiveOnPauseExperimentalEnabled: true }),
     );
     await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ releaseExclusiveOnPauseExperimentalEnabled: true }));
+  });
+
+  it('persists exclusive instability fallback enablement', async () => {
+    const setOutput = vi.fn().mockResolvedValue(baseStatus);
+    renderDrawer(baseStatus, setOutput);
+    openAdvancedControls();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Auto-switch unstable Exclusive/ }));
+
+    await waitFor(() =>
+      expect(window.echo?.app?.setSettings).toHaveBeenCalledWith({ audioExclusiveInstabilityFallbackEnabled: true }),
+    );
+    await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ exclusiveInstabilityFallbackEnabled: true }));
   });
 
   it('persists manual JUCE output disablement', async () => {

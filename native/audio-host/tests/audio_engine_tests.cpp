@@ -311,7 +311,10 @@ void testHostPrebufferDefaultsRemainCompatible()
     const auto exclusive = parseOptions({ "echo-audio-host", "-exclusive" });
 
     require(! exclusive.startupPrebufferMsSpecified, "exclusive prebuffer default must be unspecified");
+    require(getFifoCapacityFrames(exclusive, 48000) == 9600, "exclusive FIFO default must remain compatible");
+    require(getFifoCapacityFrames(exclusive, 192000) == 144000, "high-rate exclusive FIFO must absorb decoder jitter");
     require(getStartupPrebufferFrames(exclusive, 48000) == 960, "exclusive default prebuffer must remain compatible");
+    require(getStartupPrebufferFrames(exclusive, 192000) == 34560, "high-rate exclusive default prebuffer must reduce startup underruns");
     require(getStartupPrebufferTimeoutMs(exclusive) == 300, "default prebuffer timeout must remain compatible");
 }
 

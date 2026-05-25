@@ -548,6 +548,7 @@ export type EchoApi = {
       searchText?: string,
       providerId?: LyricsProviderId,
     ) => Promise<LyricsSearchCandidate[]>;
+    previewCandidate?: (trackId: string, candidateId: string) => Promise<TrackLyrics>;
     applyCandidate: (trackId: string, candidateId: string) => Promise<TrackLyrics>;
     applyCandidateForSnapshot?: (request: LyricsTrackSnapshotRequest, candidateId: string) => Promise<TrackLyrics>;
     embedToTrack?: (trackId: string, request?: LyricsEmbedToTrackRequest) => Promise<LyricsEmbedToTrackResult>;

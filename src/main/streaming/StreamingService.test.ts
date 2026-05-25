@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { StreamingPlaybackSource, StreamingPlaylistDetail, StreamingSearchResult } from '../../shared/types/streaming';
+import type { StreamingAlbumDetail, StreamingPlaybackSource, StreamingPlaylistDetail, StreamingSearchResult } from '../../shared/types/streaming';
 import type { StreamingProvider } from './StreamingProvider';
 import { StreamingProviderRegistry } from './StreamingProviderRegistry';
 import { StreamingService } from './StreamingService';
@@ -73,6 +73,42 @@ const emptyQqSearchResult = (): StreamingSearchResult => ({
   mvs: [],
 });
 
+const albumDetail = (): StreamingAlbumDetail => ({
+  id: 'streaming:netease:album:album-1',
+  provider: 'netease',
+  providerAlbumId: 'album-1',
+  title: 'Album One',
+  artist: 'Artist One',
+  artists: [],
+  coverUrl: null,
+  coverThumb: null,
+  releaseDate: '2026',
+  trackCount: 1,
+  tracks: [
+    {
+      id: 'streaming:netease:track:track-1',
+      provider: 'netease',
+      providerTrackId: 'track-1',
+      stableKey: 'streaming:netease:track-1',
+      title: 'Track One',
+      artist: 'Artist One',
+      artists: [],
+      album: 'Album One',
+      albumId: 'album-1',
+      albumArtist: 'Artist One',
+      duration: 180,
+      coverUrl: null,
+      coverThumb: null,
+      qualities: ['high'],
+      explicit: false,
+      playable: true,
+      unavailableReason: null,
+      lyricsStatus: 'unknown',
+      mvStatus: 'unknown',
+    },
+  ],
+});
+
 const fakeCacheStore = (): ConstructorParameters<typeof StreamingService>[1] =>
   ({
     importStreamingPlaylistPage: (playlist: StreamingPlaylistDetail, options: { startPosition: number }) => ({
@@ -93,6 +129,16 @@ const fakeCacheStore = (): ConstructorParameters<typeof StreamingService>[1] =>
       nextPosition: options.startPosition + playlist.tracks.length,
     }),
   }) as unknown as ConstructorParameters<typeof StreamingService>[1];
+
+const fakeAlbumCacheStore = () => ({
+  getApiCache: vi.fn(() => null),
+  upsertTracks: vi.fn(),
+  setApiCache: vi.fn(),
+}) as unknown as ConstructorParameters<typeof StreamingService>[1] & {
+  getApiCache: ReturnType<typeof vi.fn>;
+  upsertTracks: ReturnType<typeof vi.fn>;
+  setApiCache: ReturnType<typeof vi.fn>;
+};
 
 describe('StreamingService playlist imports', () => {
   afterEach(() => {
@@ -138,6 +184,36 @@ describe('StreamingService playlist imports', () => {
         headers: expect.objectContaining({ Referer: 'https://y.qq.com/' }),
       }),
     );
+  });
+
+  it('falls back when Electron cancels manual QQ Music share redirects', async () => {
+    const registry = new StreamingProviderRegistry();
+    const getPlaylist = vi.fn(async (input: { providerPlaylistId: string; page?: number; pageSize?: number }) =>
+      playlistDetail(input.providerPlaylistId),
+    );
+    registry.register({
+      name: 'qqmusic',
+      search: vi.fn(async () => emptyQqSearchResult()),
+      getTrack: vi.fn(),
+      getPlaylist,
+      resolvePlayback: vi.fn(),
+    });
+    const service = new StreamingService(registry, fakeCacheStore());
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Redirect was cancelled'))
+        .mockResolvedValueOnce(
+          redirectResponse('https://i.y.qq.com/n2/m/share/details/taoge.html?ADTAG=pc_v17&channelId=10036163&id=7592105337&openinqqmusic=1'),
+        ),
+    );
+
+    const result = await service.importPlaylistFromUrl('https://c6.y.qq.com/base/fcgi-bin/u?__=FAsuDZNxMYUi');
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(getPlaylist).toHaveBeenCalledWith({ providerPlaylistId: '7592105337', page: 1, pageSize: 500 });
+    expect(result.providerPlaylistId).toBe('7592105337');
   });
 
   it('imports normal QQ Music playlist links without resolving redirects', async () => {
@@ -236,6 +312,53 @@ describe('StreamingService playlist imports', () => {
       supportsDownload: false,
       requiresAccount: true,
     });
+  });
+
+  it('returns streaming album details before persisting the album cache', async () => {
+    vi.useFakeTimers();
+    const registry = new StreamingProviderRegistry();
+    const cacheStore = fakeAlbumCacheStore();
+    const detail = albumDetail();
+    registry.register({
+      name: 'netease',
+      search: vi.fn(),
+      getTrack: vi.fn(),
+      getAlbum: vi.fn(async () => detail),
+      resolvePlayback: vi.fn(),
+    });
+    const service = new StreamingService(registry, cacheStore, undefined, undefined, () => false);
+
+    const result = await service.getAlbum('netease', 'album-1');
+
+    expect(result.title).toBe('Album One');
+    expect(cacheStore.upsertTracks).not.toHaveBeenCalled();
+    expect(cacheStore.setApiCache).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(cacheStore.upsertTracks).toHaveBeenCalledWith(result.tracks);
+    expect(cacheStore.setApiCache).toHaveBeenCalledWith('netease', 'album', 'album:v10:netease:album-1', result, expect.any(String));
+  });
+
+  it('keeps streaming album cache writes deferred while playback is active', async () => {
+    vi.useFakeTimers();
+    const registry = new StreamingProviderRegistry();
+    const cacheStore = fakeAlbumCacheStore();
+    registry.register({
+      name: 'netease',
+      search: vi.fn(),
+      getTrack: vi.fn(),
+      getAlbum: vi.fn(async () => albumDetail()),
+      resolvePlayback: vi.fn(),
+    });
+    const service = new StreamingService(registry, cacheStore, undefined, undefined, () => true);
+
+    await service.getAlbum('netease', 'album-1');
+    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(1499);
+
+    expect(cacheStore.upsertTracks).not.toHaveBeenCalled();
+    expect(cacheStore.setApiCache).not.toHaveBeenCalled();
   });
 
   it('attaches a short-lived download authorization to protected playback sources', async () => {

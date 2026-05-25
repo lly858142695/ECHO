@@ -24,6 +24,9 @@ const idlePollingStates = new Set(['paused', 'stopped', 'idle', 'error']);
 const activePollingIntervalMs = 500;
 const idlePollingIntervalMs = 2000;
 const trackSwitchVisualIntentGuardMs = 2500;
+const trackSwitchPositionGuardMs = 15_000;
+const trackSwitchVisualIntentPositionToleranceMs = 1500;
+const hqPlayerEndedGraceMs = 5000;
 const nonActionableAudioStatusErrorPatterns = [
   /\beq_control_(?:closed|disconnected)\b/u,
   /\beq_control_sync_skipped\b/u,
@@ -71,16 +74,30 @@ const isSpotifyPlaybackStatus = (status: PlaybackStatus | null | undefined): boo
 const statusPositionMs = (status: AudioStatus | PlaybackStatus): number =>
   'positionSeconds' in status ? Math.round(Math.max(0, status.positionSeconds) * 1000) : Math.max(0, status.positionMs);
 
-const playbackPositionMatchesIntent = (status: AudioStatus | PlaybackStatus, intent: PlaybackVisualIntent): boolean =>
-  Math.abs(statusPositionMs(status) - intent.expectedPositionMs) <= 1500;
+const playbackExpectedPositionMs = (status: AudioStatus | PlaybackStatus, intent: PlaybackVisualIntent, now = Date.now()): number => {
+  if (status.state !== 'playing' && status.state !== 'paused') {
+    return intent.expectedPositionMs;
+  }
 
-const isStaleStatusForVisualIntent = (status: AudioStatus | PlaybackStatus, intent: PlaybackVisualIntent | null): boolean =>
-  Boolean(
-    intent &&
-      Date.now() - intent.startedAtMs <= trackSwitchVisualIntentGuardMs &&
-      playbackHasIdentity(status) &&
-      (!playbackMatchesIntent(status, intent) || !playbackPositionMatchesIntent(status, intent)),
-  );
+  const playbackRate =
+    'playbackRate' in status && Number.isFinite(status.playbackRate)
+      ? Math.max(0.25, Math.min(4, status.playbackRate))
+      : 1;
+  const elapsedMs = Math.max(0, now - intent.startedAtMs);
+  return intent.expectedPositionMs + elapsedMs * playbackRate;
+};
+
+const playbackPositionMatchesIntent = (status: AudioStatus | PlaybackStatus, intent: PlaybackVisualIntent, now = Date.now()): boolean =>
+  statusPositionMs(status) <= playbackExpectedPositionMs(status, intent, now) + trackSwitchVisualIntentPositionToleranceMs;
+
+const isStaleStatusForVisualIntent = (status: AudioStatus | PlaybackStatus, intent: PlaybackVisualIntent | null): boolean => {
+  if (!intent || !playbackHasIdentity(status)) {
+    return false;
+  }
+
+  const now = Date.now();
+  return !playbackMatchesIntent(status, intent) || !playbackPositionMatchesIntent(status, intent, now);
+};
 
 const getActionableAudioStatusError = (error: string | null | undefined): string | null => {
   if (!error) {
@@ -113,11 +130,26 @@ const connectStateToPlaybackState = (status: ConnectSessionStatus): AudioPlaybac
 const isHqPlayerConnectStatus = (status: ConnectSessionStatus | null | undefined): status is ConnectSessionStatus =>
   status?.protocol === 'hqplayer' && status.deviceId === hqPlayerConnectDeviceId;
 
+const isHqPlayerStoppedAtTrackEnd = (status: ConnectSessionStatus): boolean => {
+  if (!isHqPlayerConnectStatus(status) || status.state !== 'stopped' || !status.currentTrackId) {
+    return false;
+  }
+
+  const durationMs = Math.round(Math.max(0, status.durationSeconds || status.metadata?.durationSeconds || 0) * 1000);
+  if (durationMs <= 0) {
+    return false;
+  }
+
+  const positionMs = Math.round(Math.max(0, status.positionSeconds) * 1000);
+  return positionMs >= Math.max(0, durationMs - hqPlayerEndedGraceMs);
+};
+
 const shouldTreatHqPlayerAsActivePlayback = (status: ConnectSessionStatus | null | undefined): boolean =>
-  isHqPlayerConnectStatus(status) && ['connecting', 'ready', 'playing', 'paused'].includes(status.state);
+  isHqPlayerConnectStatus(status) &&
+  (['connecting', 'ready', 'playing', 'paused'].includes(status.state) || isHqPlayerStoppedAtTrackEnd(status));
 
 const playbackStatusFromConnectStatus = (status: ConnectSessionStatus): PlaybackStatus => ({
-  state: connectStateToPlaybackState(status),
+  state: isHqPlayerStoppedAtTrackEnd(status) ? 'ended' : connectStateToPlaybackState(status),
   currentTrackId: status.currentTrackId,
   positionMs: Math.round(Math.max(0, status.positionSeconds) * 1000),
   durationMs: Math.round(Math.max(0, status.durationSeconds || status.metadata?.durationSeconds || 0) * 1000),
@@ -160,16 +192,12 @@ const shouldClearVisualIntentForPatch = (
     return true;
   }
 
-  if (shouldApplyPlaybackStatus && patch.playbackStatus && Date.now() - intent.startedAtMs > trackSwitchVisualIntentGuardMs) {
-    return true;
-  }
-
   if (
     shouldApplyAudioStatus &&
     patch.audioStatus &&
+    Date.now() - intent.startedAtMs > trackSwitchPositionGuardMs &&
     playbackMatchesIntent(patch.audioStatus, intent) &&
-    playbackPositionMatchesIntent(patch.audioStatus, intent) &&
-    patch.audioStatus.state !== 'loading'
+    playbackPositionMatchesIntent(patch.audioStatus, intent)
   ) {
     return true;
   }

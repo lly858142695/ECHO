@@ -177,6 +177,45 @@ const similarity = (left: string | null | undefined, right: string | null | unde
   return maxLength === 0 ? 0 : Math.max(0, 1 - levenshtein(a, b) / maxLength);
 };
 
+const hasNormalizedTerm = (value: string | null | undefined, term: string | null | undefined): boolean => {
+  const normalizedValue = normalizeText(value);
+  const normalizedTerm = normalizeText(term);
+  if (!normalizedValue || !normalizedTerm) {
+    return false;
+  }
+  return (
+    normalizedValue === normalizedTerm ||
+    normalizedValue.startsWith(`${normalizedTerm} `) ||
+    normalizedValue.endsWith(` ${normalizedTerm}`) ||
+    normalizedValue.includes(` ${normalizedTerm} `) ||
+    (normalizedTerm.length >= 4 && normalizedValue.includes(normalizedTerm))
+  );
+};
+
+const baiduBaikeItemUrl = (title: string): string => `https://baike.baidu.com/item/${encodeURIComponent(title)}`;
+
+const baiduBaikeDisplayTitle = (rawTitle: string | null | undefined): string | null =>
+  rawTitle
+    ?.replace(/[_-]\s*百度百科\s*$/u, '')
+    .replace(/\s*百度百科\s*$/u, '')
+    .trim() || null;
+
+const baiduBaikeComparableTitle = (title: string): string =>
+  title
+    .replace(/[（(][^（）()]{1,80}[）)]\s*$/u, '')
+    .trim();
+
+const isRelevantBaiduBaikeCandidate = (artistName: string, title: string, extract: string): boolean => {
+  const comparableTitle = baiduBaikeComparableTitle(title);
+  return (
+    similarity(artistName, title) >= 0.34 ||
+    similarity(artistName, comparableTitle) >= 0.34 ||
+    hasNormalizedTerm(title, artistName) ||
+    hasNormalizedTerm(comparableTitle, artistName) ||
+    hasNormalizedTerm(extract, artistName)
+  );
+};
+
 const uniqueByUrl = (links: ArtistOnlineInfoExternalLink[]): ArtistOnlineInfoExternalLink[] => {
   const seen = new Set<string>();
   const result: ArtistOnlineInfoExternalLink[] = [];
@@ -514,23 +553,20 @@ export class ArtistOnlineInfoService {
     }
 
     const { body, url } = await baiduBaikeLimiter.run(() =>
-      fetchText(`http://baike.baidu.com/item/${encodeURIComponent(artistName)}`, this.fetcher, defaultHeaders, chineseArtistBioTimeoutMs, 'manual'),
+      fetchText(baiduBaikeItemUrl(artistName), this.fetcher, defaultHeaders, chineseArtistBioTimeoutMs),
     );
     if (/百度百科是一部内容开放|您所访问的页面不存在|创建词条/iu.test(body)) {
       return null;
     }
 
     const rawTitle = htmlMetaContent(body, 'og:title') ?? htmlTitle(body);
-    const title = rawTitle
-      ?.replace(/[_-]\s*百度百科\s*$/u, '')
-      .replace(/\s*百度百科\s*$/u, '')
-      .trim();
+    const title = baiduBaikeDisplayTitle(rawTitle);
     const summaryMatch = body.match(/<div[^>]+class=["'][^"']*lemmaSummary[^"']*["'][^>]*>([\s\S]{40,5000}?)<\/div>/iu);
     const summary = summaryMatch?.[1] ? htmlText(summaryMatch[1]) : null;
     const description = htmlMetaContent(body, 'description') ?? htmlMetaContent(body, 'og:description');
     const extract = normalizeExtract(summary ?? description ?? '', 2400);
 
-    if (!title || !extract || similarity(artistName, title) < 0.34) {
+    if (!title || !extract || !isRelevantBaiduBaikeCandidate(artistName, title, extract)) {
       return null;
     }
 
@@ -551,19 +587,19 @@ export class ArtistOnlineInfoService {
       bk_length: '1200',
     });
     const payload = asRecord(await baiduBaikeLimiter.run(() =>
-      fetchJson(`http://baike.baidu.com/api/openapi/BaikeLemmaCardApi?${params.toString()}`, this.fetcher, defaultHeaders, chineseArtistBioTimeoutMs, 'manual'),
+      fetchJson(`https://baike.baidu.com/api/openapi/BaikeLemmaCardApi?${params.toString()}`, this.fetcher, defaultHeaders, chineseArtistBioTimeoutMs),
     ));
     const title = text(payload.lemmaTitle) ?? text(payload.title) ?? artistName;
     const abstract = text(payload.abstract);
     const extract = abstract ? normalizeExtract(htmlText(abstract), 2400) : null;
-    if (!title || !extract || similarity(artistName, title) < 0.34) {
+    if (!title || !extract || !isRelevantBaiduBaikeCandidate(artistName, title, extract)) {
       return null;
     }
 
     return this.baiduBaikeCandidate({
       title,
       extract,
-      url: text(payload.url) ?? `http://baike.baidu.com/item/${encodeURIComponent(title)}`,
+      url: text(payload.url) ?? baiduBaikeItemUrl(title),
       thumbnailUrl: text(payload.image),
     });
   }

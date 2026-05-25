@@ -683,6 +683,9 @@ int getFifoCapacityFrames(const Options& options, int sampleRate)
     if (requestedFrames > 0)
         return std::max(requestedFrames, getDeviceBufferSize(options) * 2);
 
+    if (options.exclusive && sampleRate >= 176400)
+        return framesForMilliseconds(sampleRate, 750);
+
     return std::max(sampleRate / 5, 4096);
 }
 
@@ -695,6 +698,9 @@ int getStartupPrebufferFrames(const Options& options, int sampleRate)
 
     if (requestedFrames > 0)
         return requestedFrames;
+
+    if (options.exclusive && sampleRate >= 176400)
+        return framesForMilliseconds(sampleRate, 180);
 
     if (options.exclusive || options.asio)
         return std::max(1, std::min(sampleRate / 50, 4096));

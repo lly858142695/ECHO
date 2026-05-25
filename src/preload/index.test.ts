@@ -8,6 +8,7 @@ let exposedApi: EchoApi | null = null;
 let fakeAudioInstances: FakeAudio[] = [];
 let queuedAudioPlayFailures: Error[] = [];
 let ignoreAudioCurrentTimeWrites = false;
+let emitAudioPlayingOnPlay = true;
 
 const createTestLocalStorage = (): Storage => {
   const values = new Map<string, string>();
@@ -31,6 +32,7 @@ class FakeAudio {
   preservesPitch = true;
   mozPreservesPitch = true;
   webkitPreservesPitch = true;
+  paused = true;
   duration = 12;
   networkState = 1;
   readyState = 0;
@@ -41,9 +43,13 @@ class FakeAudio {
     if (failure) {
       throw failure;
     }
-    this.emit('playing');
+    this.paused = false;
+    if (emitAudioPlayingOnPlay) {
+      this.emit('playing');
+    }
   });
   readonly pause = vi.fn(() => {
+    this.paused = true;
     this.emit('pause');
   });
   readonly load = vi.fn(() => {
@@ -128,6 +134,7 @@ describe('preload SMTC API', () => {
     fakeAudioInstances = [];
     queuedAudioPlayFailures = [];
     ignoreAudioCurrentTimeWrites = false;
+    emitAudioPlayingOnPlay = true;
     exposedApi = null;
     vi.stubGlobal('window', {
       localStorage: createTestLocalStorage(),
@@ -356,6 +363,101 @@ describe('preload SMTC API', () => {
     expect(fakeAudioInstances).toHaveLength(1);
     expect(fakeAudioInstances[0].src).toBe('echo-audio://system/next-token');
     expect(fakeAudioInstances[0].currentTime).toBe(0);
+  });
+
+  it('ignores stale system audio pause events after playback has resumed', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string) => {
+      if (channel === IpcChannels.PlaybackResolveMediaItem) {
+        return Promise.resolve({
+          filePath: 'https://cdn.example.test/streaming.flac',
+          inputHeaders: undefined,
+          mimeType: 'audio/flac',
+          durationSeconds: 180,
+        });
+      }
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        return Promise.resolve('echo-audio://system/streaming-token');
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+    const statuses: Array<Awaited<ReturnType<EchoApi['audio']['getStatus']>>> = [];
+    exposedApi!.audio.onStatus((status) => statuses.push(status));
+
+    await exposedApi!.playback.playMediaItem({
+      item: {
+        mediaType: 'streaming',
+        trackId: 'streaming-track',
+        provider: 'netease',
+        providerTrackId: 'provider-track',
+        quality: 'high',
+        stableKey: 'netease:provider-track',
+        title: 'Streaming',
+        artist: 'Artist',
+        album: 'Album',
+        duration: 180,
+        coverThumb: null,
+        playable: true,
+      },
+    });
+
+    const statusCount = statuses.length;
+    fakeAudioInstances[0].currentTime = 2;
+    fakeAudioInstances[0].paused = false;
+    fakeAudioInstances[0].emit('pause');
+
+    expect(statuses).toHaveLength(statusCount);
+    await expect(exposedApi!.audio.getStatus()).resolves.toMatchObject({
+      outputMode: 'system',
+      state: 'playing',
+      currentTrackId: 'streaming-track',
+      positionSeconds: 2,
+    });
+  });
+
+  it('marks system audio as playing after the play promise resolves even without a playing event', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    emitAudioPlayingOnPlay = false;
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string) => {
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        return Promise.resolve('echo-audio://system/no-playing-event');
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+    const statuses: Array<Awaited<ReturnType<EchoApi['audio']['getStatus']>>> = [];
+    exposedApi!.audio.onStatus((status) => statuses.push(status));
+
+    const status = await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\song.mp3',
+      trackId: 'track-no-playing-event',
+      probe: { durationSeconds: 180 },
+    });
+
+    fakeAudioInstances[0].currentTime = 2;
+
+    expect(status).toMatchObject({
+      state: 'playing',
+      currentTrackId: 'track-no-playing-event',
+      positionMs: 0,
+    });
+    expect(statuses.at(-1)).toMatchObject({
+      state: 'playing',
+      currentTrackId: 'track-no-playing-event',
+    });
+    await expect(exposedApi!.audio.getStatus()).resolves.toMatchObject({
+      outputMode: 'system',
+      state: 'playing',
+      currentTrackId: 'track-no-playing-event',
+      positionSeconds: 2,
+    });
   });
 
   it('reports local system audio ending before duration as a decode failure', async () => {
@@ -851,6 +953,7 @@ describe('preload SMTC API', () => {
   it('exposes lyrics APIs through IPC', async () => {
     await exposedApi!.lyrics.getForTrack('track-1');
     await exposedApi!.lyrics.searchCandidates('track-1');
+    await exposedApi!.lyrics.previewCandidate?.('track-1', 'candidate-1');
     await exposedApi!.lyrics.applyCandidate('track-1', 'candidate-1');
     await exposedApi!.lyrics.embedToTrack?.('track-1', { candidateId: 'candidate-1' });
     await exposedApi!.lyrics.applyCustomLrc?.('track-1', '[00:01.00]Line', 'custom.lrc');
@@ -861,6 +964,7 @@ describe('preload SMTC API', () => {
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsGetForTrack, 'track-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsSearchCandidates, 'track-1', undefined, undefined);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsPreviewCandidate, 'track-1', 'candidate-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsApplyCandidate, 'track-1', 'candidate-1');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsEmbedToTrack, 'track-1', { candidateId: 'candidate-1' });
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.LyricsApplyCustomLrc, 'track-1', '[00:01.00]Line', 'custom.lrc');

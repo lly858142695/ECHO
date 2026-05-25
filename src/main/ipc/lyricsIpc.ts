@@ -76,6 +76,9 @@ export const registerLyricsIpc = (): void => {
       typeof providerId === 'string' ? providerId : null,
     ),
   );
+  ipcMain.handle(IpcChannels.LyricsPreviewCandidate, (_event, trackId: unknown, candidateId: unknown) =>
+    getLyricsService().previewLyricsCandidate(requireText(trackId, 'trackId'), requireText(candidateId, 'candidateId')),
+  );
   ipcMain.handle(IpcChannels.LyricsApplyCandidate, (_event, trackId: unknown, candidateId: unknown) =>
     getLyricsService().applyLyricsCandidate(requireText(trackId, 'trackId'), requireText(candidateId, 'candidateId')),
   );

@@ -318,6 +318,7 @@ export const IpcChannels = {
   LyricsGetForSnapshot: 'lyrics:get-for-snapshot',
   LyricsSearchCandidates: 'lyrics:search-candidates',
   LyricsSearchCandidatesForSnapshot: 'lyrics:search-candidates-for-snapshot',
+  LyricsPreviewCandidate: 'lyrics:preview-candidate',
   LyricsApplyCandidate: 'lyrics:apply-candidate',
   LyricsApplyCandidateForSnapshot: 'lyrics:apply-candidate-for-snapshot',
   LyricsEmbedToTrack: 'lyrics:embed-to-track',

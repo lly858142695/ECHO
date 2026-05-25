@@ -1077,6 +1077,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         const dsdOutputMode = settings?.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm';
         const asioNativeDsdExperimentalEnabled = settings?.audioAsioNativeDsdExperimentalEnabled === true;
         const asioUnavailableFallbackEnabled = settings?.audioAsioUnavailableFallbackEnabled === true;
+        const exclusiveInstabilityFallbackEnabled = settings?.audioExclusiveInstabilityFallbackEnabled === true;
         const soxrFallbackEnabled = settings?.audioSoxrFallbackEnabled !== false;
         const releaseExclusiveOnPauseExperimentalEnabled = settings?.audioReleaseExclusiveOnPauseExperimentalEnabled === true;
         if (!remembered.enabled) {
@@ -1087,6 +1088,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
               dsdOutputMode,
               asioNativeDsdExperimentalEnabled,
               asioUnavailableFallbackEnabled,
+              exclusiveInstabilityFallbackEnabled,
               soxrFallbackEnabled,
               releaseExclusiveOnPauseExperimentalEnabled,
             })
@@ -1105,6 +1107,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
             dsdOutputMode,
             asioNativeDsdExperimentalEnabled,
             asioUnavailableFallbackEnabled,
+            exclusiveInstabilityFallbackEnabled,
             soxrFallbackEnabled,
             releaseExclusiveOnPauseExperimentalEnabled,
           })

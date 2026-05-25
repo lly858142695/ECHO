@@ -284,6 +284,8 @@ export type TranslationKey =
   | 'audioDrawer.meter.latency'
   | 'audioDrawer.guard.asioUnavailable.description'
   | 'audioDrawer.guard.asioUnavailable.title'
+  | 'audioDrawer.guard.exclusiveInstability.description'
+  | 'audioDrawer.guard.exclusiveInstability.title'
   | 'audioDrawer.guard.soxrFallback.description'
   | 'audioDrawer.guard.soxrFallback.title'
   | 'audioDrawer.latency.balanced'
@@ -1597,6 +1599,8 @@ const zhCN: TranslationMap = {
   'audioDrawer.meter.latency': '延迟',
   'audioDrawer.guard.asioUnavailable.description': '默认关闭。遇到 No device found 后会短暂跳过同一个 ASIO 设备，并改用安全的共享输出。',
   'audioDrawer.guard.asioUnavailable.title': 'ASIO 不可用保护',
+  'audioDrawer.guard.exclusiveInstability.description': '默认关闭。WASAPI 独占持续 underrun 或设备变得不稳定时，开启后会从当前位置切到安全共享输出。',
+  'audioDrawer.guard.exclusiveInstability.title': '独占不稳定自动切共享',
   'audioDrawer.guard.soxrFallback.description': '默认开启。如果共享 SOXR 重采样在 PCM 开始前不可用，会回退到 FFmpeg 默认重采样。',
   'audioDrawer.guard.soxrFallback.title': 'SOXR 回退保护',
   'audioDrawer.latency.balanced': '均衡',
@@ -3145,6 +3149,8 @@ const zhTW: TranslationMap = {
   'audioDrawer.meter.latency': '延遲',
   'audioDrawer.guard.asioUnavailable.description': '預設關閉。遇到 No device found 後會短暫跳過同一個 ASIO 裝置，並改用安全的共享輸出。',
   'audioDrawer.guard.asioUnavailable.title': 'ASIO 不可用保護',
+  'audioDrawer.guard.exclusiveInstability.description': '預設關閉。WASAPI 獨占持續 underrun 或裝置變得不穩定時，開啟後會從目前位置切到安全共享輸出。',
+  'audioDrawer.guard.exclusiveInstability.title': '獨占不穩定自動切共享',
   'audioDrawer.guard.soxrFallback.description': '預設開啟。如果共享 SOXR 重取樣在 PCM 開始前不可用，會退回到 FFmpeg 預設重取樣。',
   'audioDrawer.guard.soxrFallback.title': 'SOXR 退回保護',
   'audioDrawer.latency.balanced': '均衡',
@@ -4264,6 +4270,8 @@ const jaJP: TranslationMap = {
   'audioDrawer.meter.latency': 'レイテンシ',
   'audioDrawer.guard.asioUnavailable.description': '既定ではオフです。No device found の後、同じ ASIO デバイスを短時間スキップし、安全な共有出力を使います。',
   'audioDrawer.guard.asioUnavailable.title': 'ASIO 不可時ガード',
+  'audioDrawer.guard.exclusiveInstability.description': '既定ではオフです。WASAPI 排他で underrun が続く、またはデバイスが不安定になった場合、オンなら現在位置から安全な共有出力へ切り替えます。',
+  'audioDrawer.guard.exclusiveInstability.title': '排他不安定時に共有へ切替',
   'audioDrawer.guard.soxrFallback.description': '既定ではオンです。共有 SOXR リサンプルが PCM 開始前に使えない場合、FFmpeg 既定のリサンプルに戻します。',
   'audioDrawer.guard.soxrFallback.title': 'SOXR フォールバックガード',
   'audioDrawer.latency.balanced': 'バランス',
@@ -5456,6 +5464,8 @@ const enUS: TranslationMap = {
   'audioDrawer.meter.latency': 'Latency',
   'audioDrawer.guard.asioUnavailable.description': 'Default off. Skips the same ASIO device briefly after No device found, then uses safe shared output.',
   'audioDrawer.guard.asioUnavailable.title': 'ASIO unavailable guard',
+  'audioDrawer.guard.exclusiveInstability.description': 'Default off. If WASAPI Exclusive has sustained underruns or becomes unstable, switch from the current position to safe Shared output.',
+  'audioDrawer.guard.exclusiveInstability.title': 'Auto-switch unstable Exclusive',
   'audioDrawer.guard.soxrFallback.description': 'Default on. Shared SOXR resampling falls back to FFmpeg default if SOXR is unavailable before PCM starts.',
   'audioDrawer.guard.soxrFallback.title': 'SOXR fallback guard',
   'audioDrawer.latency.balanced': 'Balanced',

@@ -679,6 +679,10 @@ const ensureSystemAudioElement = (): HTMLAudioElement => {
     emitSystemAudioStatus();
   });
   element.addEventListener('pause', () => {
+    if (!element.paused) {
+      return;
+    }
+
     if (systemAudioState !== 'stopped' && systemAudioState !== 'ended' && systemAudioState !== 'error') {
       systemAudioState = 'paused';
     }
@@ -797,6 +801,13 @@ const playSystemSource = async (
 
   try {
     await element.play();
+    if (generation !== systemPlaybackGeneration) {
+      throw new Error(systemPlaybackSupersededMessage);
+    }
+    systemAudioState = 'playing';
+    systemAudioError = null;
+    startSystemStatusTimer();
+    emitSystemAudioStatus();
   } catch (error) {
     if (allowRecovery) {
       const recovered = await handleSystemPlaybackFailure('system-audio-htmlaudio-error', error, generation);
@@ -1516,6 +1527,7 @@ const echoApi: EchoApi = {
     searchCandidates: (trackId, searchText, providerId) => ipcRenderer.invoke(IpcChannels.LyricsSearchCandidates, trackId, searchText, providerId),
     searchCandidatesForSnapshot: (request, searchText, providerId) =>
       ipcRenderer.invoke(IpcChannels.LyricsSearchCandidatesForSnapshot, request, searchText, providerId),
+    previewCandidate: (trackId, candidateId) => ipcRenderer.invoke(IpcChannels.LyricsPreviewCandidate, trackId, candidateId),
     applyCandidate: (trackId, candidateId) => ipcRenderer.invoke(IpcChannels.LyricsApplyCandidate, trackId, candidateId),
     applyCandidateForSnapshot: (request, candidateId) => ipcRenderer.invoke(IpcChannels.LyricsApplyCandidateForSnapshot, request, candidateId),
     embedToTrack: (trackId, request) => ipcRenderer.invoke(IpcChannels.LyricsEmbedToTrack, trackId, request),

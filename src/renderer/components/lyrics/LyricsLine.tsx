@@ -3,6 +3,7 @@ import type { LyricLine as LyricLineType, LyricWordTiming } from '../../../share
 
 type LyricsLineProps = {
   line: LyricLineType;
+  index: number;
   active: boolean;
   past: boolean;
   onSeek: (timeMs: number) => void;
@@ -254,6 +255,7 @@ export const getRenderableLyricWords = (line: LyricLineType): readonly LyricWord
 
 export const LyricsLine = ({
   active,
+  index,
   line,
   onSeek,
   past,
@@ -278,6 +280,7 @@ export const LyricsLine = ({
       data-active={active}
       data-density={density}
       data-focus-distance={Math.min(4, Math.max(0, focusDistance))}
+      data-lyric-index={index}
       data-past={past}
       data-seekable={seekable}
       data-secondary-lines={visibleSecondaryLines}

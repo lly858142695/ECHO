@@ -1924,7 +1924,7 @@ describe("LyricsPage", () => {
   it.each([
     ["exclusive", "WASAPI 独占"],
     ["asio", "ASIO"],
-  ] as const)("generates and applies smart lyrics alignment suggestions on %s clocks", async (outputMode, modeLabel) => {
+  ] as const)("auto-saves smart lyrics alignment from stable anchors on %s clocks", async (outputMode, modeLabel) => {
     const track = makeTrack();
     const { emitAudioStatus } = mockEcho(track, 10.2, { lyricsSmartAlignmentEnabled: true });
     window.echo.lyrics = {
@@ -1954,17 +1954,174 @@ describe("LyricsPage", () => {
       });
     });
 
-    const startButton = await screen.findByRole("button", { name: /开始智能校准/ });
+    const startButton = await screen.findByRole("button", { name: /重新检测/ });
     await waitFor(() => expect((startButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(startButton);
     fireEvent.click(screen.getByRole("button", { name: /标记当前句/ }));
-
-    expect(await screen.findByText(new RegExp(`建议 -200ms · 中置信度 · ${modeLabel} 时钟`))).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /应用建议/ }));
+    act(() => {
+      emitAudioStatus({
+        ...makeAudioStatus(track, 20.2),
+        outputMode,
+        outputBackend: outputMode === "asio" ? "asio" : "wasapi-exclusive",
+      });
+    });
+    fireEvent.click(screen.getByRole("button", { name: /标记当前句/ }));
 
     await waitFor(() =>
       expect(window.echo.lyrics.setOffset).toHaveBeenCalledWith("track-1", -200),
     );
+    expect(await screen.findByText("已自动校准 -200ms")).toBeTruthy();
+  });
+
+  it("auto-saves high-confidence candidate timeline alignment and supports undo", async () => {
+    const track = makeTrack();
+    mockEcho(track, 10.2, { lyricsSmartAlignmentEnabled: true });
+    window.echo.lyrics = {
+      getForTrack: vi.fn().mockResolvedValue(makeTrackLyrics()),
+      searchCandidates: vi.fn().mockResolvedValue([makeLyricsCandidate({ id: "candidate-shifted", providerLyricsId: "shifted" })]),
+      previewCandidate: vi.fn().mockResolvedValue(
+        makeTrackLyrics({
+          id: "preview-1",
+          providerLyricsId: "shifted",
+          lines: [
+            { timeMs: 200, text: "First line" },
+            { timeMs: 10200, text: "Second line" },
+            { timeMs: 20200, text: "Third line" },
+          ],
+        }),
+      ),
+      applyCandidate: vi.fn(),
+      markInstrumental: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi
+        .fn()
+        .mockResolvedValueOnce(makeTrackLyrics({ offsetMs: -200 }))
+        .mockResolvedValueOnce(makeTrackLyrics({ offsetMs: 0 })),
+      clearCache: vi.fn(),
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+    expect(await screen.findByText("Second line")).toBeTruthy();
+    window.dispatchEvent(new Event("lyrics:search-requested"));
+
+    await waitFor(() =>
+      expect(window.echo.lyrics.previewCandidate).toHaveBeenCalledWith("track-1", "candidate-shifted"),
+    );
+    await waitFor(() =>
+      expect(window.echo.lyrics.setOffset).toHaveBeenCalledWith("track-1", -200),
+    );
+    expect(await screen.findByText("已自动校准 -200ms")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /撤销/ }));
+
+    await waitFor(() =>
+      expect(window.echo.lyrics.setOffset).toHaveBeenLastCalledWith("track-1", 0),
+    );
+  });
+
+  it("smoke-tests smart lyrics alignment auto-save, undo, and source reset", async () => {
+    const track = makeTrack();
+    const { emitAudioStatus } = mockEcho(track, 10.2, { lyricsSmartAlignmentEnabled: true });
+    const rematchedLines = [
+      { timeMs: 0, text: "Replacement first" },
+      { timeMs: 10000, text: "Replacement second" },
+      { timeMs: 20000, text: "Replacement third" },
+    ];
+    const rematchedLyrics = makeTrackLyrics({
+      id: "lyrics-rematched",
+      providerLyricsId: "source-2",
+      lines: rematchedLines,
+      plainText: "Replacement first\nReplacement second\nReplacement third",
+      syncedText:
+        "[00:00.00]Replacement first\n[00:10.00]Replacement second\n[00:20.00]Replacement third",
+      offsetMs: 0,
+    });
+    window.echo.lyrics = {
+      getForTrack: vi.fn().mockResolvedValue(makeTrackLyrics()),
+      searchCandidates: vi.fn().mockResolvedValue([makeLyricsCandidate({ id: "candidate-shifted", providerLyricsId: "shifted" })]),
+      previewCandidate: vi.fn().mockResolvedValue(
+        makeTrackLyrics({
+          id: "preview-1",
+          providerLyricsId: "shifted",
+          lines: [
+            { timeMs: 200, text: "First line" },
+            { timeMs: 10200, text: "Second line" },
+            { timeMs: 20200, text: "Third line" },
+          ],
+        }),
+      ),
+      applyCandidate: vi.fn(),
+      markInstrumental: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi
+        .fn()
+        .mockResolvedValueOnce(makeTrackLyrics({ offsetMs: -200 }))
+        .mockResolvedValueOnce(makeTrackLyrics({ offsetMs: 0 }))
+        .mockResolvedValueOnce(makeTrackLyrics({
+          providerLyricsId: "source-2",
+          lines: rematchedLines,
+          plainText: rematchedLyrics.plainText,
+          syncedText: rematchedLyrics.syncedText,
+          offsetMs: -150,
+        })),
+      clearCache: vi.fn(),
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    expect(await screen.findByText("Second line")).toBeTruthy();
+    window.dispatchEvent(new Event("lyrics:search-requested"));
+
+    await waitFor(() =>
+      expect(window.echo.lyrics.setOffset).toHaveBeenCalledWith("track-1", -200),
+    );
+    expect(await screen.findByText("已自动校准 -200ms")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /撤销/ }));
+    await waitFor(() =>
+      expect(window.echo.lyrics.setOffset).toHaveBeenLastCalledWith("track-1", 0),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("lyrics:candidate-applied", {
+          detail: {
+            trackId: "track-1",
+            lyrics: rematchedLyrics,
+          },
+        }),
+      );
+    });
+
+    expect(await screen.findByText("Replacement second")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("已自动校准 -200ms")).toBeNull());
+
+    act(() => {
+      emitAudioStatus(makeAudioStatus(track, 10.15));
+    });
+    fireEvent.click(screen.getByRole("button", { name: /重新检测/ }));
+    fireEvent.click(screen.getByRole("button", { name: /标记当前句/ }));
+    act(() => {
+      emitAudioStatus(makeAudioStatus(track, 20.15));
+    });
+    fireEvent.click(screen.getByRole("button", { name: /标记当前句/ }));
+
+    await waitFor(() =>
+      expect(window.echo.lyrics.setOffset).toHaveBeenLastCalledWith("track-1", -150),
+    );
+    expect(await screen.findByText("已自动校准 -150ms")).toBeTruthy();
   });
 
   it("disables smart lyrics alignment on unsupported output modes", async () => {
@@ -1993,12 +2150,12 @@ describe("LyricsPage", () => {
       emitAudioStatus({ ...makeAudioStatus(track, 10.2), outputMode: "system" });
     });
 
-    const startButton = await screen.findByRole("button", { name: /开始智能校准/ });
+    const startButton = await screen.findByRole("button", { name: /重新检测/ });
     await waitFor(() => expect((startButton as HTMLButtonElement).disabled).toBe(true));
     expect(await screen.findByText("当前输出模式暂不支持智能校准")).toBeTruthy();
   });
 
-  it("does not apply low-confidence smart lyrics alignment suggestions", async () => {
+  it("does not auto-save low-confidence smart lyrics alignment", async () => {
     const track = makeTrack();
     const { emitAudioStatus } = mockEcho(track, 10.2, { lyricsSmartAlignmentEnabled: true });
     window.echo.lyrics = {
@@ -2020,7 +2177,7 @@ describe("LyricsPage", () => {
     );
 
     expect(await screen.findByText("Second line")).toBeTruthy();
-    const startButton = await screen.findByRole("button", { name: /开始智能校准/ });
+    const startButton = await screen.findByRole("button", { name: /重新检测/ });
     fireEvent.click(startButton);
     fireEvent.click(screen.getByRole("button", { name: /标记当前句/ }));
 
@@ -2029,8 +2186,53 @@ describe("LyricsPage", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /标记当前句/ }));
 
-    expect(await screen.findByText(/低置信度：锚点分散 600ms/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /应用建议/ })).toHaveProperty("disabled", true);
+    expect(await screen.findByText(/校准证据分散 600ms/)).toBeTruthy();
+    expect(window.echo.lyrics.setOffset).not.toHaveBeenCalled();
+  });
+
+  it("surfaces rematch guidance instead of auto-saving drifted candidate timelines", async () => {
+    const track = makeTrack();
+    mockEcho(track, 10.2, { lyricsSmartAlignmentEnabled: true });
+    const driftedLines = [
+      { timeMs: 0, text: "First line" },
+      { timeMs: 30000, text: "Second line" },
+      { timeMs: 60000, text: "Third line" },
+    ];
+    window.echo.lyrics = {
+      getForTrack: vi.fn().mockResolvedValue(makeTrackLyrics({ lines: driftedLines })),
+      searchCandidates: vi.fn().mockResolvedValue([makeLyricsCandidate({ id: "candidate-drifted" })]),
+      previewCandidate: vi.fn().mockResolvedValue(
+        makeTrackLyrics({
+          id: "preview-drifted",
+          lines: [
+            { timeMs: 100, text: "First line" },
+            { timeMs: 30300, text: "Second line" },
+            { timeMs: 60850, text: "Third line" },
+          ],
+        }),
+      ),
+      applyCandidate: vi.fn(),
+      markInstrumental: vi.fn(),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+    };
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+    expect(await screen.findByText("Second line")).toBeTruthy();
+    window.dispatchEvent(new Event("lyrics:search-requested"));
+
+    await waitFor(() =>
+      expect(window.echo.lyrics.previewCandidate).toHaveBeenCalledWith("track-1", "candidate-drifted"),
+    );
+    expect(await screen.findByText(/歌词前后可能漂移/)).toBeTruthy();
+    expect(container.querySelector(".lyrics-match-panel")).toBeTruthy();
     expect(window.echo.lyrics.setOffset).not.toHaveBeenCalled();
   });
 

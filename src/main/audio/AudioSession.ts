@@ -137,17 +137,6 @@ type PositionSample = {
   sampledAtMs: number;
 };
 
-type UnexpectedPositionJumpSnapshot = PositionSample & {
-  reportedPositionSeconds: number;
-  expectedPositionSeconds: number;
-  unexpectedAdvanceSeconds: number;
-  elapsedSeconds: number;
-  durationSeconds: number;
-  detectedAtMs: number;
-  outputMode: AudioOutputMode | null;
-  telemetry: NativeOutputTelemetry | null;
-};
-
 type StabilityRecoveryOptions = {
   runToken?: number;
   sharedStabilityRecoveryClaimed?: boolean;
@@ -240,14 +229,9 @@ const defaultWatchdogStallChecks = 3;
 const defaultWatchdogMaxRecoveriesPerTrack = 3;
 const defaultWatchdogRecoveryWindowMs = 5 * 60 * 1000;
 const watchdogPositionEpsilonSeconds = 0.05;
-const unexpectedPositionJumpMinimumSeconds = 45;
-const unexpectedPositionJumpToleranceSeconds = 6;
-const unexpectedPositionJumpEarlyWindowSeconds = 20;
 const unexpectedPositionJumpEarlyMinimumSeconds = 2.5;
 const unexpectedPositionJumpEarlyToleranceSeconds = 1;
 const unexpectedPositionJumpGuardMs = 2500;
-const unexpectedPositionJumpNoticeTtlMs = 15_000;
-const unexpectedPositionJumpCooldownMs = 30_000;
 const nativeStartupPositionGuardWindowMs = 4_500;
 const nativeStartupPositionDriftToleranceSeconds = 0.75;
 const nativeStartupPositionDriftMaxRebaseSeconds = 6;
@@ -408,12 +392,22 @@ const noopLogger = (): void => undefined;
 
 const verboseAudioLogsEnabled = process.env.ECHO_VERBOSE_AUDIO_LOGS === '1';
 
-const shouldLogPlaybackDiagnosticEvent = (event: AudioPlaybackDiagnosticEvent): boolean =>
-  event.severity !== 'info' ||
-  event.kind === 'play_request' ||
-  event.kind === 'output_ready' ||
-  event.kind === 'startup_telemetry' ||
-  (event.warnings?.length ?? 0) > 0;
+const shouldLogPlaybackDiagnosticEvent = (event: AudioPlaybackDiagnosticEvent): boolean => {
+  if (event.kind === 'startup_telemetry') {
+    return false;
+  }
+
+  if (event.kind === 'position_jump_suspected' && event.reason === 'guarded_position_jump_ignored') {
+    return false;
+  }
+
+  return (
+    event.severity !== 'info' ||
+    event.kind === 'play_request' ||
+    event.kind === 'output_ready' ||
+    (event.warnings?.length ?? 0) > 0
+  );
+};
 
 const defaultAudioErrorReporter = (payload: AudioCrashReportPayload): void => {
   void import('../diagnostics/CrashReportService')
@@ -1136,6 +1130,7 @@ export class AudioSession extends EventEmitter {
     dsdOutputMode: 'pcm',
     asioNativeDsdExperimentalEnabled: false,
     asioUnavailableFallbackEnabled: false,
+    exclusiveInstabilityFallbackEnabled: false,
     soxrFallbackEnabled: true,
     releaseExclusiveOnPauseExperimentalEnabled: false,
     volume: 1,
@@ -1197,7 +1192,6 @@ export class AudioSession extends EventEmitter {
   };
   private errorMessage: string | null = null;
   private outputWarnings: string[] = [];
-  private transientAudioNotice: { message: string; expiresAtMs: number } | null = null;
   private pausedPositionSeconds: number | null = null;
   private exclusiveReleaseOnPausePromise: Promise<void> | null = null;
   private exclusiveReleasedOnPause = false;
@@ -1217,8 +1211,6 @@ export class AudioSession extends EventEmitter {
   private lastGuardedPositionJumpDiagnosticLogAt = 0;
   private lastPositionSample: PositionSample | null = null;
   private positionJumpGuardUntilMs = 0;
-  private lastUnexpectedPositionJump: UnexpectedPositionJumpSnapshot | null = null;
-  private unexpectedPositionJumpRecovering = false;
   private juceExclusiveFallbackRecovering = false;
   private watchdogLastRecoveryAt: string | null = null;
   private readonly watchdogRecoveries = new Map<string, { count: number; windowStartedAt: number }>();
@@ -1435,6 +1427,10 @@ export class AudioSession extends EventEmitter {
       dsdOutputMode: normalizeDsdOutputMode(settings.dsdOutputMode ?? this.outputSettings.dsdOutputMode),
       asioNativeDsdExperimentalEnabled: settings.asioNativeDsdExperimentalEnabled ?? this.outputSettings.asioNativeDsdExperimentalEnabled ?? false,
       asioUnavailableFallbackEnabled: settings.asioUnavailableFallbackEnabled ?? this.outputSettings.asioUnavailableFallbackEnabled ?? false,
+      exclusiveInstabilityFallbackEnabled:
+        settings.exclusiveInstabilityFallbackEnabled ??
+        this.outputSettings.exclusiveInstabilityFallbackEnabled ??
+        false,
       soxrFallbackEnabled: settings.soxrFallbackEnabled ?? this.outputSettings.soxrFallbackEnabled ?? true,
       releaseExclusiveOnPauseExperimentalEnabled:
         settings.releaseExclusiveOnPauseExperimentalEnabled ??
@@ -2918,7 +2914,7 @@ export class AudioSession extends EventEmitter {
       asioOutputChannelStart: this.currentReadyResult ? numericReadyField(this.currentReadyResult, 'asioOutputChannelStart') : null,
       lastSharedStabilityRecoveryAt: this.lastSharedStabilityRecoveryAt,
       warnings,
-      error: this.errorMessage ?? this.getActiveTransientAudioNotice(),
+      error: this.errorMessage,
     };
   }
 
@@ -3194,6 +3190,10 @@ export class AudioSession extends EventEmitter {
       ),
       asioNativeDsdExperimentalEnabled: output?.asioNativeDsdExperimentalEnabled ?? this.outputSettings.asioNativeDsdExperimentalEnabled ?? false,
       asioUnavailableFallbackEnabled: output?.asioUnavailableFallbackEnabled ?? this.outputSettings.asioUnavailableFallbackEnabled ?? false,
+      exclusiveInstabilityFallbackEnabled:
+        output?.exclusiveInstabilityFallbackEnabled ??
+        this.outputSettings.exclusiveInstabilityFallbackEnabled ??
+        false,
       useJuceDecode: this.juceDecodeSuspendedAfterFailure
         ? false
         : output?.useJuceDecode ?? this.outputSettings.useJuceDecode ?? false,
@@ -5758,6 +5758,12 @@ export class AudioSession extends EventEmitter {
     };
 
     if (this.currentPlan.outputMode === 'exclusive' && event.event !== 'default_device_changed') {
+      if (this.currentOutputSettings?.exclusiveInstabilityFallbackEnabled !== true) {
+        this.sharedStabilityRecovering = false;
+        this.addOutputWarning(recoveryReason);
+        this.recordExclusiveInstabilityWithoutFallback(positionSeconds, recoveryReason, null);
+        return;
+      }
       this.addPendingOutputWarning(recoveryReason);
       await this.fallbackExclusiveToSharedForInstability(positionSeconds, recoveryOptions);
       return;
@@ -5921,6 +5927,15 @@ export class AudioSession extends EventEmitter {
         windowMs: Math.max(0, now - this.nativeUnderrunWindow.startedAt),
       };
       if (this.currentPlan.outputMode === 'exclusive') {
+        if (this.currentOutputSettings.exclusiveInstabilityFallbackEnabled !== true) {
+          this.recordExclusiveInstabilityWithoutFallback(positionSeconds, 'exclusive_output_unstable', nativeUnderrunDelta);
+          this.nativeUnderrunWindow = {
+            startedAt: now,
+            callbacks: this.nativeTelemetry.underrunCallbacks,
+            frames: this.nativeTelemetry.underrunFrames,
+          };
+          return;
+        }
         await this.fallbackExclusiveToSharedForInstability(positionSeconds, { runToken: token, nativeUnderrunDelta });
         return;
       }
@@ -6501,13 +6516,12 @@ export class AudioSession extends EventEmitter {
     );
   }
 
-  private handlePositionSample(token: number, positionSeconds: number, telemetry: NativeOutputTelemetry | null, sampledAtMs = Date.now()): void {
+  private handlePositionSample(token: number, positionSeconds: number, _telemetry: NativeOutputTelemetry | null, sampledAtMs = Date.now()): void {
     if (!Number.isFinite(positionSeconds)) {
       this.lastPositionSample = null;
       return;
     }
 
-    const previousSample = this.lastPositionSample;
     const currentSample: PositionSample = {
       token,
       trackId: this.currentTrackId,
@@ -6515,14 +6529,7 @@ export class AudioSession extends EventEmitter {
       positionSeconds,
       sampledAtMs,
     };
-    const jump = this.createUnexpectedPositionJumpSnapshot(previousSample, currentSample, telemetry, sampledAtMs);
-
     this.lastPositionSample = currentSample;
-    if (!jump) {
-      return;
-    }
-
-    this.handleUnexpectedPositionJump(jump, token);
   }
 
   private createGuardedPositionJumpRebase(
@@ -6622,267 +6629,6 @@ export class AudioSession extends EventEmitter {
     return rebasePositionSeconds;
   }
 
-  private createUnexpectedPositionJumpSnapshot(
-    previousSample: PositionSample | null,
-    currentSample: PositionSample,
-    telemetry: NativeOutputTelemetry | null,
-    now: number,
-  ): UnexpectedPositionJumpSnapshot | null {
-    if (
-      !previousSample ||
-      this.state !== 'playing' ||
-      this.activeAutomix ||
-      this.isCurrentLivePcmStream() ||
-      this.currentActiveDsdOutputMode === 'dop' ||
-      this.currentActiveDsdOutputMode === 'native' ||
-      now < this.positionJumpGuardUntilMs
-    ) {
-      return null;
-    }
-
-    if (
-      previousSample.token !== currentSample.token ||
-      previousSample.trackId !== currentSample.trackId ||
-      previousSample.filePath !== currentSample.filePath
-    ) {
-      return null;
-    }
-
-    const reportedAdvanceSeconds = currentSample.positionSeconds - previousSample.positionSeconds;
-    const isEarlyPlaybackJump = previousSample.positionSeconds <= unexpectedPositionJumpEarlyWindowSeconds;
-    const minimumJumpSeconds = isEarlyPlaybackJump
-      ? unexpectedPositionJumpEarlyMinimumSeconds
-      : unexpectedPositionJumpMinimumSeconds;
-    const toleranceSeconds = isEarlyPlaybackJump
-      ? unexpectedPositionJumpEarlyToleranceSeconds
-      : unexpectedPositionJumpToleranceSeconds;
-    if (reportedAdvanceSeconds <= minimumJumpSeconds) {
-      return null;
-    }
-
-    const elapsedSeconds = Math.max(0, (currentSample.sampledAtMs - previousSample.sampledAtMs) / 1000);
-    const playbackRate = Math.max(0.25, Math.min(4, Number(this.currentOutputSettings?.playbackRate ?? this.outputSettings.playbackRate) || 1));
-    const allowedAdvanceSeconds = elapsedSeconds * playbackRate + toleranceSeconds;
-    const unexpectedAdvanceSeconds = reportedAdvanceSeconds - allowedAdvanceSeconds;
-    if (unexpectedAdvanceSeconds < minimumJumpSeconds) {
-      return null;
-    }
-
-    const durationSeconds = Math.max(0, Number(this.currentProbe?.durationSeconds) || 0);
-    if (durationSeconds > 0 && previousSample.positionSeconds >= durationSeconds - 10) {
-      return null;
-    }
-
-    const lastJump = this.lastUnexpectedPositionJump;
-    if (
-      lastJump &&
-      lastJump.token === currentSample.token &&
-      lastJump.trackId === currentSample.trackId &&
-      lastJump.filePath === currentSample.filePath &&
-      now - lastJump.detectedAtMs < unexpectedPositionJumpCooldownMs
-    ) {
-      return null;
-    }
-
-    const expectedPositionSeconds = Math.max(
-      0,
-      previousSample.positionSeconds + elapsedSeconds * playbackRate,
-    );
-
-    return {
-      ...previousSample,
-      reportedPositionSeconds: currentSample.positionSeconds,
-      expectedPositionSeconds,
-      unexpectedAdvanceSeconds,
-      elapsedSeconds,
-      durationSeconds,
-      detectedAtMs: now,
-      outputMode: this.currentPlan?.outputMode ?? (this.currentOutputSettings ? normalizeOutputMode(this.currentOutputSettings.outputMode) : null),
-      telemetry,
-    };
-  }
-
-  private handleUnexpectedPositionJump(jump: UnexpectedPositionJumpSnapshot, token: number): void {
-    this.lastUnexpectedPositionJump = jump;
-
-    if (!this.shouldRestartForUnexpectedPositionJump(jump)) {
-      this.rebaseUnexpectedPositionJump(jump, token);
-      return;
-    }
-
-    this.recordPlaybackDiagnosticEvent('position_jump_suspected', 'suspect', 'unexpected_playback_position_jump', {
-      positionSeconds: jump.expectedPositionSeconds,
-      durationSeconds: jump.durationSeconds,
-      details: {
-        previousPositionSeconds: jump.positionSeconds,
-        reportedPositionSeconds: jump.reportedPositionSeconds,
-        expectedPositionSeconds: jump.expectedPositionSeconds,
-        unexpectedAdvanceSeconds: jump.unexpectedAdvanceSeconds,
-        elapsedSeconds: jump.elapsedSeconds,
-        action: 'restart_same_output_at_expected_position',
-      },
-    });
-    this.addOutputWarning('unexpected_playback_position_jump_detected');
-    this.setTransientAudioNotice('检测到播放进度异常跳跃，已生成诊断报告，正在尝试回到正确位置继续播放。');
-    this.reportUnexpectedPositionJump(jump);
-    void this.recoverUnexpectedPositionJump(jump, token);
-  }
-
-  private shouldRestartForUnexpectedPositionJump(jump: UnexpectedPositionJumpSnapshot): boolean {
-    return jump.outputMode === 'asio';
-  }
-
-  private rebaseUnexpectedPositionJump(jump: UnexpectedPositionJumpSnapshot, token: number): void {
-    if (this.runToken !== token || this.state !== 'playing') {
-      return;
-    }
-
-    const durationSeconds = jump.durationSeconds || this.currentProbe?.durationSeconds || 0;
-    const maxPositionSeconds = durationSeconds > 1 ? durationSeconds - 1 : Number.POSITIVE_INFINITY;
-    const safePositionSeconds = Math.max(0, Math.min(jump.expectedPositionSeconds, maxPositionSeconds));
-    const playbackRate = this.currentOutputSettings?.playbackRate ?? this.outputSettings.playbackRate;
-
-    this.clock.rebase(safePositionSeconds);
-    this.bridge?.rebaseOutputClock?.(safePositionSeconds, playbackRate);
-    this.watchdogLastPositionSeconds = safePositionSeconds;
-    this.lastPositionSample = {
-      token,
-      trackId: this.currentTrackId,
-      filePath: this.currentFilePath,
-      positionSeconds: safePositionSeconds,
-      sampledAtMs: jump.detectedAtMs,
-    };
-    this.markExpectedPositionDiscontinuity(unexpectedPositionJumpGuardMs * 2);
-    this.addOutputWarning('unexpected_playback_position_jump_rebased');
-    this.recordPlaybackDiagnosticEvent('position_jump_suspected', 'suspect', 'unexpected_playback_position_jump', {
-      positionSeconds: safePositionSeconds,
-      durationSeconds,
-      details: {
-        previousPositionSeconds: jump.positionSeconds,
-        reportedPositionSeconds: jump.reportedPositionSeconds,
-        expectedPositionSeconds: jump.expectedPositionSeconds,
-        unexpectedAdvanceSeconds: jump.unexpectedAdvanceSeconds,
-        elapsedSeconds: jump.elapsedSeconds,
-        action: 'rebase_output_clock_at_expected_position',
-      },
-    });
-    this.reportUnexpectedPositionJump(jump, 'rebase_output_clock_at_expected_position');
-    this.verboseLogger(
-      `[AudioSession] unexpected playback position jump; rebased output clock at ${safePositionSeconds.toFixed(3)}s ` +
-        `reported=${jump.reportedPositionSeconds.toFixed(3)}s previous=${jump.positionSeconds.toFixed(3)}s`,
-    );
-    this.emitStatus();
-  }
-
-  private reportUnexpectedPositionJump(
-    jump: UnexpectedPositionJumpSnapshot,
-    recoveryAction = 'restart_same_output_at_expected_position',
-  ): void {
-    try {
-      const error = new Error('unexpected_playback_position_jump');
-      this.reportAudioError({
-        message: error.message,
-        stack: error.stack,
-        phase: 'unexpected-playback-position-jump',
-        severity: 'recoverable',
-        recovered: true,
-        details: {
-          previousPositionSeconds: jump.positionSeconds,
-          reportedPositionSeconds: jump.reportedPositionSeconds,
-          expectedPositionSeconds: jump.expectedPositionSeconds,
-          unexpectedAdvanceSeconds: jump.unexpectedAdvanceSeconds,
-          elapsedSeconds: jump.elapsedSeconds,
-          durationSeconds: jump.durationSeconds,
-          trackId: jump.trackId,
-          filePath: jump.filePath ? redactUrlSecrets(jump.filePath) : null,
-          outputMode: jump.outputMode,
-          outputBackend: this.currentOutputBackend,
-          activeOutputBackendImpl: this.currentOutputBackendImpl,
-          requestedOutputSampleRate: this.currentPlan?.requestedOutputSampleRate ?? null,
-          actualDeviceSampleRate: this.currentPlan?.actualDeviceSampleRate ?? null,
-          sharedDeviceSampleRate: this.currentPlan?.sharedDeviceSampleRate ?? this.currentDevice?.sharedDeviceSampleRate ?? null,
-          nativeTelemetry: jump.telemetry ?? this.nativeTelemetry,
-          recoveryAction,
-        },
-        audioStatus: this.getStatus(),
-      });
-    } catch {
-      // Diagnostics must never interrupt playback recovery.
-    }
-  }
-
-  private async recoverUnexpectedPositionJump(jump: UnexpectedPositionJumpSnapshot, token: number): Promise<void> {
-    if (this.unexpectedPositionJumpRecovering) {
-      return;
-    }
-
-    this.unexpectedPositionJumpRecovering = true;
-    try {
-      if (
-        this.runToken !== token ||
-        this.state !== 'playing' ||
-        !this.currentFilePath ||
-        !this.currentOutputSettings ||
-        !this.currentProbe
-      ) {
-        return;
-      }
-
-      if (this.isCurrentLivePcmStream()) {
-        this.addOutputWarning('unexpected_playback_position_jump_live_restart_skipped');
-        this.emitStatus();
-        return;
-      }
-
-      const durationSeconds = jump.durationSeconds || this.currentProbe.durationSeconds || 0;
-      const maxPositionSeconds = durationSeconds > 1 ? durationSeconds - 1 : Number.POSITIVE_INFINITY;
-      const safePositionSeconds = Math.max(0, Math.min(jump.expectedPositionSeconds, maxPositionSeconds));
-      const filePath = this.currentFilePath;
-      const trackId = this.currentTrackId;
-      const output = { ...this.currentOutputSettings };
-      const probe = createProbeHint(this.currentProbe);
-      const inputHeaders = this.currentInputHeaders ?? undefined;
-
-      this.addPendingOutputWarning('unexpected_playback_position_jump_recovered');
-      this.markExpectedPositionDiscontinuity(unexpectedPositionJumpGuardMs * 2);
-      this.recordPlaybackDiagnosticEvent('position_jump_recovered', 'recovery', 'unexpected_playback_position_jump_recovered', {
-        trackId,
-        filePath,
-        positionSeconds: safePositionSeconds,
-        durationSeconds,
-        details: {
-          reportedPositionSeconds: jump.reportedPositionSeconds,
-          expectedPositionSeconds: jump.expectedPositionSeconds,
-          recoveryAction: 'restart_same_output_at_expected_position',
-        },
-      });
-      this.logger(
-        `[AudioSession] unexpected playback position jump; restarting output at ${safePositionSeconds.toFixed(3)}s ` +
-          `reported=${jump.reportedPositionSeconds.toFixed(3)}s previous=${jump.positionSeconds.toFixed(3)}s`,
-      );
-
-      await this.playLocalFile({
-        filePath,
-        trackId: trackId ?? undefined,
-        metadata: this.currentTrackMetadata ?? undefined,
-        startSeconds: safePositionSeconds,
-        output,
-        probe,
-        inputHeaders,
-      });
-    } catch (error) {
-      if (isAudioSessionRunCancelledError(error)) {
-        this.verboseLogger('[AudioSession] unexpected position jump recovery was superseded by a newer playback run');
-        return;
-      }
-
-      this.handleError(error instanceof Error ? error : new Error(String(error)));
-    } finally {
-      this.unexpectedPositionJumpRecovering = false;
-      this.resetWatchdogProgress();
-    }
-  }
-
   private sanitizeLowLatencyBufferForOutputMode(
     outputMode: AudioOutputMode,
     latencyProfile: AudioLatencyProfile,
@@ -6910,27 +6656,6 @@ export class AudioSession extends EventEmitter {
     if (!this.pendingOutputWarnings.includes(warning)) {
       this.pendingOutputWarnings.push(warning);
     }
-  }
-
-  private getActiveTransientAudioNotice(now = Date.now()): string | null {
-    if (!this.transientAudioNotice) {
-      return null;
-    }
-
-    if (this.transientAudioNotice.expiresAtMs <= now) {
-      this.transientAudioNotice = null;
-      return null;
-    }
-
-    return this.transientAudioNotice.message;
-  }
-
-  private setTransientAudioNotice(message: string): void {
-    this.transientAudioNotice = {
-      message,
-      expiresAtMs: Date.now() + unexpectedPositionJumpNoticeTtlMs,
-    };
-    this.emitStatus();
   }
 
   private markExpectedPositionDiscontinuity(durationMs = unexpectedPositionJumpGuardMs): void {
@@ -7093,6 +6818,48 @@ export class AudioSession extends EventEmitter {
       latencyProfile: 'lowLatency',
       bufferSizeFrames: recoveryCount >= 2 ? 2048 : 1024,
     };
+  }
+
+  private recordExclusiveInstabilityWithoutFallback(
+    positionSeconds: number,
+    reason: string,
+    nativeUnderrunDelta: StabilityRecoveryOptions['nativeUnderrunDelta'] | null,
+  ): void {
+    const outputMode = this.currentPlan?.outputMode ?? normalizeOutputMode(this.currentOutputSettings?.outputMode);
+    const plan = this.currentPlan;
+    const nativeSampleRate = plan?.actualDeviceSampleRate ?? plan?.requestedOutputSampleRate ?? null;
+    const nativeBufferedMs =
+      nativeSampleRate && this.nativeTelemetry.bufferedFrames !== null
+        ? Math.round((this.nativeTelemetry.bufferedFrames / nativeSampleRate) * 1000)
+        : null;
+    const safePositionSeconds = Math.min(Math.max(0, positionSeconds), this.currentProbe?.durationSeconds || Number.POSITIVE_INFINITY);
+
+    this.addOutputWarning('exclusive_output_unstable');
+    this.recordPlaybackDiagnosticEvent('watchdog_recovery', 'suspect', `${reason}_fallback_disabled`, {
+      positionSeconds: safePositionSeconds,
+      durationSeconds: this.currentProbe?.durationSeconds,
+      outputMode,
+      details: {
+        bitDepth: this.currentProbe?.bitDepth ?? null,
+        fileSampleRate: plan?.fileSampleRate ?? null,
+        decoderOutputSampleRate: plan?.decoderOutputSampleRate ?? null,
+        requestedOutputSampleRate: plan?.requestedOutputSampleRate ?? null,
+        actualDeviceSampleRate: plan?.actualDeviceSampleRate ?? null,
+        nativeOutputFormat: getReadyOutputFormat(this.currentReadyResult),
+        nativeBufferedMs,
+        nativeUnderrunCallbacks: this.nativeTelemetry.underrunCallbacks,
+        nativeUnderrunFrames: this.nativeTelemetry.underrunFrames,
+        nativeUnderrunCallbackDelta: nativeUnderrunDelta?.callbackDelta ?? null,
+        nativeUnderrunFrameDelta: nativeUnderrunDelta?.frameDelta ?? null,
+        nativeUnderrunWindowMs: nativeUnderrunDelta?.windowMs ?? null,
+        fallbackDisabled: true,
+      },
+    });
+    this.logger(
+      `[AudioSession] ${reason}; automatic shared fallback is disabled file="${redactUrlSecrets(
+        this.currentFilePath ?? '',
+      )}" position=${safePositionSeconds.toFixed(3)}`,
+    );
   }
 
   private async fallbackExclusiveToSharedForInstability(

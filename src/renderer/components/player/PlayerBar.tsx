@@ -42,7 +42,6 @@ const maxStaleStatusRegressionSeconds = 2.5;
 const seekAnchorMaxAgeSeconds = 3;
 const playbackRateChangeDiscontinuitySeconds = 0.35;
 const endedAutoAdvanceGraceSeconds = 5;
-const trackSwitchVisualIntentGuardMs = 2500;
 const trackSwitchVisualIntentPositionToleranceMs = 1500;
 const isStreamingProviderName = (provider: string | null | undefined): provider is StreamingProviderName =>
   streamingProviderNames.includes(provider as StreamingProviderName);
@@ -159,15 +158,12 @@ type PlaybackVisualIntentSnapshot = {
   startedAtMs: number;
 };
 
-const isPlaybackVisualIntentActive = (intent: PlaybackVisualIntentSnapshot | null | undefined): intent is PlaybackVisualIntentSnapshot =>
-  Boolean(intent && Date.now() - intent.startedAtMs <= trackSwitchVisualIntentGuardMs);
-
 const audioStatusMatchesVisualIntent = (status: AudioStatus | null | undefined, intent: PlaybackVisualIntentSnapshot | null | undefined): boolean => {
   if (!status) {
     return false;
   }
 
-  if (!isPlaybackVisualIntentActive(intent)) {
+  if (!intent) {
     return true;
   }
 
@@ -178,7 +174,10 @@ const audioStatusMatchesVisualIntent = (status: AudioStatus | null | undefined, 
     return false;
   }
 
-  return Math.abs(Math.round(Math.max(0, status.positionSeconds) * 1000) - intent.expectedPositionMs) <= trackSwitchVisualIntentPositionToleranceMs;
+  const playbackRate = Number.isFinite(status.playbackRate) ? Math.max(0.25, Math.min(4, status.playbackRate)) : 1;
+  const elapsedMs = status.state === 'playing' || status.state === 'paused' ? Math.max(0, Date.now() - intent.startedAtMs) : 0;
+  const expectedPositionMs = intent.expectedPositionMs + elapsedMs * playbackRate;
+  return Math.round(Math.max(0, status.positionSeconds) * 1000) <= expectedPositionMs + trackSwitchVisualIntentPositionToleranceMs;
 };
 
 const streamingTrackWebUrl = (provider: StreamingProviderName, providerTrackId: string): string | null => {
@@ -1888,7 +1887,7 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
         if (isSpotifyCurrentTrack && currentTrack) {
           const status = await seekSpotifyPlayback(currentTrack, safePositionSeconds);
           setPlaybackStatus(status);
-          setPlaybackStatusSnapshot({ playbackStatus: status, error: null });
+          setPlaybackStatusSnapshot({ playbackStatus: status, playbackVisualIntent: null, error: null });
           dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? trackId ?? null);
           return;
         }
@@ -1919,6 +1918,7 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
           setPlaybackStatus(nextStatus);
           setPlaybackStatusSnapshot({
             playbackStatus: nextStatus,
+            playbackVisualIntent: null,
             error: null,
           });
           dispatchPlaybackSeeked(safePositionSeconds, nextStatus.currentTrackId ?? trackId ?? null);
@@ -1947,7 +1947,7 @@ export const PlayerBar = ({ onOpenAudioSettings, onOpenQueue }: PlayerBarProps):
               }
             : current,
         );
-        setPlaybackStatusSnapshot({ playbackStatus: nextStatus, error: null });
+        setPlaybackStatusSnapshot({ playbackStatus: nextStatus, playbackVisualIntent: null, error: null });
         dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? trackId ?? null);
         await refreshStatus();
       } catch (seekError) {

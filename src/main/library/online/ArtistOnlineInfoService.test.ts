@@ -141,9 +141,59 @@ describe('ArtistOnlineInfoService', () => {
     expect(result.externalLinks).toEqual([
       { label: 'Echo Unit', url: 'http://baike.baidu.com/item/Echo%20Unit', source: 'baidu-baike' },
     ]);
-    expect(String(fetcher.mock.calls[0]?.[0])).toMatch(/^http:\/\/baike\.baidu\.com\//u);
+    expect(String(fetcher.mock.calls[0]?.[0])).toMatch(/^https:\/\/baike\.baidu\.com\//u);
     expect(fetcher.mock.calls.some(([url]) => String(url).includes('wikipedia.org'))).toBe(false);
     expect(fetcher.mock.calls.some(([url]) => String(url).includes('musicbrainz.org'))).toBe(false);
+    database.close();
+  });
+
+  it('falls back to the Baidu Baike item page when the card API has no abstract', async () => {
+    const database = createDatabase(':memory:');
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes('baike.baidu.com/api/openapi/BaikeLemmaCardApi')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ errno: 2 }),
+        };
+      }
+      if (url.includes('baike.baidu.com/item/')) {
+        return {
+          ok: true,
+          status: 200,
+          url: 'https://baike.baidu.com/item/%E5%91%A8%E6%9D%B0%E4%BC%A6/129156',
+          text: async () => `
+            <html>
+              <head>
+                <title>周杰伦（华语流行乐男歌手、音乐人、演员、导演）_百度百科</title>
+                <meta name="description" content="周杰伦（Jay Chou），华语流行乐男歌手、音乐人、演员、导演。">
+                <meta property="og:image" content="https://img.example/jay.jpg">
+              </head>
+              <body></body>
+            </html>
+          `,
+          json: async () => ({}),
+        };
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const service = new ArtistOnlineInfoService(database, fetcher);
+
+    const result = await service.getArtistOnlineInfo(artist({ name: '周杰伦', sortName: 'zhou jie lun' }), {
+      locale: 'zh-CN',
+      sources: ['baidu-baike'],
+      now: new Date('2026-05-20T00:00:00.000Z'),
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.bio?.title).toBe('周杰伦（华语流行乐男歌手、音乐人、演员、导演）');
+    expect(result.bio?.extract).toContain('华语流行乐男歌手');
+    expect(result.bio?.url).toBe('https://baike.baidu.com/item/%E5%91%A8%E6%9D%B0%E4%BC%A6/129156');
+    expect(result.sourceLabels).toEqual(['百度百科']);
+    expect(String(fetcher.mock.calls[0]?.[0])).toMatch(/^https:\/\/baike\.baidu\.com\//u);
+    expect(String(fetcher.mock.calls[1]?.[0])).toMatch(/^https:\/\/baike\.baidu\.com\/item\//u);
+    expect(fetcher.mock.calls[1]?.[1]?.redirect).toBeUndefined();
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('wikipedia.org'))).toBe(false);
     database.close();
   });
 
@@ -166,7 +216,7 @@ describe('ArtistOnlineInfoService', () => {
     expect(result.status).toBe('unavailable');
     expect(result.errors?.join('\n')).toContain('百度百科');
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(String(fetcher.mock.calls[0]?.[0])).toMatch(/^http:\/\/baike\.baidu\.com\//u);
+    expect(String(fetcher.mock.calls[0]?.[0])).toMatch(/^https:\/\/baike\.baidu\.com\//u);
     expect(fetcher.mock.calls.some(([url]) => String(url).includes('musicbrainz.org'))).toBe(false);
     database.close();
   });

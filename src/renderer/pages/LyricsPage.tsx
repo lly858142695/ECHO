@@ -34,8 +34,10 @@ import { shouldShowRomanizationForLyrics } from "../../shared/utils/lyricsLangua
 import { LyricsView, getActiveLyricIndex, getEstimatedPlainLyricIndex } from "../components/lyrics/LyricsView";
 import { MvPanel, type MvAudioClock } from "../components/lyrics/MvPanel";
 import {
-  suggestLyricsSmartAlignment,
+  evaluateLyricsSmartAlignment,
   type LyricsSmartAlignmentAnchor,
+  type LyricsSmartAlignmentCandidate,
+  type LyricsSmartAlignmentEvaluation,
   type LyricsSmartAlignmentOutputMode,
 } from "../components/lyrics/lyricsSmartAlignment";
 import {
@@ -54,6 +56,12 @@ import { serializeFontList } from "../preferences/appearancePreferences";
 
 type LyricsPageProps = {
   initialLyrics?: LyricLine[];
+};
+
+type LyricsSmartAlignmentAutoState = {
+  trackId: string;
+  previousOffsetMs: number;
+  offsetMs: number;
 };
 
 type LyricsMvPanelBoundaryProps = {
@@ -524,12 +532,45 @@ const smartAlignmentModeLabel = (outputMode: LyricsSmartAlignmentOutputMode): st
 
 const smartAlignmentConfidenceLabel = (confidence: "low" | "medium" | "high"): string => {
   if (confidence === "high") {
-    return "高置信度";
+    return "高置信";
   }
   if (confidence === "medium") {
-    return "中置信度";
+    return "中置信";
   }
-  return "低置信度";
+  return "低置信";
+};
+
+const smartAlignmentReasonText = (evaluation: LyricsSmartAlignmentEvaluation | null): string => {
+  if (!evaluation) {
+    return "等待同步歌词、播放时钟或候选歌词。";
+  }
+
+  switch (evaluation.reason) {
+    case "stable_anchors":
+      return `已用 ${evaluation.anchorCount} 个锚点确认延迟。`;
+    case "stable_candidates":
+      return `已用 ${evaluation.matchedLineCount} 行候选歌词确认延迟。`;
+    case "mixed_evidence":
+      return "已结合锚点和候选歌词确认延迟。";
+    case "single_anchor":
+      return "已记录 1 个锚点，再标记一句会自动保存。";
+    case "not_enough_evidence":
+      return "证据还不够，继续播放或标记当前句后再校准。";
+    case "no_candidate_match":
+      return "候选歌词文本匹配不足，建议换一个歌词源。";
+    case "outlier_rejected":
+      return `发现 ${evaluation.rejectedEvidenceCount} 个离群点，暂不自动保存。`;
+    case "possible_drift":
+      return `歌词前后可能漂移 ${formatOffset(evaluation.driftMs)}，建议重新匹配歌词源。`;
+    case "unstable_evidence":
+      return `校准证据分散 ${evaluation.spreadMs}ms，暂不自动保存。`;
+    case "offset_too_small":
+      return "当前延迟已经接近准确，无需自动保存。";
+    case "offset_too_large":
+      return "计算出的延迟过大，建议换源或手动确认。";
+    default:
+      return "智能校准暂未找到足够稳定的结果。";
+  }
 };
 
 const firstLrcFile = (fileList: FileList | null): File | null => {
@@ -643,29 +684,19 @@ const formatTrackInfoForClipboard = (title: string, album: string | null, artist
     .filter((line): line is string => Boolean(line))
     .join("\n");
 
-const formatLyricsForClipboard = (
-  lyricsState: LyricsState,
-  showRomanization: boolean,
-  preferKanaPronunciation: boolean,
-  showTranslation: boolean,
-): string => {
-  const canShowRomanization = showRomanization && shouldShowRomanizationForLyrics(lyricsState.lines);
-  return lyricsState.lines
-    .map((line) =>
-      [
-        normalizeClipboardLine(line.text),
-        canShowRomanization
-          ? normalizeClipboardLine(
-            preferKanaPronunciation && line.kana?.trim() ? line.kana : line.romanization,
-          )
-          : null,
-        showTranslation ? normalizeClipboardLine(line.translation) : null,
-      ]
-        .filter((text): text is string => Boolean(text))
-        .join("\n"),
-    )
-    .filter((text) => text.length > 0)
-    .join("\n");
+const lyricIndexFromContextTarget = (target: EventTarget | null): number | null => {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+
+  const lineElement = target.closest<HTMLElement>(".lyrics-line[data-lyric-index]");
+  const rawIndex = lineElement?.dataset.lyricIndex;
+  if (!rawIndex) {
+    return null;
+  }
+
+  const index = Number.parseInt(rawIndex, 10);
+  return Number.isInteger(index) && index >= 0 ? index : null;
 };
 
 const readRememberedCandidateSource = (): CandidateSourceFilter => {
@@ -1071,9 +1102,13 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const [isLyricsOffsetSaving, setIsLyricsOffsetSaving] = useState(false);
   const [isSmartAlignmentSessionActive, setIsSmartAlignmentSessionActive] = useState(false);
   const [smartAlignmentAnchors, setSmartAlignmentAnchors] = useState<LyricsSmartAlignmentAnchor[]>([]);
+  const [smartAlignmentCandidatePreviews, setSmartAlignmentCandidatePreviews] = useState<LyricsSmartAlignmentCandidate[]>([]);
+  const [smartAlignmentAutoState, setSmartAlignmentAutoState] = useState<LyricsSmartAlignmentAutoState | null>(null);
   const [, setIsCustomLyricsApplying] = useState(false);
   const [isCustomLyricsDragging, setIsCustomLyricsDragging] = useState(false);
   const lyricsRequestRef = useRef(0);
+  const smartAlignmentCandidateRequestRef = useRef(0);
+  const smartAlignmentAutoAppliedKeyRef = useRef<string | null>(null);
   const smtcLyricsProgressKeyRef = useRef<string | null>(null);
   const albumNavigationTimeoutRef = useRef<number | null>(null);
   const copyNoticeTimerRef = useRef<number | null>(null);
@@ -1247,7 +1282,10 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   useEffect(() => {
     setIsSmartAlignmentSessionActive(false);
     setSmartAlignmentAnchors([]);
-  }, [lyrics.lines, lyrics.source, trackId]);
+    setSmartAlignmentCandidatePreviews([]);
+    setSmartAlignmentAutoState(null);
+    smartAlignmentAutoAppliedKeyRef.current = null;
+  }, [lyrics.source, trackId]);
   const effectiveDisplayedLyrics = useMemo(
     () =>
       lyricsDisplaySettings.lyricsTimelineCorrectionEnabled !== false
@@ -1269,6 +1307,51 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       void writeClipboardText(text, "已复制歌曲信息");
     },
     [album, artist, showCopyError, title, writeClipboardText],
+  );
+  const handleTrackTitleContextMenu = useCallback(
+    (event: MouseEvent<HTMLElement>): void => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const text = normalizeClipboardLine(title);
+      if (!text) {
+        showCopyError("没有可复制的歌名。");
+        return;
+      }
+
+      void writeClipboardText(text, "已复制歌名");
+    },
+    [showCopyError, title, writeClipboardText],
+  );
+  const handleTrackAlbumContextMenu = useCallback(
+    (event: MouseEvent<HTMLElement>): void => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const text = normalizeClipboardLine(album);
+      if (!text) {
+        showCopyError("没有可复制的专辑名。");
+        return;
+      }
+
+      void writeClipboardText(text, "已复制专辑名");
+    },
+    [album, showCopyError, writeClipboardText],
+  );
+  const handleTrackArtistContextMenu = useCallback(
+    (event: MouseEvent<HTMLElement>): void => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const text = normalizeClipboardLine(artist);
+      if (!text) {
+        showCopyError("没有可复制的艺人名。");
+        return;
+      }
+
+      void writeClipboardText(text, "已复制艺人名");
+    },
+    [artist, showCopyError, writeClipboardText],
   );
   const handleTrackCoverContextMenu = useCallback(
     (event: MouseEvent<HTMLElement>): void => {
@@ -1301,24 +1384,17 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       event.preventDefault();
       event.stopPropagation();
 
-      const text = formatLyricsForClipboard(
-        effectiveDisplayedLyrics,
-        lyricsDisplaySettings.lyricsRomanizationEnabled,
-        lyricsDisplaySettings.lyricsUtatenKanaEnabled === true,
-        lyricsDisplaySettings.lyricsTranslationEnabled,
-      );
+      const index = lyricIndexFromContextTarget(event.target);
+      const text = index === null ? "" : normalizeClipboardLine(effectiveDisplayedLyrics.lines[index]?.text);
       if (!text) {
-        showCopyError("没有可复制的歌词。");
+        showCopyError("没有可复制的当句歌词。");
         return;
       }
 
-      void writeClipboardText(text, "已复制歌词");
+      void writeClipboardText(text, "已复制当句歌词");
     },
     [
       effectiveDisplayedLyrics,
-      lyricsDisplaySettings.lyricsRomanizationEnabled,
-      lyricsDisplaySettings.lyricsUtatenKanaEnabled,
-      lyricsDisplaySettings.lyricsTranslationEnabled,
       showCopyError,
       writeClipboardText,
     ],
@@ -2486,6 +2562,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     }
 
     const lyricsApi = window.echo.lyrics;
+    smartAlignmentAutoAppliedKeyRef.current = null;
+    setSmartAlignmentAutoState(null);
+    setSmartAlignmentAnchors([]);
     setLyrics(emptyLyrics(lyrics.offsetMs));
     setCandidates([]);
     setActiveCandidateSource(readRememberedCandidateSource());
@@ -2566,6 +2645,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
       setLyrics(trackLyricsToState(detail.lyrics));
       dispatchCurrentLyricsProviderChanged(detail.lyrics);
+      smartAlignmentAutoAppliedKeyRef.current = null;
+      setSmartAlignmentAutoState(null);
+      setSmartAlignmentAnchors([]);
       setCandidates([]);
       setActiveCandidateSource(readRememberedCandidateSource());
       setLyricsStatus(null);
@@ -2599,6 +2681,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         const trackLyrics = await applyLyricsCandidateForActiveTrack(candidateId);
         setLyrics(trackLyricsToState(trackLyrics));
         dispatchCurrentLyricsProviderChanged(trackLyrics);
+        smartAlignmentAutoAppliedKeyRef.current = null;
+        setSmartAlignmentAutoState(null);
+        setSmartAlignmentAnchors([]);
         setCandidates([]);
         setActiveCandidateSource(readRememberedCandidateSource());
         setLyricsStatus(null);
@@ -2635,6 +2720,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         lyricsRequestRef.current += 1;
         setLyrics(trackLyricsToState(trackLyrics));
         dispatchCurrentLyricsProviderChanged(trackLyrics);
+        smartAlignmentAutoAppliedKeyRef.current = null;
+        setSmartAlignmentAutoState(null);
+        setSmartAlignmentAnchors([]);
         setCandidates([]);
         setActiveCandidateSource(readRememberedCandidateSource());
         setLyricsStatus(null);
@@ -2732,11 +2820,21 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   );
 
   const handleLyricsOffsetChange = useCallback(
-    async (nextOffsetMs: number): Promise<void> => {
+    async (
+      nextOffsetMs: number,
+      options: { source?: "manual" | "smart-auto" | "smart-undo"; previousOffsetMs?: number } = {},
+    ): Promise<void> => {
       const lyricsApi = window.echo?.lyrics;
       if (!lyricsApi || !trackId) {
         setError("Desktop bridge unavailable");
         return;
+      }
+
+      const source = options.source ?? "manual";
+      if (source === "manual") {
+        smartAlignmentAutoAppliedKeyRef.current = null;
+        setSmartAlignmentAutoState(null);
+        setSmartAlignmentAnchors([]);
       }
 
       try {
@@ -2749,6 +2847,15 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
         setLyrics(trackLyricsToState(nextLyrics, lyrics.offsetMs));
         dispatchCurrentLyricsProviderChanged(nextLyrics);
+        if (source === "smart-auto") {
+          setSmartAlignmentAutoState({
+            trackId,
+            previousOffsetMs: options.previousOffsetMs ?? lyrics.offsetMs,
+            offsetMs: nextLyrics.offsetMs,
+          });
+        } else if (source === "smart-undo") {
+          setSmartAlignmentAutoState(null);
+        }
         setError(null);
       } catch (offsetError) {
         setError(
@@ -2760,6 +2867,163 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     },
     [lyrics.offsetMs, trackId],
   );
+
+  const smartAlignmentPreviewCandidates = useMemo(
+    () =>
+      [...candidates]
+        .filter((candidate) => candidate.hasSynced && !candidate.instrumental)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 3),
+    [candidates],
+  );
+  const smartAlignmentPreviewCandidateKey = useMemo(
+    () => smartAlignmentPreviewCandidates.map((candidate) => candidate.id).join("|"),
+    [smartAlignmentPreviewCandidates],
+  );
+
+  useEffect(() => {
+    const lyricsApi = window.echo?.lyrics;
+    const canPreviewCandidates =
+      lyricsDisplaySettings.lyricsSmartAlignmentEnabled === true &&
+      lyrics.kind === "synced" &&
+      Boolean(trackId) &&
+      audioStatus?.currentTrackId === trackId &&
+      Boolean(lyricsApi?.previewCandidate) &&
+      smartAlignmentPreviewCandidates.length > 0;
+
+    if (!canPreviewCandidates || !trackId || !lyricsApi?.previewCandidate) {
+      setSmartAlignmentCandidatePreviews([]);
+      return;
+    }
+
+    const requestId = smartAlignmentCandidateRequestRef.current + 1;
+    smartAlignmentCandidateRequestRef.current = requestId;
+    void Promise.all(
+      smartAlignmentPreviewCandidates.map(async (candidate): Promise<LyricsSmartAlignmentCandidate | null> => {
+        try {
+          const preview = await lyricsApi.previewCandidate!(trackId, candidate.id);
+          if (preview.kind !== "synced" || preview.lines.length === 0) {
+            return null;
+          }
+          return {
+            id: candidate.id,
+            sourceLabel: candidate.sourceLabel,
+            score: candidate.score,
+            lines: preview.lines,
+          };
+        } catch {
+          return null;
+        }
+      }),
+    ).then((previews) => {
+      if (smartAlignmentCandidateRequestRef.current !== requestId) {
+        return;
+      }
+      setSmartAlignmentCandidatePreviews(previews.filter((preview): preview is LyricsSmartAlignmentCandidate => Boolean(preview)));
+    });
+  }, [
+    lyrics.kind,
+    lyricsDisplaySettings.lyricsSmartAlignmentEnabled,
+    audioStatus?.currentTrackId,
+    smartAlignmentPreviewCandidateKey,
+    smartAlignmentPreviewCandidates,
+    trackId,
+  ]);
+
+  const smartAlignmentEvaluation = useMemo(() => {
+    if (
+      lyricsDisplaySettings.lyricsSmartAlignmentEnabled !== true ||
+      lyrics.kind !== "synced" ||
+      lyrics.source === "placeholder" ||
+      lyrics.lines.length === 0
+    ) {
+      return null;
+    }
+
+    return evaluateLyricsSmartAlignment({
+      anchors: smartAlignmentAnchors,
+      currentLines: lyrics.lines,
+      candidates: smartAlignmentCandidatePreviews,
+      currentOffsetMs: lyrics.offsetMs,
+    });
+  }, [
+    lyrics.kind,
+    lyrics.lines,
+    lyrics.offsetMs,
+    lyrics.source,
+    lyricsDisplaySettings.lyricsSmartAlignmentEnabled,
+    smartAlignmentAnchors,
+    smartAlignmentCandidatePreviews,
+  ]);
+
+  useEffect(() => {
+    const outputMode = isSmartAlignmentOutputMode(audioStatus?.outputMode)
+      ? audioStatus.outputMode
+      : null;
+    const hasCurrentAudioClock = Boolean(
+      audioStatus &&
+        trackId &&
+        audioStatus.currentTrackId === trackId &&
+        Number.isFinite(audioStatus.positionSeconds),
+    );
+    const canAutoApplySmartAlignment =
+      Boolean(trackId) &&
+      lyrics.kind === "synced" &&
+      lyrics.source !== "placeholder" &&
+      lyricsDisplaySettings.lyricsTimelineCorrectionEnabled !== false &&
+      hasCurrentAudioClock &&
+      Boolean(outputMode) &&
+      Boolean(window.echo?.lyrics?.setOffset) &&
+      !isLyricsOffsetSaving;
+
+    if (!canAutoApplySmartAlignment || !trackId || !smartAlignmentEvaluation?.canAutoApply) {
+      return;
+    }
+    if (smartAlignmentAutoState?.trackId === trackId) {
+      return;
+    }
+
+    const autoApplyKey = `${trackId}|${lyrics.source}|${lyrics.lines.length}|${lyrics.offsetMs}|${smartAlignmentEvaluation.offsetMs}`;
+    if (smartAlignmentAutoAppliedKeyRef.current === autoApplyKey) {
+      return;
+    }
+
+    smartAlignmentAutoAppliedKeyRef.current = autoApplyKey;
+    void handleLyricsOffsetChange(smartAlignmentEvaluation.offsetMs, {
+      source: "smart-auto",
+      previousOffsetMs: lyrics.offsetMs,
+    });
+  }, [
+    audioStatus,
+    handleLyricsOffsetChange,
+    isLyricsOffsetSaving,
+    lyrics.kind,
+    lyrics.lines.length,
+    lyrics.offsetMs,
+    lyrics.source,
+    lyricsDisplaySettings.lyricsTimelineCorrectionEnabled,
+    smartAlignmentAutoState,
+    smartAlignmentEvaluation,
+    trackId,
+  ]);
+
+  useEffect(() => {
+    if (
+      lyricsDisplaySettings.lyricsSmartAlignmentEnabled !== true ||
+      !smartAlignmentEvaluation ||
+      smartAlignmentEvaluation.evidenceCount === 0 ||
+      smartAlignmentEvaluation.canAutoApply ||
+      (smartAlignmentEvaluation.confidence !== "low" && smartAlignmentEvaluation.action !== "needs_rematch")
+    ) {
+      return;
+    }
+
+    setIsLyricsMatchPanelClosed(false);
+    setIsLyricsMatchPanelRevealed(true);
+  }, [
+    lyricsDisplaySettings.lyricsSmartAlignmentEnabled,
+    smartAlignmentEvaluation,
+  ]);
 
   const lyricsOffsetControls = useMemo(() => {
     if (!trackId || lyrics.kind !== "synced" || !lyricsDisplaySettings.lyricsOffsetControlsEnabled) {
@@ -2890,27 +3154,21 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         )
       : -1;
     const activeLine = activeLineIndex >= 0 ? lyrics.lines[activeLineIndex] : null;
-    const suggestion = suggestLyricsSmartAlignment(smartAlignmentAnchors);
-    const hasSuggestion = Boolean(suggestion);
-    const canApplySuggestion =
-      Boolean(suggestion) &&
-      suggestion?.canApply === true &&
-      !isLyricsOffsetSaving &&
-      canUseSmartAlignment &&
-      suggestion?.offsetMs !== lyrics.offsetMs;
-    const suggestionMessage = suggestion
-      ? suggestion.driftDetected
-        ? `可能存在时间轴漂移（前后差 ${formatOffset(suggestion.driftMs)}），本版只建议整体 offset，低置信度不应用。`
-        : !suggestion.canApply
-          ? suggestion.rejectedAnchors.length > 0
-            ? `低置信度：已排除 ${suggestion.rejectedAnchors.length} 个离群锚点，建议多标记几句后再应用。`
-            : `低置信度：锚点分散 ${suggestion.spreadMs}ms，建议多标记几句后再应用。`
-          : `建议来自 ${suggestion.anchorCount} 个有效锚点。`
+    const evidenceLabel = smartAlignmentEvaluation
+      ? smartAlignmentEvaluation.matchedLineCount > 0
+        ? `候选 ${smartAlignmentEvaluation.matchedLineCount} 行`
+        : `锚点 ${smartAlignmentEvaluation.anchorCount} 个`
       : null;
+    const currentAutoState =
+      smartAlignmentAutoState && smartAlignmentAutoState.trackId === trackId
+        ? smartAlignmentAutoState
+        : null;
 
     const handleStartSession = (): void => {
       setSmartAlignmentAnchors([]);
       setIsSmartAlignmentSessionActive(true);
+      setSmartAlignmentAutoState(null);
+      smartAlignmentAutoAppliedKeyRef.current = null;
     };
 
     const handleMarkAnchor = (): void => {
@@ -2931,24 +3189,31 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       );
     };
 
-    const handleApplySuggestion = (): void => {
-      if (!suggestion || !canApplySuggestion) {
+    const handleUndoSmartAlignment = (): void => {
+      if (!currentAutoState || isLyricsOffsetSaving) {
         return;
       }
-      void handleLyricsOffsetChange(suggestion.offsetMs);
+      void handleLyricsOffsetChange(currentAutoState.previousOffsetMs, { source: "smart-undo" });
     };
+    const smartAlignmentMessage =
+      unavailableReason ??
+      (currentAutoState
+        ? `已自动保存当前歌曲延迟，原值 ${formatOffset(currentAutoState.previousOffsetMs)}。`
+        : isSmartAlignmentSessionActive && !smartAlignmentEvaluation
+          ? `已标记 ${smartAlignmentAnchors.length} 个锚点，听到当前句时继续标记。`
+          : smartAlignmentReasonText(smartAlignmentEvaluation));
 
     return (
       <section className="lyrics-smart-alignment" aria-label="Smart lyrics alignment">
-        <span className="lyrics-smart-alignment-label">智能校准建议</span>
+        <span className="lyrics-smart-alignment-label">智能自动校准</span>
         <div className="lyrics-smart-alignment-buttons">
           <button
             type="button"
-            disabled={!canUseSmartAlignment || isSmartAlignmentSessionActive}
+            disabled={!canUseSmartAlignment}
             onClick={handleStartSession}
           >
             <TimerReset size={14} />
-            <span>开始智能校准</span>
+            <span>重新检测</span>
           </button>
           <button
             type="button"
@@ -2959,27 +3224,31 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
             <Disc3 size={14} />
             <span>标记当前句</span>
           </button>
-          <button
-            type="button"
-            disabled={!canApplySuggestion}
-            onClick={handleApplySuggestion}
-          >
-            <Check size={14} />
-            <span>应用建议</span>
-          </button>
+          {currentAutoState ? (
+            <button
+              type="button"
+              disabled={isLyricsOffsetSaving}
+              onClick={handleUndoSmartAlignment}
+            >
+              <RotateCcw size={14} />
+              <span>撤销</span>
+            </button>
+          ) : null}
         </div>
-        {hasSuggestion && suggestion ? (
+        {currentAutoState ? (
           <span className="lyrics-smart-alignment-suggestion">
-            建议 {formatOffset(suggestion.offsetMs)} · {smartAlignmentConfidenceLabel(suggestion.confidence)} · {smartAlignmentModeLabel(suggestion.outputMode)} 时钟 · 有效 {suggestion.anchorCount} 点
+            已自动校准 {formatOffset(currentAutoState.offsetMs)}
+          </span>
+        ) : smartAlignmentEvaluation && smartAlignmentEvaluation.evidenceCount > 0 ? (
+          <span className="lyrics-smart-alignment-suggestion">
+            {smartAlignmentEvaluation.action === "auto_apply" && isLyricsOffsetSaving ? "正在保存" : formatOffset(smartAlignmentEvaluation.offsetMs)}
+            {" · "}
+            {smartAlignmentConfidenceLabel(smartAlignmentEvaluation.confidence)}
+            {smartAlignmentEvaluation.outputMode ? ` · ${smartAlignmentModeLabel(smartAlignmentEvaluation.outputMode)} 时钟` : ""}
+            {evidenceLabel ? ` · ${evidenceLabel}` : ""}
           </span>
         ) : null}
-        <p>
-          {unavailableReason ??
-            suggestionMessage ??
-            (isSmartAlignmentSessionActive
-              ? `已标记 ${smartAlignmentAnchors.length} 个锚点，听到当前句时继续标记。`
-              : "开启会话后，听到当前句时点标记，ECHO 会计算建议 offset。")}
-        </p>
+        <p>{smartAlignmentMessage}</p>
       </section>
     );
   }, [
@@ -2994,7 +3263,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     lyricsDisplaySettings.lyricsGlobalSyncOffsetMs,
     lyricsDisplaySettings.lyricsSmartAlignmentEnabled,
     lyricsDisplaySettings.lyricsTimelineCorrectionEnabled,
+    smartAlignmentAutoState,
     smartAlignmentAnchors,
+    smartAlignmentEvaluation,
     trackId,
   ]);
 
@@ -3232,19 +3503,28 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
               onContextMenu={handleTrackInfoContextMenu}
             >
               <span className="lyrics-kicker">Now Playing</span>
-              <h1>{title}</h1>
+              <h1 title="右键复制歌名" onContextMenu={handleTrackTitleContextMenu}>
+                {title}
+              </h1>
               {album ? (
                 <button
                   className="lyrics-track-album"
                   type="button"
-                  disabled={!currentTrack || isAlbumNavigating}
-                  title={`Open ${album}`}
+                  aria-disabled={!currentTrack || isAlbumNavigating}
+                  title={`Open ${album} / 右键复制专辑名`}
                   onClick={handleOpenAlbumDetail}
+                  onContextMenu={handleTrackAlbumContextMenu}
                 >
                   {album}
                 </button>
               ) : null}
-              <p className="lyrics-track-artist">{artist}</p>
+              <p
+                className="lyrics-track-artist"
+                title="右键复制艺人名"
+                onContextMenu={handleTrackArtistContextMenu}
+              >
+                {artist}
+              </p>
               <div className="lyrics-track-status">
                 <PlayerStatusChips status={audioStatus} state={state} track={currentTrack} />
               </div>

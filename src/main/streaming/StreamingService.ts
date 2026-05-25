@@ -49,6 +49,9 @@ const fallbackPlaybackTtlMs = 2 * 60 * 1000;
 const providerTimeoutMs = 10 * 1000;
 const playbackProviderTimeoutMs = 30 * 1000;
 const likedSongsSyncTimeoutMs = 45 * 1000;
+const albumCacheWriteInitialDelayMs = 250;
+const albumCacheWritePlaybackDelayMs = 1500;
+const albumCacheWriteMaxDeferrals = 20;
 const searchCacheVersion = 'v10';
 const playbackCacheVersion = 'v2';
 const lyricsCacheVersion = 'v4';
@@ -66,9 +69,21 @@ type StreamingTrackRequest = {
   providerTrackId: string;
 };
 
+type StreamingPlaybackActivityProvider = () => boolean | Promise<boolean>;
+
 type StreamingPlaylistUrlTarget = {
   provider: Extract<StreamingProviderName, 'netease' | 'qqmusic' | 'spotify'>;
   providerPlaylistId: string;
+};
+
+const defaultPlaybackActivityProvider: StreamingPlaybackActivityProvider = async () => {
+  try {
+    const { getAudioSession } = await import('../audio/AudioSession');
+    const state = getAudioSession().getStatus().state;
+    return state === 'loading' || state === 'playing';
+  } catch {
+    return false;
+  }
 };
 
 const canAuthorizeProtectedMusicDownload = (provider: ProtectedMusicDownloadProvider): boolean => {
@@ -181,19 +196,36 @@ const shouldResolveQqShareLink = (url: URL): boolean => {
   return (host.includes('y.qq.com') || host.includes('qq.com')) && Boolean(url.searchParams.get('__'));
 };
 
-const resolveQqShareLinkTarget = async (url: URL): Promise<StreamingPlaylistUrlTarget | null> => {
-  if (!shouldResolveQqShareLink(url)) {
-    return null;
-  }
+const isCancelledManualRedirectError = (error: unknown): boolean =>
+  error instanceof Error && /redirect was cancelled/iu.test(error.message);
 
-  const response = await fetchWithNetworkProxy(url.toString(), {
+const fetchQqShareLinkRedirect = async (url: URL): Promise<Response> => {
+  const init: RequestInit = {
     method: 'GET',
     redirect: 'manual',
     headers: {
       Referer: 'https://y.qq.com/',
       'User-Agent': qqShareLinkUserAgent,
     },
-  });
+  };
+
+  try {
+    return await fetchWithNetworkProxy(url.toString(), init);
+  } catch (error) {
+    if (!isCancelledManualRedirectError(error)) {
+      throw error;
+    }
+
+    return await fetch(url.toString(), init);
+  }
+};
+
+const resolveQqShareLinkTarget = async (url: URL): Promise<StreamingPlaylistUrlTarget | null> => {
+  if (!shouldResolveQqShareLink(url)) {
+    return null;
+  }
+
+  const response = await fetchQqShareLinkRedirect(url);
   const location = response.headers.get('location')?.trim();
   if (!location) {
     return null;
@@ -260,14 +292,63 @@ const playableTtlMs = (source: StreamingPlaybackSource): number => {
 export class StreamingService {
   private readonly playbackResolver: StreamingPlaybackResolver;
   private readonly bpmAnalyzer = new BpmAnalyzer();
+  private readonly pendingAlbumCacheWriteTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(
     private readonly registry: StreamingProviderRegistry,
     private readonly cacheStore: StreamingCacheStore,
     private readonly memoryCache = new StreamingMemoryCache(),
     private readonly rateLimiter = new StreamingRateLimiter({ maxConcurrent: 2, minIntervalMs: 150 }),
+    private readonly playbackActivityProvider = defaultPlaybackActivityProvider,
   ) {
     this.playbackResolver = new StreamingPlaybackResolver(registry);
+  }
+
+  private scheduleAlbumCacheWrite(
+    providerName: StreamingProviderName,
+    key: string,
+    detail: StreamingAlbumDetail,
+    delayMs = albumCacheWriteInitialDelayMs,
+    deferralCount = 0,
+  ): void {
+    const existingTimer = this.pendingAlbumCacheWriteTimers.get(key);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      this.pendingAlbumCacheWriteTimers.delete(key);
+      void this.writeAlbumCacheWhenReady(providerName, key, detail, deferralCount);
+    }, delayMs);
+    this.pendingAlbumCacheWriteTimers.set(key, timer);
+  }
+
+  private async writeAlbumCacheWhenReady(
+    providerName: StreamingProviderName,
+    key: string,
+    detail: StreamingAlbumDetail,
+    deferralCount: number,
+  ): Promise<void> {
+    const playbackActive = await Promise.resolve(this.playbackActivityProvider()).catch(() => false);
+    if (playbackActive) {
+      if (deferralCount >= albumCacheWriteMaxDeferrals) {
+        console.warn('[streaming] Skipped album cache persistence while playback stayed active.', {
+          provider: providerName,
+          providerAlbumId: detail.providerAlbumId,
+        });
+        return;
+      }
+
+      this.scheduleAlbumCacheWrite(providerName, key, detail, albumCacheWritePlaybackDelayMs, deferralCount + 1);
+      return;
+    }
+
+    try {
+      this.cacheStore.upsertTracks(detail.tracks);
+      this.cacheStore.setApiCache(providerName, 'album', key, detail, expiresAtFromTtl(trackDetailTtlMs));
+    } catch (error) {
+      console.warn('[streaming] Failed to persist album cache after detail load.', error);
+    }
   }
 
   getProviders(): StreamingProviderDescriptor[] {
@@ -573,8 +654,7 @@ export class StreamingService {
         artist: detail.artist.trim() || 'Unknown Artist',
         tracks: detail.tracks.map((track) => this.normalizeTrack(providerName, track)),
       };
-      this.cacheStore.upsertTracks(normalizedDetail.tracks);
-      this.cacheStore.setApiCache(providerName, 'album', key, normalizedDetail, expiresAtFromTtl(trackDetailTtlMs));
+      this.scheduleAlbumCacheWrite(providerName, key, normalizedDetail);
       return this.memoryCache.set(key, normalizedDetail, trackDetailTtlMs);
     });
   }

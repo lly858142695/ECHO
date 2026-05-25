@@ -4,6 +4,7 @@ import type { AppSettings } from '../../../shared/types/appSettings';
 import type { ArtistInsights, LibraryAlbum, LibraryArtist, LibraryTrack } from '../../../shared/types/library';
 import type { StreamingAlbum, StreamingAlbumDetail, StreamingProviderDescriptor, StreamingProviderName, StreamingTrack } from '../../../shared/types/streaming';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
+import { useProgressiveRenderLimit } from '../../hooks/useProgressiveRenderLimit';
 import { useI18n } from '../../i18n/I18nProvider';
 import { isPlaybackCancellationError, usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { AlbumDetailView } from '../album/AlbumDetailView';
@@ -23,6 +24,9 @@ const streamingAlbumProviderPriority: StreamingProviderName[] = ['netease', 'qqm
 const maxStreamingAlbumProviders = 3;
 const streamingAlbumPageSize = 20;
 const streamingAlbumDetailFetchDelayMs = 220;
+const streamingAlbumInitialTrackRenderCount = 24;
+const streamingAlbumTrackRenderStep = 48;
+const streamingAlbumTrackRenderDelayMs = 80;
 
 type StreamingAlbumProviderPageState = {
   nextPage: number;
@@ -344,7 +348,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   const [areMoreStreamingAlbumsLoading, setAreMoreStreamingAlbumsLoading] = useState(false);
   const [streamingAlbumsError, setStreamingAlbumsError] = useState<string | null>(null);
   const [failedStreamingAlbumCoverUrls, setFailedStreamingAlbumCoverUrls] = useState<Record<string, true>>({});
-  const [areConcertsExpanded, setAreConcertsExpanded] = useState(false);
+  const [areConcertsExpanded, setAreConcertsExpanded] = useState(true);
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null);
   const [selectedStreamingAlbum, setSelectedStreamingAlbum] = useState<StreamingAlbum | null>(null);
   const [selectedStreamingAlbumDetail, setSelectedStreamingAlbumDetail] = useState<StreamingAlbumDetail | null>(null);
@@ -373,6 +377,13 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   const displayedTrackCount = Math.max(displayArtist.trackCount, loadedTrackTotal);
   const heroImageUrl = displayArtist.avatarUrl ?? (displayArtist.coverId ? `echo-cover://original/${encodeURIComponent(displayArtist.coverId)}` : null);
   const shouldShowHeroImage = Boolean(heroImageUrl && failedHeroImageUrl !== heroImageUrl);
+  const selectedStreamingAlbumTrackRenderLimit = useProgressiveRenderLimit({
+    identityKey: selectedStreamingAlbumDetail?.id ?? selectedStreamingAlbum?.id ?? null,
+    itemCount: selectedStreamingAlbumDetail?.tracks.length ?? 0,
+    initialCount: streamingAlbumInitialTrackRenderCount,
+    step: streamingAlbumTrackRenderStep,
+    delayMs: streamingAlbumTrackRenderDelayMs,
+  });
   const handleSelectTab = useCallback((nextTab: ArtistDetailTab): void => {
     if (nextTab === activeTab) {
       return;
@@ -437,7 +448,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
     setStreamingAlbumDetailError(null);
     setResolvingStreamingTrackKey(null);
     setQueuedStreamingTrackKey(null);
-    setAreConcertsExpanded(false);
+    setAreConcertsExpanded(true);
     setActiveTab('overview');
   }, [artist.id]);
 
@@ -988,6 +999,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   if (selectedStreamingAlbum) {
     const album = selectedStreamingAlbumDetail ?? selectedStreamingAlbum;
     const detailTracks = selectedStreamingAlbumDetail?.tracks ?? [];
+    const visibleDetailTracks = detailTracks.slice(0, selectedStreamingAlbumTrackRenderLimit);
     const coverSrc = selectedStreamingAlbumDetail
       ? selectedStreamingAlbumDetail.coverUrl ?? selectedStreamingAlbumDetail.coverThumb ?? selectedStreamingAlbum.coverThumb ?? selectedStreamingAlbum.coverUrl ?? null
       : selectedStreamingAlbum.coverThumb ?? null;
@@ -1038,7 +1050,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
           {!isStreamingAlbumDetailLoading && detailTracks.length === 0 && !streamingAlbumDetailError ? <div className="streaming-state">这张专辑没有可显示的歌曲。</div> : null}
           {detailTracks.length > 0 ? (
             <div className="streaming-album-track-list">
-              {detailTracks.map((track) => {
+              {visibleDetailTracks.map((track) => {
                 const isResolving = resolvingStreamingTrackKey === track.stableKey;
                 const isQueued = queuedStreamingTrackKey === track.stableKey;
                 const trackCover = track.coverThumb ?? track.coverUrl ?? coverSrc;

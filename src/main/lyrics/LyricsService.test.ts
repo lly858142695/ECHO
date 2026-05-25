@@ -907,6 +907,37 @@ describe('LyricsService', () => {
     expect(lyrics.lines[0].text).toBe('Applied');
   });
 
+  it('previews a candidate without caching or accepting it', async () => {
+    const { database, service } = createHarness({
+      onlineProvider: {
+        getLyrics: vi.fn(async () => null),
+        searchCandidates: vi.fn(async () => [{
+          ...candidate(),
+          raw: {
+            id: 'lrclib-preview',
+            trackName: 'Echo Song',
+            artistName: 'Echo Artist',
+            albumName: 'Echo Album',
+            duration: 120,
+            syncedLyrics: '[00:01.00]Preview only',
+            plainLyrics: 'Preview only',
+            instrumental: false,
+          },
+        }]),
+      },
+    });
+    const [found] = await service.searchLyricsCandidates('track-1');
+
+    const lyrics = await service.previewLyricsCandidate('track-1', found.id);
+    const candidateRow = database.prepare<[string], { status: string }>('SELECT status FROM lyrics_candidates WHERE id = ?').get(found.id);
+    const cacheCount = database.prepare('SELECT COUNT(*) AS count FROM lyrics_cache').get() as { count: number };
+
+    expect(lyrics.kind).toBe('synced');
+    expect(lyrics.lines[0].text).toBe('Preview only');
+    expect(candidateRow?.status).toBe('pending');
+    expect(cacheCount.count).toBe(0);
+  });
+
   it('applies custom LRC text as manual cached lyrics', async () => {
     const { service } = createHarness();
 

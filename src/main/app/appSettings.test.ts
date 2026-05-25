@@ -995,6 +995,15 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ audioAsioUnavailableFallbackEnabled: 'yes' as never }).audioAsioUnavailableFallbackEnabled).toBe(false);
   });
 
+  it('normalizes exclusive instability fallback as an opt-in audio setting', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).audioExclusiveInstabilityFallbackEnabled).toBe(false);
+    expect(normalizeSettings({ audioExclusiveInstabilityFallbackEnabled: true }).audioExclusiveInstabilityFallbackEnabled).toBe(true);
+    expect(normalizeSettings({ audioExclusiveInstabilityFallbackEnabled: false }).audioExclusiveInstabilityFallbackEnabled).toBe(false);
+    expect(normalizeSettings({ audioExclusiveInstabilityFallbackEnabled: 'yes' as never }).audioExclusiveInstabilityFallbackEnabled).toBe(false);
+  });
+
   it('keeps ASIO native DSD experiment disabled until explicitly enabled', async () => {
     const { normalizeSettings } = await import('./appSettings');
 

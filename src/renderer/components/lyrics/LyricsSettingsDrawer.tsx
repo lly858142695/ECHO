@@ -2437,7 +2437,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
               onChange={(event) => void patchSettings({ lyricsSmartAlignmentEnabled: event.currentTarget.checked })}
             />
           </label>
-          <p>开启后歌词页会显示智能校准入口；只给出建议，不会自动保存。</p>
+          <p>高置信时自动保存当前歌曲延迟；异常漂移只提示换源，可撤回。</p>
 
           <button
             className="audio-device-pill"

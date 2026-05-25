@@ -4721,6 +4721,7 @@ export const SettingsPage = (): JSX.Element => {
         dsdOutputMode: appSettings?.audioDsdOutputMode === 'dop' ? 'dop' : 'pcm',
         asioNativeDsdExperimentalEnabled: appSettings?.audioAsioNativeDsdExperimentalEnabled === true,
         asioUnavailableFallbackEnabled: appSettings?.audioAsioUnavailableFallbackEnabled === true,
+        exclusiveInstabilityFallbackEnabled: appSettings?.audioExclusiveInstabilityFallbackEnabled === true,
         soxrFallbackEnabled: appSettings?.audioSoxrFallbackEnabled !== false,
       };
 
@@ -4743,6 +4744,7 @@ export const SettingsPage = (): JSX.Element => {
     [
       appSettings?.audioAsioUnavailableFallbackEnabled,
       appSettings?.audioAsioNativeDsdExperimentalEnabled,
+      appSettings?.audioExclusiveInstabilityFallbackEnabled,
       appSettings?.audioSoxrFallbackEnabled,
       appSettings?.audioDsdOutputMode,
       appSettings?.audioUseJuceDecode,
@@ -4937,6 +4939,23 @@ export const SettingsPage = (): JSX.Element => {
 
     try {
       setStatus(await audio.setOutput({ asioUnavailableFallbackEnabled: nextEnabled }));
+    } catch (audioError) {
+      setError(audioError instanceof Error ? audioError.message : String(audioError));
+    }
+  };
+
+  const handleExclusiveInstabilityFallbackToggle = async (): Promise<void> => {
+    const nextEnabled = !(appSettings?.audioExclusiveInstabilityFallbackEnabled ?? false);
+    patchAppSettings({ audioExclusiveInstabilityFallbackEnabled: nextEnabled });
+
+    const audio = getAudioBridge();
+    if (!audio) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to change audio output.');
+      return;
+    }
+
+    try {
+      setStatus(await audio.setOutput({ exclusiveInstabilityFallbackEnabled: nextEnabled }));
     } catch (audioError) {
       setError(audioError instanceof Error ? audioError.message : String(audioError));
     }
@@ -8417,6 +8436,13 @@ export const SettingsPage = (): JSX.Element => {
                   active={appSettings?.audioAsioUnavailableFallbackEnabled ?? false}
                   disabled={!appSettings}
                   onClick={() => void handleAsioUnavailableFallbackToggle()}
+                />
+              </SettingRow>
+              <SettingRow title={t('audioDrawer.guard.exclusiveInstability.title')} description={t('audioDrawer.guard.exclusiveInstability.description')}>
+                <ToggleButton
+                  active={appSettings?.audioExclusiveInstabilityFallbackEnabled ?? false}
+                  disabled={!appSettings}
+                  onClick={() => void handleExclusiveInstabilityFallbackToggle()}
                 />
               </SettingRow>
                 </>

@@ -691,9 +691,8 @@ describe('ArtistDetailView', () => {
     expect(await screen.findByText(/fictional test artist/)).toBeTruthy();
     expect(screen.getByText('en.wikipedia.org')).toBeTruthy();
     expect(screen.getByText('MusicBrainz')).toBeTruthy();
-    expect(screen.getByText('1 concerts found. Expand to view dates, venues, and ticket links.')).toBeTruthy();
-    expect(screen.queryByText('Echo Unit Live')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Expand/ }));
+    expect(screen.queryByText('1 concerts found. Expand to view dates, venues, and ticket links.')).toBeNull();
+    expect(screen.getByRole('button', { name: /Collapse/ }).getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByText(/Echo Unit Live/)).toBeTruthy();
     expect(screen.getByText('Hong Kong')).toBeTruthy();
     expect(screen.getByText('20:00')).toBeTruthy();

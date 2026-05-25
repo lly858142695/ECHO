@@ -1433,7 +1433,8 @@ html[data-theme="dark"] .lyrics-track-copy h1 {
   text-underline-offset: 4px;
 }
 
-.lyrics-track-album:disabled {
+.lyrics-track-album:disabled,
+.lyrics-track-album[aria-disabled="true"] {
   cursor: default;
   opacity: 0.58;
   text-decoration: none;
@@ -1796,7 +1797,8 @@ html[data-theme="dark"] .lyrics-page[data-background="theme"] .lyrics-line[data-
   display: inline-block;
   color: inherit;
   background: transparent;
-  padding: 0;
+  margin-inline: -0.015em;
+  padding-inline: 0.015em;
   border-radius: 0.18em;
   transform: translate3d(0, 0, 0);
   transform-origin: center 72%;
@@ -1804,7 +1806,6 @@ html[data-theme="dark"] .lyrics-page[data-background="theme"] .lyrics-line[data-
     color 140ms ease,
     filter 160ms ease,
     opacity 180ms ease;
-  contain: paint;
   will-change: opacity, filter;
 }
 

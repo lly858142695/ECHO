@@ -20,6 +20,7 @@ import type {
 } from '../../../shared/types/streaming';
 import { streamingStableKey } from '../../../shared/types/streaming';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
+import { useProgressiveRenderLimit } from '../../hooks/useProgressiveRenderLimit';
 import { isPlaybackCancellationError, usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getAppBridge, getDownloadsBridge, getStreamingBridge } from '../../utils/echoBridge';
 import {
@@ -29,6 +30,9 @@ import {
 } from './streamingSearchMemory';
 
 const pageSize = 30;
+const streamingAlbumInitialTrackRenderCount = 24;
+const streamingAlbumTrackRenderStep = 48;
+const streamingAlbumTrackRenderDelayMs = 80;
 const tabs: Array<{ key: StreamingMediaType; label: string }> = [
   { key: 'track', label: '单曲' },
   { key: 'album', label: '专辑' },
@@ -301,6 +305,13 @@ export const StreamingSearchPage = (): JSX.Element => {
           ? '输入关键词开始搜索。播放时才会解析真实地址，队列不会保存临时 URL。'
           : null;
   const currentStableKey = queue.currentTrack?.mediaType === 'streaming' ? queue.currentTrack.stableKey ?? queue.currentTrack.id : null;
+  const selectedAlbumTrackRenderLimit = useProgressiveRenderLimit({
+    identityKey: selectedAlbumDetail?.id ?? selectedAlbum?.id ?? null,
+    itemCount: selectedAlbumDetail?.tracks.length ?? 0,
+    initialCount: streamingAlbumInitialTrackRenderCount,
+    step: streamingAlbumTrackRenderStep,
+    delayMs: streamingAlbumTrackRenderDelayMs,
+  });
   const virtualizer = useVirtualizer({
     count: tracks.length,
     getScrollElement: () => listRef.current,
@@ -914,6 +925,7 @@ export const StreamingSearchPage = (): JSX.Element => {
     }
 
     const detailTracks = selectedAlbumDetail?.tracks ?? [];
+    const visibleDetailTracks = detailTracks.slice(0, selectedAlbumTrackRenderLimit);
     const coverSrc = selectedAlbumDetail?.coverThumb ?? selectedAlbum?.coverThumb ?? defaultCover;
     const duration = formatAlbumDuration(detailTracks);
     const albumMetadata = [
@@ -992,7 +1004,7 @@ export const StreamingSearchPage = (): JSX.Element => {
           {!isAlbumDetailLoading && detailTracks.length === 0 && !albumDetailError ? <div className="streaming-state">这张专辑没有可显示的歌曲。</div> : null}
           {detailTracks.length > 0 ? (
             <div className="streaming-album-track-list">
-              {detailTracks.map((track) => {
+              {visibleDetailTracks.map((track) => {
                 const isPlaying = currentDetailStableKey === track.stableKey;
                 const isResolving = resolvingTrackKey === track.stableKey;
                 const isQueued = queuedTrackKey === track.stableKey;

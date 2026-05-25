@@ -4922,6 +4922,11 @@ html[data-theme="dark"] .unavailable-pill {
     box-shadow 150ms ease;
 }
 
+.streaming-album-track-list .streaming-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 70px;
+}
+
 .streaming-row::before,
 .streaming-hub .streaming-row::before {
   position: absolute;

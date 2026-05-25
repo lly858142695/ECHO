@@ -789,26 +789,7 @@ export class LyricsService {
     }
 
     const query = toQuery(track);
-    const raw = parseRawJson(row.raw_json);
-    let lyrics: TrackLyrics | null = null;
-    const rawRecord = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-    const providerResult = this.readProviderResult(rawRecord);
-
-    if (providerResult) {
-      lyrics = providerResultToTrackLyrics(query, providerResult, row.score);
-    } else if (row.provider === 'local') {
-      const filePath = textOrNull(rawRecord.filePath);
-      const extension = rawRecord.extension === '.txt' ? '.txt' : '.lrc';
-      if (filePath) {
-        lyrics = this.localProvider.getLyricsFromCandidate(query, {
-          ...this.mapCandidateRow(row),
-          filePath,
-          extension,
-        });
-      }
-    } else if (row.provider === 'lrclib') {
-      lyrics = mapLrclibRecordToTrackLyrics(toNetworkQuery(query), raw as LrclibRecord, row.score);
-    }
+    const lyrics = this.readLyricsCandidateForQuery(query, row, { includeLocal: true });
 
     if (!lyrics) {
       throw new Error('Lyrics candidate is no longer available');
@@ -831,14 +812,7 @@ export class LyricsService {
     }
 
     const query = toSnapshotQuery(request);
-    const raw = parseRawJson(row.raw_json);
-    const rawRecord = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-    const providerResult = this.readProviderResult(rawRecord);
-    const lyrics = providerResult
-      ? providerResultToTrackLyrics(query, providerResult, row.score)
-      : row.provider === 'lrclib'
-        ? mapLrclibRecordToTrackLyrics(toNetworkQuery(query), raw as LrclibRecord, row.score)
-        : null;
+    const lyrics = this.readLyricsCandidateForQuery(query, row, { includeLocal: false });
 
     if (!lyrics) {
       throw new Error('Lyrics candidate is no longer available');
@@ -849,6 +823,22 @@ export class LyricsService {
       .prepare('UPDATE lyrics_candidates SET status = ?, updated_at = ? WHERE id = ?')
       .run('accepted', nowIso(), candidateId);
     return cached;
+  }
+
+  async previewLyricsCandidate(trackId: string, candidateId: string): Promise<TrackLyrics> {
+    const track = this.library.getTrack(trackId);
+    const row = this.getCandidateRow(candidateId);
+
+    if (!track || !row || row.track_id !== trackId) {
+      throw new Error(`Unknown lyrics candidate ${candidateId}`);
+    }
+
+    const lyrics = this.readLyricsCandidateForQuery(toQuery(track), row, { includeLocal: true });
+    if (!lyrics) {
+      throw new Error('Lyrics candidate is no longer available');
+    }
+
+    return lyrics;
   }
 
   async embedLyricsToTrack(trackId: string, request: LyricsEmbedToTrackRequest = {}): Promise<LyricsEmbedToTrackResult> {
@@ -1334,6 +1324,38 @@ export class LyricsService {
       sourceUrl: textOrNull(record.sourceUrl),
       raw: record.raw,
     };
+  }
+
+  private readLyricsCandidateForQuery(
+    query: LyricsQuery,
+    row: LyricsCandidateRow,
+    options: { includeLocal: boolean },
+  ): TrackLyrics | null {
+    const raw = parseRawJson(row.raw_json);
+    const rawRecord = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+    const providerResult = this.readProviderResult(rawRecord);
+
+    if (providerResult) {
+      return providerResultToTrackLyrics(query, providerResult, row.score);
+    }
+
+    if (options.includeLocal && row.provider === 'local') {
+      const filePath = textOrNull(rawRecord.filePath);
+      const extension = rawRecord.extension === '.txt' ? '.txt' : '.lrc';
+      if (filePath) {
+        return this.localProvider.getLyricsFromCandidate(query, {
+          ...this.mapCandidateRow(row),
+          filePath,
+          extension,
+        });
+      }
+    }
+
+    if (row.provider === 'lrclib') {
+      return mapLrclibRecordToTrackLyrics(toNetworkQuery(query), raw as LrclibRecord, row.score);
+    }
+
+    return null;
   }
 
   private getCandidateRow(candidateId: string): LyricsCandidateRow | null {

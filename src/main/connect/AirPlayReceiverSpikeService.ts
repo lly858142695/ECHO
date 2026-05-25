@@ -1114,7 +1114,9 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
     this.pcmStream = stream;
     this.pcmPlaybackStarted = true;
     this.httpPcmBytesReceived = 0;
-    const host = this.advertisedInterface?.address ?? '127.0.0.1';
+    // The RAOP helper exposes PCM HTTP as a local bridge for this process; using
+    // loopback avoids Windows adapter/firewall hairpin failures on LAN addresses.
+    const host = '127.0.0.1';
 
     this.setStatus({ state: 'ready', error: null });
     this.addDebugEvent('stream', `pull PCM from http://${host}:${port}/`);

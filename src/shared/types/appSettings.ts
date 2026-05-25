@@ -167,6 +167,7 @@ export type AppSettings = {
   audioDsdOutputMode?: AudioDsdOutputMode;
   audioAsioNativeDsdExperimentalEnabled?: boolean;
   audioAsioUnavailableFallbackEnabled?: boolean;
+  audioExclusiveInstabilityFallbackEnabled?: boolean;
   audioSoxrFallbackEnabled?: boolean;
   audioReleaseExclusiveOnPauseExperimentalEnabled?: boolean;
   audioIssueDiagnosticsWindowEnabled?: boolean;

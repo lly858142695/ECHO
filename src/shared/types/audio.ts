@@ -107,6 +107,7 @@ export type AudioOutputSettings = {
   dsdOutputMode?: AudioDsdOutputMode;
   asioNativeDsdExperimentalEnabled?: boolean;
   asioUnavailableFallbackEnabled?: boolean;
+  exclusiveInstabilityFallbackEnabled?: boolean;
   soxrFallbackEnabled?: boolean;
   releaseExclusiveOnPauseExperimentalEnabled?: boolean;
   volume?: number;

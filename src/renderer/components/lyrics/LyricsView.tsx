@@ -717,6 +717,7 @@ export const LyricsView = ({
       {lyrics.lines.map((line, index) => (
         <LyricsLine
           active={index === activeIndex}
+          index={index}
           focusDistance={activeIndex >= 0 ? Math.abs(index - activeIndex) : 4}
           key={`${line.timeMs}-${index}`}
           line={line}

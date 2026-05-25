@@ -16,6 +16,7 @@ import {
   Music2,
   RefreshCw,
   Route,
+  ShieldAlert,
   SlidersHorizontal,
   Usb,
   Volume2,
@@ -777,6 +778,7 @@ export const AudioSettingsDrawer = ({
   const [useDsdDop, setUseDsdDop] = useState(status?.dsdOutputModeRequested === 'dop');
   const [asioNativeDsdExperimentalEnabled, setAsioNativeDsdExperimentalEnabled] = useState(false);
   const [asioUnavailableFallbackEnabled, setAsioUnavailableFallbackEnabled] = useState(false);
+  const [exclusiveInstabilityFallbackEnabled, setExclusiveInstabilityFallbackEnabled] = useState(false);
   const [soxrFallbackEnabled, setSoxrFallbackEnabled] = useState(true);
   const [releaseExclusiveOnPauseExperimentalEnabled, setReleaseExclusiveOnPauseExperimentalEnabled] = useState(false);
   const [fixedVolumeEnabled, setFixedVolumeEnabled] = useState(false);
@@ -1057,6 +1059,7 @@ export const AudioSettingsDrawer = ({
         setUseDsdDop(settings.audioDsdOutputMode === 'dop');
         setAsioNativeDsdExperimentalEnabled(settings.audioAsioNativeDsdExperimentalEnabled === true);
         setAsioUnavailableFallbackEnabled(settings.audioAsioUnavailableFallbackEnabled === true);
+        setExclusiveInstabilityFallbackEnabled(settings.audioExclusiveInstabilityFallbackEnabled === true);
         setSoxrFallbackEnabled(settings.audioSoxrFallbackEnabled !== false);
         setReleaseExclusiveOnPauseExperimentalEnabled(settings.audioReleaseExclusiveOnPauseExperimentalEnabled === true);
         setFixedVolumeEnabled(settings.fixedVolumeEnabled === true);
@@ -1183,6 +1186,11 @@ export const AudioSettingsDrawer = ({
         } else if (asioUnavailableFallbackEnabled) {
           settingsWithFallback.asioUnavailableFallbackEnabled = true;
         }
+        if (settings.exclusiveInstabilityFallbackEnabled !== undefined) {
+          settingsWithFallback.exclusiveInstabilityFallbackEnabled = settings.exclusiveInstabilityFallbackEnabled;
+        } else if (exclusiveInstabilityFallbackEnabled) {
+          settingsWithFallback.exclusiveInstabilityFallbackEnabled = true;
+        }
         if (settings.asioNativeDsdExperimentalEnabled !== undefined) {
           settingsWithFallback.asioNativeDsdExperimentalEnabled = settings.asioNativeDsdExperimentalEnabled;
         } else if (asioNativeDsdExperimentalEnabled) {
@@ -1238,6 +1246,7 @@ export const AudioSettingsDrawer = ({
       asioNativeDsdExperimentalEnabled,
       asioUnavailableFallbackEnabled,
       copy.desktopBridgeUnavailable,
+      exclusiveInstabilityFallbackEnabled,
       hqPlayerTakeoverEnabled,
       onStatusChange,
       onHqPlayerTakeoverEnabledChange,
@@ -1481,6 +1490,15 @@ export const AudioSettingsDrawer = ({
     void window.echo?.app.setSettings({ audioAsioUnavailableFallbackEnabled: enabled }).catch(() => undefined);
     void applyOutput({ asioUnavailableFallbackEnabled: enabled }).catch(() => {
       setAsioUnavailableFallbackEnabled(previous);
+    });
+  };
+
+  const toggleExclusiveInstabilityFallback = (enabled: boolean): void => {
+    const previous = exclusiveInstabilityFallbackEnabled;
+    setExclusiveInstabilityFallbackEnabled(enabled);
+    void window.echo?.app.setSettings({ audioExclusiveInstabilityFallbackEnabled: enabled }).catch(() => undefined);
+    void applyOutput({ exclusiveInstabilityFallbackEnabled: enabled }).catch(() => {
+      setExclusiveInstabilityFallbackEnabled(previous);
     });
   };
 
@@ -1996,6 +2014,20 @@ export const AudioSettingsDrawer = ({
                 />
               </label>
               <p>{t('audioDrawer.guard.asioUnavailable.description')}</p>
+
+              <label className="audio-toggle-row">
+                <span>
+                  <ShieldAlert size={17} />
+                  <strong>{t('audioDrawer.guard.exclusiveInstability.title')}</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={exclusiveInstabilityFallbackEnabled}
+                  disabled={isBusy}
+                  onChange={(event) => toggleExclusiveInstabilityFallback(event.currentTarget.checked)}
+                />
+              </label>
+              <p>{t('audioDrawer.guard.exclusiveInstability.description')}</p>
 
               <label className="audio-toggle-row">
                 <span>

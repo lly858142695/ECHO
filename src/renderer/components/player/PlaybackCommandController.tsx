@@ -355,7 +355,7 @@ export const PlaybackCommandController = (): null => {
       const safePositionSeconds = Math.min(durationSeconds, Math.max(0, nextPositionSeconds));
       if (isSpotifyCurrentTrack && queue.currentTrack) {
         const status = await seekSpotifyPlayback(queue.currentTrack, safePositionSeconds);
-        setPlaybackStatusSnapshot({ playbackStatus: status, error: null });
+        setPlaybackStatusSnapshot({ playbackStatus: status, playbackVisualIntent: null, error: null });
         dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? queue.currentTrackId ?? null);
         return;
       }
@@ -382,7 +382,7 @@ export const PlaybackCommandController = (): null => {
           durationMs: Math.round(Math.max(0, connectStatus.durationSeconds || durationSeconds) * 1000),
           filePath: queue.currentTrack?.path ?? null,
         };
-        setPlaybackStatusSnapshot({ playbackStatus: nextStatus, error: null });
+        setPlaybackStatusSnapshot({ playbackStatus: nextStatus, playbackVisualIntent: null, error: null });
         dispatchPlaybackSeeked(safePositionSeconds, nextStatus.currentTrackId ?? queue.currentTrackId ?? null);
         return;
       }
@@ -397,6 +397,7 @@ export const PlaybackCommandController = (): null => {
           ...status,
           positionMs: Math.round(safePositionSeconds * 1000),
         },
+        playbackVisualIntent: null,
         error: null,
       });
       dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? queue.currentTrackId ?? null);
