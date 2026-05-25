@@ -54,6 +54,20 @@ describe('OsuTimingPanel', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('12,468.75,4,1,0,100,1,0'));
   });
 
+  it('copies a full TimingPoints block when requested', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(<OsuTimingPanel track={makeTrack({ bpm: 150, bpmConfidence: 0.9, beatOffsetMs: 25, analysisStatus: 'complete' })} isOpen onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '复制完整块' }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('[TimingPoints]\n25,400,4,1,0,100,1,0'));
+  });
+
   it('starts forced BPM analysis for a track missing BPM or offset', async () => {
     const updatedTrack = makeTrack({ bpm: 140, bpmConfidence: 0.91, beatOffsetMs: 33, analysisStatus: 'complete' });
     const onTrackUpdated = vi.fn();
@@ -92,7 +106,7 @@ describe('OsuTimingPanel', () => {
   it('shows a low-confidence warning without blocking copy', () => {
     render(<OsuTimingPanel track={makeTrack({ bpm: 92, bpmConfidence: 0.2, beatOffsetMs: 0, analysisStatus: 'low_confidence' })} isOpen onClose={vi.fn()} />);
 
-    expect(screen.getByText('BPM 置信度偏低。可以复制，但建议在 osu! editor 里再听一遍确认。')).toBeTruthy();
+    expect(screen.getByText('BPM 置信度偏低。可复制，但建议在 osu! editor 里再听一遍确认。')).toBeTruthy();
     expect(screen.getByRole('button', { name: '复制 timing 行' })).toHaveProperty('disabled', false);
   });
 
@@ -111,7 +125,7 @@ describe('OsuTimingPanel', () => {
     render(<OsuTimingPanel track={makeTrack({ bpm: null, beatOffsetMs: null })} isOpen onClose={vi.fn()} onTrackUpdated={onTrackUpdated} />);
 
     expect(screen.getAllByText('未知').length).toBeGreaterThan(0);
-    expect(await screen.findByText('117.45 BPM')).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByText('117.45 BPM').length).toBeGreaterThanOrEqual(2));
     expect(screen.getByText('46,510.855683,4,1,0,100,1,0')).toBeTruthy();
     expect(onTrackUpdated).toHaveBeenCalledWith(updatedTrack);
   });
@@ -119,7 +133,16 @@ describe('OsuTimingPanel', () => {
   it('uses a 0ms offset when BPM exists but detected offset is missing', () => {
     render(<OsuTimingPanel track={makeTrack({ bpm: 128, bpmConfidence: 0.8, beatOffsetMs: null, analysisStatus: 'complete' })} isOpen onClose={vi.fn()} />);
 
-    expect(screen.getByText('已有 BPM，但没有检测到 offset。当前先按 0ms 生成 timing 行，请用节拍器手动校准。')).toBeTruthy();
+    expect(screen.getByText('已有 BPM，但没有检测到 offset。当前先按 0ms 生成 timing，请用节拍器手动校准。')).toBeTruthy();
     expect(screen.getByText('0,468.75,4,1,0,100,1,0')).toBeTruthy();
+  });
+
+  it('lets users correct half-time or double-time BPM before copying', () => {
+    render(<OsuTimingPanel track={makeTrack({ bpm: 64, bpmConfidence: 0.88, beatOffsetMs: 12, analysisStatus: 'complete' })} isOpen onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '倍速' }));
+
+    expect(screen.getByText('128 BPM')).toBeTruthy();
+    expect(screen.getByText('12,468.75,4,1,0,100,1,0')).toBeTruthy();
   });
 });

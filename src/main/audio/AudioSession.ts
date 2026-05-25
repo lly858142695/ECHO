@@ -251,6 +251,7 @@ const unexpectedPositionJumpCooldownMs = 30_000;
 const nativeStartupPositionGuardWindowMs = 4_500;
 const nativeStartupPositionDriftToleranceSeconds = 0.75;
 const nativeStartupPositionDriftMaxRebaseSeconds = 6;
+const juceExclusiveStartupRunawayDriftSeconds = 8;
 const playbackDiagnosticEventLimit = 180;
 const nativeUnderrunWindowMs = 15_000;
 const nativeUnderrunCallbackThreshold = 3;
@@ -259,6 +260,7 @@ const exclusiveNativeUnderrunStartupGraceMs = 8_000;
 const nativeTelemetryStatusIntervalMs = 1000;
 const nativeStartupTelemetryLogWindowMs = 3_500;
 const nativeStartupTelemetryLogIntervalMs = 500;
+const guardedPositionJumpDiagnosticLogIntervalMs = 2_000;
 const levelMeterStatusIntervalMs = 1000;
 const sharedStabilityMemoryTtlMs = 30 * 60 * 1000;
 const asioFailedStartGracefulStopTimeoutMs = 1_000;
@@ -1212,10 +1214,12 @@ export class AudioSession extends EventEmitter {
   private watchdogPendingWarning: string | null = null;
   private pendingOutputWarnings: string[] = [];
   private playbackDiagnosticEvents: AudioPlaybackDiagnosticEvent[] = [];
+  private lastGuardedPositionJumpDiagnosticLogAt = 0;
   private lastPositionSample: PositionSample | null = null;
   private positionJumpGuardUntilMs = 0;
   private lastUnexpectedPositionJump: UnexpectedPositionJumpSnapshot | null = null;
   private unexpectedPositionJumpRecovering = false;
+  private juceExclusiveFallbackRecovering = false;
   private watchdogLastRecoveryAt: string | null = null;
   private readonly watchdogRecoveries = new Map<string, { count: number; windowStartedAt: number }>();
   private sharedStabilityTier: SharedStabilityTier = 'standard';
@@ -2977,6 +2981,14 @@ export class AudioSession extends EventEmitter {
   private logPlaybackDiagnosticEvent(event: AudioPlaybackDiagnosticEvent): void {
     if (!shouldLogPlaybackDiagnosticEvent(event)) {
       return;
+    }
+
+    if (event.kind === 'position_jump_suspected' && event.reason === 'guarded_position_jump_ignored') {
+      const now = Date.now();
+      if (now - this.lastGuardedPositionJumpDiagnosticLogAt < guardedPositionJumpDiagnosticLogIntervalMs) {
+        return;
+      }
+      this.lastGuardedPositionJumpDiagnosticLogAt = now;
     }
 
     const nativeSampleRate = this.currentPlan?.actualDeviceSampleRate ?? this.currentPlan?.requestedOutputSampleRate ?? null;
@@ -5834,6 +5846,20 @@ export class AudioSession extends EventEmitter {
         nativePositionStalenessMs: this.nativeTelemetry.nativePositionStalenessMs ?? null,
       },
     });
+
+    if (
+      this.currentPlan.outputMode === 'exclusive' &&
+      this.currentOutputBackendImpl === 'juce-wasapi-exclusive' &&
+      startupPositionDriftSeconds >= juceExclusiveStartupRunawayDriftSeconds
+    ) {
+      void this.fallbackJuceExclusiveToNativeForStartupRunaway(startupExpectedPositionSeconds, {
+        startupElapsedMs: Math.round(elapsedMs),
+        startupExpectedPositionSeconds,
+        startupPositionSeconds: this.clock.getPositionSeconds(),
+        startupPositionDriftSeconds,
+        nativeBufferedMs,
+      });
+    }
   }
 
   private async checkNativeUnderrunRecovery(): Promise<void> {
@@ -7185,6 +7211,111 @@ export class AudioSession extends EventEmitter {
       if (releaseSharedStabilityRecovery) {
         this.sharedStabilityRecovering = false;
       }
+      if (this.runToken === token || this.runToken === recoveryRunToken) {
+        this.resetWatchdogProgress();
+      }
+    }
+  }
+
+  private async fallbackJuceExclusiveToNativeForStartupRunaway(
+    positionSeconds: number,
+    details: {
+      startupElapsedMs: number;
+      startupExpectedPositionSeconds: number;
+      startupPositionSeconds: number;
+      startupPositionDriftSeconds: number;
+      nativeBufferedMs: number | null;
+    },
+  ): Promise<void> {
+    const token = this.runToken;
+    if (this.juceExclusiveFallbackRecovering || this.sharedStabilityRecovering || this.watchdogRecovering) {
+      return;
+    }
+
+    this.juceExclusiveFallbackRecovering = true;
+    let recoveryRunToken: number | null = null;
+
+    try {
+      if (!this.isRecoveryRunCurrent(token)) {
+        return;
+      }
+
+      if (!this.currentFilePath || !this.currentOutputSettings || !this.currentProbe || this.state !== 'playing') {
+        return;
+      }
+
+      if (this.isCurrentLivePcmStream()) {
+        this.skipLivePcmRestart('juce_exclusive_startup_position_runaway', positionSeconds);
+        return;
+      }
+
+      const outputMode = this.currentPlan?.outputMode ?? normalizeOutputMode(this.currentOutputSettings.outputMode);
+      if (
+        outputMode !== 'exclusive' ||
+        this.currentOutputBackendImpl !== 'juce-wasapi-exclusive' ||
+        this.currentOutputSettings.useJuceOutput !== true
+      ) {
+        return;
+      }
+
+      const filePath = this.currentFilePath;
+      const trackId = this.currentTrackId;
+      const probe = createProbeHint(this.currentProbe);
+      const safePositionSeconds = Math.min(Math.max(0, positionSeconds), this.currentProbe.durationSeconds || Number.POSITIVE_INFINITY);
+      const output: AudioOutputSettings = {
+        ...this.currentOutputSettings,
+        useJuceOutput: false,
+      };
+      const cause = new Error('juce_exclusive_startup_position_runaway');
+
+      this.addPendingOutputWarning('juce_exclusive_startup_position_runaway');
+      this.addPendingOutputWarning('juce_exclusive_fell_back_to_native');
+      this.recordPlaybackDiagnosticEvent('watchdog_recovery', 'recovery', 'juce_exclusive_startup_position_runaway', {
+        trackId,
+        filePath,
+        positionSeconds: safePositionSeconds,
+        durationSeconds: this.currentProbe.durationSeconds,
+        outputMode,
+        details: {
+          ...details,
+          nativeBufferedFrames: this.nativeTelemetry.bufferedFrames,
+          nativeUnderrunCallbacks: this.nativeTelemetry.underrunCallbacks,
+          nativeUnderrunFrames: this.nativeTelemetry.underrunFrames,
+          fallbackOutputBackendImpl: 'legacy-wasapi-exclusive',
+        },
+      });
+      this.logger(
+        `[AudioSession] JUCE exclusive startup position runaway; falling back to native exclusive output file="${redactUrlSecrets(
+          filePath,
+        )}" position=${safePositionSeconds.toFixed(3)}s drift=${details.startupPositionDriftSeconds.toFixed(3)}s`,
+      );
+      this.reportRecoverableAudioError(cause, 'juce-exclusive-startup-fallback', {
+        recovered: true,
+        requestedOutputSampleRate: this.currentPlan?.requestedOutputSampleRate ?? null,
+        actualDeviceSampleRate: this.currentPlan?.actualDeviceSampleRate ?? null,
+        nativeTelemetry: this.nativeTelemetry,
+      });
+
+      if (!this.isRecoveryRunCurrent(token)) {
+        return;
+      }
+
+      recoveryRunToken = this.runToken + 1;
+      await this.playLocalFile({
+        filePath,
+        trackId: trackId ?? undefined,
+        metadata: this.currentTrackMetadata ?? undefined,
+        startSeconds: safePositionSeconds,
+        output,
+        probe,
+        inputHeaders: this.currentInputHeaders ?? undefined,
+      });
+    } catch (error) {
+      if (!isAudioSessionRunCancelledError(error)) {
+        this.handleError(error instanceof Error ? error : new Error(String(error)));
+      }
+    } finally {
+      this.juceExclusiveFallbackRecovering = false;
       if (this.runToken === token || this.runToken === recoveryRunToken) {
         this.resetWatchdogProgress();
       }

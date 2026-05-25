@@ -257,6 +257,35 @@ describe('AirPlayReceiverSpikeService', () => {
     expect(status.error).toContain('unsupported AirPlay RTSP POST');
   });
 
+  it('does not label non-POST RTSP 501 responses as unsupported POST flow', async () => {
+    let logHandler: ((event: unknown) => void) | null = null;
+    const service = new AirPlayReceiverSpikeService({
+      audioSession: new FakeAudioSession() as never,
+      getAdvertiseInterfaces: () => [
+        { name: 'Wi-Fi', address: '192.168.31.214', mac: '60:CF:84:CB:1E:D1' },
+      ],
+      createMdnsAdvertiser: () => ({
+        start: vi.fn(async () => undefined),
+        stop: vi.fn(async () => undefined),
+      }),
+      loadRaopModule: async () => ({
+        startReceiver: vi.fn(() => 23),
+        stopReceiver: vi.fn(),
+        sendRemoteCommand: vi.fn(() => true),
+        setLogHandler: vi.fn((handler) => {
+          logHandler = handler;
+        }),
+      }),
+    });
+
+    await service.setEnabled(true);
+    logHandler?.({ source: 'raop', level: 'info', line: 'handle_rtsp:625 responding: RTSP/1.0 501 Not Implemented' });
+
+    const status = service.getStatus();
+    expect(status.state).toBe('idle');
+    expect(status.error).toBeNull();
+  });
+
   it('maps RAOP metadata artwork and PCM events into an AirPlay playback session', async () => {
     const audio = new FakeAudioSession();
     const harness: { handler?: (event: Record<string, unknown>) => void } = {};

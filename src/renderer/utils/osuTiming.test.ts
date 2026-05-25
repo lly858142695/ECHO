@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatOsuTimingPoint, getBeatLengthMs } from './osuTiming';
+import { formatOsuTimingBlock, formatOsuTimingPoint, getBeatLengthMs } from './osuTiming';
 
 describe('osuTiming', () => {
   it('formats a standard 128 BPM timing point', () => {
@@ -13,6 +13,10 @@ describe('osuTiming', () => {
 
   it('rounds the offset to osu integer milliseconds', () => {
     expect(formatOsuTimingPoint({ bpm: 180, offsetMs: 37.6 })).toBe('38,333.333333,4,1,0,100,1,0');
+  });
+
+  it('formats a paste-ready TimingPoints block', () => {
+    expect(formatOsuTimingBlock({ bpm: 150, offsetMs: 25 })).toBe('[TimingPoints]\n25,400,4,1,0,100,1,0');
   });
 
   it('rejects invalid BPM and offset values', () => {

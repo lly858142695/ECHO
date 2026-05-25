@@ -461,6 +461,7 @@ class FakeBridge extends EventEmitter {
       channels: options.channels,
       asio: options.asio === true,
       exclusive: options.exclusive === true,
+      useJuceOutput: options.useJuceOutput === true,
       bufferSizeFrames: Number.isFinite(Number(options.bufferSizeFrames)) ? Math.round(Number(options.bufferSizeFrames)) : null,
       latencyProfile: options.latencyProfile ?? null,
       playbackSpeedMode: options.playbackSpeedMode ?? null,
@@ -476,6 +477,7 @@ class FakeBridge extends EventEmitter {
       channels: this.startOptions?.channels,
       asio: this.startOptions?.asio === true,
       exclusive: this.startOptions?.exclusive === true,
+      useJuceOutput: this.startOptions?.useJuceOutput === true,
       bufferSizeFrames: Number.isFinite(Number(this.startOptions?.bufferSizeFrames)) ? Math.round(Number(this.startOptions?.bufferSizeFrames)) : null,
       latencyProfile: this.startOptions?.latencyProfile ?? null,
       playbackSpeedMode: this.startOptions?.playbackSpeedMode ?? null,
@@ -1444,6 +1446,84 @@ describe('Audio Core sample-rate regression guard', () => {
       expect(Number(details.reportedPositionSeconds)).toBeCloseTo(2.57, 2);
       expect(Number(details.startupExpectedPositionSeconds)).toBeCloseTo(1.58, 1);
       expect(Number(details.startupUnexpectedAdvanceSeconds)).toBeCloseTo(0.99, 1);
+    } finally {
+      session.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it('falls back from JUCE exclusive when startup position runs far ahead', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-25T07:03:44.857Z'));
+    const reportAudioError = vi.fn();
+    const longProbe = {
+      ...probe('song.flac', 96000),
+      durationSeconds: 252,
+    };
+    const decoder = new PcmChunkDecoder(new Map([[longProbe.filePath, longProbe]]), [pcmBuffer([0, 0, 0, 0])]);
+    class RuntimeBackendBridge extends FakeBridge {
+      override async start(options: NativeOutputStartOptions) {
+        const ready = await super.start(options);
+
+        return {
+          ...ready,
+          device: {
+            ...ready.device,
+            backendImpl: options.useJuceOutput ? 'juce-wasapi-exclusive' : 'legacy-wasapi-exclusive',
+          },
+        };
+      }
+    }
+    const bridges: RuntimeBackendBridge[] = [];
+    const session = createAudioSessionForTest({
+      decoder,
+      createBridge: () => {
+        const bridge = new RuntimeBackendBridge(96000);
+        bridges.push(bridge);
+        return bridge;
+      },
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+      reportAudioError,
+    });
+
+    try {
+      await session.playLocalFile({
+        filePath: 'song.flac',
+        trackId: 'track-juce-runaway',
+        output: { outputMode: 'exclusive', useJuceOutput: true },
+      });
+
+      await vi.advanceTimersByTimeAsync(2815);
+      bridges[0].emit('position', Math.round(33.3 * 96000), {
+        positionFrames: Math.round(33.3 * 96000),
+        bufferedFrames: 19199,
+        underrunCallbacks: 0,
+        underrunFrames: 0,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(bridges).toHaveLength(2);
+      expect(bridges[0].startOptions?.useJuceOutput).toBe(true);
+      expect(bridges[1].startOptions).toMatchObject({
+        exclusive: true,
+        useJuceOutput: false,
+      });
+      expect(decoder.decodeRequests).toHaveLength(2);
+      expect(decoder.decodeRequests.at(-1)?.startSeconds).toBeCloseTo(2.815, 2);
+      expect(reportAudioError).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'juce-exclusive-startup-fallback',
+        details: expect.objectContaining({
+          recovered: true,
+        }),
+      }));
+      expect(session.getStatus().warnings).toContain('juce_exclusive_fell_back_to_native');
+      expect(session.getDiagnostics().recentPlaybackEvents?.find(
+        (event) => event.kind === 'watchdog_recovery' && event.reason === 'juce_exclusive_startup_position_runaway',
+      )?.details).toMatchObject({
+        startupPositionDriftSeconds: expect.any(Number),
+        fallbackOutputBackendImpl: 'legacy-wasapi-exclusive',
+      });
     } finally {
       session.dispose();
       vi.useRealTimers();

@@ -37,3 +37,5 @@ export const formatOsuTimingPoint = ({ bpm, offsetMs, meter = 4 }: OsuTimingPoin
 
   return `${offset},${beatLength},${meter},1,0,100,1,0`;
 };
+
+export const formatOsuTimingBlock = (input: OsuTimingPointInput): string => `[TimingPoints]\n${formatOsuTimingPoint(input)}`;

@@ -198,6 +198,86 @@ const patchNodeLibraopWindowsBuild = (openSslRoot) => {
     'port.offset = rand() % port_range;',
     'port.offset = 0;',
   );
+  if (!server.includes('got_rtsp_request')) {
+    server = server.replace(
+      [
+        'static void *rtsp_thread(void *arg) {',
+        '\traopsr_t *ctx = (raopsr_t*) arg;',
+        '\tint  sock = -1;',
+      ].join('\n'),
+      [
+        'static void *rtsp_thread(void *arg) {',
+        '\traopsr_t *ctx = (raopsr_t*) arg;',
+        '\tint  sock = -1;',
+        '\tbool got_rtsp_request = false;',
+        '\tunsigned idle_poll_count = 0;',
+      ].join('\n'),
+    );
+    server = server.replace(
+      [
+        '\t\t\tif (sock != -1 && ctx->running) {',
+        '\t\t\t\tLOG_INFO("got RTSP connection %u", sock);',
+        '\t\t\t} else continue;',
+      ].join('\n'),
+      [
+        '\t\t\tif (sock != -1 && ctx->running) {',
+        '\t\t\t\tgot_rtsp_request = false;',
+        '\t\t\t\tidle_poll_count = 0;',
+        '\t\t\t\tLOG_INFO("got RTSP connection %u", sock);',
+        '\t\t\t} else continue;',
+      ].join('\n'),
+    );
+    server = server.replace(
+      [
+        '\t\tif (!n) continue;',
+        '',
+        '\t\tif (n > 0) res = handle_rtsp(ctx, sock);',
+      ].join('\n'),
+      [
+        '\t\tif (!n) {',
+        '\t\t\tif (!got_rtsp_request && ++idle_poll_count >= 20) {',
+        '\t\t\t\tLOG_INFO("RTSP idle probe close %u", sock);',
+        '\t\t\t\tclosesocket(sock);',
+        '\t\t\t\tsock = -1;',
+        '\t\t\t}',
+        '\t\t\tcontinue;',
+        '\t\t}',
+        '',
+        '\t\tidle_poll_count = 0;',
+        '\t\tif (n > 0) {',
+        '\t\t\tres = handle_rtsp(ctx, sock);',
+        '\t\t\tif (res) got_rtsp_request = true;',
+        '\t\t}',
+      ].join('\n'),
+    );
+  }
+  if (!server.includes('challenge_host')) {
+    server = server.replace(
+      '\t\tp = data + min(base64_decode(buf_pad, data), 32-10);\n\t\tp = (char*) memcpy(p, &ctx->host, 4) + 4;',
+      [
+        '\t\tp = data + min(base64_decode(buf_pad, data), 32-10);',
+        '\t\tstruct sockaddr_in local_addr;',
+        '\t\tsocklen_t local_addr_len = sizeof(local_addr);',
+        '\t\tstruct in_addr challenge_host = ctx->host;',
+        '\t\tif (challenge_host.s_addr == htonl(INADDR_ANY) &&',
+        '\t\t\tgetsockname(sock, (struct sockaddr*) &local_addr, &local_addr_len) == 0) {',
+        '\t\t\tchallenge_host = local_addr.sin_addr;',
+        '\t\t}',
+        '\t\tp = (char*) memcpy(p, &challenge_host, 4) + 4;',
+      ].join('\n'),
+    );
+  }
+  if (!server.includes('GET PARAMETER keepalive')) {
+    server = server.replace(
+      '\t} else if (!strcmp(method, "SET_PARAMETER")) {',
+      [
+        '\t} else if (!strcmp(method, "GET_PARAMETER")) {',
+        '\t\t// AirPlay clients poll GET_PARAMETER during startup; an empty 200 OK keeps the RTSP session alive.',
+        '\t\tLOG_INFO("[%p]: GET PARAMETER keepalive", ctx);',
+        '\t} else if (!strcmp(method, "SET_PARAMETER")) {',
+      ].join('\n'),
+    );
+  }
   server = server.replace(
     [
       '\t\tht = raopst_init(ctx->host, ctx->peer, ctx->streamer.codec, ctx->streamer.metadata, ctx->drift, true, ctx->latencies,',

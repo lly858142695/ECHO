@@ -3381,13 +3381,16 @@ html[data-theme="dark"] .tag-editor-actions {
 }
 
 .osu-timing-step-row,
-.osu-timing-button-row {
+.osu-timing-button-row,
+.osu-timing-copy-row,
+.osu-timing-segmented {
   flex-wrap: wrap;
   gap: 8px;
 }
 
 .osu-timing-step-row button,
 .osu-timing-button-row button,
+.osu-timing-segmented button,
 .osu-timing-copy {
   display: inline-flex;
   min-height: 36px;
@@ -3407,21 +3410,36 @@ html[data-theme="dark"] .tag-editor-actions {
 }
 
 .osu-timing-button-row button,
+.osu-timing-segmented button,
 .osu-timing-copy {
   padding: 0 13px;
 }
 
 .osu-timing-step-row button:hover,
 .osu-timing-button-row button:not(:disabled):hover,
+.osu-timing-segmented button:not(:disabled):hover,
 .osu-timing-copy:not(:disabled):hover,
 .osu-timing-close:hover {
   transform: translateY(-1px);
 }
 
 .osu-timing-button-row button:disabled,
+.osu-timing-segmented button:disabled,
 .osu-timing-copy:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.osu-timing-segmented,
+.osu-timing-copy-row {
+  display: flex;
+  align-items: center;
+}
+
+.osu-timing-segmented button.is-active {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--theme-on-accent);
+  background: var(--theme-accent-solid-bg);
 }
 
 .osu-timing-output {
@@ -3441,6 +3459,11 @@ html[data-theme="dark"] .tag-editor-actions {
   align-self: flex-start;
   color: var(--theme-on-accent);
   background: var(--theme-accent-solid-bg);
+}
+
+.osu-timing-copy--secondary {
+  color: var(--theme-overlay-text);
+  background: var(--theme-glass-bg-muted);
 }
 
 @media (max-width: 640px) {

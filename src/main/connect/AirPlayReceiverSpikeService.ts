@@ -1396,7 +1396,7 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
   private handleNativeLog(event: unknown): void {
     const message = this.formatNativeLog(event);
     this.addDebugEvent('log', message);
-    if (/unknown\/unhandled method POST|RTSP\/1\.0 501 Not Implemented/iu.test(message)) {
+    if (/unknown\/unhandled method POST/iu.test(message)) {
       this.setStatus({
         state: this.status.enabled ? 'error' : this.status.state,
         error: 'AirPlay connection failed: iPhone requested an unsupported AirPlay RTSP POST flow.',
