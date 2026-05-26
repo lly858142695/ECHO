@@ -135,6 +135,53 @@ describe('AppLayout standalone routes', () => {
     expect(container.querySelector('[data-route-id="songs"]')?.hasAttribute('hidden')).toBe(true);
   });
 
+  it('unmounts History when leaving so heavy stats work cannot stay resident', async () => {
+    window.localStorage.clear();
+    const onHistoryMount = vi.fn();
+    const onHistoryUnmount = vi.fn();
+    const HistoryProbe = (): JSX.Element => {
+      useEffect(() => {
+        onHistoryMount();
+        return () => onHistoryUnmount();
+      }, []);
+
+      return <div>History transient probe</div>;
+    };
+    const localRoutes: AppRoute[] = [
+      routesWithHome[0],
+      routes[0],
+      {
+        id: 'history',
+        label: 'History',
+        labelKey: 'route.history.label',
+        description: 'History',
+        icon: ListMusic,
+        placement: 'main',
+        element: <HistoryProbe />,
+      },
+      routes[1],
+    ];
+
+    const { container } = render(
+      <AppProviders>
+        <AppLayout routes={localRoutes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Home shell')).toBeTruthy());
+
+    const sidebar = screen.getByRole('complementary', { name: 'Main navigation' });
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'History' }));
+
+    await waitFor(() => expect(onHistoryMount).toHaveBeenCalledTimes(1));
+    expect(container.querySelector('[data-route-id="history"]')?.hasAttribute('hidden')).toBe(false);
+
+    fireEvent.click(within(sidebar).getByRole('button', { name: 'Songs' }));
+
+    await waitFor(() => expect(onHistoryUnmount).toHaveBeenCalledTimes(1));
+    expect(container.querySelector('[data-route-id="history"]')).toBeNull();
+  });
+
   it('lets upper-left chrome notices be closed manually', async () => {
     (window as unknown as { echo?: Window['echo'] }).echo = undefined;
 

@@ -3790,4 +3790,55 @@ describe("LyricsPage", () => {
     );
     expect(await screen.findByText("Dropped custom line")).toBeTruthy();
   });
+
+  it("applies a custom TTML file dropped on the lyrics page", async () => {
+    const track = makeTrack();
+    mockEcho(track);
+    const customLyrics = makeTrackLyrics({
+      provider: "manual",
+      providerLyricsId: "custom-ttml",
+      lines: [{ timeMs: 0, text: "I promise that you'll never find another like me" }],
+      syncedText: '<tt xmlns="http://www.w3.org/ns/ttml"><body><div><p begin="0.000" end="2.865">I promise that you&apos;ll never find another like me</p></div></body></tt>',
+      plainText: "I promise that you'll never find another like me",
+    });
+    window.echo.lyrics = {
+      getForTrack: vi.fn().mockResolvedValue(makeTrackLyrics({ lines: [{ timeMs: 0, text: "Current lyrics" }] })),
+      searchCandidates: vi.fn().mockResolvedValue([]),
+      applyCandidate: vi.fn(),
+      markInstrumental: vi.fn(),
+      applyCustomLrc: vi.fn().mockResolvedValue(customLyrics),
+      rejectCandidate: vi.fn(),
+      setOffset: vi.fn(),
+      clearCache: vi.fn(),
+    };
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    expect(await screen.findByText("Current lyrics")).toBeTruthy();
+    const page = container.querySelector(".lyrics-page") as HTMLElement;
+    const ttmlText = '<tt xmlns="http://www.w3.org/ns/ttml"><body><div><p begin="0.000" end="2.865">I promise that you&apos;ll never find another like me</p></div></body></tt>';
+    const file = new File([ttmlText], "custom.ttml", { type: "application/ttml+xml" });
+
+    fireEvent.drop(page, {
+      dataTransfer: {
+        files: [file],
+        types: ["Files"],
+      },
+    });
+
+    await waitFor(() =>
+      expect(window.echo.lyrics.applyCustomLrc).toHaveBeenCalledWith(
+        "track-1",
+        ttmlText,
+        "custom.ttml",
+      ),
+    );
+    expect(await screen.findByText("I promise that you'll never find another like me")).toBeTruthy();
+  });
 });

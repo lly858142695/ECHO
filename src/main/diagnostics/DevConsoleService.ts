@@ -8,6 +8,7 @@ import type {
   DiagnosticConsoleLevel,
   DiagnosticConsoleSnapshot,
   DiagnosticConsoleSource,
+  DiagnosticPerformanceStallPayload,
   RendererErrorPayload,
 } from '../../shared/types/diagnostics';
 import { recordDiagnosticConsoleProblem } from './ExceptionRecorder';
@@ -16,10 +17,15 @@ const mainOutputDir = import.meta.dirname;
 const appIconPath = join(mainOutputDir, '../../software.ico');
 const maxEntries = 2500;
 const maxLineLength = 4000;
+const mainStallCheckIntervalMs = 1_000;
+const mainStallThresholdMs = 750;
+const performanceStallLogCooldownMs = 10_000;
 
 const pendingChunks = new Map<DiagnosticConsoleSource, string>();
 let consoleWindow: BrowserWindow | null = null;
 let captureInitialized = false;
+let performanceStallMonitorInitialized = false;
+const lastPerformanceStallLogAtByKey = new Map<string, number>();
 let nextEntryId = 1;
 let entries: DiagnosticConsoleEntry[] = [];
 const ansiSequencePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g');
@@ -35,6 +41,24 @@ const isMutedDiagnosticLine = (
   message: string,
 ): boolean => {
   const plainMessage = normalizeLine(message).trim();
+  const hostPayload = plainMessage.startsWith('[echo-audio-host] ')
+    ? plainMessage.slice('[echo-audio-host] '.length).trim()
+    : plainMessage;
+
+  if (/^\{"pos":\d+,/u.test(hostPayload)) {
+    return true;
+  }
+
+  if (/"event":"local_prepare_(?:started|completed)"/u.test(hostPayload)) {
+    return true;
+  }
+
+  if (
+    plainMessage.startsWith('[AudioSession] playback diagnostic ') &&
+    plainMessage.includes('"severity":"info"')
+  ) {
+    return true;
+  }
 
   if (source === 'renderer' && (level === 'warn' || level === 'error')) {
     return (
@@ -46,8 +70,7 @@ const isMutedDiagnosticLine = (
   if (source === 'stderr') {
     return (
       plainMessage.startsWith('[BpmAnalyzer] file=') ||
-      plainMessage.startsWith('[DecoderPipeline] ffmpeg:') ||
-      /"event":"local_prepare_(?:started|completed)"/u.test(plainMessage)
+      plainMessage.startsWith('[DecoderPipeline] ffmpeg:')
     );
   }
 
@@ -262,6 +285,94 @@ export const recordRendererRuntimeError = (payload: RendererErrorPayload): Diagn
     line: payload.lineno,
     sourceId: payload.filename,
   });
+};
+
+const formatNumber = (value: unknown): string | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value.toFixed(value >= 100 ? 0 : 1) : null;
+
+const appendOptionalValueLine = (lines: string[], label: string, value: unknown): void => {
+  const numberText = formatNumber(value);
+  if (numberText !== null) {
+    lines.push(`${label}: ${numberText}`);
+    return;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    lines.push(`${label}: ${value.trim()}`);
+  }
+};
+
+export const recordPerformanceStall = (
+  payload: DiagnosticPerformanceStallPayload,
+  audioSnapshot?: Record<string, unknown> | null,
+): DiagnosticConsoleEntry | null => {
+  const now = Date.now();
+  const cooldownKey = `${payload.source}:${payload.kind}`;
+  const lastLoggedAt = lastPerformanceStallLogAtByKey.get(cooldownKey) ?? 0;
+  if (now - lastLoggedAt < performanceStallLogCooldownMs) {
+    return null;
+  }
+
+  lastPerformanceStallLogAtByKey.set(cooldownKey, now);
+  const lines = [
+    `[performance:${payload.source}] ${payload.kind} stalled for ${payload.durationMs.toFixed(0)}ms`,
+    `thresholdMs: ${payload.thresholdMs.toFixed(0)}`,
+  ];
+  appendOptionalLine(lines, 'window', payload.windowKind);
+  appendOptionalLine(lines, 'url', payload.url);
+  appendOptionalValueLine(lines, 'expectedIntervalMs', payload.details?.expectedIntervalMs);
+  appendOptionalValueLine(lines, 'lastFrameGapMs', payload.details?.lastFrameGapMs);
+  appendOptionalValueLine(lines, 'longTaskStartMs', payload.details?.startTime);
+
+  if (audioSnapshot) {
+    appendOptionalLine(lines, 'audioState', audioSnapshot.state);
+    appendOptionalLine(lines, 'audioMode', audioSnapshot.outputMode);
+    appendOptionalLine(lines, 'audioBackend', audioSnapshot.activeOutputBackendImpl ?? audioSnapshot.outputBackend);
+    appendOptionalValueLine(lines, 'audioPositionSeconds', audioSnapshot.positionSeconds);
+    appendOptionalValueLine(lines, 'audioBufferedMs', audioSnapshot.nativeBufferedMs);
+    appendOptionalValueLine(lines, 'audioUnderrunCallbacks', audioSnapshot.nativeUnderrunCallbacks);
+  }
+
+  return pushEntry(payload.source === 'renderer' ? 'renderer' : 'system', 'warn', lines.join('\n'), {
+    sourceId: payload.kind,
+  });
+};
+
+export const initializePerformanceStallMonitor = (
+  getAudioSnapshot?: () => Record<string, unknown> | null | Promise<Record<string, unknown> | null>,
+): void => {
+  if (performanceStallMonitorInitialized) {
+    return;
+  }
+
+  performanceStallMonitorInitialized = true;
+  let expectedAt = Date.now() + mainStallCheckIntervalMs;
+  const timer = setInterval(() => {
+    const now = Date.now();
+    const driftMs = now - expectedAt;
+    expectedAt = now + mainStallCheckIntervalMs;
+    if (driftMs < mainStallThresholdMs) {
+      return;
+    }
+
+    const payload: DiagnosticPerformanceStallPayload = {
+      source: 'main',
+      kind: 'event_loop',
+      durationMs: driftMs,
+      thresholdMs: mainStallThresholdMs,
+      timestamp: new Date().toISOString(),
+      details: { expectedIntervalMs: mainStallCheckIntervalMs },
+    };
+
+    Promise.resolve(getAudioSnapshot?.() ?? null)
+      .then((audioSnapshot) => {
+        recordPerformanceStall(payload, audioSnapshot);
+      })
+      .catch(() => {
+        recordPerformanceStall(payload, null);
+      });
+  }, mainStallCheckIntervalMs);
+  timer.unref?.();
 };
 
 export const recordMainRuntimeIssue = (

@@ -477,6 +477,40 @@ const restoreWordTimingsFromSyncedText = (lines: TrackLyrics['lines'], syncedTex
   return changed ? nextLines : lines;
 };
 
+const shouldReplaceInvertedLocalLyricCache = (
+  cachedLines: TrackLyrics['lines'],
+  reparsedLines: TrackLyrics['lines'],
+): boolean => {
+  const reparsedByTime = new Map<number, TrackLyrics['lines'][number][]>();
+  for (const line of reparsedLines) {
+    if (!line.translation?.trim()) {
+      continue;
+    }
+
+    const bucket = reparsedByTime.get(line.timeMs) ?? [];
+    bucket.push(line);
+    reparsedByTime.set(line.timeMs, bucket);
+  }
+
+  if (reparsedByTime.size === 0) {
+    return false;
+  }
+
+  return cachedLines.some((line) => {
+    const cachedText = normalizeLineIdentity(line.text);
+    const cachedRomanization = normalizeLineIdentity(line.romanization ?? '');
+    if (!cachedText || !cachedRomanization || line.translation?.trim()) {
+      return false;
+    }
+
+    return (reparsedByTime.get(line.timeMs) ?? []).some(
+      (candidate) =>
+        normalizeLineIdentity(candidate.text) === cachedRomanization &&
+        normalizeLineIdentity(candidate.translation ?? '') === cachedText,
+    );
+  });
+};
+
 const lrclibRecordToProviderResult = (record: LrclibRecord, fallback: LyricsQuery): LyricsProviderResult => ({
   provider: 'lrclib',
   providerLyricsId: record.id == null ? null : String(record.id),
@@ -622,18 +656,18 @@ const preferredSecondaryFields = (settings: LyricsSettings): Array<'translation'
   ...(settings.lyricsRomanizationEnabled ? ['romanization' as const] : []),
 ];
 
-const lrclibManualSearchTimeoutMs = 8000;
-const lrclibManualSearchTotalTimeoutMs = 9000;
+const manualNetworkCandidateSearchTimeoutMs = 8000;
+const manualNetworkCandidateSearchTotalTimeoutMs = 9000;
 
 const settingsForCandidateSearchProvider = (
   settings: LyricsSettings,
   providerId?: string | null,
 ): LyricsSettings =>
-  providerId === 'lrclib'
+  providerId && providerId !== 'local' && isSearchableLyricsProvider(providerId)
     ? {
         ...settings,
-        lyricsProviderTimeoutMs: Math.max(settings.lyricsProviderTimeoutMs ?? 0, lrclibManualSearchTimeoutMs),
-        lyricsTotalMatchTimeoutMs: Math.max(settings.lyricsTotalMatchTimeoutMs ?? 0, lrclibManualSearchTotalTimeoutMs),
+        lyricsProviderTimeoutMs: Math.max(settings.lyricsProviderTimeoutMs ?? 0, manualNetworkCandidateSearchTimeoutMs),
+        lyricsTotalMatchTimeoutMs: Math.max(settings.lyricsTotalMatchTimeoutMs ?? 0, manualNetworkCandidateSearchTotalTimeoutMs),
       }
     : settings;
 
@@ -1324,6 +1358,8 @@ export class LyricsService {
       provider !== 'lrclib' &&
       provider !== 'netease' &&
       provider !== 'qqmusic' &&
+      provider !== 'kugou' &&
+      provider !== 'kuwo' &&
       provider !== 'musixmatch' &&
       provider !== 'genius' &&
       provider !== 'manual'
@@ -1364,7 +1400,7 @@ export class LyricsService {
 
     if (options.includeLocal && row.provider === 'local') {
       const filePath = textOrNull(rawRecord.filePath);
-      const extension = rawRecord.extension === '.txt' ? '.txt' : '.lrc';
+      const extension = rawRecord.extension === '.txt' || rawRecord.extension === '.ttml' ? rawRecord.extension : '.lrc';
       if (filePath) {
         return this.localProvider.getLyricsFromCandidate(query, {
           ...this.mapCandidateRow(row),
@@ -1431,11 +1467,16 @@ export class LyricsService {
     const hasCachedLineEnhancements = cachedLines.some((line) => line.romanization || line.translation || line.kana);
     const hasCachedWordTimings = cachedLines.some((line) => line.words?.length);
     let lines = cachedLines;
+    let resolvedKind = kind;
+    let plainText = row.plain_lyrics;
+    let syncedText = row.synced_lyrics;
 
     if (kind === 'synced' && row.synced_lyrics) {
       const reparsedLines = normalizeSyncedLyricAlternates(parseSyncedLyrics(row.synced_lyrics));
       const reparsedHasWordTimings = reparsedLines.some((line) => line.words?.length);
-      if (
+      if (provider === 'local' && shouldReplaceInvertedLocalLyricCache(cachedLines, reparsedLines)) {
+        lines = reparsedLines;
+      } else if (
         !hasCachedLineEnhancements &&
         !hasCachedWordTimings &&
         (provider === 'local' || reparsedHasWordTimings)
@@ -1444,6 +1485,14 @@ export class LyricsService {
       } else {
         lines = restoreWordTimingsFromSyncedText(cachedLines, row.synced_lyrics);
       }
+    } else if ((provider === 'local' || provider === 'manual') && kind === 'plain' && row.plain_lyrics) {
+      const reparsedLines = normalizeSyncedLyricAlternates(parseSyncedLyrics(row.plain_lyrics));
+      if (reparsedLines.length > 0) {
+        lines = reparsedLines;
+        resolvedKind = 'synced';
+        syncedText = row.plain_lyrics;
+        plainText = null;
+      }
     }
 
     return {
@@ -1451,14 +1500,14 @@ export class LyricsService {
       trackId: row.track_id,
       provider,
       providerLyricsId: row.provider_lyrics_id,
-      kind,
+      kind: resolvedKind,
       title: row.title,
       artist: row.artist,
       album: row.album,
       durationSeconds: numberOrNull(row.duration_seconds),
       lines,
-      plainText: row.plain_lyrics,
-      syncedText: row.synced_lyrics,
+      plainText,
+      syncedText,
       offsetMs: Number(row.offset_ms ?? 0),
       score: typeof row.score === 'number' ? row.score : null,
       cachedAt: row.created_at,

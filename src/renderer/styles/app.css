@@ -1049,17 +1049,11 @@
 .utility-nav {
   position: relative;
   padding-top: 12px;
-  border-top: 1px solid rgba(98, 116, 139, 0.16);
+  border-top: 0;
 }
 
 .utility-nav::before {
-  position: absolute;
-  top: 0;
-  right: 8px;
-  left: 8px;
-  height: 1px;
-  background: var(--theme-list-row-bg);
-  content: "";
+  display: none;
 }
 
 .sidebar-spacer {

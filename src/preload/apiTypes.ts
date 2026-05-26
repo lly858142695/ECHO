@@ -145,7 +145,13 @@ import type {
   PlaybackStatus,
   PersistedPlaybackSessionV1,
 } from '../shared/types/playback';
-import type { DiagnosticConsoleEntry, DiagnosticConsoleSnapshot, LastCrashSummary, RendererErrorPayload } from '../shared/types/diagnostics';
+import type {
+  DiagnosticConsoleEntry,
+  DiagnosticConsoleSnapshot,
+  DiagnosticPerformanceStallPayload,
+  LastCrashSummary,
+  RendererErrorPayload,
+} from '../shared/types/diagnostics';
 import type { DiscordPresenceStatus } from '../shared/types/discordPresence';
 import type {
   CreateDownloadUrlJobOptions,
@@ -641,6 +647,7 @@ export type EchoApi = {
     getDevConsoleSnapshot?: () => Promise<DiagnosticConsoleSnapshot>;
     onDevConsoleEntry?: (handler: (entry: DiagnosticConsoleEntry) => void) => () => void;
     reportRendererError: (payload: RendererErrorPayload) => Promise<void>;
+    reportPerformanceStall: (payload: DiagnosticPerformanceStallPayload) => Promise<void>;
   };
   downloads: {
     getJobs: () => Promise<DownloadJob[]>;

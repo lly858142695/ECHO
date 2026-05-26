@@ -62,6 +62,7 @@ export const IpcChannels = {
   DiagnosticsDevConsoleEntry: 'diagnostics:dev-console-entry',
   DiagnosticsDevConsoleOpenDevTools: 'diagnostics:dev-console-open-devtools',
   DiagnosticsReportRendererError: 'diagnostics:report-renderer-error',
+  DiagnosticsReportPerformanceStall: 'diagnostics:report-performance-stall',
   DownloadsGetJobs: 'downloads:get-jobs',
   DownloadsCreateUrlJob: 'downloads:create-url-job',
   DownloadsCancelJob: 'downloads:cancel-job',

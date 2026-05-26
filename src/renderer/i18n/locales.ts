@@ -862,6 +862,7 @@ export type TranslationKey =
   | 'trackMenu.action.openOsuTiming'
   | 'trackMenu.action.editTags'
   | 'trackMenu.action.reloadEmbeddedTags'
+  | 'trackMenu.action.clearLyricsCache'
   | 'trackMenu.action.goToAlbum'
   | 'trackMenu.action.showInFolder'
   | 'trackMenu.action.copyPath'
@@ -2992,6 +2993,7 @@ const zhCN: TranslationMap = {
   'trackMenu.action.openOsuTiming': 'osu! Timing',
   'trackMenu.action.editTags': '编辑标签',
   'trackMenu.action.reloadEmbeddedTags': '重新加载嵌入标签',
+  'trackMenu.action.clearLyricsCache': '清理歌词缓存',
   'trackMenu.action.goToAlbum': '定位到专辑',
   'trackMenu.action.showInFolder': '在文件夹中显示',
   'trackMenu.action.copyPath': '复制文件路径',
@@ -5118,6 +5120,7 @@ const zhTW: TranslationMap = {
   'trackMenu.action.openOsuTiming': 'osu! Timing',
   'trackMenu.action.editTags': '編輯標籤',
   'trackMenu.action.reloadEmbeddedTags': '重新載入嵌入標籤',
+  'trackMenu.action.clearLyricsCache': '清理歌詞快取',
   'trackMenu.action.goToAlbum': '定位到專輯',
   'trackMenu.action.showInFolder': '在資料夾中顯示',
   'trackMenu.action.copyPath': '複製檔案路徑',
@@ -7356,6 +7359,7 @@ const jaJP: TranslationMap = {
   'trackMenu.action.openOsuTiming': 'osu! Timing',
   'trackMenu.action.editTags': 'タグを編集',
   'trackMenu.action.reloadEmbeddedTags': '埋め込みタグを再読み込み',
+  'trackMenu.action.clearLyricsCache': '歌詞キャッシュを消去',
   'trackMenu.action.goToAlbum': 'アルバムへ移動',
   'trackMenu.action.showInFolder': 'フォルダで表示',
   'trackMenu.action.copyPath': 'ファイルパスをコピー',
@@ -9257,6 +9261,7 @@ const enUS: TranslationMap = {
   'trackMenu.action.openOsuTiming': 'osu! Timing',
   'trackMenu.action.editTags': 'Edit tags',
   'trackMenu.action.reloadEmbeddedTags': 'Reload embedded tags',
+  'trackMenu.action.clearLyricsCache': 'Clear lyrics cache',
   'trackMenu.action.goToAlbum': 'Go to album',
   'trackMenu.action.showInFolder': 'Show in folder',
   'trackMenu.action.copyPath': 'Copy file path',

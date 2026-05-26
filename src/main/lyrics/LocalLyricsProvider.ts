@@ -9,7 +9,7 @@ import { detectLyricsKind, normalizeSyncedLyricAlternates, parsePlainLyrics, par
 
 export type LocalLyricsCandidate = LyricsSearchCandidate & {
   filePath: string;
-  extension: '.lrc' | '.txt';
+  extension: '.lrc' | '.ttml' | '.txt';
 };
 
 const nowIso = (): string => new Date().toISOString();
@@ -50,21 +50,31 @@ const lyricsTextToProviderText = (value: string | null): { syncedLyrics: string 
     return { syncedLyrics: null, plainLyrics: null };
   }
 
-  return timestampPattern.test(value) && parseSyncedLyrics(value).length > 0
+  return (timestampPattern.test(value) || /<tt(?:\s|>)/iu.test(value)) && parseSyncedLyrics(value).length > 0
     ? { syncedLyrics: value, plainLyrics: null }
     : { syncedLyrics: null, plainLyrics: value };
 };
 
-const candidatePaths = (audioPath: string): Array<{ filePath: string; extension: '.lrc' | '.txt' }> => {
+const candidatePaths = (audioPath: string): Array<{ filePath: string; extension: LocalLyricsCandidate['extension'] }> => {
   const folder = dirname(audioPath);
   const baseName = basename(audioPath, extname(audioPath));
 
   return [
     { filePath: join(folder, `${baseName}.lrc`), extension: '.lrc' },
+    { filePath: join(folder, `${baseName}.ttml`), extension: '.ttml' },
     { filePath: join(folder, `${baseName}.txt`), extension: '.txt' },
     { filePath: join(folder, 'lyrics', `${baseName}.lrc`), extension: '.lrc' },
+    { filePath: join(folder, 'lyrics', `${baseName}.ttml`), extension: '.ttml' },
     { filePath: join(folder, 'lyrics', `${baseName}.txt`), extension: '.txt' },
   ];
+};
+
+const localLyricsSourceLabel = (extension: LocalLyricsCandidate['extension']): string => {
+  if (extension === '.ttml') {
+    return 'Local TTML';
+  }
+
+  return extension === '.lrc' ? 'Local LRC' : 'Local text';
 };
 
 export class LocalLyricsProvider implements LyricsProvider {
@@ -113,8 +123,8 @@ export class LocalLyricsProvider implements LyricsProvider {
       durationSeconds: query.durationSeconds ?? null,
       instrumental: false,
       plainLyrics: candidate.extension === '.txt' ? raw : null,
-      syncedLyrics: candidate.extension === '.lrc' ? raw : null,
-      sourceLabel: candidate.extension === '.lrc' ? 'Local LRC' : 'Local text',
+      syncedLyrics: candidate.extension === '.txt' ? null : raw,
+      sourceLabel: localLyricsSourceLabel(candidate.extension),
       matchReasons: ['local_sidecar_priority'],
       raw: {
         filePath: candidate.filePath,
@@ -139,10 +149,10 @@ export class LocalLyricsProvider implements LyricsProvider {
         album: query.album ?? null,
         durationSeconds: query.durationSeconds ?? null,
         instrumental: false,
-        hasSynced: candidate.extension === '.lrc',
+        hasSynced: candidate.extension !== '.txt',
         hasPlain: candidate.extension === '.txt',
         score: 1,
-        sourceLabel: candidate.extension === '.lrc' ? 'Local LRC' : 'Local text',
+        sourceLabel: localLyricsSourceLabel(candidate.extension),
         filePath: candidate.filePath,
         extension: candidate.extension,
       }));
@@ -199,7 +209,7 @@ export class LocalLyricsProvider implements LyricsProvider {
       return null;
     }
 
-    const syncedLyrics = candidate.extension === '.lrc' ? raw : null;
+    const syncedLyrics = candidate.extension === '.txt' ? null : raw;
     const plainLyrics = candidate.extension === '.txt' ? raw : null;
     const kind = detectLyricsKind({ syncedLyrics, plainLyrics });
     const lines =

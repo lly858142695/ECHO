@@ -389,6 +389,51 @@ describe('HomePage', () => {
     expect(library.getPlaybackHistory).toHaveBeenCalledWith({ page: 1, pageSize: 12, sort: 'recent' });
   });
 
+  it('persists the loaded home snapshot for the next launch', async () => {
+    installLibraryMock();
+
+    render(<HomePage />);
+
+    await waitForRecentPanelReady();
+    await waitFor(() => expect(window.localStorage.getItem('echo-next.home-page-cache.v1')).toBeTruthy());
+    const cached = JSON.parse(window.localStorage.getItem('echo-next.home-page-cache.v1') ?? '{}') as {
+      data?: { recommendedAlbums?: unknown[]; summary?: Partial<LibrarySummary> };
+      version?: number;
+    };
+
+    expect(cached.version).toBe(1);
+    expect(cached.data?.summary?.songCount).toBe(12);
+    expect(cached.data?.recommendedAlbums).toHaveLength(7);
+  });
+
+  it('caches recent playback history before album card resolution finishes', async () => {
+    const getAlbumForTrack = vi.fn(() => new Promise<LibraryAlbum | null>(() => undefined));
+    installLibraryMock({
+      getAlbumForTrack,
+      getPlaybackHistory: vi.fn().mockResolvedValue(page([
+        historyEntry('history-pending', {
+          album: 'Cached History Album',
+          albumArtist: 'Cached Artist',
+          coverThumb: 'echo-cover://thumb/cached-history-cover',
+        }),
+      ])),
+    });
+
+    render(<HomePage />);
+
+    await waitFor(() => {
+      const cached = JSON.parse(window.localStorage.getItem('echo-next.home-page-cache.v1') ?? '{}') as {
+        data?: {
+          recentHistory?: unknown[];
+          recentPlayedAlbums?: Array<{ album?: Partial<LibraryAlbum> }>;
+        };
+      };
+      expect(cached.data?.recentHistory).toHaveLength(1);
+      expect(cached.data?.recentPlayedAlbums?.[0]?.album?.title).toBe('Cached History Album');
+    });
+    expect(getAlbumForTrack).toHaveBeenCalledWith('history-pending');
+  });
+
   it('picks one random hero title and keeps it stable for the home session', async () => {
     installLibraryMock();
     expect(homeHeroTitleOptions).toEqual(expect.arrayContaining(['今天在用核电听歌吗？', '#define int long long']));
@@ -1130,8 +1175,8 @@ describe('HomePage', () => {
     expect(await screen.findByRole('button', { name: /Fresh Played Album/ })).toBeTruthy();
     expect(document.querySelector('.home-recent-panel .home-played-rail img')?.getAttribute('src')).toBe('echo-cover://large/fresh-played-cover');
     expect(library.getPlaybackHistory).toHaveBeenCalledWith({ page: 1, pageSize: 12, sort: 'recent' });
-    expect(library.getPlaybackHistorySummary).toHaveBeenCalledTimes(1);
-    expect(library.getPlaybackStatsDashboard).toHaveBeenCalledTimes(1);
+    expect(library.getPlaybackHistorySummary).not.toHaveBeenCalled();
+    expect(library.getPlaybackStatsDashboard).not.toHaveBeenCalled();
   });
 
   it('places the currently playing album at the front of the played rail immediately', async () => {

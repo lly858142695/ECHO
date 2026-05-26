@@ -154,4 +154,38 @@ describe('LocalLyricsProvider', () => {
     expect(lyrics?.syncedText).toBe('[00:01.00]幸存者');
     expect(lyrics?.lines).toEqual([{ timeMs: 1000, text: '幸存者' }]);
   });
+
+  it('uses TTML sidecar lyrics as synced local lyrics', () => {
+    const root = makeTempRoot();
+    const filePath = join(root, 'Echo Song.flac');
+    writeFileSync(filePath, 'audio');
+    writeFileSync(
+      join(root, 'Echo Song.ttml'),
+      [
+        '<tt xmlns="http://www.w3.org/ns/ttml"><body><div>',
+        '<p begin="00:00:01.000" end="00:00:02.000">',
+        '<span begin="00:00:01.000">Hello</span><span begin="00:00:01.500">world</span>',
+        '</p>',
+        '</div></body></tt>',
+      ].join(''),
+    );
+
+    const provider = new LocalLyricsProvider();
+    const [candidate] = provider.searchCandidates(query(filePath));
+    const lyrics = provider.getLyrics(query(filePath));
+
+    expect(candidate.sourceLabel).toBe('Local TTML');
+    expect(candidate.hasSynced).toBe(true);
+    expect(lyrics?.kind).toBe('synced');
+    expect(lyrics?.lines).toEqual([
+      {
+        timeMs: 1000,
+        text: 'Hello world',
+        words: [
+          { text: 'Hello ', startMs: 1000, endMs: 1500 },
+          { text: 'world', startMs: 1500, endMs: 2000 },
+        ],
+      },
+    ]);
+  });
 });

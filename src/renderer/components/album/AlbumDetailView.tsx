@@ -684,6 +684,25 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
       const library = window.echo?.library;
       setTrackMenu(null);
 
+      if (action === 'clear-lyrics-cache') {
+        const lyricsApi = window.echo?.lyrics;
+        if (!lyricsApi?.clearCache) {
+          setPlayError('Desktop bridge unavailable. Open ECHO Next in Electron to clear lyrics cache.');
+          return;
+        }
+
+        try {
+          setPlayError(null);
+          setTrackActionMessage(null);
+          await lyricsApi.clearCache(track.id);
+          window.dispatchEvent(new CustomEvent('lyrics:rematch-requested', { detail: { trackId: track.id } }));
+          setTrackActionMessage(`已清理歌词缓存：${track.title}`);
+        } catch (actionError) {
+          setPlayError(actionError instanceof Error ? actionError.message : String(actionError));
+        }
+        return;
+      }
+
       if (!library && action !== 'play-next' && action !== 'add-to-queue' && action !== 'remove-from-queue' && action !== 'open-osu-timing' && action !== 'reload-embedded-tags') {
         setPlayError(t('albumDetail.tracks.error.desktopBridgeActions'));
         return;

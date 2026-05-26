@@ -6,6 +6,7 @@ import {
   Disc3,
   Download,
   FileImage,
+  FileText,
   FolderOpen,
   Heart,
   ListEnd,
@@ -32,6 +33,7 @@ export type TrackMenuAction =
   | 'remove-from-queue'
   | 'edit-tags'
   | 'reload-embedded-tags'
+  | 'clear-lyrics-cache'
   | 'open-osu-timing'
   | 'go-to-album'
   | 'show-in-folder'
@@ -157,6 +159,7 @@ export const TrackContextMenu = ({ track, position, liked = false, selectionCoun
     { action: 'open-osu-timing', labelKey: 'trackMenu.action.openOsuTiming', icon: Timer },
     { action: 'edit-tags', labelKey: 'trackMenu.action.editTags', icon: Tag },
     { action: 'reload-embedded-tags', labelKey: 'trackMenu.action.reloadEmbeddedTags', icon: RefreshCw },
+    { action: 'clear-lyrics-cache', labelKey: 'trackMenu.action.clearLyricsCache', icon: FileText },
     { action: 'go-to-album', labelKey: 'trackMenu.action.goToAlbum', icon: Disc3 },
     { action: 'show-in-folder', labelKey: 'trackMenu.action.showInFolder', icon: FolderOpen },
     { action: 'copy-path', labelKey: 'trackMenu.action.copyPath', icon: Copy },

@@ -6,7 +6,7 @@ import { registerIpc } from './ipc/registerIpc';
 import { registerCoverProtocolScheme } from './protocol/coverProtocol';
 import { initializeProtectedUserDataPath } from './app/dataProtection';
 import { isLibraryRecoveryMode } from './app/libraryRecoveryMode';
-import { initializeDevConsoleCapture } from './diagnostics/DevConsoleService';
+import { initializeDevConsoleCapture, initializePerformanceStallMonitor } from './diagnostics/DevConsoleService';
 import { markStartupStage, openEarlySafeModeShellIfEnabled } from './diagnostics/StartupDiagnostics';
 
 markStartupStage('main:module-loaded');
@@ -22,6 +22,15 @@ registerCrashHandlers();
 markStartupStage('main:crash-handlers-registered');
 initializeDevConsoleCapture();
 markStartupStage('main:dev-console-capture-initialized');
+initializePerformanceStallMonitor(async () => {
+  try {
+    const { getAudioSession } = await import('./audio/AudioSession');
+    return getAudioSession().getDiagnostics() as unknown as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+});
+markStartupStage('main:performance-stall-monitor-initialized');
 registerCoverProtocolScheme();
 markStartupStage('main:cover-protocol-scheme-registered');
 registerIpc();

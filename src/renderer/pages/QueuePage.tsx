@@ -434,6 +434,23 @@ export const QueuePage = (): JSX.Element => {
       const library = window.echo?.library;
       setTrackMenu(null);
 
+      if (action === 'clear-lyrics-cache') {
+        const lyricsApi = window.echo?.lyrics;
+        if (!lyricsApi?.clearCache) {
+          setActionError('Desktop bridge unavailable. Open ECHO Next in Electron to clear lyrics cache.');
+          return;
+        }
+
+        try {
+          setActionError(null);
+          await lyricsApi.clearCache(track.id);
+          window.dispatchEvent(new CustomEvent('lyrics:rematch-requested', { detail: { trackId: track.id } }));
+        } catch (actionError) {
+          setActionError(actionError instanceof Error ? actionError.message : String(actionError));
+        }
+        return;
+      }
+
       if (!library && action !== 'play-next' && action !== 'add-to-queue' && action !== 'remove-from-queue' && action !== 'open-osu-timing' && action !== 'reload-embedded-tags') {
         setActionError('Desktop bridge unavailable. Open ECHO Next in Electron to use file actions.');
         return;

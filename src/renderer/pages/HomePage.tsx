@@ -220,7 +220,137 @@ const emptyHomePageData: HomePageData = {
   historySummary: null,
   stats: null,
 };
-let cachedHomePageData: HomePageData | null = null;
+const homePageCacheStorageKey = 'echo-next.home-page-cache.v1';
+const homePageCacheVersion = 1;
+const isHomePageTestRuntime = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+const homeInitialPlaybackPulseDelayMs = isHomePageTestRuntime ? 0 : 2600;
+const homePlaybackHistoryRefreshDelayMs = isHomePageTestRuntime ? 0 : 900;
+
+type StoredHomePageCache = {
+  data: HomePageData;
+  savedAt: string;
+  version: typeof homePageCacheVersion;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const historyText = (value: string | null | undefined, fallback: string): string => {
+  const text = value?.trim();
+  return text && text.length > 0 ? text : fallback;
+};
+
+const recentPlayedAlbumsFromHistory = (entries: PlaybackHistoryEntry[]): RecentPlayedAlbum[] => {
+  const seenAlbumKeys = new Set<string>();
+  const albums: RecentPlayedAlbum[] = [];
+
+  for (const entry of entries) {
+    const title = historyText(entry.album, historyText(entry.title, 'Unknown Album'));
+    const albumArtist = historyText(entry.albumArtist, historyText(entry.artist, 'Unknown Artist'));
+    const albumKey = `${entry.mediaType}:${albumArtist.toLowerCase()}:${title.toLowerCase()}`;
+
+    if (seenAlbumKeys.has(albumKey)) {
+      continue;
+    }
+
+    seenAlbumKeys.add(albumKey);
+    albums.push({
+      album: {
+        id: `history:${albumKey}`,
+        mediaType: entry.mediaType === 'remote' ? 'remote' : 'local',
+        albumKey,
+        title,
+        albumArtist,
+        year: null,
+        trackCount: 1,
+        duration: entry.durationSnapshot ?? entry.durationSeconds ?? 0,
+        coverId: entry.coverId,
+        coverThumb: entry.coverThumb ?? entry.coverSnapshot,
+      },
+      startedAt: entry.startedAt,
+    });
+  }
+
+  return albums.slice(0, recentPlayedAlbumHistoryPageSize);
+};
+
+const normalizeStoredHomePageData = (value: unknown): HomePageData | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const recentHistory = Array.isArray(value.recentHistory) ? (value.recentHistory as PlaybackHistoryEntry[]) : [];
+  const storedRecentPlayedAlbums = Array.isArray(value.recentPlayedAlbums) ? (value.recentPlayedAlbums as RecentPlayedAlbum[]) : [];
+
+  return {
+    recentAddedAlbums: Array.isArray(value.recentAddedAlbums) ? (value.recentAddedAlbums as LibraryAlbum[]) : [],
+    recommendedAlbums: Array.isArray(value.recommendedAlbums) ? (value.recommendedAlbums as LibraryAlbum[]) : [],
+    summary: isRecord(value.summary) ? ({ ...emptySummary, ...value.summary } as LibrarySummary) : emptySummary,
+    recentTracks: Array.isArray(value.recentTracks) ? (value.recentTracks as LibraryTrack[]) : [],
+    recentHistory,
+    recentPlayedAlbums: storedRecentPlayedAlbums.length > 0 ? storedRecentPlayedAlbums : recentPlayedAlbumsFromHistory(recentHistory),
+    historySummary: isRecord(value.historySummary) ? (value.historySummary as PlaybackHistorySummary) : null,
+    stats: isRecord(value.stats) ? (value.stats as PlaybackStatsDashboard) : null,
+  };
+};
+
+const readStoredHomePageData = (): HomePageData | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(homePageCacheStorageKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<StoredHomePageCache>;
+    if (parsed.version !== homePageCacheVersion) {
+      return null;
+    }
+
+    return normalizeStoredHomePageData(parsed.data);
+  } catch {
+    return null;
+  }
+};
+
+const writeStoredHomePageData = (data: HomePageData): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      homePageCacheStorageKey,
+      JSON.stringify({
+        data,
+        savedAt: new Date().toISOString(),
+        version: homePageCacheVersion,
+      } satisfies StoredHomePageCache),
+    );
+  } catch {
+    // Startup cache is best-effort only; never let storage pressure affect playback or navigation.
+  }
+};
+
+const setCachedHomePageData = (data: HomePageData): HomePageData => {
+  cachedHomePageData = data;
+  writeStoredHomePageData(data);
+  return data;
+};
+
+const mergeCachedHomePageData = (patch: Partial<HomePageData>): HomePageData =>
+  setCachedHomePageData({
+    ...(cachedHomePageData ?? emptyHomePageData),
+    ...patch,
+  });
+
+const hasCachedPlaybackPulseData = (data: HomePageData | null): boolean =>
+  Boolean(data && (data.historySummary || data.stats || data.recentHistory.length > 0 || data.recentPlayedAlbums.length > 0));
+
+let cachedHomePageData: HomePageData | null = readStoredHomePageData();
 let cachedRecentPanelMode: RecentPanelMode = 'added';
 let cachedHomeWaveformVisualizerEnabled: boolean | null = null;
 let cachedHomeRandomHeroTitleEnabled: boolean | null = null;
@@ -237,6 +367,11 @@ export const resetHomePageCacheForTest = (): void => {
   cachedHomeWaveformVisualizerEnabled = null;
   cachedHomeRandomHeroTitleEnabled = null;
   cachedHomeHeroTitle = null;
+  try {
+    window.localStorage.removeItem(homePageCacheStorageKey);
+  } catch {
+    // Ignore unavailable storage in non-browser test environments.
+  }
 };
 
 const formatCompactNumber = (value: number): string => {
@@ -975,6 +1110,38 @@ const SignalVisualizer = ({ seed, status }: { seed: string; status: AudioStatus 
   );
 };
 
+const scheduleHomeStartupWork = (callback: () => void, delayMs = 0): (() => void) => {
+  if (typeof window === 'undefined') {
+    callback();
+    return () => undefined;
+  }
+
+  let frameId: number | null = null;
+  let timeoutId: number | null = null;
+  const run = (): void => {
+    frameId = null;
+    timeoutId = window.setTimeout(() => {
+      timeoutId = null;
+      callback();
+    }, delayMs);
+  };
+
+  if (typeof window.requestAnimationFrame === 'function') {
+    frameId = window.requestAnimationFrame(run);
+  } else {
+    run();
+  }
+
+  return () => {
+    if (frameId !== null) {
+      window.cancelAnimationFrame(frameId);
+    }
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  };
+};
+
 const WeeklyHeatmap = ({ days }: { days: PlaybackStatsDay[] }): JSX.Element => {
   const today = startOfDay(new Date());
   const currentWeekStart = startOfWeek(today);
@@ -1116,6 +1283,7 @@ export const HomePage = (): JSX.Element => {
   const playbackPulseRequestIdRef = useRef(0);
   const currentPlayedAlbumRequestIdRef = useRef(0);
   const recommendationRequestIdRef = useRef(0);
+  const playbackHistoryRefreshTimerRef = useRef<number | null>(null);
 
   const focusTrack = queue.currentTrack ?? queue.lastPlayedTrack ?? recentTracks[0] ?? (recentHistory[0] ? trackFromHistory(recentHistory[0]) : null);
   const audioStatus = playbackStatusSnapshot.audioStatus;
@@ -1237,10 +1405,9 @@ export const HomePage = (): JSX.Element => {
         return;
       }
 
-      cachedHomePageData = {
-        ...(cachedHomePageData ?? emptyHomePageData),
+      mergeCachedHomePageData({
         recommendedAlbums: nextRecommendedAlbums,
-      };
+      });
       setRecommendedAlbums(nextRecommendedAlbums);
     } catch (loadError) {
       if (recommendationRequestIdRef.current === requestId) {
@@ -1260,10 +1427,9 @@ export const HomePage = (): JSX.Element => {
         recentPlayedAlbumHistoryPageSize,
       );
 
-      cachedHomePageData = {
-        ...(cachedHomePageData ?? emptyHomePageData),
+      mergeCachedHomePageData({
         recentPlayedAlbums: nextRecentPlayedAlbums,
-      };
+      });
 
       return nextRecentPlayedAlbums;
     });
@@ -1278,32 +1444,88 @@ export const HomePage = (): JSX.Element => {
       return;
     }
 
-    const weekQuery = startOfThisWeekQuery();
-    const heatmapQuery = weeklyHeatmapQuery();
-
     try {
-      const [historyPage, nextHistorySummary, nextStats] = await Promise.all([
-        library.getPlaybackHistory({ page: 1, pageSize: recentPlayedAlbumHistoryPageSize, sort: 'recent' }),
-        library.getPlaybackHistorySummary(weekQuery),
-        library.getPlaybackStatsDashboard?.(heatmapQuery) ?? Promise.resolve(null),
-      ]);
-      const nextRecentPlayedAlbums = await loadRecentPlayedAlbums(library, historyPage.items);
+      const historyPage = await library.getPlaybackHistory({ page: 1, pageSize: recentPlayedAlbumHistoryPageSize, sort: 'recent' });
+      if (playbackPulseRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const fallbackRecentPlayedAlbums = recentPlayedAlbumsFromHistory(historyPage.items);
+      mergeCachedHomePageData({
+        recentHistory: historyPage.items,
+        recentPlayedAlbums: fallbackRecentPlayedAlbums,
+      });
+      setRecentHistory(historyPage.items);
+      setRecentPlayedAlbums((current) => (current.length > 0 && fallbackRecentPlayedAlbums.length > 0 ? current : fallbackRecentPlayedAlbums));
+
+      const weekQuery = startOfThisWeekQuery();
+      const heatmapQuery = weeklyHeatmapQuery();
+      const historySummaryPromise = library.getPlaybackHistorySummary(weekQuery);
+      const statsPromise = library.getPlaybackStatsDashboard?.(heatmapQuery) ?? Promise.resolve(null);
+      const recentPlayedAlbumsPromise = loadRecentPlayedAlbums(library, historyPage.items);
+      const [nextHistorySummary, nextStats] = await Promise.all([historySummaryPromise, statsPromise]);
 
       if (playbackPulseRequestIdRef.current !== requestId) {
         return;
       }
 
-      cachedHomePageData = {
-        ...(cachedHomePageData ?? emptyHomePageData),
-        recentHistory: historyPage.items,
-        recentPlayedAlbums: nextRecentPlayedAlbums,
+      mergeCachedHomePageData({
         historySummary: nextHistorySummary,
         stats: nextStats,
-      };
-      setRecentHistory(historyPage.items);
-      setRecentPlayedAlbums(nextRecentPlayedAlbums);
+      });
       setHistorySummary(nextHistorySummary);
       setStats(nextStats);
+
+      const resolvedRecentPlayedAlbums = await recentPlayedAlbumsPromise;
+      if (playbackPulseRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const nextRecentPlayedAlbums = resolvedRecentPlayedAlbums.length > 0 ? resolvedRecentPlayedAlbums : fallbackRecentPlayedAlbums;
+      mergeCachedHomePageData({
+        recentPlayedAlbums: nextRecentPlayedAlbums,
+      });
+      setRecentPlayedAlbums(nextRecentPlayedAlbums);
+    } catch (loadError) {
+      if (playbackPulseRequestIdRef.current === requestId) {
+        setError(loadError instanceof Error ? loadError.message : String(loadError));
+      }
+    }
+  }, []);
+
+  const loadRecentPlaybackPulse = useCallback(async (): Promise<void> => {
+    const library = window.echo?.library;
+    const requestId = playbackPulseRequestIdRef.current + 1;
+    playbackPulseRequestIdRef.current = requestId;
+
+    if (!library?.getPlaybackHistory) {
+      return;
+    }
+
+    try {
+      const historyPage = await library.getPlaybackHistory({ page: 1, pageSize: recentPlayedAlbumHistoryPageSize, sort: 'recent' });
+      if (playbackPulseRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const fallbackRecentPlayedAlbums = recentPlayedAlbumsFromHistory(historyPage.items);
+      mergeCachedHomePageData({
+        recentHistory: historyPage.items,
+        recentPlayedAlbums: fallbackRecentPlayedAlbums,
+      });
+      setRecentHistory(historyPage.items);
+      setRecentPlayedAlbums((current) => (current.length > 0 && fallbackRecentPlayedAlbums.length > 0 ? current : fallbackRecentPlayedAlbums));
+
+      const resolvedRecentPlayedAlbums = await loadRecentPlayedAlbums(library, historyPage.items);
+      if (playbackPulseRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const nextRecentPlayedAlbums = resolvedRecentPlayedAlbums.length > 0 ? resolvedRecentPlayedAlbums : fallbackRecentPlayedAlbums;
+      mergeCachedHomePageData({
+        recentPlayedAlbums: nextRecentPlayedAlbums,
+      });
+      setRecentPlayedAlbums(nextRecentPlayedAlbums);
     } catch (loadError) {
       if (playbackPulseRequestIdRef.current === requestId) {
         setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -1325,20 +1547,21 @@ export const HomePage = (): JSX.Element => {
         library.getSummary(),
         library.getTracks({ page: 1, pageSize: recentPageSize, sort: 'recent' }),
       ]);
-      const nextRecentAddedAlbums = await loadRecentAddedAlbums(library, nextSummary.albumCount);
-      const nextRecommendedAlbums = await loadRecommendedAlbums(library, nextSummary.albumCount);
+      const [nextRecentAddedAlbums, nextRecommendedAlbums] = await Promise.all([
+        loadRecentAddedAlbums(library, nextSummary.albumCount),
+        loadRecommendedAlbums(library, nextSummary.albumCount),
+      ]);
 
       if (pulseRequestIdRef.current !== requestId) {
         return;
       }
 
-      cachedHomePageData = {
-        ...(cachedHomePageData ?? emptyHomePageData),
+      mergeCachedHomePageData({
         recentAddedAlbums: nextRecentAddedAlbums,
         recommendedAlbums: nextRecommendedAlbums,
         summary: nextSummary,
         recentTracks: tracksPage.items,
-      };
+      });
       setRecentAddedAlbums(nextRecentAddedAlbums);
       setRecommendedAlbums(nextRecommendedAlbums);
       setSummary(nextSummary);
@@ -1357,57 +1580,40 @@ export const HomePage = (): JSX.Element => {
     setIsLoading(true);
     setError(null);
 
-    if (!library?.getSummary || !library.getTracks || !library.getPlaybackHistory || !library.getPlaybackHistorySummary) {
+    if (!library?.getSummary || !library.getTracks) {
       setSummary(emptySummary);
       setRecentAddedAlbums([]);
       setRecommendedAlbums([]);
       setRecentTracks([]);
-      setRecentHistory([]);
-      setRecentPlayedAlbums([]);
-      setHistorySummary(null);
-      setStats(null);
       setError('桌面曲库桥接不可用。请在 ECHO Next 桌面端查看主页。');
       setIsLoading(false);
       return;
     }
 
-    const weekQuery = startOfThisWeekQuery();
-    const heatmapQuery = weeklyHeatmapQuery();
-
     try {
-      const [nextSummary, tracksPage, historyPage, nextHistorySummary, nextStats] = await Promise.all([
+      const [nextSummary, tracksPage] = await Promise.all([
         library.getSummary(),
         library.getTracks({ page: 1, pageSize: recentPageSize, sort: 'recent' }),
-        library.getPlaybackHistory({ page: 1, pageSize: recentPlayedAlbumHistoryPageSize, sort: 'recent' }),
-        library.getPlaybackHistorySummary(weekQuery),
-        library.getPlaybackStatsDashboard?.(heatmapQuery) ?? Promise.resolve(null),
       ]);
-      const nextRecommendedAlbums = await loadRecommendedAlbums(library, nextSummary.albumCount);
-      const nextRecentAddedAlbums = await loadRecentAddedAlbums(library, nextSummary.albumCount);
-      const nextRecentPlayedAlbums = await loadRecentPlayedAlbums(library, historyPage.items);
+      const [nextRecentAddedAlbums, nextRecommendedAlbums] = await Promise.all([
+        loadRecentAddedAlbums(library, nextSummary.albumCount),
+        loadRecommendedAlbums(library, nextSummary.albumCount),
+      ]);
 
       if (requestIdRef.current !== requestId) {
         return;
       }
 
-      cachedHomePageData = {
+      mergeCachedHomePageData({
         recentAddedAlbums: nextRecentAddedAlbums,
         recommendedAlbums: nextRecommendedAlbums,
         summary: nextSummary,
         recentTracks: tracksPage.items,
-        recentHistory: historyPage.items,
-        recentPlayedAlbums: nextRecentPlayedAlbums,
-        historySummary: nextHistorySummary,
-        stats: nextStats,
-      };
+      });
       setRecentAddedAlbums(nextRecentAddedAlbums);
       setRecommendedAlbums(nextRecommendedAlbums);
       setSummary(nextSummary);
       setRecentTracks(tracksPage.items);
-      setRecentHistory(historyPage.items);
-      setRecentPlayedAlbums(nextRecentPlayedAlbums);
-      setHistorySummary(nextHistorySummary);
-      setStats(nextStats);
     } catch (loadError) {
       if (requestIdRef.current === requestId) {
         setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -1421,9 +1627,21 @@ export const HomePage = (): JSX.Element => {
 
   useEffect(() => {
     if (cachedHomePageData === null) {
-      void loadHome();
+      const cancelHomeLoad = scheduleHomeStartupWork(() => void loadHome());
+      const cancelPlaybackPulse = scheduleHomeStartupWork(() => void loadPlaybackPulse(), homeInitialPlaybackPulseDelayMs);
+
+      return () => {
+        cancelHomeLoad();
+        cancelPlaybackPulse();
+      };
     }
-  }, [loadHome]);
+
+    if (!hasCachedPlaybackPulseData(cachedHomePageData)) {
+      return scheduleHomeStartupWork(() => void loadPlaybackPulse(), homeInitialPlaybackPulseDelayMs);
+    }
+
+    return undefined;
+  }, [loadHome, loadPlaybackPulse]);
 
   useEffect(() => {
     const handleLibraryChanged = (): void => {
@@ -1436,12 +1654,24 @@ export const HomePage = (): JSX.Element => {
 
   useEffect(() => {
     const handlePlaybackHistoryChanged = (): void => {
-      void loadPlaybackPulse();
+      if (playbackHistoryRefreshTimerRef.current !== null) {
+        window.clearTimeout(playbackHistoryRefreshTimerRef.current);
+      }
+      playbackHistoryRefreshTimerRef.current = window.setTimeout(() => {
+        playbackHistoryRefreshTimerRef.current = null;
+        void loadRecentPlaybackPulse();
+      }, homePlaybackHistoryRefreshDelayMs);
     };
 
     window.addEventListener(playbackHistoryChangedEvent, handlePlaybackHistoryChanged);
-    return () => window.removeEventListener(playbackHistoryChangedEvent, handlePlaybackHistoryChanged);
-  }, [loadPlaybackPulse]);
+    return () => {
+      window.removeEventListener(playbackHistoryChangedEvent, handlePlaybackHistoryChanged);
+      if (playbackHistoryRefreshTimerRef.current !== null) {
+        window.clearTimeout(playbackHistoryRefreshTimerRef.current);
+        playbackHistoryRefreshTimerRef.current = null;
+      }
+    };
+  }, [loadRecentPlaybackPulse]);
 
   useEffect(() => {
     const track = queue.currentTrack;

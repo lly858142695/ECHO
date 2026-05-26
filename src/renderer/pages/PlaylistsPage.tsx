@@ -1385,6 +1385,24 @@ export const PlaylistsPage = (): JSX.Element => {
         return;
       }
 
+      if (action === 'clear-lyrics-cache') {
+        const lyricsApi = window.echo?.lyrics;
+        if (!lyricsApi?.clearCache) {
+          setError('Desktop bridge unavailable. Open ECHO Next in Electron to clear lyrics cache.');
+          return;
+        }
+
+        try {
+          setError(null);
+          await lyricsApi.clearCache(track.id);
+          window.dispatchEvent(new CustomEvent('lyrics:rematch-requested', { detail: { trackId: track.id } }));
+          setStatusMessage(`已清理歌词缓存：${track.title}`);
+        } catch (actionError) {
+          setError(actionError instanceof Error ? actionError.message : String(actionError));
+        }
+        return;
+      }
+
       try {
         setError(null);
 

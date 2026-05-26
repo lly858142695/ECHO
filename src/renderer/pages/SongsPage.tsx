@@ -1115,6 +1115,24 @@ export const SongsPage = (): JSX.Element => {
       const actionTracks = trackMenu?.track.id === track.id ? trackMenu.tracks.filter((item) => !item.unavailable) : [track];
       setTrackMenu(null);
 
+      if (action === 'clear-lyrics-cache') {
+        const lyricsApi = window.echo?.lyrics;
+        if (!lyricsApi?.clearCache) {
+          setError('Desktop bridge unavailable. Open ECHO Next in Electron to clear lyrics cache.');
+          return;
+        }
+
+        try {
+          setError(null);
+          await Promise.all(actionTracks.map((item) => lyricsApi.clearCache(item.id)));
+          window.dispatchEvent(new CustomEvent('lyrics:rematch-requested', { detail: { trackId: track.id } }));
+          setStatusMessage(actionTracks.length > 1 ? `已清理歌词缓存：${actionTracks.length} 首` : `已清理歌词缓存：${track.title}`);
+        } catch (actionError) {
+          setError(actionError instanceof Error ? actionError.message : String(actionError));
+        }
+        return;
+      }
+
       if (!library && action !== 'play-next' && action !== 'add-to-queue' && action !== 'remove-from-queue' && action !== 'edit-tags' && action !== 'reload-embedded-tags' && action !== 'open-osu-timing') {
         setError('Desktop bridge unavailable. Open ECHO Next in Electron to use file actions.');
         return;

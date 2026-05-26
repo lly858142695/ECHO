@@ -296,6 +296,7 @@ const englishLyricWordSignals = new Set([
   'always',
   'am',
   'and',
+  'anything',
   'are',
   'away',
   'baby',
@@ -304,6 +305,11 @@ const englishLyricWordSignals = new Set([
   'but',
   'can',
   'cant',
+  'celebrate',
+  'chance',
+  'confined',
+  'continuously',
+  'cool',
   'come',
   'could',
   'day',
@@ -311,10 +317,14 @@ const englishLyricWordSignals = new Set([
   'dont',
   'down',
   'dream',
+  'energy',
+  'fade',
   'feel',
   'feeling',
+  'floor',
   'for',
   'from',
+  'fun',
   'get',
   'girl',
   'go',
@@ -323,24 +333,31 @@ const englishLyricWordSignals = new Set([
   'had',
   'have',
   'heart',
+  'heated',
   'hello',
   'here',
+  'hey',
   'how',
   'i',
   'if',
   'im',
   'in',
+  'into',
   'is',
   'it',
   'its',
   'just',
+  'jungle',
   'know',
   'let',
+  'life',
   'like',
   'love',
   'make',
   'me',
   'mistake',
+  'moment',
+  'music',
   'my',
   'never',
   'night',
@@ -348,9 +365,17 @@ const englishLyricWordSignals = new Set([
   'not',
   'now',
   'of',
+  'oh',
+  'ooh',
   'on',
   'one',
+  'only',
   'out',
+  'place',
+  'play',
+  'playin',
+  'reason',
+  'release',
   'say',
   'see',
   'she',
@@ -363,12 +388,14 @@ const englishLyricWordSignals = new Set([
   'this',
   'time',
   'to',
+  'turnin',
   'up',
   'wait',
   'wanna',
   'want',
   'was',
   'we',
+  'were',
   'what',
   'when',
   'where',
@@ -379,23 +406,34 @@ const englishLyricWordSignals = new Set([
   'would',
   'yeah',
   'you',
+  'youre',
   'your',
+  'zoo',
 ]);
 
-const normalizeEnglishSignalWord = (value: string): string => value.toLowerCase().replace(/[’']/gu, '');
+const englishWordPattern = /\p{Script=Latin}+(?:['\u2018\u2019\u02bc]\p{Script=Latin}+)?/gu;
+const normalizeEnglishSignalWord = (value: string): string => value.toLowerCase().replace(/['\u2018\u2019\u02bc]/gu, '');
 
 const looksLikeEnglishLyricText = (value: string): boolean => {
   if (!hasLatin(value) || hasEastAsianScript(value)) {
     return false;
   }
 
-  const words = value.match(/\p{Script=Latin}+(?:[’']\p{Script=Latin}+)?/gu) ?? [];
+  const words = value.match(englishWordPattern) ?? [];
   if (words.length === 0) {
     return false;
   }
 
-  const signalCount = words.filter((word) => englishLyricWordSignals.has(normalizeEnglishSignalWord(word))).length;
-  return signalCount >= Math.max(1, Math.ceil(words.length * 0.5));
+  const normalizedWords = words.map(normalizeEnglishSignalWord).filter(Boolean);
+  const signalCount = normalizedWords.filter((word) => englishLyricWordSignals.has(word)).length;
+  if (signalCount >= Math.max(1, Math.ceil(normalizedWords.length * 0.5))) {
+    return true;
+  }
+
+  const totalWordLength = normalizedWords.reduce((total, word) => total + word.length, 0);
+  const averageWordLength = totalWordLength / normalizedWords.length;
+  const hasLongWord = normalizedWords.some((word) => word.length >= 5);
+  return signalCount >= 1 && hasLongWord && averageWordLength >= 4;
 };
 
 const looksLikeTranslationText = (primaryText: string, value: string): boolean => {
@@ -588,7 +626,276 @@ export const normalizeSyncedLyricAlternates = (lines: LyricLine[]): LyricLine[] 
   return normalized;
 };
 
+const ttmlRootPattern = /<(?:[\w.-]+:)?tt(?:\s|>)/iu;
+const ttmlParagraphPattern = /<(?:[\w.-]+:)?p\b([^>]*)>([\s\S]*?)<\/(?:[\w.-]+:)?p>/giu;
+const ttmlSpanPattern = /<(?:[\w.-]+:)?span\b([^>]*)>([\s\S]*?)<\/(?:[\w.-]+:)?span>/giu;
+const ttmlTranslationTextPattern = /<(?:[\w.-]+:)?text\b([^>]*)>([\s\S]*?)<\/(?:[\w.-]+:)?text>/giu;
+const ttmlAttributePattern = /([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/gu;
+
+const decodeXmlEntities = (value: string): string =>
+  value
+    .replace(/&lt;/giu, '<')
+    .replace(/&gt;/giu, '>')
+    .replace(/&quot;/giu, '"')
+    .replace(/&apos;/giu, "'")
+    .replace(/&amp;/giu, '&')
+    .replace(/&#(\d+);/gu, (_match, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([\da-f]+);/giu, (_match, code) => String.fromCodePoint(Number.parseInt(code, 16)));
+
+const parseTtmlAttributes = (value: string): Map<string, string> => {
+  const attributes = new Map<string, string>();
+  for (const match of value.matchAll(ttmlAttributePattern)) {
+    attributes.set(match[1].toLowerCase(), decodeXmlEntities(match[2] ?? match[3] ?? ''));
+  }
+
+  return attributes;
+};
+
+const fractionToTtmlMs = (fraction: string | undefined): number => {
+  if (!fraction) {
+    return 0;
+  }
+
+  return Number(fraction.slice(0, 3).padEnd(3, '0'));
+};
+
+const parseTtmlTime = (value: string | null | undefined): number | null => {
+  const text = value?.trim();
+  if (!text) {
+    return null;
+  }
+
+  const milliseconds = text.match(/^(\d+(?:\.\d+)?)ms$/iu);
+  if (milliseconds) {
+    return Math.round(Number(milliseconds[1]));
+  }
+
+  const seconds = text.match(/^(\d+(?:\.\d+)?)s$/iu);
+  if (seconds) {
+    return Math.round(Number(seconds[1]) * 1000);
+  }
+
+  const bareSeconds = text.match(/^(\d+\.\d+)$/u);
+  if (bareSeconds) {
+    return Math.round(Number(bareSeconds[1]) * 1000);
+  }
+
+  const minutes = text.match(/^(\d+(?:\.\d+)?)m$/iu);
+  if (minutes) {
+    return Math.round(Number(minutes[1]) * 60_000);
+  }
+
+  const hoursTime = text.match(/^(\d+):(\d{2}):(\d{2})(?:[.,](\d{1,3}))?$/u);
+  if (hoursTime) {
+    const hours = Number(hoursTime[1]);
+    const mins = Number(hoursTime[2]);
+    const secs = Number(hoursTime[3]);
+    if (!Number.isFinite(hours) || !Number.isFinite(mins) || !Number.isFinite(secs) || mins > 59 || secs > 59) {
+      return null;
+    }
+
+    return hours * 3_600_000 + mins * 60_000 + secs * 1000 + fractionToTtmlMs(hoursTime[4]);
+  }
+
+  const minutesTime = text.match(/^(\d+):(\d{2})(?:[.,](\d{1,3}))?$/u);
+  if (minutesTime) {
+    const mins = Number(minutesTime[1]);
+    const secs = Number(minutesTime[2]);
+    if (!Number.isFinite(mins) || !Number.isFinite(secs) || secs > 59) {
+      return null;
+    }
+
+    return mins * 60_000 + secs * 1000 + fractionToTtmlMs(minutesTime[3]);
+  }
+
+  return null;
+};
+
+const ttmlLineText = (value: string): string =>
+  decodeXmlEntities(value)
+    .replace(/<br\s*\/?>/giu, '\n')
+    .replace(/<[^>]+>/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+
+const normalizeTtmlTextPart = (value: string): string => ttmlLineText(value);
+
+const firstTtmlAttribute = (attributes: Map<string, string>, names: string[]): string | null => {
+  for (const name of names) {
+    const value = attributes.get(name);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const shouldInsertTtmlTextSpace = (left: string, right: string): boolean => {
+  const leftCharacters = Array.from(left);
+  const rightCharacters = Array.from(right);
+  const leftChar = leftCharacters[leftCharacters.length - 1] ?? '';
+  const rightChar = rightCharacters[0] ?? '';
+  return /[\p{Script=Latin}\d,.;:!?"'\u2019\u201d)]/u.test(leftChar) && /[\p{Script=Latin}\d(]/u.test(rightChar);
+};
+
+type TtmlTextPart = {
+  text: string;
+  startMs: number | null;
+  endMs: number | null;
+};
+
+const pushTtmlTextPart = (parts: TtmlTextPart[], part: TtmlTextPart): void => {
+  if (!part.text) {
+    return;
+  }
+
+  const previous = parts[parts.length - 1];
+  if (previous && shouldInsertTtmlTextSpace(previous.text, part.text)) {
+    previous.text += ' ';
+  }
+
+  parts.push(part);
+};
+
+const resolveTtmlChildTime = (timeMs: number | null, parentStartMs: number): number | null => {
+  if (timeMs === null) {
+    return null;
+  }
+
+  return timeMs < parentStartMs && parentStartMs - timeMs > 1000 ? parentStartMs + timeMs : timeMs;
+};
+
+const parseTtmlTranslations = (ttmlText: string): Map<string, string> => {
+  const translations = new Map<string, string>();
+  for (const match of ttmlText.matchAll(ttmlTranslationTextPattern)) {
+    const attributes = parseTtmlAttributes(match[1]);
+    const targetId = firstTtmlAttribute(attributes, ['for', 'itunes:for', 'xml:id', 'id']);
+    if (!targetId || translations.has(targetId)) {
+      continue;
+    }
+
+    const text = ttmlLineText(match[2]);
+    if (text) {
+      translations.set(targetId, text);
+    }
+  }
+
+  return translations;
+};
+
+const parseTtmlParagraph = (
+  attributesText: string,
+  content: string,
+  translationsById: Map<string, string>,
+): LyricLine | null => {
+  const attributes = parseTtmlAttributes(attributesText);
+  const beginMs = parseTtmlTime(attributes.get('begin'));
+  if (beginMs === null) {
+    return null;
+  }
+
+  const endMs = parseTtmlTime(attributes.get('end'));
+  const durationMs = parseTtmlTime(attributes.get('dur'));
+  const lineEndMs = endMs ?? (durationMs === null ? null : beginMs + durationMs);
+  const parts: TtmlTextPart[] = [];
+  let cursor = 0;
+
+  for (const match of content.matchAll(ttmlSpanPattern)) {
+    if (match.index === undefined) {
+      continue;
+    }
+
+    pushTtmlTextPart(parts, {
+      text: normalizeTtmlTextPart(content.slice(cursor, match.index)),
+      startMs: null,
+      endMs: null,
+    });
+
+    const spanAttributes = parseTtmlAttributes(match[1]);
+    const spanStartMs = resolveTtmlChildTime(parseTtmlTime(spanAttributes.get('begin')), beginMs);
+    const spanEndMs =
+      resolveTtmlChildTime(parseTtmlTime(spanAttributes.get('end')), beginMs) ??
+      (spanStartMs === null
+        ? null
+        : (() => {
+          const spanDurationMs = parseTtmlTime(spanAttributes.get('dur'));
+          return spanDurationMs === null ? null : spanStartMs + spanDurationMs;
+        })());
+
+    pushTtmlTextPart(parts, {
+      text: normalizeTtmlTextPart(match[2]),
+      startMs: spanStartMs,
+      endMs: spanEndMs,
+    });
+    cursor = match.index + match[0].length;
+  }
+
+  pushTtmlTextPart(parts, {
+    text: normalizeTtmlTextPart(content.slice(cursor)),
+    startMs: null,
+    endMs: null,
+  });
+  const timedParts = parts.filter((part): part is TtmlTextPart & { startMs: number } => part.startMs !== null);
+  for (let index = 0; index < timedParts.length; index += 1) {
+    const part = timedParts[index];
+    const nextStartMs = timedParts[index + 1]?.startMs ?? null;
+    const inferredEndMs = nextStartMs ?? lineEndMs;
+    if (part.endMs === null && inferredEndMs !== null && inferredEndMs > part.startMs) {
+      part.endMs = inferredEndMs;
+    }
+  }
+
+  const text = parts.map((part) => part.text).join('').replace(/\s+/gu, ' ').trim();
+  if (!text) {
+    return null;
+  }
+
+  const words = normalizeWordTimings(
+    timedParts
+      .map((part) => ({
+        text: part.text,
+        startMs: part.startMs,
+        endMs: part.endMs,
+      })),
+  );
+
+  const line = {
+    timeMs: beginMs,
+    ...attachWordTimings(splitInlineTranslation(text), words),
+  };
+  const lineId = firstTtmlAttribute(attributes, ['itunes:key', 'xml:id', 'id', 'key']);
+  const translation = lineId ? translationsById.get(lineId) : undefined;
+  if (translation && !line.translation) {
+    line.translation = translation;
+  }
+
+  return line;
+};
+
+export const parseTtmlLyrics = (ttmlText: string): LyricLine[] => {
+  if (!ttmlRootPattern.test(ttmlText)) {
+    return [];
+  }
+
+  const translationsById = parseTtmlTranslations(ttmlText);
+  const lines: LyricLine[] = [];
+  for (const match of ttmlText.matchAll(ttmlParagraphPattern)) {
+    const line = parseTtmlParagraph(match[1], match[2], translationsById);
+    if (line) {
+      lines.push(line);
+    }
+  }
+
+  return lines.sort((left, right) => left.timeMs - right.timeMs);
+};
+
 export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
+  const ttmlLines = parseTtmlLyrics(lrcText);
+  if (ttmlLines.length > 0) {
+    return ttmlLines;
+  }
+
   const lines: LyricLine[] = [];
 
   for (const rawLine of lrcText.split(/\r?\n/)) {
@@ -671,8 +978,12 @@ export const parseSyncedLyrics = (lrcText: string): LyricLine[] => {
   return lines.sort((left, right) => left.timeMs - right.timeMs);
 };
 
-export const parsePlainLyrics = (plainText: string): LyricLine[] =>
-  plainText
+export const parsePlainLyrics = (plainText: string): LyricLine[] => {
+  if (ttmlRootPattern.test(plainText)) {
+    return [];
+  }
+
+  return plainText
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
@@ -680,6 +991,7 @@ export const parsePlainLyrics = (plainText: string): LyricLine[] =>
       timeMs: -1,
       ...splitInlineTranslation(text),
     }));
+};
 
 export const detectLyricsKind = ({
   instrumental,

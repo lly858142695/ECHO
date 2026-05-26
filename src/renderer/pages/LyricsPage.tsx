@@ -585,12 +585,19 @@ const smartAlignmentReasonText = (evaluation: LyricsSmartAlignmentEvaluation | n
   }
 };
 
-const firstLrcFile = (fileList: FileList | null): File | null => {
+const customLyricsExtensions = [".lrc", ".ttml"] as const;
+
+const isCustomLyricsFile = (fileName: string): boolean => {
+  const normalizedName = fileName.toLowerCase();
+  return customLyricsExtensions.some((extension) => normalizedName.endsWith(extension));
+};
+
+const firstCustomLyricsFile = (fileList: FileList | null): File | null => {
   if (!fileList) {
     return null;
   }
 
-  return Array.from(fileList).find((file) => file.name.toLowerCase().endsWith(".lrc")) ?? null;
+  return Array.from(fileList).find((file) => isCustomLyricsFile(file.name)) ?? null;
 };
 
 const hasFileDrag = (dataTransfer: DataTransfer): boolean =>
@@ -2759,7 +2766,12 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       const query = event instanceof CustomEvent && typeof event.detail?.query === "string" ? event.detail.query : undefined;
       void handleSearchLyrics(query);
     };
-    const handleRematchRequested = (): void => {
+    const handleRematchRequested = (event: Event): void => {
+      const requestedTrackId = event instanceof CustomEvent && typeof event.detail?.trackId === "string" ? event.detail.trackId : null;
+      if (requestedTrackId && requestedTrackId !== trackId) {
+        return;
+      }
+
       void handleRematchLyrics();
     };
     const handleCandidateApplied = (event: Event): void => {
@@ -2832,13 +2844,13 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         return;
       }
 
-      if (!file.name.toLowerCase().endsWith(".lrc")) {
-        setError("Please choose an .lrc lyrics file");
+      if (!isCustomLyricsFile(file.name)) {
+        setError("Please choose an .lrc or .ttml lyrics file");
         return;
       }
 
       setIsCustomLyricsApplying(true);
-      setLyricsStatus("Applying custom LRC...");
+      setLyricsStatus("Applying custom lyrics...");
       try {
         const lrcText = decodeTextFileBytes(new Uint8Array(await file.arrayBuffer()));
         const trackLyrics = await lyricsApi.applyCustomLrc(trackId, lrcText, file.name);
@@ -2867,7 +2879,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   );
 
   const handleLyricsDragOver = useCallback((event: DragEvent<HTMLDivElement>): void => {
-    if (!firstLrcFile(event.dataTransfer.files) && !hasFileDrag(event.dataTransfer)) {
+    if (!firstCustomLyricsFile(event.dataTransfer.files) && !hasFileDrag(event.dataTransfer)) {
       return;
     }
 
@@ -2887,7 +2899,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
 
   const handleLyricsDrop = useCallback(
     (event: DragEvent<HTMLDivElement>): void => {
-      const file = firstLrcFile(event.dataTransfer.files);
+      const file = firstCustomLyricsFile(event.dataTransfer.files);
       if (!file) {
         return;
       }
@@ -3703,7 +3715,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       {isCustomLyricsDragging ? (
         <div className="lyrics-custom-lrc-drop" aria-hidden="true">
           <Upload size={28} />
-          <strong>Drop LRC to apply</strong>
+          <strong>Drop lyrics to apply</strong>
         </div>
       ) : null}
       <section className="lyrics-left-panel">

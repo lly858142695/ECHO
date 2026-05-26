@@ -456,6 +456,64 @@ describe('LyricsService', () => {
     ]);
   });
 
+  it('repairs cached local LDDC lyrics when English was stored as romanization', async () => {
+    const { database, service } = createHarness();
+    database
+      .prepare(
+        `INSERT INTO lyrics_cache (
+          id, cache_key, track_id, provider, provider_lyrics_id, title, artist, album,
+          duration_seconds, kind, plain_lyrics, synced_lyrics, lines_json, offset_ms, score,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'cached-local-lddc-inverted-1',
+        'local|echo song|echo artist|echo album|120',
+        'track-1',
+        'local',
+        'local-lddc-1',
+        'Echo Song',
+        'Echo Artist',
+        'Echo Album',
+        120,
+        'synced',
+        null,
+        [
+          "[00:04.712]And [00:04.880]we're [00:05.040]turnin' [00:05.240]the [00:05.400]floor [00:05.533]into[00:05.892]",
+          '[00:04.712]\u5728\u4eca\u591c\u8c01\u8fd8\u4e0d\u662f\u4e2a[00:06.110]',
+        ].join('\n'),
+        JSON.stringify([
+          {
+            timeMs: 4712,
+            text: '\u5728\u4eca\u591c\u8c01\u8fd8\u4e0d\u662f\u4e2a',
+            romanization: "And we're turnin' the floor into",
+          },
+        ]),
+        0,
+        1,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      );
+
+    const lyrics = await service.getLyricsForTrack('track-1');
+
+    expect(lyrics?.lines).toEqual([
+      {
+        timeMs: 4712,
+        text: "And we're turnin' the floor into",
+        translation: '\u5728\u4eca\u591c\u8c01\u8fd8\u4e0d\u662f\u4e2a',
+        words: [
+          { text: 'And ', startMs: 4712, endMs: 4880 },
+          { text: "we're ", startMs: 4880, endMs: 5040 },
+          { text: "turnin' ", startMs: 5040, endMs: 5240 },
+          { text: 'the ', startMs: 5240, endMs: 5400 },
+          { text: 'floor ', startMs: 5400, endMs: 5533 },
+          { text: 'into', startMs: 5533, endMs: 5892 },
+        ],
+      },
+    ]);
+  });
+
   it('restores cached word timings from synced source text without replacing secondary fields', async () => {
     const { database, service } = createHarness();
     database
@@ -965,6 +1023,68 @@ describe('LyricsService', () => {
 
     expect(lyrics.kind).toBe('synced');
     expect(lyrics.lines[0].text).toBe('Applied');
+  });
+
+  it('applies stored Kuwo and KuGou provider candidates', async () => {
+    const { database, service } = createHarness();
+    const now = '2026-05-26T00:00:00.000Z';
+    const insertCandidate = database.prepare(
+      `INSERT INTO lyrics_candidates (
+        id, track_id, provider, provider_lyrics_id, title, artist, album, duration_seconds,
+        instrumental, has_synced, has_plain, score, risk, reasons_json, title_score,
+        artist_score, album_score, duration_score, version_score, source_label, raw_json,
+        status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+
+    for (const provider of ['kuwo', 'kugou'] as const) {
+      insertCandidate.run(
+        `${provider}-candidate`,
+        'track-1',
+        provider,
+        `${provider}:lyrics-1`,
+        'Echo Song',
+        'Echo Artist',
+        'Echo Album',
+        120,
+        0,
+        1,
+        0,
+        0.99,
+        'low',
+        JSON.stringify([`${provider}_provider`]),
+        1,
+        1,
+        1,
+        1,
+        1,
+        provider === 'kuwo' ? 'Kuwo' : 'KuGou',
+        JSON.stringify({
+          providerResult: {
+            provider,
+            providerLyricsId: `${provider}:lyrics-1`,
+            title: 'Echo Song',
+            artist: 'Echo Artist',
+            album: 'Echo Album',
+            durationSeconds: 120,
+            instrumental: false,
+            plainLyrics: null,
+            syncedLyrics: `[00:01.00]${provider} applied`,
+            sourceUrl: null,
+            sourceLabel: provider === 'kuwo' ? 'Kuwo' : 'KuGou',
+            raw: {},
+          },
+        }),
+        'pending',
+        now,
+        now,
+      );
+
+      const lyrics = await service.applyLyricsCandidate('track-1', `${provider}-candidate`);
+      expect(lyrics.provider).toBe(provider);
+      expect(lyrics.kind).toBe('synced');
+      expect(lyrics.lines[0].text).toBe(`${provider} applied`);
+    }
   });
 
   it('previews a candidate without caching or accepting it', async () => {

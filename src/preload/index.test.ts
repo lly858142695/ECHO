@@ -243,6 +243,21 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.DiagnosticsOpenAudioCrashReport);
   });
 
+  it('exposes performance stall reporting through IPC', async () => {
+    const payload = {
+      source: 'renderer' as const,
+      kind: 'animation_frame' as const,
+      durationMs: 1200,
+      thresholdMs: 750,
+      timestamp: '2026-05-26T00:00:00.000Z',
+      windowKind: 'main' as const,
+    };
+
+    await exposedApi!.diagnostics.reportPerformanceStall(payload);
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.DiagnosticsReportPerformanceStall, payload);
+  });
+
   it('exposes the dropped import path classifier', async () => {
     await exposedApi!.library.classifyImportPaths(['D:\\Music']);
     await exposedApi!.library.chooseImportFiles();

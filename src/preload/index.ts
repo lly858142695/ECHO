@@ -1739,6 +1739,7 @@ const echoApi: EchoApi = {
       return () => ipcRenderer.off(IpcChannels.DiagnosticsDevConsoleEntry, listener);
     },
     reportRendererError: (payload) => ipcRenderer.invoke(IpcChannels.DiagnosticsReportRendererError, payload),
+    reportPerformanceStall: (payload) => ipcRenderer.invoke(IpcChannels.DiagnosticsReportPerformanceStall, payload),
   },
   downloads: {
     getJobs: () => ipcRenderer.invoke(IpcChannels.DownloadsGetJobs),

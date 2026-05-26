@@ -69,6 +69,8 @@ const runningStatuses = new Set<LibraryScanStatus['status']>(['queued', 'running
 
 const sortOptions: Array<{ value: LibrarySort; labelKey: TranslationKey }> = [
   { value: 'default', labelKey: 'folders.sort.title' },
+  { value: 'createdAsc', labelKey: 'library.sort.createdAsc' },
+  { value: 'createdDesc', labelKey: 'library.sort.createdDesc' },
   { value: 'artist', labelKey: 'folders.sort.artist' },
   { value: 'album', labelKey: 'folders.sort.album' },
   { value: 'recent', labelKey: 'folders.sort.recent' },
@@ -649,6 +651,25 @@ export const FoldersPage = (): JSX.Element => {
     async (action: TrackMenuAction, track: LibraryTrack, playlistTarget?: LibraryPlaylist): Promise<void> => {
       const library = window.echo?.library;
       setTrackMenu(null);
+
+      if (action === 'clear-lyrics-cache') {
+        const lyricsApi = window.echo?.lyrics;
+        if (!lyricsApi?.clearCache) {
+          setError('Desktop bridge unavailable. Open ECHO Next in Electron to clear lyrics cache.');
+          return;
+        }
+
+        try {
+          setError(null);
+          setMessage(null);
+          await lyricsApi.clearCache(track.id);
+          window.dispatchEvent(new CustomEvent('lyrics:rematch-requested', { detail: { trackId: track.id } }));
+          setMessage(`已清理歌词缓存：${track.title}`);
+        } catch (actionError) {
+          setError(formatFolderError(actionError, t));
+        }
+        return;
+      }
 
       if (!library && action !== 'play-next' && action !== 'add-to-queue' && action !== 'remove-from-queue' && action !== 'edit-tags' && action !== 'reload-embedded-tags' && action !== 'open-osu-timing') {
         setError(t('folders.error.desktopFileActions'));

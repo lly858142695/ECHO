@@ -94,7 +94,9 @@
       "output": "dist"
     },
     "files": [
-      "out/**",
+      "out/main/**",
+      "out/preload/**",
+      "out/renderer/**",
       "software.ico",
       "software.png",
       "package.json"

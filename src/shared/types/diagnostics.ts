@@ -58,3 +58,14 @@ export type RendererErrorPayload = {
   source: 'error' | 'unhandledrejection';
   timestamp: string;
 };
+
+export type DiagnosticPerformanceStallPayload = {
+  source: 'main' | 'renderer';
+  kind: 'event_loop' | 'animation_frame' | 'long_task';
+  durationMs: number;
+  thresholdMs: number;
+  timestamp: string;
+  windowKind?: 'main' | 'desktopLyrics' | 'miniPlayer' | 'unknown';
+  url?: string;
+  details?: Record<string, unknown>;
+};
