@@ -152,6 +152,7 @@ type LyricsDisplaySettings = Pick<
   | "lyricsCoverBlurPx"
   | "lyricsCoverBrightnessPercent"
   | "lyricsBackgroundScalePercent"
+  | "lowLoadPlaybackModeEnabled"
 >;
 
 const playbackSeekedEvent = "playback:seeked";
@@ -201,6 +202,7 @@ const fallbackLyricsDisplaySettings: LyricsDisplaySettings = {
   lyricsCoverBlurPx: 10,
   lyricsCoverBrightnessPercent: 100,
   lyricsBackgroundScalePercent: 100,
+  lowLoadPlaybackModeEnabled: false,
 };
 
 const emptyLyrics = (offsetMs = 0): LyricsState => ({
@@ -827,7 +829,8 @@ const selectLyricsDisplaySettings = (
   lyricsWordHighlightEnabled: settings.lyricsWordHighlightEnabled !== false,
   lyricsWordHighlightClarityPercent:
     settings.lyricsWordHighlightClarityPercent ?? fallbackLyricsDisplaySettings.lyricsWordHighlightClarityPercent,
-  lyricsAutoSearch: settings.lyricsAutoSearch,
+  lowLoadPlaybackModeEnabled: settings.lowLoadPlaybackModeEnabled === true,
+  lyricsAutoSearch: settings.lowLoadPlaybackModeEnabled === true ? false : settings.lyricsAutoSearch,
   lyricsAutoAcceptScore: settings.lyricsAutoAcceptScore,
   lyricsRestartOnApplyEnabled: settings.lyricsRestartOnApplyEnabled === true,
   lyricsGlobalSyncOffsetMs: settings.lyricsGlobalSyncOffsetMs,
@@ -1545,6 +1548,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     ],
   );
   const shouldRequestNetworkBackgroundCover =
+    lyricsDisplaySettings.lowLoadPlaybackModeEnabled !== true &&
     lyricsDisplaySettings.lyricsHighResolutionNetworkCoverEnabled === true &&
     lyricsDisplaySettings.lyricsBackgroundMode === "cover" &&
     Boolean(currentTrack?.id) &&
@@ -3830,7 +3834,8 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
             playbackRate={mvAudioClock.playbackRate}
             playbackState={seekPreviewSeconds === null ? mvAudioClock.state : "paused"}
             positionUpdatedAtMs={seekPreviewSeconds === null ? mvAudioClock.updatedAtMs : performance.now()}
-            wordHighlightEnabled={lyricsDisplaySettings.lyricsWordHighlightEnabled !== false}
+            wordHighlightEnabled={lyricsDisplaySettings.lyricsWordHighlightEnabled !== false && lyricsDisplaySettings.lowLoadPlaybackModeEnabled !== true}
+            highFrequencyUpdatesEnabled={lyricsDisplaySettings.lowLoadPlaybackModeEnabled !== true}
             showRomanization={lyricsDisplaySettings.lyricsRomanizationEnabled}
             preferKanaPronunciation={lyricsDisplaySettings.lyricsUtatenKanaEnabled === true}
             showTranslation={lyricsDisplaySettings.lyricsTranslationEnabled}

@@ -4378,6 +4378,12 @@
   animation-play-state: paused;
 }
 
+.player-bar[data-low-load-playback="true"] .player-marquee[data-overflow="true"] .player-marquee-inner {
+  animation: none;
+  transform: none;
+  will-change: auto;
+}
+
 @keyframes player-marquee-scroll {
   0%,
   12% {

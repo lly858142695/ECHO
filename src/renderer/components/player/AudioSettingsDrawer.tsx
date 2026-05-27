@@ -784,6 +784,7 @@ export const AudioSettingsDrawer = ({
   const [soxrFallbackEnabled, setSoxrFallbackEnabled] = useState(true);
   const [releaseExclusiveOnPauseExperimentalEnabled, setReleaseExclusiveOnPauseExperimentalEnabled] = useState(false);
   const [fixedVolumeEnabled, setFixedVolumeEnabled] = useState(false);
+  const [lowLoadPlaybackModeEnabled, setLowLoadPlaybackModeEnabled] = useState(false);
   const [hiddenDeviceKeys, setHiddenDeviceKeys] = useState<string[]>(() => readHiddenDeviceKeys());
   const [hiddenDeviceMenu, setHiddenDeviceMenu] = useState<HiddenDeviceMenu>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
@@ -1066,10 +1067,22 @@ export const AudioSettingsDrawer = ({
         setSoxrFallbackEnabled(settings.audioSoxrFallbackEnabled !== false);
         setReleaseExclusiveOnPauseExperimentalEnabled(settings.audioReleaseExclusiveOnPauseExperimentalEnabled === true);
         setFixedVolumeEnabled(settings.fixedVolumeEnabled === true);
+        setLowLoadPlaybackModeEnabled(settings.lowLoadPlaybackModeEnabled === true);
       })
       .catch(() => undefined);
     void loadPersistedHiddenDeviceKeys().then(setHiddenDeviceKeys).catch(() => setHiddenDeviceKeys(readHiddenDeviceKeys()));
     void refresh();
+
+    const handleSettingsChanged = (event: Event): void => {
+      const detail = (event as CustomEvent<{ lowLoadPlaybackModeEnabled?: unknown } | null | undefined>).detail;
+      if (!detail || !Object.prototype.hasOwnProperty.call(detail, 'lowLoadPlaybackModeEnabled')) {
+        return;
+      }
+      setLowLoadPlaybackModeEnabled(detail.lowLoadPlaybackModeEnabled === true);
+    };
+
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    return () => window.removeEventListener('settings:changed', handleSettingsChanged);
   }, [isOpen, refresh, rendererPlatform]);
 
   useEffect(() => {
@@ -1445,6 +1458,29 @@ export const AudioSettingsDrawer = ({
     }
   };
 
+  const toggleLowLoadPlaybackMode = (enabled: boolean): void => {
+    const app = window.echo?.app;
+    const previous = lowLoadPlaybackModeEnabled;
+    if (!app?.setSettings) {
+      setError(copy.desktopBridgeUnavailable);
+      return;
+    }
+
+    setLowLoadPlaybackModeEnabled(enabled);
+    void app
+      .setSettings({ lowLoadPlaybackModeEnabled: enabled })
+      .then((nextSettings) => {
+        const detail = nextSettings && typeof nextSettings === 'object'
+          ? { ...nextSettings, lowLoadPlaybackModeEnabled: enabled }
+          : { lowLoadPlaybackModeEnabled: enabled };
+        window.dispatchEvent(new CustomEvent('settings:changed', { detail }));
+      })
+      .catch((settingsError) => {
+        setLowLoadPlaybackModeEnabled(previous);
+        setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
+      });
+  };
+
   const toggleJuceOutput = (enabled: boolean): void => {
     const previous = useJuceOutput;
     setUseJuceOutput(enabled);
@@ -1767,6 +1803,21 @@ export const AudioSettingsDrawer = ({
             </div>
             <em>{t('audioDrawer.device.selected')}</em>
           </div>
+        </section>
+
+        <section className="audio-drawer-section">
+          <label className="audio-toggle-row">
+            <span>
+              <Gauge size={17} />
+              <strong>{t('audioDrawer.option.lowLoadPlaybackMode')}</strong>
+            </span>
+            <input
+              type="checkbox"
+              checked={lowLoadPlaybackModeEnabled}
+              onChange={(event) => toggleLowLoadPlaybackMode(event.currentTarget.checked)}
+            />
+          </label>
+          <p>{t('audioDrawer.option.lowLoadPlaybackModeDescription')}</p>
         </section>
 
         <section className="audio-drawer-section">

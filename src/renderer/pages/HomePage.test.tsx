@@ -317,13 +317,23 @@ const installLibraryMock = (overrides: Partial<NonNullable<Window['echo']>['libr
   return library;
 };
 
-const installAppSettingsMock = (settings: { homeRandomHeroTitleEnabled?: boolean; homeWaveformVisualizerEnabled?: boolean } = {}) => {
+const installAppSettingsMock = (
+  settings: {
+    homeRandomHeroTitleEnabled?: boolean;
+    homeWaveformVisualizerEnabled?: boolean;
+    audioVisualSpectrumEnabled?: boolean;
+    lowLoadPlaybackModeEnabled?: boolean;
+  } = {},
+) => {
+  const effectiveSettings = {
+    homeRandomHeroTitleEnabled: true,
+    homeWaveformVisualizerEnabled: false,
+    audioVisualSpectrumEnabled: settings.homeWaveformVisualizerEnabled === true ? true : false,
+    lowLoadPlaybackModeEnabled: false,
+    ...settings,
+  };
   const app = {
-    getSettings: vi.fn().mockResolvedValue({
-      homeRandomHeroTitleEnabled: true,
-      homeWaveformVisualizerEnabled: false,
-      ...settings,
-    }),
+    getSettings: vi.fn().mockResolvedValue(effectiveSettings),
   };
   window.echo = {
     ...(window.echo ?? {}),

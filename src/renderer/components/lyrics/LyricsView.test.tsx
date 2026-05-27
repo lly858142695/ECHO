@@ -248,6 +248,51 @@ describe('LyricsView', () => {
     expect(container.querySelector('.lyrics-line[data-active="true"]')).toBe(activeLine);
   });
 
+  it('does not advance word progress with high-frequency updates disabled', async () => {
+    let frameId = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frameId += 1;
+      frames.set(frameId, callback);
+      return frameId;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(id);
+    });
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
+
+    const { container } = render(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={wordLyrics}
+        playbackRate={1}
+        playbackState="playing"
+        positionMs={1000}
+        positionUpdatedAtMs={1000}
+        highFrequencyUpdatesEnabled={false}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      const currentWord = container.querySelector<HTMLElement>('.lyrics-word[data-word-state="current"]');
+      expect(currentWord?.style.getPropertyValue('--lyrics-word-progress')).toBe('0.0000');
+    });
+
+    vi.mocked(performance.now).mockReturnValue(1250);
+    act(() => {
+      const callbacks = Array.from(frames.entries());
+      frames.clear();
+      for (const [, callback] of callbacks) {
+        callback(1250);
+      }
+    });
+
+    const currentWord = container.querySelector<HTMLElement>('.lyrics-word[data-word-state="current"]');
+    expect(currentWord?.style.getPropertyValue('--lyrics-word-progress')).toBe('0.0000');
+  });
+
   it('centers immediately when seeking backward to an earlier lyric line', async () => {
     let frameId = 0;
     const frames = new Map<number, FrameRequestCallback>();

@@ -1,9 +1,10 @@
 import { once } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelBalanceState } from '../../shared/types/audio';
 import type { EqState } from '../../shared/types/eq';
 import {
   PcmLevelMeterTransform,
+  audioLevelMeterTestHooks,
   computeDspEstimatedGainDb,
   createAudioLevelTelemetry,
   type PcmLevelSnapshot,
@@ -19,12 +20,12 @@ const pcmBuffer = (samples: number[]): Buffer => {
 
 const runMeter = async (
   samples: number[],
-  options: { channels?: number; maxObservedSamplesPerChunk?: number; sampleRateHz?: number } = {},
+  options: { channels?: number; maxObservedSamplesPerChunk?: number; sampleRateHz?: number; visualSpectrumEnabled?: boolean } = {},
 ): Promise<{ snapshot: PcmLevelSnapshot; output: Buffer }> => {
   let snapshot: PcmLevelSnapshot | null = null;
   const meter = new PcmLevelMeterTransform((nextSnapshot) => {
     snapshot = nextSnapshot;
-  }, 0, options.maxObservedSamplesPerChunk, options.sampleRateHz, options.channels);
+  }, 0, options.maxObservedSamplesPerChunk, options.sampleRateHz, options.channels, options.visualSpectrumEnabled ?? true);
   const outputChunks: Buffer[] = [];
   meter.on('data', (chunk: Buffer) => outputChunks.push(Buffer.from(chunk)));
   const input = pcmBuffer(samples);
@@ -40,12 +41,12 @@ const runMeter = async (
 
 const runMeterChunks = async (
   chunks: number[][],
-  options: { channels?: number; maxObservedSamplesPerChunk?: number; sampleRateHz?: number } = {},
+  options: { channels?: number; maxObservedSamplesPerChunk?: number; sampleRateHz?: number; visualSpectrumEnabled?: boolean } = {},
 ): Promise<{ snapshots: PcmLevelSnapshot[]; output: Buffer }> => {
   const snapshots: PcmLevelSnapshot[] = [];
   const meter = new PcmLevelMeterTransform((nextSnapshot) => {
     snapshots.push(nextSnapshot);
-  }, 0, options.maxObservedSamplesPerChunk, options.sampleRateHz, options.channels);
+  }, 0, options.maxObservedSamplesPerChunk, options.sampleRateHz, options.channels, options.visualSpectrumEnabled ?? true);
   const outputChunks: Buffer[] = [];
   meter.on('data', (chunk: Buffer) => outputChunks.push(Buffer.from(chunk)));
 
@@ -108,6 +109,10 @@ const channelBalanceState = (overrides: Partial<ChannelBalanceState> = {}): Chan
   constantPower: true,
   clippingRisk: false,
   ...overrides,
+});
+
+afterEach(() => {
+  audioLevelMeterTestHooks.setDebugHooks(null);
 });
 
 describe('AudioLevelMeter', () => {
@@ -184,7 +189,7 @@ describe('AudioLevelMeter', () => {
     const snapshots: PcmLevelSnapshot[] = [];
     const meter = new PcmLevelMeterTransform((nextSnapshot) => {
       snapshots.push(nextSnapshot);
-    }, 0, undefined, 44100, 1);
+    }, 0, undefined, 44100, 1, true);
     meter.resume();
 
     meter.write(pcmBuffer(sineSamples(440, 44100, 2048, 1, 0.04)));
@@ -199,7 +204,7 @@ describe('AudioLevelMeter', () => {
     const snapshots: PcmLevelSnapshot[] = [];
     const meter = new PcmLevelMeterTransform((nextSnapshot) => {
       snapshots.push(nextSnapshot);
-    }, 0, undefined, 44100, 1);
+    }, 0, undefined, 44100, 1, true);
     meter.resume();
 
     for (let index = 0; index < 8; index += 1) {
@@ -260,6 +265,11 @@ describe('AudioLevelMeter', () => {
 
   it('can disable visual spectrum analysis while preserving level metering and bytes', async () => {
     const snapshots: PcmLevelSnapshot[] = [];
+    const hooks = {
+      computeVisualAnalysis: vi.fn(),
+      fftInPlace: vi.fn(),
+    };
+    audioLevelMeterTestHooks.setDebugHooks(hooks);
     const samples = sineSamples(440, 44100, 2048, 1, 0.8);
     const input = pcmBuffer(samples);
     const meter = new PcmLevelMeterTransform((nextSnapshot) => {
@@ -277,6 +287,8 @@ describe('AudioLevelMeter', () => {
     expect(snapshots.at(-1)?.visualSpectrum.every((value) => value === 0)).toBe(true);
     expect(snapshots.at(-1)?.visualEnergy).toBe(0);
     expect(snapshots.at(-1)?.visualTransient).toBe(0);
+    expect(hooks.computeVisualAnalysis).not.toHaveBeenCalled();
+    expect(hooks.fftInPlace).not.toHaveBeenCalled();
   });
 
   it('adds conservative EQ and channel balance gain to the output estimate', () => {
@@ -300,6 +312,8 @@ describe('AudioLevelMeter', () => {
           visualTelemetryState: 'fallback',
           clipCount: 0,
           lastClipAt: null,
+          levelMeterObserveCostMs: 0,
+          visualSpectrumComputeCostMs: 0,
         },
         eq,
         channelBalance,

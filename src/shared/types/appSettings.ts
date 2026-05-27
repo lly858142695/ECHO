@@ -310,6 +310,8 @@ export type AppSettings = {
   channelBalance: ChannelBalanceState;
   playerVolume: number;
   homeWaveformVisualizerEnabled?: boolean;
+  audioVisualSpectrumEnabled?: boolean;
+  lowLoadPlaybackModeEnabled?: boolean;
   homeRandomHeroTitleEnabled?: boolean;
   playerWaveformProgressEnabled?: boolean;
   fixedVolumeEnabled?: boolean;

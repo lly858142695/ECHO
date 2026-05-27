@@ -178,6 +178,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings | undefine
     output.exclusiveInstabilityFallbackEnabled = input.exclusiveInstabilityFallbackEnabled;
   }
 
+  if (typeof input.defaultDeviceFallbackEnabled === 'boolean') {
+    output.defaultDeviceFallbackEnabled = input.defaultDeviceFallbackEnabled;
+  }
+
   if (typeof input.soxrFallbackEnabled === 'boolean') {
     output.soxrFallbackEnabled = input.soxrFallbackEnabled;
   }
@@ -847,7 +851,8 @@ const scheduleReplayGainAnalysisForPlayback = (trackId: string | null | undefine
   }
 
   try {
-    if (getAppSettings().replayGainAnalyzeOnPlay === false) {
+    const settings = getAppSettings();
+    if (settings.replayGainAnalyzeOnPlay === false || settings.lowLoadPlaybackModeEnabled === true) {
       return;
     }
     void import('../library/LibraryService').then(({ getLibraryService }) => {

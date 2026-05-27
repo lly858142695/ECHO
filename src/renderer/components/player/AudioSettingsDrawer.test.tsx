@@ -32,6 +32,8 @@ const testTranslations: Record<string, string> = {
   'audioDrawer.note.releaseExclusiveOnPause': 'Pause releases WASAPI Exclusive.',
   'audioDrawer.guard.exclusiveInstability.title': 'Auto-switch unstable Exclusive',
   'audioDrawer.guard.exclusiveInstability.description': 'Switch unstable Exclusive to Shared.',
+  'audioDrawer.option.lowLoadPlaybackMode': 'Low-Load Playback Mode',
+  'audioDrawer.option.lowLoadPlaybackModeDescription': 'Disables heavy playback visuals and analysis while playing.',
   'audioDrawer.option.set': 'Set',
   'audioDrawer.option.showAsioPanelSettings': 'Show ASIO panel settings',
   'audioDrawer.option.showAsioPanelSettingsDescription': 'Show ASIO panel buttons',
@@ -192,6 +194,7 @@ const renderDrawer = (
         audioUseJuceDecode: status.useJuceDecodeRequested,
         audioDsdOutputMode: status.dsdOutputModeRequested ?? 'pcm',
         audioReleaseExclusiveOnPauseExperimentalEnabled: false,
+        lowLoadPlaybackModeEnabled: false,
       }),
       setSettings: vi.fn().mockResolvedValue({}),
     },
@@ -646,6 +649,23 @@ describe('AudioSettingsDrawer ASIO buffer controls', () => {
       expect(window.echo?.app?.setSettings).toHaveBeenCalledWith({ audioExclusiveInstabilityFallbackEnabled: true }),
     );
     await waitFor(() => expect(setOutput).toHaveBeenCalledWith({ exclusiveInstabilityFallbackEnabled: true }));
+  });
+
+  it('persists low-load playback mode from the audio settings drawer without switching output', async () => {
+    const setOutput = vi.fn().mockResolvedValue(baseStatus);
+    const settingsChanged = vi.fn();
+    window.addEventListener('settings:changed', settingsChanged);
+
+    renderDrawer(baseStatus, setOutput);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Low-Load Playback Mode/ }));
+
+    await waitFor(() => expect(window.echo?.app?.setSettings).toHaveBeenCalledWith({ lowLoadPlaybackModeEnabled: true }));
+    await waitFor(() => expect(settingsChanged).toHaveBeenCalled());
+    expect((settingsChanged.mock.calls.at(-1)?.[0] as CustomEvent).detail).toMatchObject({ lowLoadPlaybackModeEnabled: true });
+    expect(setOutput).not.toHaveBeenCalled();
+
+    window.removeEventListener('settings:changed', settingsChanged);
   });
 
   it('persists manual JUCE output disablement', async () => {

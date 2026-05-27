@@ -3700,6 +3700,14 @@ export const SettingsPage = (): JSX.Element => {
         ],
       },
       {
+        id: 'row-audio-visual-spectrum',
+        sectionKey: 'general',
+        targetId: 'settings-row-audio-visual-spectrum',
+        title: '实时频谱分析',
+        description: '默认关闭。开启后主页波形会请求主进程计算频谱；低负载播放模式会强制关闭它。',
+        terms: ['实时频谱分析', '频谱', '可视化', 'FFT', 'visual spectrum', 'spectrum', 'audio visualizer', 'mouse freeze', '卡死', '低负载'],
+      },
+      {
         id: 'row-home-random-hero-title',
         sectionKey: 'general',
         targetId: 'settings-row-home-random-hero-title',
@@ -3957,6 +3965,14 @@ export const SettingsPage = (): JSX.Element => {
         title: t('settings.playback.outputDevice.title'),
         description: t('settings.playback.outputDevice.description'),
         terms: [t('settings.playback.outputDevice.title'), t('settings.playback.outputDevice.description'), 'output', 'device', 'dac', 'asio', 'wasapi', 'exclusive', '输出设备'],
+      },
+      {
+        id: 'row-low-load-playback',
+        sectionKey: 'playback',
+        targetId: 'settings-row-low-load-playback',
+        title: '低负载播放模式',
+        description: '打开后播放期间禁用实时频谱、频繁播放页刷新、ReplayGain/BPM 重分析、逐字歌词高频刷新、自动歌词深搜、封面/艺人图抓取和 MV 预加载。',
+        terms: ['低负载播放模式', '低负载', '卡死', '鼠标卡死', 'CPU', 'IO', 'FFT', 'ReplayGain', 'BPM', '歌词深搜', '封面', '艺人图', 'MV', 'low load', 'performance', 'mouse freeze'],
       },
       {
         id: 'row-theme',
@@ -8403,6 +8419,22 @@ export const SettingsPage = (): JSX.Element => {
                 />
               </SettingRow>
               <SettingRow
+                id="settings-row-audio-visual-spectrum"
+                highlighted={highlightedSettingId === 'settings-row-audio-visual-spectrum'}
+                title="实时频谱分析"
+                description="默认关闭。开启后主页波形会请求主进程计算频谱；低负载播放模式会强制关闭它。"
+              >
+                <ToggleButton
+                  active={appSettings?.audioVisualSpectrumEnabled === true}
+                  disabled={!appSettings}
+                  onClick={() =>
+                    patchAppSettings({
+                      audioVisualSpectrumEnabled: appSettings?.audioVisualSpectrumEnabled !== true,
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
                 id="settings-row-home-random-hero-title"
                 highlighted={highlightedSettingId === 'settings-row-home-random-hero-title'}
                 title={t('settings.general.homeRandomHeroTitle.title')}
@@ -8688,6 +8720,22 @@ export const SettingsPage = (): JSX.Element => {
                   ariaLabel={t('settings.playback.outputDevice.title')}
                   disabled={compatibleDevices.length === 0}
                   showFilterIcon={false}
+                />
+              </SettingRow>
+              <SettingRow
+                id="settings-row-low-load-playback"
+                highlighted={highlightedSettingId === 'settings-row-low-load-playback'}
+                title="低负载播放模式"
+                description="打开后播放期间禁用实时频谱、频繁播放页刷新、ReplayGain/BPM 重分析、逐字歌词高频刷新、自动歌词深搜、封面/艺人图抓取和 MV 预加载。"
+              >
+                <ToggleButton
+                  active={appSettings?.lowLoadPlaybackModeEnabled === true}
+                  disabled={!appSettings}
+                  onClick={() =>
+                    patchAppSettings({
+                      lowLoadPlaybackModeEnabled: appSettings?.lowLoadPlaybackModeEnabled !== true,
+                    })
+                  }
                 />
               </SettingRow>
               <SettingRow title={t('settings.playback.troubleshooting.title')} description={t('settings.playback.troubleshooting.description')}>

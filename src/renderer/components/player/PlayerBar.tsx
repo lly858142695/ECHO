@@ -91,6 +91,23 @@ const readAudioAnalysisEnabledPatch = (patch: unknown): boolean | null => {
   return typeof value === 'boolean' ? value : null;
 };
 
+const readLowLoadPlaybackModeEnabled = (settings: unknown): boolean => {
+  if (!settings || typeof settings !== 'object') {
+    return false;
+  }
+
+  return (settings as { lowLoadPlaybackModeEnabled?: unknown }).lowLoadPlaybackModeEnabled === true;
+};
+
+const readLowLoadPlaybackModeEnabledPatch = (patch: unknown): boolean | null => {
+  if (!patch || typeof patch !== 'object') {
+    return null;
+  }
+
+  const value = (patch as { lowLoadPlaybackModeEnabled?: unknown }).lowLoadPlaybackModeEnabled;
+  return typeof value === 'boolean' ? value : null;
+};
+
 const readPlayerWaveformProgressEnabled = (settings: unknown): boolean => {
   if (!settings || typeof settings !== 'object') {
     return false;
@@ -519,6 +536,7 @@ export const PlayerBar = ({
   const [isCurrentTrackLiked, setIsCurrentTrackLiked] = useState(false);
   const [smtcEnabled, setSmtcEnabled] = useState(true);
   const [audioAnalysisEnabled, setAudioAnalysisEnabled] = useState<boolean | null>(null);
+  const [lowLoadPlaybackModeEnabled, setLowLoadPlaybackModeEnabled] = useState(false);
   const [playerWaveformProgressEnabled, setPlayerWaveformProgressEnabled] = useState(false);
   const [fixedVolumeEnabled, setFixedVolumeEnabled] = useState(false);
   const [dsdAutoVolumeLockEnabled, setDsdAutoVolumeLockEnabled] = useState(false);
@@ -1157,6 +1175,7 @@ export const PlayerBar = ({
       const getSettings = window.echo?.app?.getSettings;
       if (typeof getSettings !== 'function') {
         setAudioAnalysisEnabled(true);
+        setLowLoadPlaybackModeEnabled(false);
         setPlayerWaveformProgressEnabled(false);
         setFixedVolumeEnabled(false);
         setDsdAutoVolumeLockEnabled(false);
@@ -1168,6 +1187,7 @@ export const PlayerBar = ({
         .then((settings) => {
           if (!cancelled) {
             setAudioAnalysisEnabled(readAudioAnalysisEnabled(settings));
+            setLowLoadPlaybackModeEnabled(readLowLoadPlaybackModeEnabled(settings));
             setPlayerWaveformProgressEnabled(readPlayerWaveformProgressEnabled(settings));
             setFixedVolumeEnabled(readFixedVolumeEnabled(settings));
             setDsdAutoVolumeLockEnabled(readDsdAutoVolumeLockEnabled(settings));
@@ -1177,6 +1197,7 @@ export const PlayerBar = ({
         .catch(() => {
           if (!cancelled) {
             setAudioAnalysisEnabled(true);
+            setLowLoadPlaybackModeEnabled(false);
             setPlayerWaveformProgressEnabled(false);
             setFixedVolumeEnabled(false);
             setDsdAutoVolumeLockEnabled(false);
@@ -1190,6 +1211,10 @@ export const PlayerBar = ({
         const audioAnalysisPatch = readAudioAnalysisEnabledPatch(event.detail);
         if (audioAnalysisPatch !== null) {
           setAudioAnalysisEnabled(audioAnalysisPatch);
+        }
+        const lowLoadPlaybackPatch = readLowLoadPlaybackModeEnabledPatch(event.detail);
+        if (lowLoadPlaybackPatch !== null) {
+          setLowLoadPlaybackModeEnabled(lowLoadPlaybackPatch);
         }
         const playerWaveformProgressPatch = readPlayerWaveformProgressEnabledPatch(event.detail);
         if (playerWaveformProgressPatch !== null) {
@@ -1356,7 +1381,7 @@ export const PlayerBar = ({
   }, [durationSeconds, filePath, playbackAudioStatus?.playbackRate, sourcePositionSeconds, state, trackId, visualState]);
 
   useEffect(() => {
-    if (visualState !== 'playing' || seekPreviewSeconds !== null) {
+    if (lowLoadPlaybackModeEnabled || visualState !== 'playing' || seekPreviewSeconds !== null) {
       return;
     }
 
@@ -1372,7 +1397,7 @@ export const PlayerBar = ({
     }, progressRenderIntervalMs);
 
     return () => window.clearInterval(timer);
-  }, [seekPreviewSeconds, visualState]);
+  }, [lowLoadPlaybackModeEnabled, seekPreviewSeconds, visualState]);
 
   useEffect(() => {
     if (!currentTrack || currentTrack.mediaType !== 'streaming') {
@@ -1413,7 +1438,7 @@ export const PlayerBar = ({
       analysisTrack.analysisStatus !== 'analyzing' &&
       !isVerifiedAudioAnalysisBpm(analysisTrack);
     const shouldStartAnalysis = isPlaying;
-    const canStartAnalysis = audioAnalysisEnabled === true;
+    const canStartAnalysis = audioAnalysisEnabled === true && !lowLoadPlaybackModeEnabled;
     const shouldContinueAnalysis = Boolean(existingJobId && existingJobId !== 'done');
 
     if (
@@ -1515,12 +1540,13 @@ export const PlayerBar = ({
         window.clearTimeout(pollTimer);
       }
     };
-  }, [audioAnalysisEnabled, currentTrack, isPlaying, updateTrackSnapshot]);
+  }, [audioAnalysisEnabled, currentTrack, isPlaying, lowLoadPlaybackModeEnabled, updateTrackSnapshot]);
 
   useEffect(() => {
     const streaming = window.echo?.streaming;
     const canAnalyzeCurrentTrack =
       audioAnalysisEnabled === true &&
+      !lowLoadPlaybackModeEnabled &&
       isPlaying &&
       streamingTrackMediaType === 'streaming' &&
       !unsupportedStreamingBpmAnalysisProviders.has(streamingTrackProvider as StreamingProviderName) &&
@@ -1586,6 +1612,7 @@ export const PlayerBar = ({
   }, [
     audioAnalysisEnabled,
     isPlaying,
+    lowLoadPlaybackModeEnabled,
     streamingTrackAnalysisStatus,
     streamingTrackBpm,
     streamingTrackBpmConfidence,
@@ -1632,7 +1659,7 @@ export const PlayerBar = ({
   useEffect(() => {
     const mv = window.echo?.mv;
 
-    if (!isPlaying || !trackId || currentTrack?.mediaType === 'streaming' || !mv || mvPreloadTrackRef.current === trackId) {
+    if (lowLoadPlaybackModeEnabled || !isPlaying || !trackId || currentTrack?.mediaType === 'streaming' || !mv || mvPreloadTrackRef.current === trackId) {
       return;
     }
 
@@ -1696,6 +1723,7 @@ export const PlayerBar = ({
     currentTrack?.mediaType,
     currentTrack?.title,
     isPlaying,
+    lowLoadPlaybackModeEnabled,
     title,
     trackId,
   ]);
@@ -2104,7 +2132,12 @@ export const PlayerBar = ({
   );
 
   return (
-    <footer className="player-bar" data-playback-state={visualState} aria-label="播放控制">
+    <footer
+      className="player-bar"
+      data-low-load-playback={lowLoadPlaybackModeEnabled ? 'true' : undefined}
+      data-playback-state={visualState}
+      aria-label="播放控制"
+    >
       {streamingDownloadNotice ? (
         <div className={`player-download-notice player-download-notice--${streamingDownloadNotice.tone}`} role="status" aria-live="polite">
           <div className="player-download-notice-copy">
@@ -2173,7 +2206,7 @@ export const PlayerBar = ({
         <PlayerProgress
           disabled={isAirPlayReceiverPlaybackActive || (!filePath && !isSpotifyCurrentTrack)}
           durationSeconds={durationSeconds}
-          waveformEnabled={playerWaveformProgressEnabled}
+          waveformEnabled={playerWaveformProgressEnabled && !lowLoadPlaybackModeEnabled}
           waveformSeed={trackId ?? filePath ?? title}
           positionSeconds={positionSeconds}
           onCommit={(nextPositionSeconds) => void commitSeek(nextPositionSeconds)}

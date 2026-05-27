@@ -1,4 +1,5 @@
 import { Transform } from 'node:stream';
+import { performance } from 'node:perf_hooks';
 import type { TransformCallback } from 'node:stream';
 import type { AudioLevelTelemetry, ChannelBalanceState } from '../../shared/types/audio';
 import type { EqState } from '../../shared/types/eq';
@@ -13,6 +14,8 @@ export type PcmLevelSnapshot = {
   visualTelemetryState: 'pcm' | 'priming' | 'fallback';
   clipCount: number;
   lastClipAt: string | null;
+  levelMeterObserveCostMs: number;
+  visualSpectrumComputeCostMs: number;
 };
 
 export type AudioLevelEstimate = AudioLevelTelemetry;
@@ -31,7 +34,10 @@ const visualEnergyCeilingDb = -10;
 const visualSpectrumMinFrequencyHz = 40;
 const visualSpectrumMaxFrequencyHz = 18000;
 const visualWarmupSnapshotCount = 8;
+const visualSpectrumComputeIntervalMs = 250;
+const emptyBuffer = Buffer.alloc(0);
 const emptyVisualSpectrum = (): number[] => Array.from({ length: visualSpectrumBucketCount }, () => 0);
+const roundCostMs = (value: number): number => (Number.isFinite(value) ? Math.round(Math.max(0, value) * 1000) / 1000 : 0);
 const normalizeVisualSpectrum = (spectrum: number[]): number[] =>
   Array.from({ length: visualSpectrumBucketCount }, (_, index) => {
     const value = spectrum[index] ?? 0;
@@ -98,7 +104,21 @@ const hannWindowNormalization = (() => {
   return sum || maxSpectrumSamplesPerSnapshot;
 })();
 
+type AudioLevelMeterDebugHooks = {
+  computeVisualAnalysis?: () => void;
+  fftInPlace?: () => void;
+};
+
+let debugHooks: AudioLevelMeterDebugHooks | null = null;
+
+export const audioLevelMeterTestHooks = {
+  setDebugHooks(hooks: AudioLevelMeterDebugHooks | null): void {
+    debugHooks = hooks;
+  },
+};
+
 const fftInPlace = (real: Float64Array, imaginary: Float64Array): void => {
+  debugHooks?.fftInPlace?.();
   const size = real.length;
   let swapIndex = 0;
 
@@ -244,6 +264,8 @@ export const createAudioLevelTelemetry = (
     visualEnergy: roundUnit(snapshot.visualEnergy),
     visualTransient: roundUnit(snapshot.visualTransient),
     visualTelemetryState: snapshot.visualTelemetryState,
+    levelMeterObserveCostMs: snapshot.levelMeterObserveCostMs,
+    visualSpectrumComputeCostMs: snapshot.visualSpectrumComputeCostMs,
     headroomDb: estimatedOutputPeakDb === null ? null : Math.round(-estimatedOutputPeakDb * 10) / 10,
     clipCount: snapshot.clipCount,
     lastClipAt: snapshot.lastClipAt,
@@ -255,7 +277,7 @@ export class PcmLevelMeterTransform extends Transform {
   private readonly intervalMs: number;
   private readonly onSnapshot: (snapshot: PcmLevelSnapshot) => void;
   private readonly maxObservedSamplesPerChunk: number;
-  private remainder = Buffer.alloc(0);
+  private remainder = emptyBuffer;
   private gain = 1;
   private peakAbs = 0;
   private sumSquares = 0;
@@ -270,12 +292,16 @@ export class PcmLevelMeterTransform extends Transform {
   private readonly fftReal = new Float64Array(maxSpectrumSamplesPerSnapshot);
   private readonly fftImaginary = new Float64Array(maxSpectrumSamplesPerSnapshot);
   private readonly fftBinMagnitudes = new Float64Array(maxSpectrumSamplesPerSnapshot / 2 + 1);
+  private readonly computedSpectrum = Array.from({ length: visualSpectrumBucketCount }, () => 0);
   private visualSpectrumEnabled: boolean;
   private lastVisualSpectrum: number[] = emptyVisualSpectrum();
   private lastVisualEnergy = 0;
   private lastVisualTransient = 0;
   private lastVisualTelemetryState: PcmLevelSnapshot['visualTelemetryState'] = 'fallback';
   private visualSnapshotCount = 0;
+  private lastObserveCostMs = 0;
+  private lastVisualSpectrumComputeCostMs = 0;
+  private lastVisualSpectrumComputeAt = 0;
 
   constructor(
     onSnapshot: (snapshot: PcmLevelSnapshot) => void,
@@ -283,7 +309,7 @@ export class PcmLevelMeterTransform extends Transform {
     maxObservedSamplesPerChunk = defaultMaxObservedSamplesPerChunk,
     sampleRateHz = defaultSpectrumSampleRateHz,
     channels = defaultSpectrumChannels,
-    visualSpectrumEnabled = true,
+    visualSpectrumEnabled = false,
   ) {
     super();
     this.onSnapshot = onSnapshot;
@@ -310,7 +336,21 @@ export class PcmLevelMeterTransform extends Transform {
   }
 
   getSnapshot(): PcmLevelSnapshot {
-    const visualAnalysis = this.visualSpectrumEnabled && this.spectrumSampleCount > 0 ? this.computeVisualAnalysis() : null;
+    let visualAnalysis: { spectrum: number[]; energy: number; transient: number } | null = null;
+    const now = performance.now();
+    const minVisualSpectrumComputeIntervalMs = this.intervalMs <= 0 ? 0 : visualSpectrumComputeIntervalMs;
+    const shouldComputeVisualSpectrum =
+      this.visualSpectrumEnabled &&
+      this.spectrumSampleCount > 0 &&
+      (this.lastVisualSpectrumComputeAt === 0 || now - this.lastVisualSpectrumComputeAt >= minVisualSpectrumComputeIntervalMs);
+    if (shouldComputeVisualSpectrum) {
+      const startedAt = now;
+      visualAnalysis = this.computeVisualAnalysis();
+      this.lastVisualSpectrumComputeAt = now;
+      this.lastVisualSpectrumComputeCostMs = roundCostMs(performance.now() - startedAt);
+    } else {
+      this.lastVisualSpectrumComputeCostMs = 0;
+    }
     const visualSnapshotIndex = visualAnalysis ? this.visualSnapshotCount + 1 : this.visualSnapshotCount;
     const visualConfidence = visualAnalysis ? smoothstep(visualSnapshotIndex / visualWarmupSnapshotCount) : 1;
     const visualTelemetryState = visualAnalysis ? (visualConfidence >= 0.995 ? 'pcm' : 'priming') : this.lastVisualTelemetryState;
@@ -326,17 +366,22 @@ export class PcmLevelMeterTransform extends Transform {
       visualTelemetryState,
       clipCount: this.clipCount,
       lastClipAt: this.lastClipAt,
+      levelMeterObserveCostMs: this.lastObserveCostMs,
+      visualSpectrumComputeCostMs: this.lastVisualSpectrumComputeCostMs,
     };
   }
 
   reset(): void {
-    this.remainder = Buffer.alloc(0);
+    this.remainder = emptyBuffer;
     this.peakAbs = 0;
     this.sumSquares = 0;
     this.sampleCount = 0;
     this.clipCount = 0;
     this.lastClipAt = null;
     this.lastEmitAt = 0;
+    this.lastObserveCostMs = 0;
+    this.lastVisualSpectrumComputeCostMs = 0;
+    this.lastVisualSpectrumComputeAt = 0;
     this.clearVisualTelemetry();
   }
 
@@ -354,14 +399,31 @@ export class PcmLevelMeterTransform extends Transform {
   }
 
   private observe(chunk: Buffer): void {
-    const input = this.remainder.length > 0 ? Buffer.concat([this.remainder, chunk]) : chunk;
+    const startedAt = performance.now();
+    const input = this.createAlignedInput(chunk);
     const completeBytes = input.length - (input.length % 4);
-    this.remainder = completeBytes < input.length ? Buffer.from(input.subarray(completeBytes)) : Buffer.alloc(0);
+    this.remainder = completeBytes < input.length ? Buffer.from(input.subarray(completeBytes)) : emptyBuffer;
 
     this.observeSamples(input, completeBytes);
     this.observeSpectrum(input, completeBytes);
+    this.lastObserveCostMs = roundCostMs(performance.now() - startedAt);
 
     this.emitSnapshot(false);
+  }
+
+  private createAlignedInput(chunk: Buffer): Buffer {
+    if (this.remainder.length === 0) {
+      return chunk;
+    }
+
+    if (chunk.length === 0) {
+      return this.remainder;
+    }
+
+    const input = Buffer.allocUnsafe(this.remainder.length + chunk.length);
+    this.remainder.copy(input, 0);
+    chunk.copy(input, this.remainder.length);
+    return input;
   }
 
   private observeSamples(input: Buffer, completeBytes: number): void {
@@ -464,9 +526,11 @@ export class PcmLevelMeterTransform extends Transform {
     this.lastVisualTransient = 0;
     this.lastVisualTelemetryState = 'fallback';
     this.visualSnapshotCount = 0;
+    this.lastVisualSpectrumComputeAt = 0;
   }
 
   private computeVisualAnalysis(): { spectrum: number[]; energy: number; transient: number } {
+    debugHooks?.computeVisualAnalysis?.();
     if (this.spectrumSampleCount < 32) {
       return {
         spectrum: emptyVisualSpectrum(),
@@ -500,7 +564,9 @@ export class PcmLevelMeterTransform extends Transform {
     }
 
     const bands = getLogSpectrumBands(this.sampleRateHz);
-    const spectrum = bands.map(({ startBin, endBin }) => {
+    const spectrum = this.computedSpectrum;
+    for (let bandIndex = 0; bandIndex < bands.length; bandIndex += 1) {
+      const { startBin, endBin } = bands[bandIndex];
       let power = 0;
       let binCount = 0;
       for (let bin = startBin; bin <= endBin; bin += 1) {
@@ -511,8 +577,8 @@ export class PcmLevelMeterTransform extends Transform {
 
       const amplitude = Math.sqrt(power / Math.max(1, binCount));
       const db = dbFromLinear(amplitude);
-      return contrastVisualSpectrumUnit(dbToVisualUnit(db, visualSpectrumFloorDb, visualSpectrumCeilingDb));
-    });
+      spectrum[bandIndex] = contrastVisualSpectrumUnit(dbToVisualUnit(db, visualSpectrumFloorDb, visualSpectrumCeilingDb));
+    }
 
     const rms = observedSamples > 0 ? Math.sqrt(sumSquares / observedSamples) : 0;
     const rawEnergy = dbToVisualUnit(dbFromLinear(rms), visualEnergyFloorDb, visualEnergyCeilingDb);

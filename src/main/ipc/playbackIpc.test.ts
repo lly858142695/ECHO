@@ -411,6 +411,87 @@ describe('playback media prepare IPC', () => {
     expect(startReplayGainAnalysis).toHaveBeenCalledWith({ trackIds: ['local-track'], limit: 1, force: false });
   });
 
+  it('does not queue ReplayGain analysis during low-load playback mode', async () => {
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const playLocalFile = vi.fn().mockResolvedValue(undefined);
+    const prepareLocalFile = vi.fn().mockResolvedValue(undefined);
+    const startReplayGainAnalysis = vi.fn();
+
+    vi.doMock('electron', () => ({
+      BrowserWindow: { getAllWindows: vi.fn(() => []) },
+      dialog: { showOpenDialog: vi.fn() },
+      ipcMain: {
+        on: vi.fn(),
+        handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
+          handlers.set(channel, handler);
+        }),
+      },
+    }));
+    vi.doMock('../app/appSettings', () => ({
+      getAppSettings: () => ({ lowLoadPlaybackModeEnabled: true, replayGainAnalyzeOnPlay: true }),
+    }));
+    vi.doMock('../library/LibraryService', () => ({
+      getLibraryService: () => ({ startReplayGainAnalysis }),
+    }));
+    vi.doMock('../audio/AudioSession', () => ({
+      getAudioSession: () => ({
+        getStatus: () => ({
+          state: 'playing',
+          currentTrackId: 'local-track',
+          positionSeconds: 0,
+          durationSeconds: 180,
+          currentFilePath: 'D:\\Music\\song.flac',
+        }),
+        on: vi.fn(),
+        restorePlaybackMemory: vi.fn(),
+        playLocalFile,
+        prepareLocalFile,
+      }),
+    }));
+    vi.doMock('../audio/PlaybackMemoryStore', () => ({
+      getPlaybackMemoryStore: () => ({
+        load: vi.fn(() => null),
+        save: vi.fn(),
+        clear: vi.fn(),
+      }),
+    }));
+    vi.doMock('../integrations/smtc/SmtcStatusSync', () => ({ syncSmtcStatus: vi.fn() }));
+    vi.doMock('../library/remote/RemoteSourceService', () => ({
+      getRemoteSourceService: () => ({
+        setPlaybackActive: vi.fn(),
+        refreshTrackMetadata: vi.fn(),
+        createStreamUrl: vi.fn(),
+        backfillDuration: vi.fn(),
+      }),
+    }));
+    vi.doMock('../streaming/StreamingService', () => ({
+      getStreamingService: () => ({
+        resolvePlayback: vi.fn(),
+        invalidatePlayback: vi.fn(),
+      }),
+    }));
+    vi.doMock('../app/localFileOpen', () => ({ resolveLocalAudioFiles: vi.fn() }));
+
+    const { IpcChannels } = await import('../../shared/constants/ipcChannels');
+    const { registerPlaybackIpc } = await import('./playbackIpc');
+    registerPlaybackIpc();
+
+    await handlers.get(IpcChannels.PlaybackPlayMediaItem)?.({}, {
+      item: {
+        mediaType: 'local',
+        trackId: 'local-track',
+        path: 'D:\\Music\\song.flac',
+        title: 'Song',
+        artist: 'Artist',
+        album: 'Album',
+        duration: 180,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(startReplayGainAnalysis).not.toHaveBeenCalled();
+  });
+
   it('does not let a stale streaming resolve interrupt a newer local playback request', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     let status = {

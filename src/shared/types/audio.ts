@@ -76,6 +76,8 @@ export type AudioLevelTelemetry = {
   visualEnergy?: number;
   visualTransient?: number;
   visualTelemetryState?: 'pcm' | 'priming' | 'fallback';
+  levelMeterObserveCostMs?: number;
+  visualSpectrumComputeCostMs?: number;
   headroomDb: number | null;
   clipCount: number;
   lastClipAt: string | null;
@@ -115,6 +117,7 @@ export type AudioOutputSettings = {
   asioNativeDsdExperimentalEnabled?: boolean;
   asioUnavailableFallbackEnabled?: boolean;
   exclusiveInstabilityFallbackEnabled?: boolean;
+  defaultDeviceFallbackEnabled?: boolean;
   soxrFallbackEnabled?: boolean;
   releaseExclusiveOnPauseExperimentalEnabled?: boolean;
   volume?: number;
@@ -198,6 +201,9 @@ export type AudioStatus = {
   nativeBufferedMs?: number | null;
   nativeUnderrunCallbacks?: number;
   nativeUnderrunFrames?: number;
+  mainEventLoopLagMs?: number;
+  audioHostRestartCount?: number;
+  playbackRecoveryCount?: number;
   asioOutputChannelStart?: number | null;
   lastSharedStabilityRecoveryAt?: string | null;
   warnings: string[];
@@ -302,6 +308,9 @@ export type AudioDiagnostics = Pick<
   | 'nativeBufferedMs'
   | 'nativeUnderrunCallbacks'
   | 'nativeUnderrunFrames'
+  | 'mainEventLoopLagMs'
+  | 'audioHostRestartCount'
+  | 'playbackRecoveryCount'
   | 'lastSharedStabilityRecoveryAt'
   | 'warnings'
   | 'error'

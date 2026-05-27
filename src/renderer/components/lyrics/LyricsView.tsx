@@ -35,6 +35,7 @@ type LyricsViewProps = {
   preferKanaPronunciation?: boolean;
   showTranslation?: boolean;
   wordHighlightEnabled?: boolean;
+  highFrequencyUpdatesEnabled?: boolean;
 };
 
 const activeIndexSearchCache = new WeakMap<LyricsState['lines'], boolean>();
@@ -294,6 +295,7 @@ export const LyricsView = ({
   preferKanaPronunciation = false,
   showTranslation = true,
   wordHighlightEnabled = true,
+  highFrequencyUpdatesEnabled = true,
 }: LyricsViewProps): JSX.Element | null => {
   const t = useOptionalI18n()?.t ?? translateFallback;
   const scrollRef = useRef<HTMLElement | null>(null);
@@ -570,7 +572,7 @@ export const LyricsView = ({
     stopWordAnimation();
     syncPlaybackPosition();
 
-    if (playbackState !== 'playing') {
+    if (!highFrequencyUpdatesEnabled || playbackState !== 'playing') {
       return undefined;
     }
 
@@ -581,7 +583,7 @@ export const LyricsView = ({
 
     wordAnimationFrameRef.current = requestLyricAnimationFrame(tick);
     return stopWordAnimation;
-  }, [playbackState, stopWordAnimation, syncPlaybackPosition]);
+  }, [highFrequencyUpdatesEnabled, playbackState, stopWordAnimation, syncPlaybackPosition]);
 
   useEffect(() => {
     const currentPositionMs = getInterpolatedPositionMs({

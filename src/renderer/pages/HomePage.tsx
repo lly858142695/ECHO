@@ -44,6 +44,7 @@ const artistLeaderboardLimit = 5;
 const favoriteAlbumLimit = 4;
 const homeNowTitleMarqueeMinChars = 34;
 const homeNowTitleMarqueeOverflowPx = 12;
+const homeNowMetaMarqueeOverflowPx = 8;
 const weeklyHeatmapWeeks = 12;
 const signalBarCount = 48;
 const playbackHistoryChangedEvent = 'playback-history:changed';
@@ -174,6 +175,50 @@ const HomeNowMeta = ({
   onOpenArtist: (artistName: string) => void;
   track: LibraryTrack | null;
 }): JSX.Element => {
+  const metaRef = useRef<HTMLElement | null>(null);
+  const innerRef = useRef<HTMLSpanElement | null>(null);
+  const [shouldScroll, setShouldScroll] = useState(false);
+
+  useEffect(() => {
+    const element = metaRef.current;
+    const innerElement = innerRef.current;
+    if (!element || !innerElement || !track) {
+      setShouldScroll(false);
+      return undefined;
+    }
+
+    let frameId: number | null = null;
+    const updateOverflow = (): void => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        const distance = Math.max(0, innerElement.scrollWidth - element.clientWidth);
+        const nextShouldScroll = distance > homeNowMetaMarqueeOverflowPx;
+        element.style.setProperty('--home-now-meta-marquee-distance', `${distance + 22}px`);
+        element.style.setProperty('--home-now-meta-marquee-duration', `${Math.min(22, Math.max(10, distance / 20 + 8))}s`);
+        setShouldScroll(nextShouldScroll);
+      });
+    };
+
+    updateOverflow();
+
+    const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(updateOverflow) : null;
+    resizeObserver?.observe(element);
+    resizeObserver?.observe(innerElement);
+    window.addEventListener('resize', updateOverflow);
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updateOverflow);
+    };
+  }, [track]);
+
   if (!track) {
     return <small className="home-now-meta">曲库准备好后会显示最近内容</small>;
   }
@@ -182,22 +227,24 @@ const HomeNowMeta = ({
   const albumTitle = track.album?.trim();
 
   return (
-    <small className="home-now-meta">
-      {artistName ? (
-        <button className="home-now-link" type="button" onClick={() => onOpenArtist(artistName)}>
-          {artistName}
-        </button>
-      ) : (
-        <span>未知艺术家</span>
-      )}
-      <span aria-hidden="true"> · </span>
-      {albumTitle ? (
-        <button className="home-now-link" type="button" onClick={() => onOpenAlbum(track)}>
-          {albumTitle}
-        </button>
-      ) : (
-        <span>未知专辑</span>
-      )}
+    <small className="home-now-meta" data-scroll={shouldScroll ? 'true' : undefined} ref={metaRef}>
+      <span className="home-now-meta-inner" ref={innerRef}>
+        {artistName ? (
+          <button className="home-now-link" type="button" onClick={() => onOpenArtist(artistName)}>
+            {artistName}
+          </button>
+        ) : (
+          <span>未知艺术家</span>
+        )}
+        <span aria-hidden="true"> · </span>
+        {albumTitle ? (
+          <button className="home-now-link" type="button" onClick={() => onOpenAlbum(track)}>
+            {albumTitle}
+          </button>
+        ) : (
+          <span>未知专辑</span>
+        )}
+      </span>
     </small>
   );
 };
@@ -353,6 +400,11 @@ const hasCachedPlaybackPulseData = (data: HomePageData | null): boolean =>
 let cachedHomePageData: HomePageData | null = readStoredHomePageData();
 let cachedRecentPanelMode: RecentPanelMode = 'added';
 let cachedHomeWaveformVisualizerEnabled: boolean | null = null;
+let cachedHomeWaveformVisualizerSettings = {
+  homeWaveformVisualizerEnabled: false,
+  audioVisualSpectrumEnabled: false,
+  lowLoadPlaybackModeEnabled: false,
+};
 let cachedHomeRandomHeroTitleEnabled: boolean | null = null;
 let cachedHomeHeroTitle: string | null = null;
 
@@ -365,6 +417,11 @@ export const resetHomePageCacheForTest = (): void => {
   cachedHomePageData = null;
   cachedRecentPanelMode = 'added';
   cachedHomeWaveformVisualizerEnabled = null;
+  cachedHomeWaveformVisualizerSettings = {
+    homeWaveformVisualizerEnabled: false,
+    audioVisualSpectrumEnabled: false,
+    lowLoadPlaybackModeEnabled: false,
+  };
   cachedHomeRandomHeroTitleEnabled = null;
   cachedHomeHeroTitle = null;
   try {
@@ -719,7 +776,9 @@ const navigateHomeRoute = (routeId: HomeRouteId): void => {
 };
 
 const readHomeWaveformVisualizerEnabled = (settings: Partial<AppSettings> | null | undefined): boolean =>
-  settings?.homeWaveformVisualizerEnabled === true;
+  settings?.homeWaveformVisualizerEnabled === true &&
+  settings.audioVisualSpectrumEnabled === true &&
+  settings.lowLoadPlaybackModeEnabled !== true;
 
 const readHomeRandomHeroTitleEnabled = (settings: Partial<AppSettings> | null | undefined): boolean =>
   settings?.homeRandomHeroTitleEnabled !== false;
@@ -730,11 +789,30 @@ const useHomeWaveformVisualizerEnabled = (): boolean => {
   useEffect(() => {
     let cancelled = false;
     const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
-      if (!settings || !Object.prototype.hasOwnProperty.call(settings, 'homeWaveformVisualizerEnabled')) {
+      if (
+        !settings ||
+        (!Object.prototype.hasOwnProperty.call(settings, 'homeWaveformVisualizerEnabled') &&
+          !Object.prototype.hasOwnProperty.call(settings, 'audioVisualSpectrumEnabled') &&
+          !Object.prototype.hasOwnProperty.call(settings, 'lowLoadPlaybackModeEnabled'))
+      ) {
         return;
       }
 
-      const nextEnabled = readHomeWaveformVisualizerEnabled(settings);
+      cachedHomeWaveformVisualizerSettings = {
+        homeWaveformVisualizerEnabled:
+          typeof settings.homeWaveformVisualizerEnabled === 'boolean'
+            ? settings.homeWaveformVisualizerEnabled
+            : cachedHomeWaveformVisualizerSettings.homeWaveformVisualizerEnabled,
+        audioVisualSpectrumEnabled:
+          typeof settings.audioVisualSpectrumEnabled === 'boolean'
+            ? settings.audioVisualSpectrumEnabled
+            : cachedHomeWaveformVisualizerSettings.audioVisualSpectrumEnabled,
+        lowLoadPlaybackModeEnabled:
+          typeof settings.lowLoadPlaybackModeEnabled === 'boolean'
+            ? settings.lowLoadPlaybackModeEnabled
+            : cachedHomeWaveformVisualizerSettings.lowLoadPlaybackModeEnabled,
+      };
+      const nextEnabled = readHomeWaveformVisualizerEnabled(cachedHomeWaveformVisualizerSettings);
       cachedHomeWaveformVisualizerEnabled = nextEnabled;
       if (!cancelled) {
         setEnabled(nextEnabled);

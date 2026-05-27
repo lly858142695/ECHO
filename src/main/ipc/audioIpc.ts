@@ -209,6 +209,10 @@ const normalizeOutputSettings = (value: unknown): AudioOutputSettings => {
     output.exclusiveInstabilityFallbackEnabled = input.exclusiveInstabilityFallbackEnabled;
   }
 
+  if (typeof input.defaultDeviceFallbackEnabled === 'boolean') {
+    output.defaultDeviceFallbackEnabled = input.defaultDeviceFallbackEnabled;
+  }
+
   if (typeof input.soxrFallbackEnabled === 'boolean') {
     output.soxrFallbackEnabled = input.soxrFallbackEnabled;
   }

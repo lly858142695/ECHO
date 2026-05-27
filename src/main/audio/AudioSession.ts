@@ -250,7 +250,32 @@ const nativeStartupTelemetryLogIntervalMs = 500;
 const guardedPositionJumpDiagnosticLogIntervalMs = 2_000;
 const levelMeterVisualIntervalMs = 33;
 const levelMeterStatusIntervalMs = 33;
-const isHomeWaveformVisualizerEnabled = (): boolean => getAppSettings().homeWaveformVisualizerEnabled === true;
+const mainEventLoopLagSampleIntervalMs = 2_000;
+type PlaybackLoadSettings = {
+  homeWaveformVisualizerEnabled: boolean;
+  audioVisualSpectrumEnabled: boolean;
+  lowLoadPlaybackModeEnabled: boolean;
+};
+const getPlaybackLoadSettings = (): PlaybackLoadSettings => {
+  try {
+    const settings = getAppSettings();
+    return {
+      homeWaveformVisualizerEnabled: settings.homeWaveformVisualizerEnabled === true,
+      audioVisualSpectrumEnabled: settings.audioVisualSpectrumEnabled === true,
+      lowLoadPlaybackModeEnabled: settings.lowLoadPlaybackModeEnabled === true,
+    };
+  } catch {
+    return {
+      homeWaveformVisualizerEnabled: false,
+      audioVisualSpectrumEnabled: false,
+      lowLoadPlaybackModeEnabled: false,
+    };
+  }
+};
+const isAudioVisualSpectrumEnabled = (): boolean => {
+  const settings = getPlaybackLoadSettings();
+  return settings.homeWaveformVisualizerEnabled && settings.audioVisualSpectrumEnabled && !settings.lowLoadPlaybackModeEnabled;
+};
 const sharedStabilityMemoryTtlMs = 30 * 60 * 1000;
 const asioFailedStartGracefulStopTimeoutMs = 1_000;
 const asioUnavailableCooldownMs = 30_000;
@@ -586,6 +611,22 @@ const hasExplicitDeviceSelection = (settings: AudioOutputSettings): boolean => {
   return Number.isInteger(Number(settings.deviceIndex)) || Boolean(settings.deviceName);
 };
 
+const maxOutputStartRetries = 2;
+
+const isOutputStartRetryMode = (value: unknown): boolean => {
+  const mode = normalizeOutputMode(value);
+  return mode === 'shared' || mode === 'exclusive' || mode === 'asio';
+};
+
+const isSharedFallbackAllowedForExclusive = (settings: AudioOutputSettings): boolean =>
+  settings.exclusiveInstabilityFallbackEnabled === true;
+
+const isSafeSharedFallbackAllowedForAsio = (settings: AudioOutputSettings): boolean =>
+  settings.asioUnavailableFallbackEnabled === true && settings.defaultDeviceFallbackEnabled === true;
+
+const isDefaultDeviceFallbackAllowed = (settings: AudioOutputSettings): boolean =>
+  settings.defaultDeviceFallbackEnabled === true;
+
 const createSharedFallbackSettings = (settings: AudioOutputSettings): AudioOutputSettings => ({
   ...settings,
   outputMode: 'shared',
@@ -912,6 +953,34 @@ const createDeviceFromOutputSettings = (settings: AudioOutputSettings): AudioDev
   };
 };
 
+type OutputRouteDeviceSnapshot = {
+  deviceId: string | null;
+  deviceIndex: number | null;
+  deviceName: string | null;
+};
+
+const createOutputRouteDeviceSnapshot = (
+  settings: AudioOutputSettings | null | undefined,
+  device: AudioDeviceInfo | null | undefined,
+): OutputRouteDeviceSnapshot => ({
+  deviceId: device?.id ?? null,
+  deviceIndex: Number.isInteger(Number(device?.index))
+    ? Number(device?.index)
+    : Number.isInteger(Number(settings?.deviceIndex))
+      ? Number(settings?.deviceIndex)
+      : null,
+  deviceName: device?.name ?? settings?.deviceName ?? null,
+});
+
+const outputRouteDeviceChanged = (
+  requested: OutputRouteDeviceSnapshot,
+  final: OutputRouteDeviceSnapshot,
+): boolean => (
+  requested.deviceId !== final.deviceId ||
+  requested.deviceIndex !== final.deviceIndex ||
+  requested.deviceName !== final.deviceName
+);
+
 type AudioOutputRestartSnapshot = {
   outputMode: AudioOutputMode;
   sharedBackend: AudioSharedBackend;
@@ -926,6 +995,7 @@ type AudioOutputRestartSnapshot = {
   dsdOutputMode: AudioDsdOutputMode;
   asioNativeDsdExperimentalEnabled: boolean;
   asioUnavailableFallbackEnabled: boolean;
+  defaultDeviceFallbackEnabled: boolean;
   soxrFallbackEnabled: boolean;
   releaseExclusiveOnPauseExperimentalEnabled: boolean;
 };
@@ -951,6 +1021,7 @@ const createOutputRestartSnapshot = (settings: AudioOutputSettings): AudioOutput
     dsdOutputMode: normalizeDsdOutputMode(settings.dsdOutputMode),
     asioNativeDsdExperimentalEnabled: settings.asioNativeDsdExperimentalEnabled === true,
     asioUnavailableFallbackEnabled: settings.asioUnavailableFallbackEnabled === true,
+    defaultDeviceFallbackEnabled: settings.defaultDeviceFallbackEnabled === true,
     soxrFallbackEnabled: settings.soxrFallbackEnabled !== false,
     releaseExclusiveOnPauseExperimentalEnabled: settings.releaseExclusiveOnPauseExperimentalEnabled === true,
   };
@@ -1172,6 +1243,7 @@ export class AudioSession extends EventEmitter {
     asioNativeDsdExperimentalEnabled: false,
     asioUnavailableFallbackEnabled: false,
     exclusiveInstabilityFallbackEnabled: false,
+    defaultDeviceFallbackEnabled: false,
     soxrFallbackEnabled: true,
     releaseExclusiveOnPauseExperimentalEnabled: false,
     volume: 1,
@@ -1186,6 +1258,7 @@ export class AudioSession extends EventEmitter {
   private currentTrackMetadata: AudioSessionPlayRequest['metadata'] | null = null;
   private currentInputHeaders: Record<string, string> | null = null;
   private currentOutputSettings: AudioOutputSettings | null = null;
+  private pendingOutputRestartContext: { recoveryReason?: string | null; fallbackReason?: string | null } | null = null;
   private currentPlan: SampleRatePlan | null = null;
   private currentDevice: AudioDeviceInfo | null = null;
   private currentOutputBackend: string | null = null;
@@ -1235,6 +1308,8 @@ export class AudioSession extends EventEmitter {
     visualTelemetryState: 'fallback',
     clipCount: 0,
     lastClipAt: null,
+    levelMeterObserveCostMs: 0,
+    visualSpectrumComputeCostMs: 0,
   };
   private readonly disabledVisualSpectrum = Array.from({ length: visualSpectrumBucketCount }, () => 0);
   private errorMessage: string | null = null;
@@ -1291,6 +1366,10 @@ export class AudioSession extends EventEmitter {
         frames: number;
       }
     | null = null;
+  private mainEventLoopLagTimer: ReturnType<typeof setInterval> | null = null;
+  private mainEventLoopLagMs = 0;
+  private audioHostRestartCount = 0;
+  private playbackRecoveryCount = 0;
   private readonly unavailableAsioDevices = new Map<string, { expiresAt: number; message: string }>();
   private readonly preparedLocalPlaybackCache = new Map<string, PreparedLocalPlaybackItem>();
   private readonly sharedStabilityMemory = new Map<string, { tier: SharedStabilityTier; expiresAt: number }>();
@@ -1330,7 +1409,22 @@ export class AudioSession extends EventEmitter {
         void this.checkPlaybackWatchdog();
       }, this.watchdogIntervalMs);
       this.watchdogTimer.unref?.();
+      this.startMainEventLoopLagMonitor();
     }
+  }
+
+  private startMainEventLoopLagMonitor(): void {
+    if (this.mainEventLoopLagTimer) {
+      return;
+    }
+
+    let expectedAt = performance.now() + mainEventLoopLagSampleIntervalMs;
+    this.mainEventLoopLagTimer = setInterval(() => {
+      const now = performance.now();
+      this.mainEventLoopLagMs = Math.round(Math.max(0, now - expectedAt));
+      expectedAt = now + mainEventLoopLagSampleIntervalMs;
+    }, mainEventLoopLagSampleIntervalMs);
+    this.mainEventLoopLagTimer.unref?.();
   }
 
   listDevices(): AudioDeviceInfo[] {
@@ -1490,6 +1584,7 @@ export class AudioSession extends EventEmitter {
         settings.exclusiveInstabilityFallbackEnabled ??
         this.outputSettings.exclusiveInstabilityFallbackEnabled ??
         false,
+      defaultDeviceFallbackEnabled: settings.defaultDeviceFallbackEnabled ?? this.outputSettings.defaultDeviceFallbackEnabled ?? false,
       soxrFallbackEnabled: settings.soxrFallbackEnabled ?? this.outputSettings.soxrFallbackEnabled ?? true,
       releaseExclusiveOnPauseExperimentalEnabled:
         settings.releaseExclusiveOnPauseExperimentalEnabled ??
@@ -1652,6 +1747,10 @@ export class AudioSession extends EventEmitter {
 
   async playLocalFile(request: AudioSessionPlayRequest): Promise<AudioStatus> {
     const token = this.runToken + 1;
+    const previousOutputSettings = this.currentOutputSettings ? { ...this.currentOutputSettings } : null;
+    const previousDevice = this.currentDevice ? { ...this.currentDevice } : null;
+    const outputRestartContext = this.pendingOutputRestartContext;
+    this.pendingOutputRestartContext = null;
     this.runToken = token;
     const decoderStop = this.stopDecoderRun();
     if (decoderStop) {
@@ -1730,6 +1829,8 @@ export class AudioSession extends EventEmitter {
     this.currentDsdNativeSampleRate = null;
     this.currentDsdTransportSampleRate = null;
     this.currentDevice = this.resolvePlanDeviceForSettings(this.currentOutputSettings);
+    const requestedOutputSettings = { ...this.currentOutputSettings };
+    const requestedDevice = this.currentDevice ? { ...this.currentDevice } : null;
     this.clock.reset(request.startSeconds ?? 0, null);
     this.resetSharedStabilityForFreshPlayback(this.currentOutputSettings.outputMode ?? 'shared', this.currentOutputSettings, this.currentDevice);
     this.verboseLogger(
@@ -1783,6 +1884,16 @@ export class AudioSession extends EventEmitter {
           throw error;
         }
 
+        if (!this.currentOutputSettings || !isSharedFallbackAllowedForExclusive(this.currentOutputSettings)) {
+          this.addOutputWarning('exclusive_output_fallback_blocked');
+          this.logger(
+            `[AudioSession] exclusive sample-rate mismatch; automatic shared fallback is disabled: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          throw error;
+        }
+
         const fallback = await this.startSharedFallbackForProbe(
           probe,
           token,
@@ -1806,6 +1917,12 @@ export class AudioSession extends EventEmitter {
       this.logAudioTransition(activePlan, {
         hostReused,
         hostRestartReason,
+        previousOutputSettings,
+        previousDevice,
+        requestedOutputSettings,
+        requestedDevice,
+        recoveryReason: outputRestartContext?.recoveryReason ?? null,
+        fallbackReason: outputRestartContext?.fallbackReason ?? null,
         preparedLocalProbeUsed: Boolean(preparedProbe),
         preparedLocalProbeAgeMs: preparedProbe?.ageMs ?? null,
       });
@@ -2109,6 +2226,16 @@ export class AudioSession extends EventEmitter {
       } catch (error) {
         const failedPlan = this.currentPlan as SampleRatePlan | null;
         if (failedPlan?.outputMode !== 'exclusive') {
+          throw error;
+        }
+
+        if (!this.currentOutputSettings || !isSharedFallbackAllowedForExclusive(this.currentOutputSettings)) {
+          this.addOutputWarning('exclusive_output_fallback_blocked');
+          this.logger(
+            `[AudioSession] exclusive sample-rate mismatch; automatic shared fallback is disabled: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
           throw error;
         }
 
@@ -2802,10 +2929,10 @@ export class AudioSession extends EventEmitter {
     const plan = this.currentPlan;
     const eqState = getEqBridge().getState();
     const channelBalanceState = getEqBridge().getChannelBalanceState();
-    const homeWaveformVisualizerEnabled = isHomeWaveformVisualizerEnabled();
-    this.levelMeterTransform?.setVisualSpectrumEnabled(homeWaveformVisualizerEnabled);
+    const audioVisualSpectrumEnabled = isAudioVisualSpectrumEnabled();
+    this.levelMeterTransform?.setVisualSpectrumEnabled(audioVisualSpectrumEnabled);
     const audioLevels = createAudioLevelTelemetry(
-      homeWaveformVisualizerEnabled ? this.levelSnapshot : this.createLevelSnapshotWithoutVisualTelemetry(this.levelSnapshot),
+      audioVisualSpectrumEnabled ? this.levelSnapshot : this.createLevelSnapshotWithoutVisualTelemetry(this.levelSnapshot),
       eqState,
       channelBalanceState,
     );
@@ -2999,6 +3126,9 @@ export class AudioSession extends EventEmitter {
       nativeBufferedMs,
       nativeUnderrunCallbacks: this.nativeTelemetry.underrunCallbacks,
       nativeUnderrunFrames: this.nativeTelemetry.underrunFrames,
+      mainEventLoopLagMs: this.mainEventLoopLagMs,
+      audioHostRestartCount: this.audioHostRestartCount,
+      playbackRecoveryCount: this.playbackRecoveryCount,
       asioOutputChannelStart: this.currentReadyResult ? numericReadyField(this.currentReadyResult, 'asioOutputChannelStart') : null,
       lastSharedStabilityRecoveryAt: this.lastSharedStabilityRecoveryAt,
       warnings,
@@ -3054,6 +3184,10 @@ export class AudioSession extends EventEmitter {
       details: options.details,
     };
 
+    if (severity === 'recovery') {
+      this.playbackRecoveryCount += 1;
+    }
+
     this.playbackDiagnosticEvents.push(event);
     if (this.playbackDiagnosticEvents.length > playbackDiagnosticEventLimit) {
       this.playbackDiagnosticEvents.splice(0, this.playbackDiagnosticEvents.length - playbackDiagnosticEventLimit);
@@ -3097,6 +3231,11 @@ export class AudioSession extends EventEmitter {
       nativeBufferedMs,
       nativeUnderrunCallbacks: event.nativeUnderrunCallbacks ?? 0,
       nativeUnderrunFrames: event.nativeUnderrunFrames ?? 0,
+      levelMeterObserveCostMs: this.levelSnapshot.levelMeterObserveCostMs,
+      visualSpectrumComputeCostMs: this.levelSnapshot.visualSpectrumComputeCostMs,
+      mainEventLoopLagMs: this.mainEventLoopLagMs,
+      audioHostRestartCount: this.audioHostRestartCount,
+      playbackRecoveryCount: this.playbackRecoveryCount,
       warnings: event.warnings ?? [],
       details: event.details ?? null,
     };
@@ -3177,6 +3316,9 @@ export class AudioSession extends EventEmitter {
       nativeBufferedMs: status.nativeBufferedMs,
       nativeUnderrunCallbacks: status.nativeUnderrunCallbacks,
       nativeUnderrunFrames: status.nativeUnderrunFrames,
+      mainEventLoopLagMs: status.mainEventLoopLagMs,
+      audioHostRestartCount: status.audioHostRestartCount,
+      playbackRecoveryCount: status.playbackRecoveryCount,
       lastSharedStabilityRecoveryAt: status.lastSharedStabilityRecoveryAt,
       warnings: status.warnings,
       error: status.error,
@@ -3235,6 +3377,10 @@ export class AudioSession extends EventEmitter {
       clearInterval(this.watchdogTimer);
       this.watchdogTimer = null;
     }
+    if (this.mainEventLoopLagTimer) {
+      clearInterval(this.mainEventLoopLagTimer);
+      this.mainEventLoopLagTimer = null;
+    }
     getEqBridge().off('state', this.eqStateListener);
     this.detachBridgeEvents();
     this.stopResources();
@@ -3246,6 +3392,10 @@ export class AudioSession extends EventEmitter {
       clearInterval(this.watchdogTimer);
       this.watchdogTimer = null;
     }
+    if (this.mainEventLoopLagTimer) {
+      clearInterval(this.mainEventLoopLagTimer);
+      this.mainEventLoopLagTimer = null;
+    }
 
     getEqBridge().off('state', this.eqStateListener);
     await this.stopResourcesGracefully(reason);
@@ -3254,47 +3404,56 @@ export class AudioSession extends EventEmitter {
   }
 
   private createOutputSettingsForRequest(output: AudioOutputSettings | undefined): AudioOutputSettings {
-    const nextOutputMode = normalizeOutputMode(output?.outputMode ?? this.outputSettings.outputMode);
+    const baseOutputSettings =
+      this.currentOutputSettings &&
+      this.currentFilePath &&
+      (this.state === 'playing' || this.state === 'paused' || this.state === 'loading') &&
+      output?.outputMode === undefined
+        ? this.currentOutputSettings
+        : this.outputSettings;
+    const baseOutputMode = normalizeOutputMode(baseOutputSettings.outputMode);
+    const nextOutputMode = normalizeOutputMode(output?.outputMode ?? baseOutputMode);
     const nextLatencyProfile = resolveLatencyProfile(
       nextOutputMode,
       output?.latencyProfile,
-      this.outputSettings.outputMode,
-      this.outputSettings.latencyProfile,
+      baseOutputMode,
+      baseOutputSettings.latencyProfile ?? defaultLatencyProfileForMode(baseOutputMode),
       output?.outputMode !== undefined,
     );
 
     const settings: AudioOutputSettings = {
-      ...this.outputSettings,
+      ...baseOutputSettings,
       ...output,
       outputMode: nextOutputMode,
       sharedBackend: nextOutputMode === 'shared'
-        ? normalizeSharedBackend(output?.sharedBackend ?? this.outputSettings.sharedBackend)
+        ? normalizeSharedBackend(output?.sharedBackend ?? baseOutputSettings.sharedBackend)
         : 'auto',
       latencyProfile: nextLatencyProfile,
       bufferSizeFrames: this.sanitizeLowLatencyBufferForOutputMode(
         nextOutputMode,
         nextLatencyProfile,
-        resolveBufferSizeFrames(output, this.outputSettings.bufferSizeFrames),
+        resolveBufferSizeFrames(output, baseOutputSettings.bufferSizeFrames),
         'playback_request',
       ),
-      asioNativeDsdExperimentalEnabled: output?.asioNativeDsdExperimentalEnabled ?? this.outputSettings.asioNativeDsdExperimentalEnabled ?? false,
-      asioUnavailableFallbackEnabled: output?.asioUnavailableFallbackEnabled ?? this.outputSettings.asioUnavailableFallbackEnabled ?? false,
+      asioNativeDsdExperimentalEnabled: output?.asioNativeDsdExperimentalEnabled ?? baseOutputSettings.asioNativeDsdExperimentalEnabled ?? false,
+      asioUnavailableFallbackEnabled: output?.asioUnavailableFallbackEnabled ?? baseOutputSettings.asioUnavailableFallbackEnabled ?? false,
       exclusiveInstabilityFallbackEnabled:
         output?.exclusiveInstabilityFallbackEnabled ??
-        this.outputSettings.exclusiveInstabilityFallbackEnabled ??
+        baseOutputSettings.exclusiveInstabilityFallbackEnabled ??
         false,
+      defaultDeviceFallbackEnabled: output?.defaultDeviceFallbackEnabled ?? baseOutputSettings.defaultDeviceFallbackEnabled ?? false,
       useJuceDecode: this.juceDecodeSuspendedAfterFailure
         ? false
-        : output?.useJuceDecode ?? this.outputSettings.useJuceDecode ?? false,
-      dsdOutputMode: normalizeDsdOutputMode(output?.dsdOutputMode ?? this.outputSettings.dsdOutputMode),
-      soxrFallbackEnabled: output?.soxrFallbackEnabled ?? this.outputSettings.soxrFallbackEnabled ?? true,
+        : output?.useJuceDecode ?? baseOutputSettings.useJuceDecode ?? false,
+      dsdOutputMode: normalizeDsdOutputMode(output?.dsdOutputMode ?? baseOutputSettings.dsdOutputMode),
+      soxrFallbackEnabled: output?.soxrFallbackEnabled ?? baseOutputSettings.soxrFallbackEnabled ?? true,
       releaseExclusiveOnPauseExperimentalEnabled:
         output?.releaseExclusiveOnPauseExperimentalEnabled ??
-        this.outputSettings.releaseExclusiveOnPauseExperimentalEnabled ??
+        baseOutputSettings.releaseExclusiveOnPauseExperimentalEnabled ??
         false,
-      volume: Math.max(0, Math.min(1, Number(output?.volume ?? this.outputSettings.volume) || 0)),
-      playbackRate: normalizePlaybackRate(output?.playbackRate ?? this.outputSettings.playbackRate),
-      playbackSpeedMode: normalizePlaybackSpeedMode(output?.playbackSpeedMode ?? this.outputSettings.playbackSpeedMode),
+      volume: Math.max(0, Math.min(1, Number(output?.volume ?? baseOutputSettings.volume) || 0)),
+      playbackRate: normalizePlaybackRate(output?.playbackRate ?? baseOutputSettings.playbackRate),
+      playbackSpeedMode: normalizePlaybackSpeedMode(output?.playbackSpeedMode ?? baseOutputSettings.playbackSpeedMode),
     };
 
     if (settings.sharedBackend === 'directsound') {
@@ -4502,6 +4661,12 @@ export class AudioSession extends EventEmitter {
     transition: {
       hostReused: boolean;
       hostRestartReason: string | null;
+      previousOutputSettings?: AudioOutputSettings | null;
+      previousDevice?: AudioDeviceInfo | null;
+      requestedOutputSettings?: AudioOutputSettings | null;
+      requestedDevice?: AudioDeviceInfo | null;
+      recoveryReason?: string | null;
+      fallbackReason?: string | null;
       preparedLocalProbeUsed?: boolean;
       preparedLocalProbeAgeMs?: number | null;
     },
@@ -4510,6 +4675,12 @@ export class AudioSession extends EventEmitter {
       plan.outputMode === 'shared'
         ? plan.sharedDeviceSampleRate ?? plan.actualDeviceSampleRate ?? plan.requestedOutputSampleRate
         : null;
+    if (!transition.hostReused) {
+      this.audioHostRestartCount += 1;
+    }
+    const previousDevice = createOutputRouteDeviceSnapshot(transition.previousOutputSettings, transition.previousDevice);
+    const requestedDevice = createOutputRouteDeviceSnapshot(transition.requestedOutputSettings, transition.requestedDevice);
+    const finalDevice = createOutputRouteDeviceSnapshot(this.currentOutputSettings, this.currentDevice);
 
     this.verboseLogger(
       JSON.stringify({
@@ -4522,6 +4693,35 @@ export class AudioSession extends EventEmitter {
         hostRestartReason: transition.hostRestartReason,
         preparedLocalProbeUsed: transition.preparedLocalProbeUsed === true,
         preparedLocalProbeAgeMs: transition.preparedLocalProbeAgeMs ?? null,
+        previousOutputMode: transition.previousOutputSettings
+          ? normalizeOutputMode(transition.previousOutputSettings.outputMode)
+          : null,
+        requestedOutputMode: transition.requestedOutputSettings
+          ? normalizeOutputMode(transition.requestedOutputSettings.outputMode)
+          : null,
+        finalOutputMode: plan.outputMode,
+        previousDeviceId: previousDevice.deviceId,
+        previousDeviceName: previousDevice.deviceName,
+        previousDeviceIndex: previousDevice.deviceIndex,
+        requestedDeviceId: requestedDevice.deviceId,
+        requestedDeviceName: requestedDevice.deviceName,
+        requestedDeviceIndex: requestedDevice.deviceIndex,
+        finalDeviceId: finalDevice.deviceId,
+        finalDeviceName: finalDevice.deviceName,
+        finalDeviceIndex: finalDevice.deviceIndex,
+        recoveryReason: transition.recoveryReason ?? null,
+        fallbackReason:
+          transition.fallbackReason ??
+          (transition.hostRestartReason?.includes('fallback') ? transition.hostRestartReason : null),
+        levelMeterObserveCostMs: this.levelSnapshot.levelMeterObserveCostMs,
+        visualSpectrumComputeCostMs: this.levelSnapshot.visualSpectrumComputeCostMs,
+        mainEventLoopLagMs: this.mainEventLoopLagMs,
+        audioHostRestartCount: this.audioHostRestartCount,
+        playbackRecoveryCount: this.playbackRecoveryCount,
+        whetherDeviceChangedUnexpectedly:
+          outputRouteDeviceChanged(requestedDevice, finalDevice) &&
+          hasExplicitDeviceSelection(transition.requestedOutputSettings ?? {}) &&
+          !isDefaultDeviceFallbackAllowed(transition.requestedOutputSettings ?? {}),
       }),
     );
   }
@@ -4577,7 +4777,10 @@ export class AudioSession extends EventEmitter {
 
     if (explicitDevice) {
       const device = this.resolveAsioCompatibilityDevice(outputSettings, explicitDevice);
-      return outputMode === 'shared' ? [device, null] : [device];
+      if (outputMode === 'asio') {
+        return [device];
+      }
+      return isDefaultDeviceFallbackAllowed(outputSettings) ? [device, null] : [device];
     }
 
     return [null];
@@ -4941,107 +5144,135 @@ export class AudioSession extends EventEmitter {
         previousBridgeStopped = true;
       }
 
-      const bridge = this.createBridge();
-      this.bridge = bridge;
-      this.attachBridgeEvents(bridge, token);
+      let startRetryAttempts = 0;
+      while (true) {
+        const bridge = this.createBridge();
+        this.bridge = bridge;
+        this.attachBridgeEvents(bridge, token);
 
-      try {
-        const ready = await bridge.start(startOptions);
-        this.assertCurrentRun(token);
+        try {
+          const ready = await bridge.start(startOptions);
+          this.assertCurrentRun(token);
 
-        if (usingDefaultSharedFallback) {
-          this.addOutputWarning('shared_output_fell_back_to_default_device');
-          this.addOutputWarning('shared_output_recovered_to_default_device');
-        }
-
-        return { bridge, plan: this.currentPlan, ready, hostReused: false, hostRestartReason };
-      } catch (error) {
-        if (isAudioSessionRunCancelledError(error)) {
-          await this.stopBridgeGracefully(bridge, 'output-start-superseded');
-          throw error;
-        }
-
-        lastError = error instanceof Error ? error : new Error(String(error));
-        this.logger(`[AudioSession] output start failed: ${lastError.message}`);
-        this.reportRecoverableAudioError(lastError, 'output-start', {
-          outputMode,
-          candidate: candidate ? { index: candidate.index, name: candidate.name, outputMode: candidate.outputMode } : 'default',
-          requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
-          channels: probe.channels,
-        });
-        await this.stopBridgeGracefully(bridge, 'output-start-failed');
-        this.assertCurrentRun(token);
-        if (this.currentPlan?.dsdOutputMode === 'native' && this.currentOutputSettings.dsdOutputMode === 'dop') {
-          this.addOutputWarning(`asio_native_dsd_fell_back_to_dop:${lastError.message.slice(0, 96)}`);
-          this.currentOutputSettings = {
-            ...this.currentOutputSettings,
-            asioNativeDsdExperimentalEnabled: false,
-          };
-          this.currentActiveDsdOutputMode = null;
-          this.currentDsdNativeSampleRate = null;
-          this.currentDsdTransportSampleRate = null;
-          return this.startOutputBridgeForProbe(probe, token, startSeconds);
-        }
-        if (this.currentPlan?.dsdOutputMode === 'dop' && this.currentOutputSettings.dsdOutputMode === 'dop') {
-          this.addOutputWarning(`dsd_dop_fell_back_to_pcm:${lastError.message.slice(0, 96)}`);
-          this.currentOutputSettings = {
-            ...this.currentOutputSettings,
-            dsdOutputMode: 'pcm',
-          };
-          this.currentActiveDsdOutputMode = null;
-          this.currentDsdNativeSampleRate = null;
-          this.currentDsdTransportSampleRate = null;
-          return this.startOutputBridgeForProbe(probe, token, startSeconds);
-        }
-        if (isDeviceInitializeTimeoutError(lastError)) {
-          this.addOutputWarning('device_initialize_timeout');
-          this.logger('[AudioSession] device initialize timed out; skipping retry on same device');
-          break;
-        }
-        const nativeFallback = await this.startNativeFallbackForJuceOutput(
-          startOptions,
-          token,
-          'output-start',
-          lastError,
-        );
-        if (nativeFallback) {
-          const fallbackPlan = this.currentPlan;
-          if (!fallbackPlan) {
-            throw new Error('audio output sample-rate plan unavailable after JUCE fallback');
+          if (usingDefaultSharedFallback) {
+            this.addOutputWarning('shared_output_fell_back_to_default_device');
+            this.addOutputWarning('shared_output_recovered_to_default_device');
           }
-          return {
-            bridge: nativeFallback.bridge,
-            plan: fallbackPlan,
-            ready: nativeFallback.ready,
-            hostReused: false,
-            hostRestartReason: 'juce_fallback_to_native',
-          };
-        }
-        if (
-          outputMode === 'asio' &&
-          candidate !== null &&
-          !asioFallbackCandidatesAdded &&
-          hasExplicitDeviceSelection(this.currentOutputSettings)
-        ) {
-          if (this.currentOutputSettings.asioUnavailableFallbackEnabled === true && isAsioDeviceUnavailableError(lastError)) {
-            this.rememberUnavailableAsioDevice(this.createAsioUnavailableKeyFromDevice(candidate), lastError);
+
+          return { bridge, plan: this.currentPlan, ready, hostReused: false, hostRestartReason };
+        } catch (error) {
+          if (isAudioSessionRunCancelledError(error)) {
+            await this.stopBridgeGracefully(bridge, 'output-start-superseded');
+            throw error;
           }
-          asioFallbackCandidatesAdded = true;
-          candidates.push(...this.createAsioFallbackCandidates(candidate));
-        } else if (
-          outputMode === 'asio' &&
-          this.currentOutputSettings.asioUnavailableFallbackEnabled === true &&
-          isAsioDeviceUnavailableError(lastError)
-        ) {
-          this.rememberUnavailableAsioDevice(
-            candidate ? this.createAsioUnavailableKeyFromDevice(candidate) : this.createAsioUnavailableKeyFromSettings(this.currentOutputSettings),
+
+          lastError = error instanceof Error ? error : new Error(String(error));
+          this.logger(`[AudioSession] output start failed: ${lastError.message}`);
+          this.reportRecoverableAudioError(lastError, 'output-start', {
+            outputMode,
+            candidate: candidate ? { index: candidate.index, name: candidate.name, outputMode: candidate.outputMode } : 'default',
+            requestedOutputSampleRate: this.currentPlan.requestedOutputSampleRate,
+            channels: probe.channels,
+          });
+          await this.stopBridgeGracefully(bridge, 'output-start-failed');
+          this.assertCurrentRun(token);
+          if (this.currentPlan?.dsdOutputMode === 'native' && this.currentOutputSettings.dsdOutputMode === 'dop') {
+            this.addOutputWarning(`asio_native_dsd_fell_back_to_dop:${lastError.message.slice(0, 96)}`);
+            this.currentOutputSettings = {
+              ...this.currentOutputSettings,
+              asioNativeDsdExperimentalEnabled: false,
+            };
+            this.currentActiveDsdOutputMode = null;
+            this.currentDsdNativeSampleRate = null;
+            this.currentDsdTransportSampleRate = null;
+            return this.startOutputBridgeForProbe(probe, token, startSeconds);
+          }
+          if (this.currentPlan?.dsdOutputMode === 'dop' && this.currentOutputSettings.dsdOutputMode === 'dop') {
+            this.addOutputWarning(`dsd_dop_fell_back_to_pcm:${lastError.message.slice(0, 96)}`);
+            this.currentOutputSettings = {
+              ...this.currentOutputSettings,
+              dsdOutputMode: 'pcm',
+            };
+            this.currentActiveDsdOutputMode = null;
+            this.currentDsdNativeSampleRate = null;
+            this.currentDsdTransportSampleRate = null;
+            return this.startOutputBridgeForProbe(probe, token, startSeconds);
+          }
+          if (isDeviceInitializeTimeoutError(lastError)) {
+            this.addOutputWarning('device_initialize_timeout');
+            this.logger('[AudioSession] device initialize timed out; skipping retry on same device');
+            candidates.length = 0;
+            break;
+          }
+          if (
+            isOutputStartRetryMode(outputMode) &&
+            !usingDefaultAsioFallback &&
+            !usingDefaultSharedFallback &&
+            startRetryAttempts < maxOutputStartRetries
+          ) {
+            startRetryAttempts += 1;
+            this.addOutputWarning(`${outputMode}_output_retry_same_device:${startRetryAttempts}`);
+            this.logger(
+              `[AudioSession] ${outputMode} output start failed; retrying original mode/device attempt=${startRetryAttempts}/${maxOutputStartRetries}: ${lastError.message}`,
+            );
+            continue;
+          }
+          const nativeFallback = await this.startNativeFallbackForJuceOutput(
+            startOptions,
+            token,
+            'output-start',
             lastError,
           );
+          if (nativeFallback) {
+            const fallbackPlan = this.currentPlan;
+            if (!fallbackPlan) {
+              throw new Error('audio output sample-rate plan unavailable after JUCE fallback');
+            }
+            return {
+              bridge: nativeFallback.bridge,
+              plan: fallbackPlan,
+              ready: nativeFallback.ready,
+              hostReused: false,
+              hostRestartReason: 'juce_fallback_to_native',
+            };
+          }
+          if (
+            outputMode === 'asio' &&
+            candidate !== null &&
+            !asioFallbackCandidatesAdded &&
+            isSafeSharedFallbackAllowedForAsio(this.currentOutputSettings) &&
+            hasExplicitDeviceSelection(this.currentOutputSettings)
+          ) {
+            if (isAsioDeviceUnavailableError(lastError)) {
+              this.rememberUnavailableAsioDevice(this.createAsioUnavailableKeyFromDevice(candidate), lastError);
+            }
+            asioFallbackCandidatesAdded = true;
+            candidates.push(...this.createAsioFallbackCandidates(candidate));
+          } else if (
+            outputMode === 'asio' &&
+            this.currentOutputSettings.asioUnavailableFallbackEnabled === true &&
+            isAsioDeviceUnavailableError(lastError)
+          ) {
+            this.rememberUnavailableAsioDevice(
+              candidate ? this.createAsioUnavailableKeyFromDevice(candidate) : this.createAsioUnavailableKeyFromSettings(this.currentOutputSettings),
+              lastError,
+            );
+          }
+          break;
         }
       }
     }
 
     if (normalizeOutputMode(this.currentOutputSettings.outputMode) === 'exclusive') {
+      if (!isSharedFallbackAllowedForExclusive(this.currentOutputSettings)) {
+        this.addOutputWarning('exclusive_output_fallback_blocked');
+        this.logger(
+          `[AudioSession] exclusive output failed; automatic shared fallback is disabled: ${
+            lastError?.message ?? 'unknown exclusive output error'
+          }`,
+        );
+        throw lastError ?? new Error('exclusive output failed before ready');
+      }
       const fallbackSettings = createSharedFallbackSettings(this.currentOutputSettings);
       const fallbackDevice = this.resolveSelectedDevice(fallbackSettings) ?? createDeviceFromOutputSettings(fallbackSettings);
       this.assertCurrentRun(token);
@@ -5101,11 +5332,24 @@ export class AudioSession extends EventEmitter {
         const fallbackError = error instanceof Error ? error : new Error(String(error));
         this.logger(`[AudioSession] shared fallback failed: ${fallbackError.message}`);
         await this.stopBridgeGracefully(bridge, 'shared-fallback-failed');
+        if (hasExplicitDeviceSelection(fallbackSettings) && !isDefaultDeviceFallbackAllowed(fallbackSettings)) {
+          this.addOutputWarning('shared_output_default_device_fallback_blocked');
+          throw fallbackError;
+        }
         return this.startSafeSharedFallbackForProbe(probe, token, startSeconds, fallbackError);
       }
     }
 
     if (normalizeOutputMode(this.currentOutputSettings.outputMode) === 'shared') {
+      if (hasExplicitDeviceSelection(this.currentOutputSettings) && !isDefaultDeviceFallbackAllowed(this.currentOutputSettings)) {
+        this.addOutputWarning('shared_output_default_device_fallback_blocked');
+        this.logger(
+          `[AudioSession] selected shared output failed; automatic default-device fallback is disabled: ${
+            lastError?.message ?? 'unknown shared output error'
+          }`,
+        );
+        throw lastError ?? new Error('selected shared output failed before ready');
+      }
       return this.startSafeSharedFallbackForProbe(
         probe,
         token,
@@ -5115,6 +5359,15 @@ export class AudioSession extends EventEmitter {
     }
 
     if (normalizeOutputMode(this.currentOutputSettings.outputMode) === 'asio') {
+      if (!isSafeSharedFallbackAllowedForAsio(this.currentOutputSettings)) {
+        this.addOutputWarning('asio_output_fallback_blocked');
+        this.logger(
+          `[AudioSession] ASIO output failed; automatic default shared fallback is disabled: ${
+            lastError?.message ?? 'unknown ASIO output error'
+          }`,
+        );
+        throw lastError ?? new Error('ASIO output failed before ready');
+      }
       this.addOutputWarning('asio_output_fell_back_to_safe_shared');
       this.logger(
         `[AudioSession] ASIO output failed; falling back to safe shared output: ${
@@ -5270,6 +5523,10 @@ export class AudioSession extends EventEmitter {
       const fallbackError = error instanceof Error ? error : new Error(String(error));
       this.logger(`[AudioSession] shared fallback failed: ${fallbackError.message}`);
       await this.stopBridgeGracefully(bridge, 'shared-fallback-failed');
+      if (hasExplicitDeviceSelection(fallbackSettings) && !isDefaultDeviceFallbackAllowed(fallbackSettings)) {
+        this.addOutputWarning('shared_output_default_device_fallback_blocked');
+        throw fallbackError;
+      }
       return this.startSafeSharedFallbackForProbe(probe, token, startSeconds, fallbackError);
     }
   }
@@ -5555,7 +5812,7 @@ export class AudioSession extends EventEmitter {
       undefined,
       this.currentProbe?.fileSampleRate ?? undefined,
       this.currentProbe?.channels ?? undefined,
-      isHomeWaveformVisualizerEnabled(),
+      isAudioVisualSpectrumEnabled(),
     );
     levelMeterTransform.setGain(nativeVolumeControl ? volume : 1);
     let inputEnded = false;
@@ -5677,7 +5934,7 @@ export class AudioSession extends EventEmitter {
       undefined,
       this.currentProbe?.fileSampleRate ?? undefined,
       this.currentProbe?.channels ?? undefined,
-      isHomeWaveformVisualizerEnabled(),
+      isAudioVisualSpectrumEnabled(),
     );
     levelMeterTransform.setGain(nativeVolumeControl ? volume : 1);
     const combinedRun: DecoderRun = {
@@ -6251,6 +6508,8 @@ export class AudioSession extends EventEmitter {
       visualTelemetryState: 'fallback',
       clipCount: 0,
       lastClipAt: null,
+      levelMeterObserveCostMs: 0,
+      visualSpectrumComputeCostMs: 0,
     };
     this.lastLevelMeterStatusEmittedAt = 0;
   }
@@ -6374,9 +6633,9 @@ export class AudioSession extends EventEmitter {
   }
 
   private handleLevelSnapshot(snapshot: PcmLevelSnapshot): void {
-    const homeWaveformVisualizerEnabled = isHomeWaveformVisualizerEnabled();
-    this.levelMeterTransform?.setVisualSpectrumEnabled(homeWaveformVisualizerEnabled);
-    this.levelSnapshot = homeWaveformVisualizerEnabled ? snapshot : this.createLevelSnapshotWithoutVisualTelemetry(snapshot);
+    const audioVisualSpectrumEnabled = isAudioVisualSpectrumEnabled();
+    this.levelMeterTransform?.setVisualSpectrumEnabled(audioVisualSpectrumEnabled);
+    this.levelSnapshot = audioVisualSpectrumEnabled ? snapshot : this.createLevelSnapshotWithoutVisualTelemetry(snapshot);
     if (this.state === 'playing') {
       const now = Date.now();
       if (now - this.lastLevelMeterStatusEmittedAt >= levelMeterStatusIntervalMs) {
@@ -7096,6 +7355,11 @@ export class AudioSession extends EventEmitter {
         return;
       }
 
+      if (!isSharedFallbackAllowedForExclusive(this.currentOutputSettings)) {
+        this.recordExclusiveInstabilityWithoutFallback(positionSeconds, 'exclusive_output_unstable', options.nativeUnderrunDelta ?? null);
+        return;
+      }
+
       const filePath = this.currentFilePath;
       const trackId = this.currentTrackId;
       const probe = createProbeHint(this.currentProbe);
@@ -7153,6 +7417,10 @@ export class AudioSession extends EventEmitter {
       }
 
       recoveryRunToken = this.runToken + 1;
+      this.pendingOutputRestartContext = {
+        recoveryReason: 'exclusive_output_unstable',
+        fallbackReason: 'exclusive_output_unstable_to_shared',
+      };
       await this.playLocalFile({
         filePath,
         trackId: trackId ?? undefined,
@@ -7266,6 +7534,10 @@ export class AudioSession extends EventEmitter {
       }
 
       recoveryRunToken = this.runToken + 1;
+      this.pendingOutputRestartContext = {
+        recoveryReason: 'juce_exclusive_startup_position_runaway',
+        fallbackReason: 'juce_exclusive_to_legacy_native',
+      };
       await this.playLocalFile({
         filePath,
         trackId: trackId ?? undefined,
@@ -7383,6 +7655,10 @@ export class AudioSession extends EventEmitter {
       }
 
       recoveryRunToken = this.runToken + 1;
+      this.pendingOutputRestartContext = {
+        recoveryReason: reason,
+        fallbackReason: null,
+      };
       await this.playLocalFile({
         filePath,
         trackId: trackId ?? undefined,

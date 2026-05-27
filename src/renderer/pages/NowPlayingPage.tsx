@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Disc3, Mic2, Music2 } from 'lucide-react';
 import type { AudioStatus } from '../../shared/types/audio';
+import type { AppSettings } from '../../shared/types/appSettings';
 import type { PlaybackStatus } from '../../shared/types/playback';
 import { PlayerStatusChips } from '../components/player/PlayerStatusChips';
 import { titleFromPath } from '../components/player/playerFormat';
@@ -8,15 +9,18 @@ import { useI18n } from '../i18n/I18nProvider';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 
 const idlePollingStates = new Set(['paused', 'stopped', 'idle', 'error']);
+const readLowLoadPlaybackModeEnabled = (settings: Partial<AppSettings> | null | undefined): boolean =>
+  settings?.lowLoadPlaybackModeEnabled === true;
 
 export const NowPlayingPage = (): JSX.Element => {
   const { t } = useI18n();
   const queue = usePlaybackQueue();
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null);
   const [audioStatus, setAudioStatus] = useState<AudioStatus | null>(null);
+  const [lowLoadPlaybackModeEnabled, setLowLoadPlaybackModeEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const state = audioStatus?.state ?? playbackStatus?.state ?? 'idle';
-  const pollIntervalMs = idlePollingStates.has(state) ? 1800 : 500;
+  const pollIntervalMs = lowLoadPlaybackModeEnabled || idlePollingStates.has(state) ? 1800 : 500;
   const statusTrackId = playbackStatus?.currentTrackId ?? audioStatus?.currentTrackId ?? null;
   const currentTrack =
     queue.currentTrack ??
@@ -61,6 +65,31 @@ export const NowPlayingPage = (): JSX.Element => {
 
     return () => window.clearInterval(timer);
   }, [pollIntervalMs, refreshStatus]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
+      if (!cancelled) {
+        setLowLoadPlaybackModeEnabled(readLowLoadPlaybackModeEnabled(settings));
+      }
+    };
+
+    void window.echo?.app?.getSettings?.().then(applySettings).catch(() => undefined);
+
+    const handleSettingsChanged = (event: Event): void => {
+      const patch = (event as CustomEvent<Partial<AppSettings> | null | undefined>).detail;
+      if (!patch || !Object.prototype.hasOwnProperty.call(patch, 'lowLoadPlaybackModeEnabled')) {
+        return;
+      }
+      applySettings(patch);
+    };
+
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('settings:changed', handleSettingsChanged);
+    };
+  }, []);
 
   return (
     <div className="page-stack now-playing-page">

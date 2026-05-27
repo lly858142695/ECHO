@@ -1832,6 +1832,11 @@ html[data-theme-preset="nyanCat"] .player-bar[data-playback-state="playing"] .pr
   animation: nyan-cat-rainbow-slide 16s linear infinite;
 }
 
+html[data-theme-preset="nyanCat"] .player-bar[data-low-load-playback="true"],
+html[data-theme-preset="nyanCat"] .player-bar[data-low-load-playback="true"] .progress-fill {
+  animation: none;
+}
+
 html[data-theme-preset="nyanCat"] .player-bar .progress-thumb {
   width: 66px;
   height: 42px;

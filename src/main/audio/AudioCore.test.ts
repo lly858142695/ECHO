@@ -26,10 +26,38 @@ import type {
   PcmGaplessDecodeRequest,
 } from './audioTypes';
 
+const audioCoreAppSettingsMock = vi.hoisted(() => {
+  const defaultValue = {
+    homeWaveformVisualizerEnabled: true,
+    audioVisualSpectrumEnabled: true,
+    lowLoadPlaybackModeEnabled: false,
+  };
+  return {
+    defaultValue,
+    current: { ...defaultValue },
+  };
+});
+
+vi.mock('../app/appSettings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../app/appSettings')>();
+  return {
+    ...actual,
+    getAppSettings: () => audioCoreAppSettingsMock.current,
+    setAppSettings: vi.fn((patch: Record<string, unknown>) => {
+      audioCoreAppSettingsMock.current = {
+        ...audioCoreAppSettingsMock.current,
+        ...patch,
+      };
+      return audioCoreAppSettingsMock.current;
+    }),
+  };
+});
+
 const noopLogger = (): void => undefined;
 const asioMatrixSampleRates = [44100, 48000, 88200, 96000, 176400, 192000] as const;
 
 afterEach(() => {
+  audioCoreAppSettingsMock.current = { ...audioCoreAppSettingsMock.defaultValue };
   vi.useRealTimers();
   getEqBridge().removeAllListeners('state');
   clearFfmpegToolchainCache();
@@ -1330,7 +1358,10 @@ describe('Audio Core sample-rate regression guard', () => {
       );
 
       await session.playLocalFile({ filePath: firstPath, output: { outputMode: 'exclusive' } });
-      const status = await session.playLocalFile({ filePath: targetPath, output: { outputMode: 'exclusive' } });
+      const status = await session.playLocalFile({
+        filePath: targetPath,
+        output: { outputMode: 'exclusive', exclusiveInstabilityFallbackEnabled: true },
+      });
 
       expect(status.state, `exclusive refused 192000->${targetRate} state`).toBe('playing');
       expect(status.outputMode, `exclusive refused 192000->${targetRate} mode`).toBe('shared');
@@ -1723,7 +1754,7 @@ describe('Audio Core sample-rate regression guard', () => {
       await session.playLocalFile({
         filePath: 'song.flac',
         trackId: 'track-juce-runaway',
-        output: { outputMode: 'exclusive', useJuceOutput: true },
+        output: { outputMode: 'exclusive', deviceIndex: 7, deviceName: 'USB DAC', useJuceOutput: true },
       });
 
       await vi.advanceTimersByTimeAsync(2815);
@@ -1739,8 +1770,11 @@ describe('Audio Core sample-rate regression guard', () => {
       expect(bridges[0].startOptions?.useJuceOutput).toBe(true);
       expect(bridges[1].startOptions).toMatchObject({
         exclusive: true,
+        deviceIndex: 7,
+        deviceName: 'USB DAC',
         useJuceOutput: false,
       });
+      expect(session.getStatus().outputMode).toBe('exclusive');
       expect(decoder.decodeRequests).toHaveLength(2);
       expect(decoder.decodeRequests.at(-1)?.startSeconds).toBeCloseTo(2.815, 2);
       expect(reportAudioError).toHaveBeenCalledWith(expect.objectContaining({
@@ -2237,10 +2271,14 @@ describe('Audio Core sample-rate regression guard', () => {
     });
   });
 
-  it('falls back to the system default shared device when the selected shared device fails', async () => {
-    const failingBridge = new ConfigurableStartupFailingBridge('output open failed: device disappeared');
+  it('falls back to the system default shared device when explicitly allowed and the selected shared device fails', async () => {
+    const failingBridges = [
+      new ConfigurableStartupFailingBridge('output open failed: device disappeared'),
+      new ConfigurableStartupFailingBridge('output open failed: device disappeared'),
+      new ConfigurableStartupFailingBridge('output open failed: device disappeared'),
+    ];
     const fallbackBridge = new FakeBridge(48000);
-    const bridges = [failingBridge, fallbackBridge];
+    const bridges = [...failingBridges, fallbackBridge];
     const reportAudioError = vi.fn();
     const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
@@ -2252,15 +2290,55 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Missing USB DAC', useJuceOutput: false },
+      output: {
+        outputMode: 'shared',
+        deviceIndex: 6,
+        deviceName: 'Missing USB DAC',
+        useJuceOutput: false,
+        defaultDeviceFallbackEnabled: true,
+      },
     });
 
-    expect(failingBridge.stop).toHaveBeenCalledTimes(1);
-    expect(failingBridge.startOptions).toMatchObject({ deviceIndex: 6, deviceName: 'Missing USB DAC' });
+    expect(failingBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ deviceIndex: 6, deviceName: 'Missing USB DAC' }),
+      expect.objectContaining({ deviceIndex: 6, deviceName: 'Missing USB DAC' }),
+      expect.objectContaining({ deviceIndex: 6, deviceName: 'Missing USB DAC' }),
+    ]);
     expect(fallbackBridge.startOptions?.deviceIndex).toBeUndefined();
     expect(fallbackBridge.startOptions?.deviceName).toBeUndefined();
     expect(status.state).toBe('playing');
     expect(status.warnings).toContain('shared_output_fell_back_to_default_device');
+  });
+
+  it('keeps selected shared device failures in error state when default-device fallback is disabled', async () => {
+    const failingBridges = [
+      new ConfigurableStartupFailingBridge('output open failed: device disappeared'),
+      new ConfigurableStartupFailingBridge('output open failed: device disappeared'),
+      new ConfigurableStartupFailingBridge('output open failed: device disappeared'),
+    ];
+    const fallbackBridge = new FakeBridge(48000);
+    const bridges = [...failingBridges, fallbackBridge];
+    const session = createAudioSessionForTest({
+      decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      logger: noopLogger,
+    });
+
+    await expect(session.playLocalFile({
+      filePath: 'song.flac',
+      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Missing USB DAC', useJuceOutput: false },
+    })).rejects.toThrow('device disappeared');
+
+    expect(failingBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ deviceIndex: 6, deviceName: 'Missing USB DAC' }),
+      expect.objectContaining({ deviceIndex: 6, deviceName: 'Missing USB DAC' }),
+      expect.objectContaining({ deviceIndex: 6, deviceName: 'Missing USB DAC' }),
+    ]);
+    expect(fallbackBridge.startOptions).toBeNull();
+    expect(session.getStatus().state).toBe('error');
+    expect(session.getStatus().outputMode).toBe('shared');
+    expect(session.getStatus().warnings).toContain('shared_output_default_device_fallback_blocked');
   });
 
   it('lets a recovery handler claim post-start expired FFmpeg stream URLs before fatal reporting', async () => {
@@ -2304,11 +2382,19 @@ describe('Audio Core sample-rate regression guard', () => {
   });
 
   it('marks selected shared device timeout recovery when the default shared device starts', async () => {
-    const failingBridge = new ConfigurableStartupFailingBridge(
-      'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
-    );
+    const failingBridges = [
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
+      ),
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
+      ),
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
+      ),
+    ];
     const fallbackBridge = new FakeBridge(48000);
-    const bridges = [failingBridge, fallbackBridge];
+    const bridges = [...failingBridges, fallbackBridge];
     const reportAudioError = vi.fn();
     const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
@@ -2320,7 +2406,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Sleeping USB DAC' },
+      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Sleeping USB DAC', defaultDeviceFallbackEnabled: true },
     });
 
     expect(fallbackBridge.startOptions?.deviceIndex).toBeUndefined();
@@ -2351,7 +2437,13 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Sleeping USB DAC', useJuceOutput: false },
+      output: {
+        outputMode: 'shared',
+        deviceIndex: 6,
+        deviceName: 'Sleeping USB DAC',
+        useJuceOutput: false,
+        defaultDeviceFallbackEnabled: true,
+      },
     });
 
     expect(failingBridge.startOptions).toMatchObject({
@@ -2392,7 +2484,13 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'shared', deviceIndex: 6, deviceName: 'Sleeping USB DAC', useJuceOutput: false },
+      output: {
+        outputMode: 'shared',
+        deviceIndex: 6,
+        deviceName: 'Sleeping USB DAC',
+        useJuceOutput: false,
+        defaultDeviceFallbackEnabled: true,
+      },
     });
 
     expect(failingBridge.startOptions).toMatchObject({
@@ -2408,11 +2506,19 @@ describe('Audio Core sample-rate regression guard', () => {
   });
 
   it('skips same-device native retry after selected JUCE shared device refuses to open', async () => {
-    const failingJuceBridge = new ConfigurableStartupFailingBridge(
-      'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 48000 -ch 2 -device USB DAC -juce-output"; mode="shared"; elapsedMs=15000; stderrTail="Couldn\'t open the output device!"',
-    );
+    const failingJuceBridges = [
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 48000 -ch 2 -device USB DAC -juce-output"; mode="shared"; elapsedMs=15000; stderrTail="Couldn\'t open the output device!"',
+      ),
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 48000 -ch 2 -device USB DAC -juce-output"; mode="shared"; elapsedMs=15000; stderrTail="Couldn\'t open the output device!"',
+      ),
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 48000 -ch 2 -device USB DAC -juce-output"; mode="shared"; elapsedMs=15000; stderrTail="Couldn\'t open the output device!"',
+      ),
+    ];
     const defaultJuceBridge = new FakeBridge(48000);
-    const bridges = [failingJuceBridge, defaultJuceBridge];
+    const bridges = [...failingJuceBridges, defaultJuceBridge];
     const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
@@ -2422,14 +2528,20 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'shared', deviceIndex: 11, deviceName: 'USB DAC', useJuceOutput: true },
+      output: {
+        outputMode: 'shared',
+        deviceIndex: 11,
+        deviceName: 'USB DAC',
+        useJuceOutput: true,
+        defaultDeviceFallbackEnabled: true,
+      },
     });
 
-    expect(failingJuceBridge.startOptions).toMatchObject({
-      deviceIndex: 11,
-      deviceName: 'USB DAC',
-      useJuceOutput: true,
-    });
+    expect(failingJuceBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ deviceIndex: 11, deviceName: 'USB DAC', useJuceOutput: true }),
+      expect.objectContaining({ deviceIndex: 11, deviceName: 'USB DAC', useJuceOutput: true }),
+      expect.objectContaining({ deviceIndex: 11, deviceName: 'USB DAC', useJuceOutput: true }),
+    ]);
     expect(defaultJuceBridge.startOptions?.deviceIndex).toBeUndefined();
     expect(defaultJuceBridge.startOptions?.deviceName).toBeUndefined();
     expect(defaultJuceBridge.startOptions?.useJuceOutput).toBe(true);
@@ -2440,11 +2552,19 @@ describe('Audio Core sample-rate regression guard', () => {
   });
 
   it('uses safe shared output when the default shared device also fails', async () => {
-    const defaultBridge = new ConfigurableStartupFailingBridge(
-      'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
-    );
+    const defaultBridges = [
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
+      ),
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
+      ),
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000',
+      ),
+    ];
     const safeBridge = new FakeBridge(48000);
-    const bridges = [defaultBridge, safeBridge];
+    const bridges = [...defaultBridges, safeBridge];
     const reportAudioError = vi.fn();
     const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
@@ -2459,7 +2579,11 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'shared', useJuceOutput: false },
     });
 
-    expect(defaultBridge.stop).toHaveBeenCalledTimes(1);
+    expect(defaultBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ asio: false, exclusive: false }),
+      expect.objectContaining({ asio: false, exclusive: false }),
+      expect.objectContaining({ asio: false, exclusive: false }),
+    ]);
     expect(safeBridge.startOptions).not.toHaveProperty('deviceIndex');
     expect(safeBridge.startOptions).not.toHaveProperty('deviceName');
     expect(safeBridge.startOptions).toMatchObject({
@@ -2481,9 +2605,13 @@ describe('Audio Core sample-rate regression guard', () => {
   it('does not recover pre-ready shared access violations with DirectSound', async () => {
     const crashMessage =
       'echo-audio-host exit_code_3221225477; host="echo-audio-host.exe"; args="-sr 48000 -ch 2"; mode="shared"; elapsedMs=778; exitCodeHex=0xC0000005; nativeCrash=access_violation; stderrTail="[echo-audio-host] createDevice completed"';
-    const defaultBridge = new ConfigurableStartupFailingBridge(crashMessage);
+    const defaultBridges = [
+      new ConfigurableStartupFailingBridge(crashMessage),
+      new ConfigurableStartupFailingBridge(crashMessage),
+      new ConfigurableStartupFailingBridge(crashMessage),
+    ];
     const safeBridge = new ConfigurableStartupFailingBridge(crashMessage);
-    const bridges = [defaultBridge, safeBridge];
+    const bridges = [...defaultBridges, safeBridge];
     const reportAudioError = vi.fn();
     const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]])),
@@ -2498,7 +2626,11 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'shared', useJuceOutput: false },
     })).rejects.toThrow('nativeCrash=access_violation');
 
-    expect(defaultBridge.stop).toHaveBeenCalledTimes(1);
+    expect(defaultBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ asio: false, exclusive: false }),
+      expect.objectContaining({ asio: false, exclusive: false }),
+      expect.objectContaining({ asio: false, exclusive: false }),
+    ]);
     expect(safeBridge.stop).toHaveBeenCalledTimes(1);
     expect(bridges).toHaveLength(0);
     expect(session.getStatus().state).toBe('error');
@@ -2563,7 +2695,7 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: '441.flac',
-      output: { outputMode: 'exclusive', useJuceDecode: true },
+      output: { outputMode: 'exclusive', useJuceDecode: true, exclusiveInstabilityFallbackEnabled: true },
     });
 
     expect(bridges).toHaveLength(2);
@@ -2587,41 +2719,15 @@ describe('Audio Core sample-rate regression guard', () => {
     });
   });
 
-  it('falls back to shared output when exclusive startup fails', async () => {
+  it('keeps exclusive startup failures in error state when automatic downgrade is disabled', async () => {
     const decoder = new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
-    const failingBridge = new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED');
+    const failingBridges = [
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED'),
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED'),
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED'),
+    ];
     const fallbackBridge = new FakeBridge(48000);
-    const bridges = [failingBridge, fallbackBridge];
-    const session = createAudioSessionForTest({
-      decoder,
-      deviceService: { listDevices: () => [] },
-      createBridge: () => bridges.shift() as unknown as FakeBridge,
-      logger: noopLogger,
-    });
-
-    const status = await session.playLocalFile({
-      filePath: 'song.flac',
-      output: { outputMode: 'exclusive', useJuceOutput: false },
-    });
-
-    expect(failingBridge.stop).toHaveBeenCalledTimes(1);
-    expect(failingBridge.startOptions).toMatchObject({ exclusive: true });
-    expect(fallbackBridge.startOptions).toMatchObject({ exclusive: false });
-    expect(status.state).toBe('playing');
-    expect(status.outputMode).toBe('shared');
-    expect(status.outputBackend).toBe('wasapi-shared');
-    expect(status.warnings).toContain('exclusive_output_fell_back_to_shared');
-    expect(status.error).toBeNull();
-  });
-
-  it('does not recover exclusive fallback shared access violations with DirectSound', async () => {
-    const decoder = new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
-    const exclusiveBridge = new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED');
-    const sharedCrashMessage =
-      'echo-audio-host exit_code_3221225477; host="echo-audio-host.exe"; args="-sr 48000 -ch 2"; mode="shared"; elapsedMs=778; exitCodeHex=0xC0000005; nativeCrash=access_violation';
-    const sharedBridge = new ConfigurableStartupFailingBridge(sharedCrashMessage);
-    const safeBridge = new ConfigurableStartupFailingBridge(sharedCrashMessage);
-    const bridges = [exclusiveBridge, sharedBridge, safeBridge];
+    const bridges = [...failingBridges, fallbackBridge];
     const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
@@ -2632,9 +2738,82 @@ describe('Audio Core sample-rate regression guard', () => {
     await expect(session.playLocalFile({
       filePath: 'song.flac',
       output: { outputMode: 'exclusive', useJuceOutput: false },
+    })).rejects.toThrow('AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED');
+
+    expect(failingBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ exclusive: true }),
+      expect.objectContaining({ exclusive: true }),
+      expect.objectContaining({ exclusive: true }),
+    ]);
+    expect(fallbackBridge.startOptions).toBeNull();
+    expect(session.getStatus().state).toBe('error');
+    expect(session.getStatus().outputMode).toBe('exclusive');
+    expect(session.getStatus().warnings).toContain('exclusive_output_fallback_blocked');
+    expect(session.getStatus().warnings).not.toContain('exclusive_output_fell_back_to_shared');
+  });
+
+  it('falls back to shared output when exclusive startup downgrade is explicitly enabled', async () => {
+    const decoder = new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
+    const failingBridges = [
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED'),
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED'),
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED'),
+    ];
+    const fallbackBridge = new FakeBridge(48000);
+    const bridges = [...failingBridges, fallbackBridge];
+    const session = createAudioSessionForTest({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      logger: noopLogger,
+    });
+
+    const status = await session.playLocalFile({
+      filePath: 'song.flac',
+      output: { outputMode: 'exclusive', useJuceOutput: false, exclusiveInstabilityFallbackEnabled: true },
+    });
+
+    expect(failingBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ exclusive: true }),
+      expect.objectContaining({ exclusive: true }),
+      expect.objectContaining({ exclusive: true }),
+    ]);
+    expect(fallbackBridge.startOptions).toMatchObject({ exclusive: false });
+    expect(status.state).toBe('playing');
+    expect(status.outputMode).toBe('shared');
+    expect(status.warnings).toContain('exclusive_output_fell_back_to_shared');
+    expect(status.error).toBeNull();
+  });
+
+  it('does not recover exclusive fallback shared access violations with DirectSound', async () => {
+    const decoder = new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
+    const exclusiveBridges = [
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED'),
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED'),
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: AUDCLNT_E_EXCLUSIVE_MODE_NOT_ALLOWED'),
+    ];
+    const sharedCrashMessage =
+      'echo-audio-host exit_code_3221225477; host="echo-audio-host.exe"; args="-sr 48000 -ch 2"; mode="shared"; elapsedMs=778; exitCodeHex=0xC0000005; nativeCrash=access_violation';
+    const sharedBridge = new ConfigurableStartupFailingBridge(sharedCrashMessage);
+    const safeBridge = new ConfigurableStartupFailingBridge(sharedCrashMessage);
+    const bridges = [...exclusiveBridges, sharedBridge, safeBridge];
+    const session = createAudioSessionForTest({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      logger: noopLogger,
+    });
+
+    await expect(session.playLocalFile({
+      filePath: 'song.flac',
+      output: { outputMode: 'exclusive', useJuceOutput: false, exclusiveInstabilityFallbackEnabled: true },
     })).rejects.toThrow('nativeCrash=access_violation');
 
-    expect(exclusiveBridge.startOptions).toMatchObject({ exclusive: true });
+    expect(exclusiveBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ exclusive: true }),
+      expect.objectContaining({ exclusive: true }),
+      expect.objectContaining({ exclusive: true }),
+    ]);
     expect(sharedBridge.startOptions).toMatchObject({ exclusive: false });
     expect(safeBridge.startOptions).toMatchObject({ exclusive: false });
     expect(bridges).toHaveLength(0);
@@ -4121,9 +4300,13 @@ describe('Audio Core sample-rate regression guard', () => {
       },
     ];
     const decoder = new FakeDecoder(new Map([['asio.flac', probe('asio.flac', 44100)]]));
-    const failingBridge = new ConfigurableStartupFailingBridge('ASIO open failed: No device found.');
+    const failingBridges = [
+      new ConfigurableStartupFailingBridge('ASIO open failed: No device found.'),
+      new ConfigurableStartupFailingBridge('ASIO open failed: No device found.'),
+      new ConfigurableStartupFailingBridge('ASIO open failed: No device found.'),
+    ];
     const fallbackBridge = new FakeBridge(44100);
-    const bridges = [failingBridge, fallbackBridge];
+    const bridges = [...failingBridges, fallbackBridge];
     const session = createAudioSessionForTest({
       decoder,
       deviceService: {
@@ -4135,17 +4318,23 @@ describe('Audio Core sample-rate regression guard', () => {
 
     const status = await session.playLocalFile({
       filePath: 'asio.flac',
-      output: { outputMode: 'asio', deviceIndex: 2, deviceName: 'TEAC ASIO USB DRIVER' },
+      output: {
+        outputMode: 'asio',
+        deviceIndex: 2,
+        deviceName: 'TEAC ASIO USB DRIVER',
+        asioUnavailableFallbackEnabled: true,
+        defaultDeviceFallbackEnabled: true,
+      },
     });
 
     expect(status.outputMode).toBe('asio');
     expect(status.outputBackend).toBe('asio');
     expect(status.outputDeviceName).toBe('FlexASIO');
-    expect(failingBridge.startOptions).toMatchObject({
-      asio: true,
-      deviceIndex: 2,
-      deviceName: 'TEAC ASIO USB DRIVER',
-    });
+    expect(failingBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ asio: true, deviceIndex: 2, deviceName: 'TEAC ASIO USB DRIVER' }),
+      expect.objectContaining({ asio: true, deviceIndex: 2, deviceName: 'TEAC ASIO USB DRIVER' }),
+      expect.objectContaining({ asio: true, deviceIndex: 2, deviceName: 'TEAC ASIO USB DRIVER' }),
+    ]);
     expect(fallbackBridge.startOptions).toMatchObject({
       asio: true,
       deviceIndex: 0,
@@ -4153,16 +4342,21 @@ describe('Audio Core sample-rate regression guard', () => {
     });
   });
 
-  it('falls back to safe shared output when ASIO drivers refuse to start', async () => {
+  it('keeps ASIO startup failures in error state when automatic fallback is disabled', async () => {
     const decoder = new FakeDecoder(new Map([['dsd.dsf', dsdProbe('dsd.dsf', 11_289_600)]]));
-    const failingBridge = new ConfigurableStartupFailingBridge(
-      'echo-audio-host exit_code_1; host="echo-audio-host.exe"; args="-sr 352800 -ch 2 -device MOONDROP USB AUDIO ASIO4 -asio"; mode="asio"; elapsedMs=20453; stderrTail="Device didn\'t start correctly"',
-    );
-    const failingDefaultAsioBridge = new ConfigurableStartupFailingBridge(
-      'echo-audio-host exit_code_1; host="echo-audio-host.exe"; args="-sr 352800 -ch 2 -asio"; mode="asio"; elapsedMs=20453; stderrTail="Device didn\'t start correctly"',
-    );
+    const failingBridges = [
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host exit_code_1; host="echo-audio-host.exe"; args="-sr 352800 -ch 2 -device MOONDROP USB AUDIO ASIO4 -asio"; mode="asio"; elapsedMs=20453; stderrTail="Device didn\'t start correctly"',
+      ),
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host exit_code_1; host="echo-audio-host.exe"; args="-sr 352800 -ch 2 -device MOONDROP USB AUDIO ASIO4 -asio"; mode="asio"; elapsedMs=20453; stderrTail="Device didn\'t start correctly"',
+      ),
+      new ConfigurableStartupFailingBridge(
+        'echo-audio-host exit_code_1; host="echo-audio-host.exe"; args="-sr 352800 -ch 2 -device MOONDROP USB AUDIO ASIO4 -asio"; mode="asio"; elapsedMs=20453; stderrTail="Device didn\'t start correctly"',
+      ),
+    ];
     const safeBridge = new FakeBridge(48000);
-    const bridges = [failingBridge, failingDefaultAsioBridge, safeBridge];
+    const bridges = [...failingBridges, safeBridge];
     const reportAudioError = vi.fn();
     const session = createAudioSessionForTest({
       decoder,
@@ -4172,62 +4366,40 @@ describe('Audio Core sample-rate regression guard', () => {
       logger: noopLogger,
     });
 
-    const status = await session.playLocalFile({
+    await expect(session.playLocalFile({
       filePath: 'dsd.dsf',
       output: { outputMode: 'asio', deviceIndex: 2, deviceName: 'MOONDROP USB AUDIO ASIO4' },
-    });
+    })).rejects.toThrow('Device didn');
 
-    expect(failingBridge.startOptions).toMatchObject({
-      asio: true,
-      deviceIndex: 2,
-      deviceName: 'MOONDROP USB AUDIO ASIO4',
-      requestedOutputSampleRate: 352800,
-    });
-    expect(failingDefaultAsioBridge.startOptions).toMatchObject({
-      asio: true,
-      requestedOutputSampleRate: 352800,
-    });
-    expect(failingDefaultAsioBridge.startOptions?.deviceIndex).toBeUndefined();
-    expect(failingDefaultAsioBridge.startOptions?.deviceName).toBeUndefined();
-    expect(safeBridge.startOptions).toMatchObject({
-      asio: false,
-      exclusive: false,
-      requestedOutputSampleRate: 48000,
-      bufferSizeFrames: 8192,
-      fifoCapacityMs: 1500,
-    });
-    expect(safeBridge.startOptions?.deviceIndex).toBeUndefined();
-    expect(safeBridge.startOptions?.deviceName).toBeUndefined();
-    expect(status.state).toBe('playing');
-    expect(status.outputMode).toBe('shared');
-    expect(status.latencyProfile).toBe('stable');
-    expect(status.warnings).toContain('asio_output_fell_back_to_safe_shared');
-    expect(status.warnings).toContain('shared_output_recovered_safe_mode');
+    expect(failingBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ asio: true, deviceIndex: 2, deviceName: 'MOONDROP USB AUDIO ASIO4', requestedOutputSampleRate: 352800 }),
+      expect.objectContaining({ asio: true, deviceIndex: 2, deviceName: 'MOONDROP USB AUDIO ASIO4', requestedOutputSampleRate: 352800 }),
+      expect.objectContaining({ asio: true, deviceIndex: 2, deviceName: 'MOONDROP USB AUDIO ASIO4', requestedOutputSampleRate: 352800 }),
+    ]);
+    expect(safeBridge.startOptions).toBeNull();
+    expect(session.getStatus().state).toBe('error');
+    expect(session.getStatus().outputMode).toBe('asio');
+    expect(session.getStatus().warnings).toContain('asio_output_fallback_blocked');
     expect(reportAudioError).toHaveBeenCalledWith(expect.objectContaining({
       message: expect.stringContaining('Device didn'),
-      phase: 'safe-shared-fallback',
-      severity: 'recoverable',
+      phase: 'error',
+      severity: 'fatal',
     }));
   });
 
   it('keeps ASIO unavailable guard disabled by default', async () => {
     const decoder = new FakeDecoder(new Map([
       ['first.flac', probe('first.flac', 96000)],
-      ['second.flac', probe('second.flac', 96000)],
     ]));
-    const firstFailingBridge = new ConfigurableStartupFailingBridge('ASIO open failed: No device found.');
-    const firstDefaultFailingBridge = new ConfigurableStartupFailingBridge('ASIO open failed: No device found.');
-    const firstSafeBridge = new FakeBridge(48000);
-    const secondFailingBridge = new ConfigurableStartupFailingBridge('ASIO open failed: No device found.');
-    const secondDefaultFailingBridge = new ConfigurableStartupFailingBridge('ASIO open failed: No device found.');
-    const secondSafeBridge = new FakeBridge(48000);
+    const failingBridges = [
+      new ConfigurableStartupFailingBridge('ASIO open failed: No device found.'),
+      new ConfigurableStartupFailingBridge('ASIO open failed: No device found.'),
+      new ConfigurableStartupFailingBridge('ASIO open failed: No device found.'),
+    ];
+    const safeBridge = new FakeBridge(48000);
     const bridges = [
-      firstFailingBridge,
-      firstDefaultFailingBridge,
-      firstSafeBridge,
-      secondFailingBridge,
-      secondDefaultFailingBridge,
-      secondSafeBridge,
+      ...failingBridges,
+      safeBridge,
     ];
     const session = createAudioSessionForTest({
       decoder,
@@ -4237,12 +4409,16 @@ describe('Audio Core sample-rate regression guard', () => {
     });
 
     const output = { outputMode: 'asio' as const, deviceIndex: 2, deviceName: 'TEAC ASIO USB DRIVER' };
-    await session.playLocalFile({ filePath: 'first.flac', output });
-    await session.playLocalFile({ filePath: 'second.flac', output });
+    await expect(session.playLocalFile({ filePath: 'first.flac', output })).rejects.toThrow('No device found');
 
-    expect(firstFailingBridge.startOptions).toMatchObject({ asio: true, deviceIndex: 2 });
-    expect(secondFailingBridge.startOptions).toMatchObject({ asio: true, deviceIndex: 2 });
+    expect(failingBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ asio: true, deviceIndex: 2 }),
+      expect.objectContaining({ asio: true, deviceIndex: 2 }),
+      expect.objectContaining({ asio: true, deviceIndex: 2 }),
+    ]);
+    expect(safeBridge.startOptions).toBeNull();
     expect(session.getStatus().warnings).not.toContain('asio_output_device_temporarily_unavailable');
+    expect(session.getStatus().warnings).toContain('asio_output_fallback_blocked');
   });
 
   it('temporarily skips an ASIO device after the driver reports it is not present when the guard is enabled', async () => {
@@ -4250,15 +4426,23 @@ describe('Audio Core sample-rate regression guard', () => {
       ['first.flac', probe('first.flac', 96000)],
       ['second.flac', probe('second.flac', 96000)],
     ]));
-    const failingBridge = new ConfigurableStartupFailingBridge(
-      'ASIO open failed: ASIOInit failed driver="TEAC ASIO USB DRIVER" error=ASE_NotPresent(-1000) driverMessage="No device found."',
-    );
+    const failingBridges = [
+      new ConfigurableStartupFailingBridge(
+        'ASIO open failed: ASIOInit failed driver="TEAC ASIO USB DRIVER" error=ASE_NotPresent(-1000) driverMessage="No device found."',
+      ),
+      new ConfigurableStartupFailingBridge(
+        'ASIO open failed: ASIOInit failed driver="TEAC ASIO USB DRIVER" error=ASE_NotPresent(-1000) driverMessage="No device found."',
+      ),
+      new ConfigurableStartupFailingBridge(
+        'ASIO open failed: ASIOInit failed driver="TEAC ASIO USB DRIVER" error=ASE_NotPresent(-1000) driverMessage="No device found."',
+      ),
+    ];
     const failingDefaultAsioBridge = new ConfigurableStartupFailingBridge(
       'ASIO open failed: failed to open output device "Default ASIO": No device found.',
     );
     const firstSafeBridge = new FakeBridge(48000);
     const secondSafeBridge = new FakeBridge(48000);
-    const bridges = [failingBridge, failingDefaultAsioBridge, firstSafeBridge, secondSafeBridge];
+    const bridges = [...failingBridges, failingDefaultAsioBridge, firstSafeBridge, secondSafeBridge];
     const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
@@ -4271,15 +4455,16 @@ describe('Audio Core sample-rate regression guard', () => {
       deviceIndex: 2,
       deviceName: 'TEAC ASIO USB DRIVER',
       asioUnavailableFallbackEnabled: true,
+      defaultDeviceFallbackEnabled: true,
     };
     const firstStatus = await session.playLocalFile({ filePath: 'first.flac', output });
     const secondStatus = await session.playLocalFile({ filePath: 'second.flac', output });
 
-    expect(failingBridge.startOptions).toMatchObject({
-      asio: true,
-      deviceIndex: 2,
-      deviceName: 'TEAC ASIO USB DRIVER',
-    });
+    expect(failingBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ asio: true, deviceIndex: 2, deviceName: 'TEAC ASIO USB DRIVER' }),
+      expect.objectContaining({ asio: true, deviceIndex: 2, deviceName: 'TEAC ASIO USB DRIVER' }),
+      expect.objectContaining({ asio: true, deviceIndex: 2, deviceName: 'TEAC ASIO USB DRIVER' }),
+    ]);
     expect(failingDefaultAsioBridge.startOptions).toMatchObject({ asio: true });
     expect(failingDefaultAsioBridge.startOptions?.deviceIndex).toBeUndefined();
     expect(failingDefaultAsioBridge.startOptions?.deviceName).toBeUndefined();
@@ -4296,9 +4481,13 @@ describe('Audio Core sample-rate regression guard', () => {
     ['shared', { outputMode: 'shared' as const }, { exclusive: false, asio: false }, 'legacy-wasapi-shared'],
     ['exclusive', { outputMode: 'exclusive' as const }, { exclusive: true, asio: false }, 'legacy-wasapi-exclusive'],
   ])('falls back from JUCE %s output to native output without clearing the user request', async (_label, output, expectedStart, backendImpl) => {
-    const failingBridge = new ConfigurableStartupFailingBridge('JUCE output open failed');
+    const expectedJuceAttempts = 3;
+    const failingBridges = Array.from(
+      { length: expectedJuceAttempts },
+      () => new ConfigurableStartupFailingBridge('JUCE output open failed'),
+    );
     const nativeBridge = new FakeBridge(44100, { backendImpl });
-    const bridges = [failingBridge, nativeBridge];
+    const bridges = [...failingBridges, nativeBridge];
     const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['juce.flac', probe('juce.flac', 44100)]])),
       deviceService: { listDevices: () => [] },
@@ -4315,10 +4504,12 @@ describe('Audio Core sample-rate regression guard', () => {
       },
     });
 
-    expect(failingBridge.startOptions).toMatchObject({
-      ...expectedStart,
-      useJuceOutput: true,
-    });
+    expect(failingBridges.map((bridge) => bridge.startOptions)).toEqual(
+      Array.from(
+        { length: expectedJuceAttempts },
+        () => expect.objectContaining({ ...expectedStart, useJuceOutput: true }),
+      ),
+    );
     expect(nativeBridge.startOptions).toMatchObject({
       ...expectedStart,
       useJuceOutput: false,
@@ -4392,10 +4583,14 @@ describe('Audio Core sample-rate regression guard', () => {
   });
 
   it('uses safe shared output when JUCE output and its native retry both fail', async () => {
-    const failingJuceBridge = new ConfigurableStartupFailingBridge('JUCE output open failed');
+    const failingJuceBridges = [
+      new ConfigurableStartupFailingBridge('JUCE output open failed'),
+      new ConfigurableStartupFailingBridge('JUCE output open failed'),
+      new ConfigurableStartupFailingBridge('JUCE output open failed'),
+    ];
     const failingNativeBridge = new ConfigurableStartupFailingBridge('native output open failed');
     const safeBridge = new FakeBridge(48000, { backendImpl: 'legacy-wasapi-shared' });
-    const bridges = [failingJuceBridge, failingNativeBridge, safeBridge];
+    const bridges = [...failingJuceBridges, failingNativeBridge, safeBridge];
     const reportAudioError = vi.fn();
     const session = createAudioSessionForTest({
       decoder: new FakeDecoder(new Map([['juce-safe.flac', probe('juce-safe.flac', 44100)]])),
@@ -4411,7 +4606,11 @@ describe('Audio Core sample-rate regression guard', () => {
       output: { outputMode: 'shared', useJuceOutput: true },
     });
 
-    expect(failingJuceBridge.startOptions).toMatchObject({ useJuceOutput: true });
+    expect(failingJuceBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ useJuceOutput: true }),
+      expect.objectContaining({ useJuceOutput: true }),
+      expect.objectContaining({ useJuceOutput: true }),
+    ]);
     expect(failingNativeBridge.startOptions).toMatchObject({ useJuceOutput: false });
     expect(safeBridge.startOptions).toMatchObject({
       exclusive: false,
@@ -4539,9 +4738,13 @@ describe('Audio Core sample-rate regression guard', () => {
   it('falls back to shared when exclusive resume after pause release cannot reclaim the device', async () => {
     const decoder = new FakeDecoder(new Map([['song.flac', probe('song.flac', 44100)]]));
     const firstBridge = new GracefulFakeBridge(44100);
-    const refusedExclusiveBridge = new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: exclusive_denied');
+    const refusedExclusiveBridges = [
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: exclusive_denied'),
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: exclusive_denied'),
+      new ConfigurableStartupFailingBridge('WASAPI exclusive open failed: exclusive_denied'),
+    ];
     const sharedBridge = new FakeBridge(48000);
-    const bridges = [firstBridge, refusedExclusiveBridge, sharedBridge];
+    const bridges = [firstBridge, ...refusedExclusiveBridges, sharedBridge];
     const session = createAudioSessionForTest({
       decoder,
       deviceService: { listDevices: () => [] },
@@ -4551,7 +4754,12 @@ describe('Audio Core sample-rate regression guard', () => {
 
     await session.playLocalFile({
       filePath: 'song.flac',
-      output: { outputMode: 'exclusive', useJuceOutput: false, releaseExclusiveOnPauseExperimentalEnabled: true },
+      output: {
+        outputMode: 'exclusive',
+        useJuceOutput: false,
+        releaseExclusiveOnPauseExperimentalEnabled: true,
+        exclusiveInstabilityFallbackEnabled: true,
+      },
     });
     firstBridge.positionSeconds = 22.25;
     await session.pause();
@@ -4562,7 +4770,11 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(resumedStatus.outputMode).toBe('shared');
     expect(resumedStatus.warnings).toContain('exclusive_output_fell_back_to_shared');
     expect(resumedStatus.warnings).toContain('exclusive_resume_fell_back_to_shared');
-    expect(refusedExclusiveBridge.startOptions).toMatchObject({ exclusive: true, startSeconds: 22.25 });
+    expect(refusedExclusiveBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ exclusive: true, startSeconds: 22.25 }),
+      expect.objectContaining({ exclusive: true, startSeconds: 22.25 }),
+      expect.objectContaining({ exclusive: true, startSeconds: 22.25 }),
+    ]);
     expect(sharedBridge.startOptions).toMatchObject({ exclusive: false, startSeconds: 22.25 });
   });
 
@@ -5878,6 +6090,55 @@ describe('AudioSession playback watchdog', () => {
     expect(session.getStatus().warnings).toContain('native_output_underrun_detected');
     expect(session.getStatus().warnings).toContain('native_output_stability_recovered:1');
     expect(session.getStatus().warnings).toContain('native_output_buffer_recovered:1024 frames');
+  });
+
+  it('does not fall back to default shared output when ASIO recovery reopen fails', async () => {
+    const activeBridge = new FakeBridge(48000);
+    const failingRecoveryBridges = [
+      new ConfigurableStartupFailingBridge('ASIO open failed: No device found.'),
+      new ConfigurableStartupFailingBridge('ASIO open failed: No device found.'),
+      new ConfigurableStartupFailingBridge('ASIO open failed: No device found.'),
+    ];
+    const safeSharedBridge = new FakeBridge(48000);
+    const bridges = [activeBridge, ...failingRecoveryBridges, safeSharedBridge];
+    const session = createAudioSessionForTest({
+      decoder: new FakeDecoder(new Map([['asio.flac', probe('asio.flac', 48000)]])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => bridges.shift() as unknown as FakeBridge,
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    await session.playLocalFile({
+      filePath: 'asio.flac',
+      trackId: 'track-asio',
+      output: { outputMode: 'asio', deviceIndex: 4, deviceName: 'DAC ASIO' },
+    });
+    activeBridge.emit('position', 48000, {
+      positionFrames: 48000,
+      bufferedFrames: 0,
+      underrunCallbacks: 0,
+      underrunFrames: 0,
+    });
+    activeBridge.emit('position', 48512, {
+      positionFrames: 48512,
+      bufferedFrames: 0,
+      underrunCallbacks: 3,
+      underrunFrames: 512,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(failingRecoveryBridges.map((bridge) => bridge.startOptions)).toEqual([
+      expect.objectContaining({ asio: true, deviceIndex: 4, deviceName: 'DAC ASIO' }),
+      expect.objectContaining({ asio: true, deviceIndex: 4, deviceName: 'DAC ASIO' }),
+      expect.objectContaining({ asio: true, deviceIndex: 4, deviceName: 'DAC ASIO' }),
+    ]);
+    expect(safeSharedBridge.startOptions).toBeNull();
+    expect(session.getStatus().state).toBe('error');
+    expect(session.getStatus().outputMode).toBe('asio');
+    expect(session.getStatus().warnings).toContain('asio_output_fallback_blocked');
+    expect(session.getStatus().warnings).not.toContain('asio_output_fell_back_to_safe_shared');
+    expect(session.getStatus().warnings).not.toContain('shared_output_recovered_safe_mode');
   });
 
   it('moves ASIO underrun recovery through 1024, 2048, then Stable', async () => {
@@ -7414,6 +7675,50 @@ describe('AudioSession graceful output cleanup', () => {
 
     expect(bridges[0].stopGracefully).toHaveBeenCalledWith('replace-output', undefined, true);
     expect(order).toEqual(['create:0', 'stop:0', 'create:1']);
+  });
+
+  it('carries the full current output settings into the next playLocalFile when the next request only changes speed', async () => {
+    const bridges: GracefulFakeBridge[] = [];
+    const session = createAudioSessionForTest({
+      decoder: new FakeDecoder(new Map([
+        ['first.flac', probe('first.flac', 48000)],
+        ['second.flac', probe('second.flac', 96000)],
+      ])),
+      deviceService: { listDevices: () => [] },
+      createBridge: () => {
+        const bridge = new GracefulFakeBridge();
+        bridges.push(bridge);
+        return bridge;
+      },
+      logger: noopLogger,
+      disableWatchdogTimer: true,
+    });
+
+    await session.playLocalFile({
+      filePath: 'first.flac',
+      output: {
+        outputMode: 'exclusive',
+        deviceIndex: 7,
+        deviceName: 'USB DAC',
+        useJuceOutput: false,
+        requestedOutputSampleRate: 48000,
+      },
+    });
+    await session.playLocalFile({
+      filePath: 'second.flac',
+      output: { playbackRate: 1.2, playbackSpeedMode: 'speed' },
+    });
+
+    expect(bridges[1].startOptions).toMatchObject({
+      exclusive: true,
+      asio: false,
+      deviceIndex: 7,
+      deviceName: 'USB DAC',
+      useJuceOutput: false,
+      playbackRate: 1.2,
+      playbackSpeedMode: 'speed',
+    });
+    expect(session.getStatus().outputMode).toBe('exclusive');
   });
 
   it('waits for WASAPI shared host shutdown before starting replacement shared output', async () => {
