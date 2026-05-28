@@ -9,7 +9,10 @@ import type {
   RemoteBackgroundJobKind,
   RemoteBackgroundGlobalStatus,
   RemoteBackgroundJobStatus,
+  RemoteDirectoryPreviewItem,
+  RemoteDirectoryPreviewOptions,
   RemoteLibraryTrack,
+  RemoteMetadataResult,
   RemoteSourceIssueItem,
   RemoteSourceIssueKind,
   RemoteSourceOverview,
@@ -36,6 +39,8 @@ import { SubsonicRemoteSourceAdapter } from './adapters/SubsonicRemoteSourceAdap
 import { RemoteFileSystemAdapter } from './adapters/RemoteFileSystemAdapter';
 import { CoverService } from '../CoverService';
 import { resolveConfiguredCoverCacheDir } from '../CoverCacheManager';
+
+const maxPreviewCoverBytes = 1536 * 1024;
 
 export class RemoteSourceService {
   private readonly store: RemoteLibraryStore;
@@ -225,6 +230,44 @@ export class RemoteSourceService {
     return this.store.lookupTracksBySourcePaths(sourceId, remotePaths);
   }
 
+  async previewDirectoryItems(
+    sourceId: string,
+    items: RemoteDirectoryItem[],
+    options: RemoteDirectoryPreviewOptions = {},
+  ): Promise<RemoteDirectoryPreviewItem[]> {
+    const source = this.requireSource(sourceId);
+    const adapter = this.getAdapter(source.provider);
+    const limit = Math.min(Math.max(1, Math.round(options.limit ?? 12)), 24);
+    const includeCover = options.includeCover !== false;
+    const audioItems = items
+      .filter((item) => item.kind === 'file' && item.audio && typeof item.path === 'string' && item.path.length > 0)
+      .slice(0, limit);
+
+    const results: RemoteDirectoryPreviewItem[] = [];
+    let cursor = 0;
+    const concurrency = Math.min(2, audioItems.length);
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (cursor < audioItems.length) {
+        const item = audioItems[cursor++];
+        const scanItem = {
+          ...item,
+          sourceId: source.id,
+          provider: source.provider,
+          remoteUrlHash: '',
+          stableKey: `${source.id}:${item.path}:${item.etag ?? item.modifiedAt ?? item.sizeBytes ?? 'unknown'}`,
+        };
+
+        const metadata = await adapter.readMetadata({ source, item: scanItem });
+        const cover = includeCover && adapter.readCover ? await adapter.readCover({ source, item: { ...scanItem, metadata } }) : null;
+        results.push(this.toDirectoryPreviewItem(scanItem.path, metadata, cover?.status ?? 'pending', cover?.data ?? null, cover?.mimeType ?? null));
+      }
+    });
+
+    await Promise.all(workers);
+    const order = new Map(audioItems.map((item, index) => [item.path, index]));
+    return results.sort((left, right) => (order.get(left.remotePath) ?? 0) - (order.get(right.remotePath) ?? 0));
+  }
+
   hydrateVisibleTracks(trackIds: string[], options: RemoteVisibleHydrationOptions = {}): LibraryTrack[] {
     const uniqueTrackIds = Array.from(new Set(trackIds.filter((trackId) => typeof trackId === 'string' && trackId.length > 0))).slice(0, 40);
     const tracks = this.store.getTracksByIds(uniqueTrackIds);
@@ -255,6 +298,39 @@ export class RemoteSourceService {
     this.coverService?.close();
     void this.proxy.close();
     this.closeDatabase();
+  }
+
+  private toDirectoryPreviewItem(
+    remotePath: string,
+    metadata: RemoteMetadataResult,
+    coverStatus: RemoteDirectoryPreviewItem['coverStatus'],
+    coverData: Uint8Array | null,
+    coverMimeType: string | null,
+  ): RemoteDirectoryPreviewItem {
+    const coverThumb = coverData?.byteLength && coverData.byteLength <= maxPreviewCoverBytes
+      ? `data:${coverMimeType || 'image/jpeg'};base64,${Buffer.from(coverData).toString('base64')}`
+      : null;
+
+    return {
+      remotePath,
+      title: metadata.title,
+      artist: metadata.artist,
+      album: metadata.album,
+      albumArtist: metadata.albumArtist,
+      trackNo: metadata.trackNo,
+      discNo: metadata.discNo,
+      year: metadata.year,
+      genre: metadata.genre,
+      duration: metadata.duration,
+      codec: metadata.codec,
+      sampleRate: metadata.sampleRate,
+      bitDepth: metadata.bitDepth,
+      bitrate: metadata.bitrate,
+      coverThumb,
+      metadataStatus: metadata.status,
+      coverStatus,
+      fieldSources: metadata.fieldSources,
+    };
   }
 
   private requireSource(sourceId: string) {

@@ -199,6 +199,8 @@ import type {
   BaiduOAuthTokenRequest,
   BaiduOAuthTokenResult,
   RemoteDirectoryItem,
+  RemoteDirectoryPreviewItem,
+  RemoteDirectoryPreviewOptions,
   RemoteBackgroundGlobalStatus,
   RemoteBackgroundJobKind,
   RemoteBackgroundJobStatus,
@@ -514,6 +516,7 @@ export type EchoApi = {
     createStreamUrl: (input: { trackId?: string; sourceId?: string; remotePath?: string; stableKey?: string }) => Promise<RemoteStreamUrlResult>;
     hydrateVisibleTracks: (trackIds: string[], options?: RemoteVisibleHydrationOptions) => Promise<LibraryTrack[]>;
     lookupTracks: (sourceId: string, remotePaths: string[]) => Promise<RemoteTrackLookupItem[]>;
+    previewDirectoryItems?: (sourceId: string, items: RemoteDirectoryItem[], options?: RemoteDirectoryPreviewOptions) => Promise<RemoteDirectoryPreviewItem[]>;
     startBackgroundJobs: (sourceId: string, kinds?: RemoteBackgroundJobKind[]) => Promise<RemoteBackgroundJobStatus>;
     pauseBackgroundJobs: (sourceId: string) => Promise<RemoteBackgroundJobStatus>;
     resumeBackgroundJobs: (sourceId: string) => Promise<RemoteBackgroundJobStatus>;

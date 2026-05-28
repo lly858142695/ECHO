@@ -277,7 +277,7 @@ const airPlayHttpPcmReconnectMs = 120;
 const airPlayRaopLatencies = '1000:1000';
 const airPlayStartupStepTimeoutMs = 10_000;
 const shouldUseAirPlayHttpPcmBridge = (): boolean => process.env.ECHO_AIRPLAY_HTTP_PCM === '1';
-const shouldAdvertiseAirPlay2Experimental = (): boolean => process.env.ECHO_AIRPLAY2_EXPERIMENTAL === '1';
+const shouldAdvertiseAirPlay2Experimental = (): boolean => process.env.ECHO_AIRPLAY2_EXPERIMENTAL !== '0';
 const airPlay2ProbeSourceVersion = '366.0';
 const airPlay2ProbeBodyLimitBytes = 64 * 1024;
 const airPlay2SupportedPcmAudioFormats = 0x3fffc;
@@ -2450,10 +2450,14 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
       return this.handleAirPlay2GetParameterRequest(request, contentTypeText);
     }
 
-    if (method === 'TEARDOWN') {
-      void this.stopAirPlay2SessionResources();
-      this.addDebugEvent('teardown', body.length > 0 ? this.summarizeAirPlay2ProbeBody(path, contentTypeText, body) : 'AirPlay 2 teardown acknowledged', { method, path, statusCode: 200 });
+    if (method === 'PAUSE') {
+      await this.pauseAirPlay2ActivePlayback('AirPlay 2 PAUSE acknowledged');
+      this.addDebugEvent('pause', 'AirPlay 2 PAUSE acknowledged', { method, path, statusCode: 200 });
       return { statusCode: 200 };
+    }
+
+    if (method === 'TEARDOWN') {
+      return this.handleAirPlay2TeardownRequest(request, contentTypeText);
     }
 
     if (method === 'POST' && path === '/pair-setup-pin') {
@@ -2667,12 +2671,71 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
     };
   }
 
+  private async handleAirPlay2TeardownRequest(
+    request: AirPlay2ProbeRequest,
+    contentType: string | null,
+  ): Promise<AirPlay2ProbeResponse> {
+    const { method, path, body } = request;
+    const setupStreams = body.length > 0 ? parseAirPlay2SetupStreams(body) : { streams: [], error: null };
+    if (setupStreams.error && body.subarray(0, 8).toString('ascii') === 'bplist00') {
+      this.addDebugEvent('teardown', `AirPlay 2 teardown plist parse failed: ${setupStreams.error}`, {
+        method,
+        path,
+        statusCode: null,
+      });
+    }
+
+    if (setupStreams.streams.length > 0) {
+      await this.pauseAirPlay2ActivePlayback(
+        `AirPlay 2 TEARDOWN paused active stream; ${setupStreams.streams.map(summarizeAirPlay2SetupStream).join('; ')}`,
+      );
+      this.addDebugEvent('teardown', 'AirPlay 2 TEARDOWN acknowledged as pause; stream ports retained', {
+        method,
+        path,
+        statusCode: 200,
+      });
+      return { statusCode: 200 };
+    }
+
+    await this.stopAirPlay2SessionResources();
+    await this.stopAirPlay2ActivePlayback('AirPlay 2 TEARDOWN disconnected');
+    this.addDebugEvent('teardown', body.length > 0 ? this.summarizeAirPlay2ProbeBody(path, contentType, body) : 'AirPlay 2 teardown disconnected', {
+      method,
+      path,
+      statusCode: 200,
+    });
+    return { statusCode: 200 };
+  }
+
   private async handleAirPlay2StreamSetup(
     request: AirPlay2ProbeRequest,
     streamInfo: AirPlay2SetupStreamInfo | null,
   ): Promise<AirPlay2ProbeResponse> {
-    const pcmFormat = resolveAirPlay2PcmFormat(streamInfo);
-    const alacFormat = resolveAirPlay2AlacFormat(streamInfo);
+    if (streamInfo?.type !== null && streamInfo?.type !== 96) {
+      this.addDebugEvent(
+        'setup',
+        `AirPlay 2 stream setup rejected; ${summarizeAirPlay2SetupStream(streamInfo)}; supported path requires realtime stream type 96`,
+        { method: request.method, path: request.path, statusCode: 501 },
+      );
+      return { statusCode: 501 };
+    }
+
+    const compressionType = streamInfo?.compressionType ?? null;
+    let pcmFormat = resolveAirPlay2PcmFormat(streamInfo);
+    let alacFormat = resolveAirPlay2AlacFormat(streamInfo);
+    if (compressionType === 1) {
+      alacFormat = null;
+    } else if (compressionType === 2) {
+      pcmFormat = null;
+    } else if (compressionType !== null) {
+      this.addDebugEvent(
+        'setup',
+        `AirPlay 2 stream setup rejected; ${summarizeAirPlay2SetupStream(streamInfo)}; supported path requires LPCM ct=1 or ALAC ct=2`,
+        { method: request.method, path: request.path, statusCode: 501 },
+      );
+      return { statusCode: 501 };
+    }
+
     if (!pcmFormat && !alacFormat) {
       this.addDebugEvent(
         'setup',
@@ -3824,6 +3887,56 @@ export class AirPlayReceiverSpikeService extends EventEmitter<AirPlayReceiverEve
     if (reason) {
       this.addDebugEvent('clear', reason);
     }
+  }
+
+  private async pauseAirPlay2ActivePlayback(reason: string): Promise<void> {
+    this.clearHttpPcmReconnectTimer();
+    this.destroyHttpPcmPlayback();
+    if (this.pcmStream) {
+      this.pcmStream.destroy();
+    }
+    this.pcmStream = null;
+    this.pcmPlaybackStarted = false;
+    this.setPositionAnchor(this.estimatePosition(this.status));
+
+    const currentSourceId = this.currentSourceId;
+    if (currentSourceId && this.audioSession.getStatus().currentFilePath === currentSourceId) {
+      await Promise.resolve(this.audioSession.pause()).catch((error) => {
+        this.addDebugEvent('pause', error instanceof Error ? error.message : String(error));
+      });
+    }
+
+    this.setStatus({
+      state: this.status.enabled ? 'paused' : 'disabled',
+      positionSeconds: this.estimatePosition({ ...this.status, state: 'paused' }),
+      error: null,
+    });
+    if (reason) {
+      this.addDebugEvent('pause', reason);
+    }
+  }
+
+  private async stopAirPlay2ActivePlayback(reason: string): Promise<void> {
+    const currentSourceId = this.currentSourceId;
+    if (currentSourceId && this.audioSession.getStatus().currentFilePath === currentSourceId) {
+      await Promise.resolve(this.audioSession.stop()).catch((error) => {
+        this.addDebugEvent('stop', error instanceof Error ? error.message : String(error));
+      });
+    }
+
+    this.ignorePcmUntilNextStream = true;
+    this.clearCurrentSession(reason);
+    this.setStatus({
+      state: this.status.enabled ? 'idle' : 'disabled',
+      currentClient: null,
+      currentSourceId: null,
+      metadata: null,
+      currentLyricLine: null,
+      artworkUrl: null,
+      positionSeconds: 0,
+      durationSeconds: 0,
+      error: null,
+    });
   }
 
   private sendRemoteCommand(command: 'play' | 'pause' | 'stop'): void {

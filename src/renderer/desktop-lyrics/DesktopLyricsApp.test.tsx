@@ -1,12 +1,76 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, render, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectSessionStatus } from '../../shared/types/connect';
 import {
+  DesktopLyricsApp,
   getInterpolatedPositionMs,
   getDesktopLyricsTextFitScale,
   hqPlayerConnectStatusToDesktopLyricsClock,
   shouldShowDesktopLyricsText,
 } from './DesktopLyricsApp';
+
+const makeDesktopLyricsSettings = (locked: boolean) => ({
+  desktopLyricsEnabled: true,
+  desktopLyricsLocked: locked,
+  desktopLyricsFontSizePx: 34,
+  desktopLyricsScalePercent: 100,
+  desktopLyricsFontFamily: 'Microsoft YaHei',
+  desktopLyricsFontFilePath: null,
+  desktopLyricsColor: '#FFFFFF',
+  desktopLyricsStrokeColor: '#111827',
+  desktopLyricsOpacityPercent: 96,
+  desktopLyricsRomanizationEnabled: true,
+  desktopLyricsTranslationEnabled: true,
+  desktopLyricsBounds: null,
+});
+
+const renderDesktopLyricsApp = (locked: boolean): { setMousePassthrough: ReturnType<typeof vi.fn> } => {
+  const settings = makeDesktopLyricsSettings(locked);
+  const setMousePassthrough = vi.fn();
+
+  window.echo = {
+    app: {
+      getSettings: vi.fn().mockResolvedValue(settings),
+      loadFontFile: vi.fn(),
+    },
+    connect: {
+      getStatus: vi.fn().mockResolvedValue(null),
+      onStatus: vi.fn(() => () => undefined),
+    },
+    desktopLyrics: {
+      getLastAudioStatus: vi.fn().mockResolvedValue(null),
+      getState: vi.fn().mockResolvedValue({
+        visible: true,
+        locked,
+        bounds: null,
+        settings,
+      }),
+      onAudioStatus: vi.fn(() => () => undefined),
+      onStateChanged: vi.fn(() => () => undefined),
+      setMousePassthrough,
+    },
+    playback: {
+      getStatus: vi.fn().mockResolvedValue({
+        currentTrackId: null,
+        filePath: null,
+        state: 'stopped',
+        positionMs: 0,
+        durationMs: 0,
+      }),
+    },
+  } as unknown as typeof window.echo;
+
+  render(<DesktopLyricsApp />);
+
+  return { setMousePassthrough };
+};
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  window.echo = undefined;
+});
 
 describe('desktop lyrics text fitting', () => {
   it('hides text that would overflow the desktop lyrics window', () => {
@@ -148,5 +212,16 @@ describe('desktop lyrics text fitting', () => {
     } finally {
       nowSpy.mockRestore();
     }
+  });
+
+  it('keeps mouse passthrough enabled when locked even after mouse movement', async () => {
+    const { setMousePassthrough } = renderDesktopLyricsApp(true);
+
+    await waitFor(() => expect(setMousePassthrough).toHaveBeenCalledWith(true));
+    setMousePassthrough.mockClear();
+
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 10, clientY: 10 }));
+
+    expect(setMousePassthrough).not.toHaveBeenCalledWith(false);
   });
 });

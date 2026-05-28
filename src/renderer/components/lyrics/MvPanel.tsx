@@ -380,6 +380,23 @@ const shouldFollowMusicProgress = (
   target: { provider: StreamingProviderName; providerTrackId: string } | null | undefined,
 ): boolean => settings.restartAudioOnLoad === true || isDirectBilibiliStreamingVideo(video, target);
 
+const snapshotTrackIdForTrack = (currentTrack: LibraryTrack | null | undefined, fallbackTrackId: string): string => {
+  if (currentTrack?.mediaType === 'streaming') {
+    const stableKey = currentTrack.stableKey?.trim();
+    if (stableKey) {
+      return stableKey;
+    }
+
+    const provider = currentTrack.provider?.trim();
+    const providerTrackId = currentTrack.providerTrackId?.trim();
+    if (provider && providerTrackId) {
+      return `streaming:${provider}:${providerTrackId}`;
+    }
+  }
+
+  return currentTrack?.id ?? fallbackTrackId;
+};
+
 const mvSyncTrackingIntervalForSettings = (
   settings: MvSettings,
   video: TrackVideo | null,
@@ -417,7 +434,7 @@ const snapshotSearchRequestForTrack = ({
     'Unknown Artist';
 
   return {
-    trackId: currentTrack?.id ?? trackId,
+    trackId: snapshotTrackIdForTrack(currentTrack, trackId),
     title: searchTitle,
     artist: searchArtist,
     album: currentTrack?.album?.trim() || null,

@@ -52,6 +52,33 @@ const isStreamingProviderName = (provider: string | null | undefined): provider 
   streamingProviderNames.includes(provider as StreamingProviderName);
 const isReceiverTrackId = (value: string | null | undefined): value is string =>
   Boolean(value?.startsWith('dlna-receiver:') || value?.startsWith('airplay-receiver:'));
+const stableStreamingTrackId = (track: LibraryTrack | null | undefined): string | null => {
+  if (track?.mediaType !== 'streaming') {
+    return null;
+  }
+
+  const stableKey = track.stableKey?.trim();
+  if (stableKey) {
+    return stableKey;
+  }
+
+  const provider = track.provider?.trim();
+  const providerTrackId = track.providerTrackId?.trim();
+  return provider && providerTrackId ? `streaming:${provider}:${providerTrackId}` : null;
+};
+const trackMatchesPlaybackIdentity = (track: LibraryTrack | null | undefined, identity: string | null | undefined): boolean => {
+  const normalizedIdentity = identity?.trim();
+  if (!track || !normalizedIdentity) {
+    return false;
+  }
+
+  return (
+    track.id === normalizedIdentity ||
+    track.path === normalizedIdentity ||
+    track.stableKey?.trim() === normalizedIdentity ||
+    stableStreamingTrackId(track) === normalizedIdentity
+  );
+};
 const activeDownloadStatuses = new Set<DownloadJobStatus>([
   'queued',
   'probing',
@@ -602,6 +629,18 @@ export const PlayerBar = ({
     return false;
   }, []);
 
+  const resolveQueueTrackIdForPlaybackIdentity = useCallback(
+    (identity: string | null | undefined): string | null => {
+      const normalizedIdentity = identity?.trim();
+      if (!normalizedIdentity) {
+        return null;
+      }
+
+      return queue.tracks.find((track) => trackMatchesPlaybackIdentity(track, normalizedIdentity))?.id ?? normalizedIdentity;
+    },
+    [queue.tracks],
+  );
+
   const applyAudioStatus = useCallback(
     (nextAudioStatus: AudioStatus): boolean => {
       if (shouldIgnoreAudioStatus(nextAudioStatus)) {
@@ -610,7 +649,7 @@ export const PlayerBar = ({
 
       setAudioStatus(nextAudioStatus);
       if (nextAudioStatus.currentTrackId) {
-        setQueueCurrentTrackId(nextAudioStatus.currentTrackId);
+        setQueueCurrentTrackId(resolveQueueTrackIdForPlaybackIdentity(nextAudioStatus.currentTrackId));
       }
       setPlaybackStatus((current) =>
         current
@@ -627,7 +666,7 @@ export const PlayerBar = ({
       setError(formatAudioHostError(nextAudioStatus.error));
       return true;
     },
-    [setQueueCurrentTrackId, shouldIgnoreAudioStatus],
+    [resolveQueueTrackIdForPlaybackIdentity, setQueueCurrentTrackId, shouldIgnoreAudioStatus],
   );
 
   const applySharedPlaybackStatus = useCallback(
@@ -663,12 +702,12 @@ export const PlayerBar = ({
         snapshot.playbackStatus?.currentTrackId ??
         null;
       if (nextTrackId) {
-        setQueueCurrentTrackId(nextTrackId);
+        setQueueCurrentTrackId(resolveQueueTrackIdForPlaybackIdentity(nextTrackId));
       }
 
       setError(formatAudioHostError(snapshot.error));
     },
-    [applyAudioStatus, setQueueCurrentTrackId],
+    [applyAudioStatus, resolveQueueTrackIdForPlaybackIdentity, setQueueCurrentTrackId],
   );
 
   const refreshStatus = useCallback(async (): Promise<void> => {
@@ -678,19 +717,19 @@ export const PlayerBar = ({
   const audioStatusMatchesPlaybackStatus = audioStatus ? isAudioStatusForPlayback(audioStatus, playbackStatus) : false;
   const statusTrackId = playbackStatus?.currentTrackId ?? (audioStatusMatchesPlaybackStatus ? audioStatus?.currentTrackId ?? null : null);
   const trackId = queue.currentTrackId ?? statusTrackId;
-  const currentTrack = queue.currentTrack ?? queue.tracks.find((track) => track.id === trackId) ?? null;
+  const currentTrack = queue.currentTrack ?? queue.tracks.find((track) => trackMatchesPlaybackIdentity(track, trackId)) ?? null;
   const playbackStatusMatchesCurrentTrack =
     playbackStatus !== null &&
     (!currentTrack ||
-      Boolean(currentTrack.id && playbackStatus.currentTrackId === currentTrack.id) ||
-      Boolean(currentTrack.path && playbackStatus.filePath === currentTrack.path));
+      trackMatchesPlaybackIdentity(currentTrack, playbackStatus.currentTrackId) ||
+      trackMatchesPlaybackIdentity(currentTrack, playbackStatus.filePath));
   const currentPlaybackStatus = playbackStatusMatchesCurrentTrack ? playbackStatus : null;
   const audioStatusMatchesCurrentTrack =
     audioStatus != null &&
     audioStatusMatchesVisualIntent(audioStatus, sharedPlaybackStatus.playbackVisualIntent) &&
     (currentTrack
-      ? Boolean(currentTrack.id && audioStatus?.currentTrackId === currentTrack.id) ||
-        Boolean(currentTrack.path && audioStatus?.currentFilePath === currentTrack.path)
+      ? trackMatchesPlaybackIdentity(currentTrack, audioStatus.currentTrackId) ||
+        trackMatchesPlaybackIdentity(currentTrack, audioStatus.currentFilePath)
       : audioStatusMatchesPlaybackStatus);
   const playbackAudioStatus = audioStatusMatchesCurrentTrack ? audioStatus : null;
   const baseState = playbackAudioStatus?.state ?? currentPlaybackStatus?.state ?? 'idle';
@@ -2038,13 +2077,16 @@ export const PlayerBar = ({
     trackId,
   ]);
 
-  const currentQueueTrackIdForEndedPlayback = queue.currentTrack?.id ?? queue.currentTrackId ?? null;
+  const currentQueueTrackForEndedPlayback = queue.currentTrack ?? null;
+  const currentQueueTrackIdForEndedPlayback = currentQueueTrackForEndedPlayback?.id ?? queue.currentTrackId ?? null;
   const currentQueueFilePathForEndedPlayback = queue.currentTrack?.path ?? null;
   const currentQueueIdForEndedPlayback = queue.currentQueueId;
   const playNextFromQueue = queue.playNext;
 
   useEffect(() => {
     const endedMatchesCurrent =
+      trackMatchesPlaybackIdentity(currentQueueTrackForEndedPlayback, endedStatusTrackId) ||
+      trackMatchesPlaybackIdentity(currentQueueTrackForEndedPlayback, endedStatusFilePath) ||
       Boolean(endedStatusTrackId && currentQueueTrackIdForEndedPlayback && endedStatusTrackId === currentQueueTrackIdForEndedPlayback) ||
       Boolean(endedStatusFilePath && currentQueueFilePathForEndedPlayback && endedStatusFilePath === currentQueueFilePathForEndedPlayback) ||
       (!currentQueueTrackIdForEndedPlayback && !currentQueueFilePathForEndedPlayback);
@@ -2070,6 +2112,7 @@ export const PlayerBar = ({
   }, [
     currentQueueFilePathForEndedPlayback,
     currentQueueIdForEndedPlayback,
+    currentQueueTrackForEndedPlayback,
     currentQueueTrackIdForEndedPlayback,
     endedStatusDurationSeconds,
     endedStatusFilePath,

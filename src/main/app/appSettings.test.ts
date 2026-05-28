@@ -651,6 +651,23 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ spotifyRedirectUri: 'https://127.0.0.1:43901/custom/callback' }).spotifyRedirectUri).toBeNull();
   });
 
+  it('normalizes optional TIDAL developer app settings', async () => {
+    const { defaultTidalClientId, normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).tidalClientId).toBe(defaultTidalClientId);
+    expect(normalizeSettings({}).tidalClientSecret).toBeNull();
+    expect(normalizeSettings({}).tidalCountryCode).toBe('US');
+    expect(normalizeSettings({ tidalClientId: '  vmtQLf79BHl9YgUT  ' }).tidalClientId).toBe('vmtQLf79BHl9YgUT');
+    expect(normalizeSettings({ tidalClientId: 'bad id!' }).tidalClientId).toBe(defaultTidalClientId);
+    expect(normalizeSettings({ tidalClientSecret: '  tidal-secret_123  ' }).tidalClientSecret).toBe('tidal-secret_123');
+    expect(normalizeSettings({ tidalClientSecret: 'bad secret with spaces' }).tidalClientSecret).toBeNull();
+    expect(normalizeSettings({ tidalCountryCode: ' hk ' }).tidalCountryCode).toBe('HK');
+    expect(normalizeSettings({ tidalCountryCode: 'hkg' }).tidalCountryCode).toBe('US');
+    expect(normalizeSettings({ tidalRedirectUri: ' http://127.0.0.1:43880/tidal/callback ' }).tidalRedirectUri).toBe(
+      'http://127.0.0.1:43880/tidal/callback',
+    );
+  });
+
   it('keeps Connect receiver autostart disabled until explicitly enabled', async () => {
     const { normalizeSettings } = await import('./appSettings');
 

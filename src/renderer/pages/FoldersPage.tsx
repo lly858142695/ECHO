@@ -24,7 +24,7 @@ import type {
   LibrarySort,
   LibraryTrack,
 } from '../../shared/types/library';
-import type { RemoteDirectoryItem, RemoteSource, RemoteTrackLookupItem } from '../../shared/types/remoteSources';
+import type { RemoteDirectoryItem, RemoteDirectoryPreviewItem, RemoteSource, RemoteTrackLookupItem } from '../../shared/types/remoteSources';
 import { TrackContextMenu } from '../components/library/TrackContextMenu';
 import type { TrackMenuAction } from '../components/library/TrackContextMenu';
 import { OsuTimingPanel } from '../components/library/OsuTimingPanel';
@@ -294,7 +294,12 @@ const remoteCredentialHintFor = (source: RemoteSource): string | null => {
   return null;
 };
 
-const remoteTrackFromItem = (source: RemoteSource, item: RemoteDirectoryItem, indexedTrack?: RemoteTrackLookupItem): LibraryTrack => {
+const remoteTrackFromItem = (
+  source: RemoteSource,
+  item: RemoteDirectoryItem,
+  indexedTrack?: RemoteTrackLookupItem,
+  previewTrack?: RemoteDirectoryPreviewItem,
+): LibraryTrack => {
   if (indexedTrack) {
     return {
       id: indexedTrack.trackId,
@@ -332,6 +337,11 @@ const remoteTrackFromItem = (source: RemoteSource, item: RemoteDirectoryItem, in
     };
   }
 
+  const previewTitle = previewTrack?.title?.trim();
+  const previewArtist = previewTrack?.artist?.trim();
+  const previewAlbum = previewTrack?.album?.trim();
+  const previewAlbumArtist = previewTrack?.albumArtist?.trim();
+
   return {
     id: `remote-browser:${source.id}:${item.path}`,
     mediaType: 'remote',
@@ -342,28 +352,29 @@ const remoteTrackFromItem = (source: RemoteSource, item: RemoteDirectoryItem, in
     provider: source.provider,
     remotePath: item.path,
     stableKey: `${source.id}:${item.path}:${item.etag ?? item.modifiedAt ?? item.sizeBytes ?? 'unknown'}`,
-    title: remoteTitleForAudioItem(item),
-    artist: 'Unknown Artist',
-    album: source.displayName,
-    albumArtist: 'Unknown Artist',
-    trackNo: null,
-    discNo: null,
-    year: null,
-    genre: null,
-    duration: 0,
-    codec: remoteAudioFormatFor(item).toLowerCase(),
-    sampleRate: null,
-    bitDepth: null,
-    bitrate: null,
+    title: previewTitle || remoteTitleForAudioItem(item),
+    artist: previewArtist || 'Unknown Artist',
+    album: previewAlbum || source.displayName,
+    albumArtist: previewAlbumArtist || previewArtist || 'Unknown Artist',
+    trackNo: previewTrack?.trackNo ?? null,
+    discNo: previewTrack?.discNo ?? null,
+    year: previewTrack?.year ?? null,
+    genre: previewTrack?.genre ?? null,
+    duration: previewTrack?.duration ?? 0,
+    codec: previewTrack?.codec ?? remoteAudioFormatFor(item).toLowerCase(),
+    sampleRate: previewTrack?.sampleRate ?? null,
+    bitDepth: previewTrack?.bitDepth ?? null,
+    bitrate: previewTrack?.bitrate ?? null,
     coverId: null,
-    coverThumb: null,
-    metadataStatus: 'pending',
-    embeddedMetadataStatus: 'pending',
-    embeddedCoverStatus: 'pending',
+    coverThumb: previewTrack?.coverThumb ?? null,
+    metadataStatus: previewTrack?.metadataStatus ?? 'pending',
+    embeddedMetadataStatus: previewTrack?.metadataStatus === 'ok' ? 'present' : 'pending',
+    embeddedCoverStatus: previewTrack?.coverStatus === 'ok' ? 'present' : 'pending',
     fieldSources: {
       title: 'remote-browser',
       artist: 'remote-browser',
       album: 'remote-source',
+      ...(previewTrack?.fieldSources ?? {}),
     },
   };
 };
@@ -405,6 +416,7 @@ export const FoldersPage = (): JSX.Element => {
   const [selectedRemote, setSelectedRemote] = useState<RemoteFolderTarget | null>(null);
   const [remoteItems, setRemoteItems] = useState<RemoteDirectoryItem[]>([]);
   const [remoteIndexedTracks, setRemoteIndexedTracks] = useState<Record<string, RemoteTrackLookupItem>>({});
+  const [remotePreviewTracks, setRemotePreviewTracks] = useState<Record<string, RemoteDirectoryPreviewItem>>({});
   const [isLoadingRemoteSources, setIsLoadingRemoteSources] = useState(false);
   const [isLoadingRemoteDirectory, setIsLoadingRemoteDirectory] = useState(false);
   const trackRequestIdRef = useRef(0);
@@ -432,7 +444,7 @@ export const FoldersPage = (): JSX.Element => {
 
     const normalizedSearch = search.toLocaleLowerCase();
     const nextTracks = remoteAudioItems
-      .map((item) => remoteTrackFromItem(selectedRemoteSource, item, remoteIndexedTracks[item.path]))
+      .map((item) => remoteTrackFromItem(selectedRemoteSource, item, remoteIndexedTracks[item.path], remotePreviewTracks[item.path]))
       .filter((track) =>
         !normalizedSearch ||
         track.title.toLocaleLowerCase().includes(normalizedSearch) ||
@@ -455,7 +467,7 @@ export const FoldersPage = (): JSX.Element => {
     }
 
     return nextTracks.sort((left, right) => left.title.localeCompare(right.title));
-  }, [remoteAudioItems, remoteIndexedTracks, search, selectedRemoteSource, sort]);
+  }, [remoteAudioItems, remoteIndexedTracks, remotePreviewTracks, search, selectedRemoteSource, sort]);
   const folderSource = useMemo(
     () =>
       selected
@@ -565,6 +577,7 @@ export const FoldersPage = (): JSX.Element => {
       if (!target || !remoteApi) {
         setRemoteItems([]);
         setRemoteIndexedTracks({});
+        setRemotePreviewTracks({});
         return;
       }
 
@@ -575,11 +588,18 @@ export const FoldersPage = (): JSX.Element => {
         const items = await remoteApi.browse(target.sourceId, target.path);
         const audioPaths = items.filter((item) => item.audio).map((item) => item.path);
         const indexed = audioPaths.length > 0 ? await remoteApi.lookupTracks(target.sourceId, audioPaths) : [];
+        const indexedByPath = Object.fromEntries(indexed.map((item) => [item.remotePath, item]));
+        const previewItems = items.filter((item) => item.audio && !indexedByPath[item.path]);
+        const previews = previewItems.length > 0 && remoteApi.previewDirectoryItems
+          ? await remoteApi.previewDirectoryItems(target.sourceId, previewItems, { includeCover: true, limit: 12 }).catch(() => [])
+          : [];
         setRemoteItems(items);
-        setRemoteIndexedTracks(Object.fromEntries(indexed.map((item) => [item.remotePath, item])));
+        setRemoteIndexedTracks(indexedByPath);
+        setRemotePreviewTracks(Object.fromEntries(previews.map((item) => [item.remotePath, item])));
       } catch (remoteError) {
         setRemoteItems([]);
         setRemoteIndexedTracks({});
+        setRemotePreviewTracks({});
         setError(remoteError instanceof Error ? remoteError.message : '读取网盘目录失败。');
       } finally {
         setIsLoadingRemoteDirectory(false);

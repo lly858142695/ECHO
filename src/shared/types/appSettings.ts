@@ -194,6 +194,7 @@ export type AppSettings = {
   spotifyClientId?: string | null;
   spotifyRedirectUri?: string | null;
   tidalClientId?: string | null;
+  tidalClientSecret?: string | null;
   tidalRedirectUri?: string | null;
   tidalCountryCode?: string | null;
   downloadsFeatureUnlocked?: boolean;

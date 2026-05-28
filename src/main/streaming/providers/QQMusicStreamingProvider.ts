@@ -34,6 +34,37 @@ const qqHeaders = (cookie?: string): Record<string, string> => ({
   ...(cookie ? { Cookie: cookie } : {}),
 });
 
+const parseJsonText = (raw: string): unknown => JSON.parse(raw.trim().replace(/^[^(]*\((.*)\);?$/s, '$1')) as unknown;
+
+const fetchJsonWithRawReferer = async (url: string, headers: Record<string, string>, timeoutMs: number): Promise<unknown> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json,text/plain,*/*',
+        ...headers,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`request_failed:${response.status}`);
+    }
+
+    return parseJsonText(await response.text());
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const isInvalidRefererResponse = (value: unknown): boolean => {
+  const body = asRecord(value);
+  return /invalid referer/iu.test(text(body.message) ?? text(body.msg) ?? '');
+};
+
 const accountStatus = (): AccountStatus => getAccountService().getStatus(provider);
 
 const accountCookie = (): string | undefined => getAccountService().getCredentials(provider).cookie?.trim() || undefined;
@@ -960,15 +991,22 @@ export class QQMusicStreamingProvider implements StreamingProvider {
       song_begin: String(begin),
       song_num: String(pageSize),
     });
-    const data = asRecord(
-      await jsonFetch(`https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?${params.toString()}`, {
+    const playlistDetailUrl = `https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?${params.toString()}`;
+    const playlistDetailHeaders = {
+      ...qqHeaders(accountCookie()),
+      Referer: qqLegacyApiReferer,
+    };
+    let data = asRecord(
+      await jsonFetch(playlistDetailUrl, {
         headers: {
-          ...qqHeaders(accountCookie()),
-          Referer: qqLegacyApiReferer,
+          ...playlistDetailHeaders,
         },
         timeoutMs: 12_000,
       }),
     );
+    if (isInvalidRefererResponse(data)) {
+      data = asRecord(await fetchJsonWithRawReferer(playlistDetailUrl, playlistDetailHeaders, 12_000));
+    }
     const cd = asRecord((Array.isArray(data.cdlist) ? data.cdlist : [])[0]);
     if (Object.keys(cd).length === 0) {
       throw new Error(text(data.message) ?? text(data.msg) ?? 'QQ Music playlist detail is empty.');

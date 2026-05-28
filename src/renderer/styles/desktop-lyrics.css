@@ -47,6 +47,11 @@ body:has(.desktop-lyrics-app),
   -webkit-app-region: drag;
 }
 
+.desktop-lyrics-app[data-locked="true"] .desktop-lyrics-lines {
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+}
+
 .desktop-lyrics-lines strong,
 .desktop-lyrics-lines span {
   display: block;

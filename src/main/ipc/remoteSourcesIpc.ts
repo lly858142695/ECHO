@@ -5,6 +5,8 @@ import type {
   BaiduOAuthLoginRequest,
   BaiduOAuthTokenRequest,
   RemoteBackgroundJobKind,
+  RemoteDirectoryItem,
+  RemoteDirectoryPreviewOptions,
   RemoteSourceIssueKind,
   RemoteRuntimeLimits,
   RemoteSourceInput,
@@ -65,6 +67,43 @@ const normalizeRemotePaths = (value: unknown): string[] => {
   }
 
   return Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()))).slice(0, 200);
+};
+
+const normalizePreviewDirectoryItems = (value: unknown): RemoteDirectoryItem[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item)))
+    .map((item): RemoteDirectoryItem => {
+      const path = requireText(item.path, 'path');
+      return {
+        sourceId: optionalText(item.sourceId) ?? '',
+        provider: providers.has(item.provider as RemoteSourceProvider) ? (item.provider as RemoteSourceProvider) : 'webdav',
+        path,
+        name: optionalText(item.name) ?? path,
+        kind: item.kind === 'directory' ? 'directory' : 'file',
+        sizeBytes: typeof item.sizeBytes === 'number' && Number.isFinite(item.sizeBytes) ? item.sizeBytes : null,
+        modifiedAt: optionalText(item.modifiedAt),
+        etag: optionalText(item.etag),
+        contentType: optionalText(item.contentType),
+        audio: item.audio === true,
+      };
+    })
+    .slice(0, 40);
+};
+
+const normalizeDirectoryPreviewOptions = (value: unknown): RemoteDirectoryPreviewOptions => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const input = value as Record<string, unknown>;
+  return {
+    limit: typeof input.limit === 'number' && Number.isFinite(input.limit) ? input.limit : undefined,
+    includeCover: typeof input.includeCover === 'boolean' ? input.includeCover : undefined,
+  };
 };
 
 const normalizeVisibleHydrationOptions = (value: unknown): RemoteVisibleHydrationOptions => {
@@ -286,6 +325,13 @@ export const registerRemoteSourcesIpc = (): void => {
   );
   ipcMain.handle(IpcChannels.RemoteSourcesLookupTracks, (_event, sourceId: unknown, remotePaths: unknown) =>
     getRemoteSourceService().lookupTracks(requireText(sourceId, 'sourceId'), normalizeRemotePaths(remotePaths)),
+  );
+  ipcMain.handle(IpcChannels.RemoteSourcesPreviewDirectoryItems, (_event, sourceId: unknown, items: unknown, options: unknown) =>
+    getRemoteSourceService().previewDirectoryItems(
+      requireText(sourceId, 'sourceId'),
+      normalizePreviewDirectoryItems(items),
+      normalizeDirectoryPreviewOptions(options),
+    ),
   );
   ipcMain.handle(IpcChannels.RemoteSourcesStartBackgroundJobs, (_event, sourceId: unknown, kinds?: unknown) =>
     getRemoteSourceService().startBackgroundJobs(requireText(sourceId, 'sourceId'), normalizeJobKinds(kinds)),

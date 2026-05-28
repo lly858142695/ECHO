@@ -634,11 +634,10 @@ describe('AirPlayReceiverSpikeService', () => {
     expect(status.debugEvents.some((event) => event.action === 'mdns' && event.message?.includes('EADDRINUSE'))).toBe(true);
   });
 
-  it('passes the opt-in AirPlay 2 discovery flag to mDNS advertising', async () => {
+  it('advertises AirPlay 2 discovery from the normal AirPlay receiver toggle by default', async () => {
     const mdnsStarts: Array<{ airPlay2Experimental?: boolean; airPlayPort?: number | null; airPlayPublicKey?: string | null }> = [];
     const service = new AirPlayReceiverSpikeService({
       audioSession: new FakeAudioSession() as never,
-      airPlay2Experimental: true,
       getAdvertiseInterfaces: () => [
         { name: 'Wi-Fi', address: '192.168.31.214', mac: '60:CF:84:CB:1E:D1' },
       ],
@@ -703,7 +702,7 @@ describe('AirPlayReceiverSpikeService', () => {
     expect(response.headers.get('content-type')).toContain('text/x-apple-plist+xml');
     expect(body).toContain('<key>sourceVersion</key>');
     expect(body).toContain('366.0');
-    expect(body).toContain('<integer>2255099422312960</integer>');
+    expect(body).toContain('<integer>284774586239488</integer>');
     expect(body).toContain('<key>audioFormats</key>');
     expect(body).toContain('<integer>1572860</integer>');
     expect(body).not.toContain('<integer>67108860</integer>');
@@ -1092,6 +1091,26 @@ describe('AirPlayReceiverSpikeService', () => {
       const controlReadKey = deriveControlKey(sharedSecret, 'Control-Read-Encryption-Key');
       let writeCounter = 0;
       let readCounter = 0;
+      const sendEncryptedRequest = async (
+        method: string,
+        path: string,
+        body: Uint8Array = Buffer.alloc(0),
+        extraHeaders: string[] = [],
+        contentType?: string | null,
+      ): Promise<Buffer> => {
+        socket.write(encryptControlFrame(controlWriteKey, writeCounter, rawRequest(
+          method,
+          path,
+          body,
+          extraHeaders,
+          contentType,
+        )));
+        writeCounter += 1;
+        const encrypted = await readUntil(socket, hasCompleteControlFrame);
+        const response = decryptControlFrame(controlReadKey, readCounter, encrypted);
+        readCounter += 1;
+        return response;
+      };
       socket.write(encryptControlFrame(controlWriteKey, writeCounter, rawRequest(
         'OPTIONS',
         '*',
@@ -1249,24 +1268,52 @@ describe('AirPlayReceiverSpikeService', () => {
       expect(streamSetupEvent?.message).toContain('pcm=44100/16/2');
 
       socket.write(encryptControlFrame(controlWriteKey, writeCounter, rawRequest(
+        'SETUP',
+        `rtsp://127.0.0.1/${Date.now()}`,
+        encodeTestBplist({
+          streams: [
+            {
+              type: 103,
+              ct: 2,
+              audioFormat: 0x40000,
+              spf: 352,
+              shk: setupSharedKey,
+            },
+          ],
+        }),
+        ['CSeq: 19'],
+      )));
+      writeCounter += 1;
+      const encryptedBufferedSetup = await readUntil(socket, hasCompleteControlFrame);
+      const bufferedSetupResponse = decryptControlFrame(controlReadKey, readCounter, encryptedBufferedSetup);
+      readCounter += 1;
+      expect(bufferedSetupResponse.toString('utf8')).toContain('RTSP/1.0 501 Not Implemented');
+      expect(bufferedSetupResponse.toString('utf8')).toContain('CSeq: 19');
+      const bufferedSetupEvent = service.getStatus().debugEvents.find((event) =>
+        event.action === 'setup' && event.message?.includes('supported path requires realtime stream type 96'),
+      );
+      expect(bufferedSetupEvent?.message).toContain('type=103');
+      expect(alacFormats).toHaveLength(0);
+
+      socket.write(encryptControlFrame(controlWriteKey, writeCounter, rawRequest(
         'RECORD',
         '*',
         Buffer.alloc(0),
-        ['CSeq: 19'],
+        ['CSeq: 20'],
       )));
       writeCounter += 1;
       const encryptedRecord = await readUntil(socket, hasCompleteControlFrame);
       const recordResponse = decryptControlFrame(controlReadKey, readCounter, encryptedRecord);
       readCounter += 1;
       expect(recordResponse.toString('utf8')).toContain('RTSP/1.0 200 OK');
-      expect(recordResponse.toString('utf8')).toContain('CSeq: 19');
+      expect(recordResponse.toString('utf8')).toContain('CSeq: 20');
       expect(recordResponse.toString('utf8')).toContain('Audio-Latency: 0');
 
       socket.write(encryptControlFrame(controlWriteKey, writeCounter, rawRequest(
         'SET_PARAMETER',
         '*',
         Buffer.from('volume: -6.020600\r\nprogress: 0/22050/88200\r\n', 'utf8'),
-        ['CSeq: 20'],
+        ['CSeq: 21'],
         'text/parameters',
       )));
       writeCounter += 1;
@@ -1274,7 +1321,7 @@ describe('AirPlayReceiverSpikeService', () => {
       const setParameterResponse = decryptControlFrame(controlReadKey, readCounter, encryptedSetParameter);
       readCounter += 1;
       expect(setParameterResponse.toString('utf8')).toContain('RTSP/1.0 200 OK');
-      expect(setParameterResponse.toString('utf8')).toContain('CSeq: 20');
+      expect(setParameterResponse.toString('utf8')).toContain('CSeq: 21');
       expect(audio.setOutput).toHaveBeenCalledWith({ volume: 0.5 });
       expect(service.getStatus()).toEqual(expect.objectContaining({
         volume: 50,
@@ -1286,7 +1333,7 @@ describe('AirPlayReceiverSpikeService', () => {
         'GET_PARAMETER',
         '*',
         Buffer.from('volume\r\nprogress\r\n', 'utf8'),
-        ['CSeq: 21'],
+        ['CSeq: 22'],
         'text/parameters',
       )));
       writeCounter += 1;
@@ -1294,7 +1341,7 @@ describe('AirPlayReceiverSpikeService', () => {
       const getParameterResponse = decryptControlFrame(controlReadKey, readCounter, encryptedGetParameter);
       readCounter += 1;
       expect(getParameterResponse.toString('utf8')).toContain('RTSP/1.0 200 OK');
-      expect(getParameterResponse.toString('utf8')).toContain('CSeq: 21');
+      expect(getParameterResponse.toString('utf8')).toContain('CSeq: 22');
       expect(getParameterResponse.toString('utf8')).toContain('Content-Type: text/parameters');
       expect(textResponseBody(getParameterResponse).toString('utf8')).toContain('volume: -6');
       expect(textResponseBody(getParameterResponse).toString('utf8')).toContain('progress: 0/22050/88200');
@@ -1303,14 +1350,14 @@ describe('AirPlayReceiverSpikeService', () => {
         'POST',
         '/audioMode',
         Buffer.alloc(0),
-        ['CSeq: 22'],
+        ['CSeq: 23'],
       )));
       writeCounter += 1;
       const encryptedAudioMode = await readUntil(socket, hasCompleteControlFrame);
       const audioModeResponse = decryptControlFrame(controlReadKey, readCounter, encryptedAudioMode);
       readCounter += 1;
       expect(audioModeResponse.toString('utf8')).toContain('RTSP/1.0 200 OK');
-      expect(audioModeResponse.toString('utf8')).toContain('CSeq: 22');
+      expect(audioModeResponse.toString('utf8')).toContain('CSeq: 23');
 
       const rtpHeader = Buffer.alloc(12);
       rtpHeader[0] = 0x80;
@@ -1383,14 +1430,14 @@ describe('AirPlayReceiverSpikeService', () => {
             },
           ],
         }),
-        ['CSeq: 23'],
+        ['CSeq: 24'],
       )));
       writeCounter += 1;
       const encryptedAlacSetup = await readUntil(socket, hasCompleteControlFrame);
       const alacSetupResponse = decryptControlFrame(controlReadKey, readCounter, encryptedAlacSetup);
       readCounter += 1;
       expect(alacSetupResponse.toString('utf8')).toContain('RTSP/1.0 200 OK');
-      expect(alacSetupResponse.toString('utf8')).toContain('CSeq: 23');
+      expect(alacSetupResponse.toString('utf8')).toContain('CSeq: 24');
       expect(alacFormats).toEqual([{
         audioFormat: 0x40000,
         sampleRate: 44_100,
@@ -1450,6 +1497,83 @@ describe('AirPlayReceiverSpikeService', () => {
       expect(alacPcmChunk?.readFloatLE(4)).toBeCloseTo(0.5, 5);
       expect(alacPcmChunk?.readFloatLE(8)).toBeCloseTo(-0.5, 5);
       expect(alacPcmChunk?.readFloatLE(12)).toBeCloseTo(32767 / 32768, 5);
+
+      const pauseTeardownResponse = await sendEncryptedRequest(
+        'TEARDOWN',
+        '*',
+        encodeTestBplist({ streams: [{ type: 96 }] }),
+        ['CSeq: 25'],
+        'application/x-apple-binary-plist',
+      );
+      expect(pauseTeardownResponse.toString('utf8')).toContain('RTSP/1.0 200 OK');
+      expect(pauseTeardownResponse.toString('utf8')).toContain('CSeq: 25');
+      expect(audio.pause).toHaveBeenCalledTimes(1);
+      expect(alacClose).not.toHaveBeenCalled();
+      expect(service.getStatus()).toEqual(expect.objectContaining({
+        state: 'paused',
+      }));
+      expect(service.getStatus().debugEvents.some((event) =>
+        event.action === 'teardown' && event.message?.includes('stream ports retained'),
+      )).toBe(true);
+
+      const resumeRecordResponse = await sendEncryptedRequest('RECORD', '*', Buffer.alloc(0), ['CSeq: 26']);
+      expect(resumeRecordResponse.toString('utf8')).toContain('RTSP/1.0 200 OK');
+      expect(resumeRecordResponse.toString('utf8')).toContain('CSeq: 26');
+
+      const resumeFlushResponse = await sendEncryptedRequest('FLUSH', '*', Buffer.alloc(0), [
+        'CSeq: 27',
+        'RTP-Info: seq=9;rtptime=124352',
+      ]);
+      expect(resumeFlushResponse.toString('utf8')).toContain('RTSP/1.0 200 OK');
+      expect(resumeFlushResponse.toString('utf8')).toContain('CSeq: 27');
+
+      const resumedRtpHeader = Buffer.alloc(12);
+      resumedRtpHeader[0] = 0x80;
+      resumedRtpHeader[1] = 96;
+      resumedRtpHeader.writeUInt16BE(9, 2);
+      resumedRtpHeader.writeUInt32BE(124_352, 4);
+      resumedRtpHeader.writeUInt32BE(0x01020304, 8);
+      const resumedAlacPacket = Buffer.concat([
+        resumedRtpHeader,
+        encryptRtpPayload(setupSharedKey, resumedRtpHeader, Buffer.from('alac-resume')),
+      ]);
+      const resumedUdpSocket = createUdpSocket('udp4');
+      try {
+        await new Promise<void>((resolve, reject) => {
+          resumedUdpSocket.send(resumedAlacPacket, alacDataPort, '127.0.0.1', (error) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          });
+        });
+      } finally {
+        resumedUdpSocket.close();
+      }
+
+      let resumedPcmChunk: Buffer | null = null;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const resumedPcmRequest = audio.playPcmStream.mock.calls[1]?.[0];
+        resumedPcmChunk = resumedPcmRequest?.stream.read() as Buffer | null;
+        if (resumedPcmChunk) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(alacDecodeFrame).toHaveBeenLastCalledWith(Buffer.from('alac-resume'));
+      expect(audio.playPcmStream).toHaveBeenCalledTimes(2);
+      expect(resumedPcmChunk).toHaveLength(16);
+
+      const disconnectTeardownResponse = await sendEncryptedRequest('TEARDOWN', '*', Buffer.alloc(0), ['CSeq: 28']);
+      expect(disconnectTeardownResponse.toString('utf8')).toContain('RTSP/1.0 200 OK');
+      expect(disconnectTeardownResponse.toString('utf8')).toContain('CSeq: 28');
+      expect(audio.stop).toHaveBeenCalledTimes(1);
+      expect(alacClose).toHaveBeenCalledTimes(1);
+      expect(service.getStatus()).toEqual(expect.objectContaining({
+        state: 'idle',
+        currentSourceId: null,
+      }));
       expect(service.getStatus().debugEvents.some((event) =>
         event.action === 'options' && event.method === 'OPTIONS',
       )).toBe(true);
@@ -1459,7 +1583,6 @@ describe('AirPlayReceiverSpikeService', () => {
     } finally {
       socket.destroy();
       await service.setEnabled(false);
-      expect(alacClose).toHaveBeenCalledTimes(1);
     }
   });
 

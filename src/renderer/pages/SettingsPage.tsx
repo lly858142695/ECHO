@@ -362,6 +362,7 @@ const normalizeSharedBackend = (value: unknown): AudioSharedBackend =>
   value === 'windows' || value === 'directsound' || value === 'alsa' ? value : 'auto';
 
 const defaultSpotifyRedirectUri = 'http://127.0.0.1:43879/spotify/callback';
+const defaultTidalRedirectUri = 'http://127.0.0.1:43880/tidal/callback';
 const spotifyDeveloperDashboardUrl = 'https://developer.spotify.com/dashboard';
 const tidalDeveloperDashboardUrl = 'https://developer.tidal.com/dashboard';
 
@@ -390,6 +391,12 @@ const isSpotifyRedirectUriInputValid = (value: string): boolean => {
     return false;
   }
 };
+
+const isTidalClientIdInputValid = (value: string): boolean => /^[A-Za-z0-9_-]{8,128}$/u.test(value.trim());
+
+const isTidalClientSecretInputValid = (value: string): boolean => /^[A-Za-z0-9._~+/=-]{8,256}$/u.test(value.trim());
+
+const isTidalCountryCodeInputValid = (value: string): boolean => /^[A-Za-z]{2}$/u.test(value.trim());
 
 const playbackOutputModes: AudioOutputMode[] = ['system', 'shared', 'exclusive', 'asio'];
 
@@ -3728,7 +3735,14 @@ export const SettingsPage = (): JSX.Element => {
     clientId: '',
     redirectUri: '',
   });
+  const [tidalAuthDraft, setTidalAuthDraft] = useState({
+    clientId: '',
+    clientSecret: '',
+    redirectUri: '',
+    countryCode: 'US',
+  });
   const [spotifyAuthMessage, setSpotifyAuthMessage] = useState<string | null>(null);
+  const [tidalAuthMessage, setTidalAuthMessage] = useState<string | null>(null);
   const [onlineArtistInfoDraft, setOnlineArtistInfoDraft] = useState({
     bandsintownAppId: '',
     ticketmasterApiKey: '',
@@ -5234,6 +5248,24 @@ export const SettingsPage = (): JSX.Element => {
       return;
     }
 
+    setTidalAuthDraft({
+      clientId: appSettings.tidalClientId ?? '',
+      clientSecret: appSettings.tidalClientSecret ?? '',
+      redirectUri: appSettings.tidalRedirectUri ?? defaultTidalRedirectUri,
+      countryCode: appSettings.tidalCountryCode ?? 'US',
+    });
+  }, [
+    appSettings?.tidalClientId,
+    appSettings?.tidalClientSecret,
+    appSettings?.tidalCountryCode,
+    appSettings?.tidalRedirectUri,
+  ]);
+
+  useEffect(() => {
+    if (!appSettings) {
+      return;
+    }
+
     setOnlineArtistInfoDraft({
       bandsintownAppId: appSettings.onlineArtistInfoBandsintownAppId ?? '',
       ticketmasterApiKey: appSettings.onlineArtistInfoTicketmasterApiKey ?? '',
@@ -5947,6 +5979,56 @@ export const SettingsPage = (): JSX.Element => {
         setSpotifyAuthMessage(settingsError instanceof Error ? settingsError.message : String(settingsError));
       });
   }, [dispatchSettingsChanged, spotifyAuthDraft]);
+
+  const handleTidalAuthConfigSave = useCallback((): void => {
+    const app = getAppBridge();
+
+    if (!app) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to save TIDAL settings.');
+      return;
+    }
+
+    const clientId = tidalAuthDraft.clientId.trim();
+    const clientSecret = tidalAuthDraft.clientSecret.trim();
+    const redirectUri = tidalAuthDraft.redirectUri.trim();
+    const countryCode = tidalAuthDraft.countryCode.trim().toUpperCase();
+    if (!isTidalClientIdInputValid(clientId)) {
+      setTidalAuthMessage('Please fill a valid TIDAL Developer App Client ID.');
+      return;
+    }
+
+    if (!isTidalClientSecretInputValid(clientSecret)) {
+      setTidalAuthMessage('Please fill your TIDAL Developer App Client Secret.');
+      return;
+    }
+
+    if (!isSpotifyRedirectUriInputValid(redirectUri)) {
+      setTidalAuthMessage('Redirect URI must be an http://127.0.0.1:PORT/path loopback URL.');
+      return;
+    }
+
+    if (!isTidalCountryCodeInputValid(countryCode)) {
+      setTidalAuthMessage('Country Code must be a two-letter code such as US, HK, or JP.');
+      return;
+    }
+
+    setTidalAuthMessage(null);
+    void app
+      .setSettings({
+        tidalClientId: clientId,
+        tidalClientSecret: clientSecret,
+        tidalRedirectUri: redirectUri,
+        tidalCountryCode: countryCode,
+      })
+      .then((settings) => {
+        setAppSettings(settings);
+        dispatchSettingsChanged(settings);
+        setTidalAuthMessage('Saved. TIDAL catalog search now uses your custom developer credentials.');
+      })
+      .catch((settingsError) => {
+        setTidalAuthMessage(settingsError instanceof Error ? settingsError.message : String(settingsError));
+      });
+  }, [dispatchSettingsChanged, tidalAuthDraft]);
 
   const handleNetworkProxySave = useCallback((): void => {
     const app = getAppBridge();
@@ -10170,6 +10252,84 @@ export const SettingsPage = (): JSX.Element => {
                     在 Spotify Developer Dashboard 中添加同一个 Redirect URI；建议使用本机回环地址，例如 {defaultSpotifyRedirectUri}。保存后重新登录 Spotify。
                   </p>
                   {spotifyAuthMessage ? <p className="settings-inline-note">{spotifyAuthMessage}</p> : null}
+                </div>
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full"
+                id="settings-row-tidal-auth-config"
+                highlighted={highlightedSettingId === 'settings-row-tidal-auth-config'}
+                title="TIDAL Developer Credentials"
+                description="Use your own TIDAL Developer app credentials for catalog metadata search. OAuth login only keeps account connection state."
+              >
+                <div className="settings-cache-panel settings-cache-panel--bare settings-cache-panel--tidal-auth">
+                  <div className="settings-proxy-grid">
+                    <label className="settings-proxy-field">
+                      <span>Client ID</span>
+                      <input
+                        type="text"
+                        value={tidalAuthDraft.clientId}
+                        placeholder="TIDAL Developer App Client ID"
+                        disabled={!appSettings}
+                        onChange={(event) => {
+                          setTidalAuthDraft((current) => ({ ...current, clientId: event.target.value }));
+                          setTidalAuthMessage(null);
+                        }}
+                      />
+                    </label>
+                    <label className="settings-proxy-field">
+                      <span>Client Secret</span>
+                      <input
+                        type="password"
+                        value={tidalAuthDraft.clientSecret}
+                        placeholder="TIDAL Developer App Client Secret"
+                        disabled={!appSettings}
+                        onChange={(event) => {
+                          setTidalAuthDraft((current) => ({ ...current, clientSecret: event.target.value }));
+                          setTidalAuthMessage(null);
+                        }}
+                      />
+                    </label>
+                    <label className="settings-proxy-field">
+                      <span>Redirect URI</span>
+                      <input
+                        type="text"
+                        value={tidalAuthDraft.redirectUri}
+                        placeholder={defaultTidalRedirectUri}
+                        disabled={!appSettings}
+                        onChange={(event) => {
+                          setTidalAuthDraft((current) => ({ ...current, redirectUri: event.target.value }));
+                          setTidalAuthMessage(null);
+                        }}
+                      />
+                    </label>
+                    <label className="settings-proxy-field">
+                      <span>Country Code</span>
+                      <input
+                        type="text"
+                        value={tidalAuthDraft.countryCode}
+                        placeholder="US"
+                        disabled={!appSettings}
+                        onChange={(event) => {
+                          setTidalAuthDraft((current) => ({ ...current, countryCode: event.target.value.toUpperCase() }));
+                          setTidalAuthMessage(null);
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div className="settings-chip-row settings-chip-row--left">
+                    <button className="settings-action-button" type="button" disabled={!appSettings} onClick={handleTidalAuthConfigSave}>
+                      <Save size={15} />
+                      Save TIDAL Credentials
+                    </button>
+                    <button className="settings-action-button" type="button" onClick={() => void handleOpenExternalUrl(tidalDeveloperDashboardUrl)}>
+                      <ExternalLink size={15} />
+                      Open TIDAL Dashboard
+                    </button>
+                  </div>
+                  <p className="settings-inline-note">
+                    Add this Redirect URI in TIDAL Dashboard: {defaultTidalRedirectUri}. ECHO only uses TIDAL catalog metadata; no playback, download, or audio URL extraction.
+                  </p>
+                  {tidalAuthMessage ? <p className="settings-inline-note">{tidalAuthMessage}</p> : null}
                 </div>
               </SettingRow>
               <div className="settings-account-panel">

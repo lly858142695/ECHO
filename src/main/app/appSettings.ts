@@ -332,6 +332,7 @@ export const defaultSettings: AppSettings = {
   spotifyClientId: null,
   spotifyRedirectUri: null,
   tidalClientId: defaultTidalClientId,
+  tidalClientSecret: null,
   tidalRedirectUri: null,
   tidalCountryCode: 'US',
   downloadsFeatureUnlocked: false,
@@ -572,6 +573,15 @@ const normalizeTidalClientId = (value: unknown): string | null => {
 
   const normalized = value.trim();
   return /^[A-Za-z0-9_-]{8,128}$/u.test(normalized) ? normalized : null;
+};
+
+const normalizeTidalClientSecret = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return /^[A-Za-z0-9._~+/=-]{8,256}$/u.test(normalized) ? normalized : null;
 };
 
 const normalizeTidalCountryCode = (value: unknown): string | null => {
@@ -1411,6 +1421,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     spotifyClientId: normalizeSpotifyClientId(settings.spotifyClientId),
     spotifyRedirectUri: normalizeSpotifyRedirectUri(settings.spotifyRedirectUri),
     tidalClientId: normalizeTidalClientId(settings.tidalClientId) ?? defaultTidalClientId,
+    tidalClientSecret: normalizeTidalClientSecret(settings.tidalClientSecret),
     tidalRedirectUri: normalizeSpotifyRedirectUri(settings.tidalRedirectUri),
     tidalCountryCode: normalizeTidalCountryCode(settings.tidalCountryCode) ?? defaultSettings.tidalCountryCode,
     downloadsFeatureUnlocked: settings.downloadsFeatureUnlocked === true,

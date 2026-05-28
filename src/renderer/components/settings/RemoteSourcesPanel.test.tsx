@@ -330,7 +330,7 @@ describe('RemoteSourcesPanel', () => {
     await waitFor(() => expect(remoteApiMocks.list).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: /百度网盘/u }));
-    fireEvent.click(screen.getByRole('button', { name: /开发配置/u }));
+    fireEvent.click(screen.getByRole('button', { name: /高级设置/u }));
     fireEvent.change(screen.getByLabelText('百度 App Key'), { target: { value: 'client-id' } });
     fireEvent.change(screen.getByLabelText('百度 Secret Key'), { target: { value: 'client-secret' } });
     fireEvent.change(screen.getByLabelText('Redirect URI'), { target: { value: 'oob' } });
@@ -364,23 +364,7 @@ describe('RemoteSourcesPanel', () => {
     })));
   });
 
-  it('uses the built-in ECHO Baidu app when users log in without developer fields', async () => {
-    render(<RemoteSourcesPanel />);
-    await waitFor(() => expect(remoteApiMocks.list).toHaveBeenCalled());
-
-    fireEvent.click(screen.getByRole('button', { name: /百度网盘/u }));
-    fireEvent.click(screen.getByRole('button', { name: /登录账号/u }));
-
-    await waitFor(() => expect(remoteApiMocks.startBaiduOAuthLogin).toHaveBeenCalledWith({
-      clientId: null,
-      clientSecret: null,
-      redirectUri: 'http://127.0.0.1:53682/baidu/oauth/callback',
-    }));
-    expect(await screen.findByText('登录完成，已拿到可自动续期的百度网盘 Token。现在可以测试连接或保存。')).toBeTruthy();
-  });
-
-  it('falls back to an auth URL when the running preload has no auto login bridge', async () => {
-    (remoteApiMocks as { startBaiduOAuthLogin?: unknown }).startBaiduOAuthLogin = undefined;
+  it('uses the built-in ECHO Baidu app with the oob desktop authorization flow', async () => {
     render(<RemoteSourcesPanel />);
     await waitFor(() => expect(remoteApiMocks.list).toHaveBeenCalled());
 
@@ -389,11 +373,31 @@ describe('RemoteSourcesPanel', () => {
 
     await waitFor(() => expect(remoteApiMocks.createBaiduAuthUrl).toHaveBeenCalledWith({
       clientId: null,
+      redirectUri: 'oob',
+      qrcode: true,
+      responseType: 'code',
+    }));
+    expect(await screen.findByText('已打开百度官方授权页。授权成功后会显示授权码，请复制到“授权码”输入框，再点“换取 Token”。')).toBeTruthy();
+    expect(screen.getByPlaceholderText('授权完成后把 code 粘贴到这里')).toBeTruthy();
+  });
+
+  it('falls back to an auth URL when the running preload has no auto login bridge', async () => {
+    (remoteApiMocks as { startBaiduOAuthLogin?: unknown }).startBaiduOAuthLogin = undefined;
+    render(<RemoteSourcesPanel />);
+    await waitFor(() => expect(remoteApiMocks.list).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: /百度网盘/u }));
+    fireEvent.click(screen.getByRole('button', { name: /高级设置/u }));
+    fireEvent.change(screen.getByLabelText('Redirect URI'), { target: { value: 'http://127.0.0.1:53682/baidu/oauth/callback' } });
+    fireEvent.click(screen.getByRole('button', { name: /登录账号/u }));
+
+    await waitFor(() => expect(remoteApiMocks.createBaiduAuthUrl).toHaveBeenCalledWith({
+      clientId: null,
       redirectUri: 'http://127.0.0.1:53682/baidu/oauth/callback',
       qrcode: true,
       responseType: 'code',
     }));
-    expect(await screen.findByText('当前运行中的 ECHO 需要重启后才能自动回调登录；已先打开授权页，请复制回调里的 code 到“开发配置 / 授权码”后换取 Token。')).toBeTruthy();
+    expect(await screen.findByText('当前运行中的 ECHO 需要重启后才能自动回调登录；已先打开授权页，请复制页面里的 code 到“授权码”后换取 Token。')).toBeTruthy();
   });
 
   it('shows inline Baidu OAuth feedback when manual access token is missing', async () => {
@@ -401,7 +405,7 @@ describe('RemoteSourcesPanel', () => {
     await waitFor(() => expect(remoteApiMocks.list).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: /百度网盘/u }));
-    fireEvent.click(screen.getByRole('button', { name: /开发配置/u }));
+    fireEvent.click(screen.getByRole('button', { name: /高级设置/u }));
     fireEvent.click(screen.getByRole('button', { name: /填入 Access Token/u }));
     await waitFor(() => expect(screen.getAllByText('请先粘贴 access_token 或包含 access_token 的完整地址。').length).toBeGreaterThan(0));
   });
@@ -411,9 +415,10 @@ describe('RemoteSourcesPanel', () => {
     await waitFor(() => expect(remoteApiMocks.list).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: /百度网盘/u }));
-    fireEvent.click(screen.getByRole('button', { name: /开发配置/u }));
+    fireEvent.click(screen.getByRole('button', { name: /高级设置/u }));
     fireEvent.change(screen.getByLabelText('百度 App Key'), { target: { value: 'client-id' } });
     fireEvent.change(screen.getByLabelText('百度 Secret Key'), { target: { value: 'client-secret' } });
+    fireEvent.change(screen.getByLabelText('Redirect URI'), { target: { value: 'http://127.0.0.1:53682/baidu/oauth/callback' } });
 
     fireEvent.click(screen.getByRole('button', { name: /登录账号/u }));
     await waitFor(() => expect(remoteApiMocks.startBaiduOAuthLogin).toHaveBeenCalledWith({
@@ -440,7 +445,7 @@ describe('RemoteSourcesPanel', () => {
     await waitFor(() => expect(remoteApiMocks.list).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: /百度网盘/u }));
-    fireEvent.click(screen.getByRole('button', { name: /开发配置/u }));
+    fireEvent.click(screen.getByRole('button', { name: /高级设置/u }));
     fireEvent.click(screen.getByRole('button', { name: /开放平台/u }));
 
     await waitFor(() => expect(appApiMocks.openExternalUrl).toHaveBeenCalledWith('https://pan.baidu.com/union'));
@@ -452,7 +457,7 @@ describe('RemoteSourcesPanel', () => {
     await waitFor(() => expect(remoteApiMocks.list).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: /百度网盘/u }));
-    fireEvent.click(screen.getByRole('button', { name: /开发配置/u }));
+    fireEvent.click(screen.getByRole('button', { name: /高级设置/u }));
     fireEvent.change(screen.getByLabelText('百度 App Key'), { target: { value: 'client-id' } });
     fireEvent.change(screen.getByLabelText('Access Token 回调'), {
       target: { value: 'https://openapi.baidu.com/oauth/2.0/login_success#expires_in=2592000&access_token=implicit-token' },

@@ -516,6 +516,14 @@ export const DesktopLyricsApp = (): JSX.Element => {
       lastPassthrough = passthrough;
       desktopLyrics.setMousePassthrough(passthrough);
     };
+
+    if (settings.desktopLyricsLocked) {
+      setPassthrough(true);
+      return () => {
+        desktopLyrics.setMousePassthrough(false);
+      };
+    }
+
     const updatePassthrough = (event: MouseEvent): void => {
       const target = document.elementFromPoint(event.clientX, event.clientY);
       setPassthrough(!target?.closest(desktopLyricsMouseInteractiveSelector));
@@ -524,7 +532,7 @@ export const DesktopLyricsApp = (): JSX.Element => {
 
     window.addEventListener('mousemove', updatePassthrough);
     window.addEventListener('mouseleave', passthroughOnLeave);
-    setPassthrough(settings.desktopLyricsLocked);
+    setPassthrough(false);
 
     return () => {
       window.removeEventListener('mousemove', updatePassthrough);

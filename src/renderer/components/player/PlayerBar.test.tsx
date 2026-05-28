@@ -9,6 +9,7 @@ import { createDefaultGlobalShortcuts, createDefaultLocalShortcuts, type GlobalS
 import type { LibraryTrack } from '../../../shared/types/library';
 import type { SmtcCommand } from '../../../shared/types/smtc';
 import { PlaybackQueueProvider, usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
+import { setPlaybackStatusSnapshot } from '../../stores/playbackStatusStore';
 import { PlaybackCommandController } from './PlaybackCommandController';
 import { PlayerBar } from './PlayerBar';
 
@@ -3115,6 +3116,96 @@ describe('PlayerBar', () => {
     await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: secondTrack.id })), {
       timeout: 3000,
     });
+    await screen.findByText('Song 2');
+  });
+
+  it('auto-plays the next queued track when Spotify ended status uses the stable streaming key', async () => {
+    const spotifyTrack = makeTrack(1, {
+      id: 'spotify-row-1',
+      path: 'streaming:spotify:abc123',
+      stableKey: 'streaming:spotify:abc123',
+      mediaType: 'streaming',
+      provider: 'spotify',
+      providerTrackId: 'abc123',
+      codec: 'spotify',
+      sampleRate: null,
+      bitDepth: null,
+      bitrate: null,
+    });
+    const secondTrack = makeTrack(2);
+    const playLocalFile = vi.fn().mockImplementation(({ filePath, trackId }: { filePath: string; trackId?: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: trackId ?? null,
+        positionMs: 0,
+        durationMs: secondTrack.duration * 1000,
+        filePath,
+      }),
+    );
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: spotifyTrack.stableKey,
+          positionMs: 4000,
+          durationMs: spotifyTrack.duration * 1000,
+          filePath: spotifyTrack.path,
+        }),
+        playLocalFile,
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          ...audioStatus(spotifyTrack),
+          currentTrackId: spotifyTrack.stableKey,
+          currentFilePath: spotifyTrack.path,
+        }),
+        onStatus: vi.fn(),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getLikedTrackIds: vi.fn().mockResolvedValue({ [spotifyTrack.id]: false, [secondTrack.id]: false }),
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[spotifyTrack, secondTrack]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    act(() => {
+      setPlaybackStatusSnapshot({
+        playbackStatus: {
+          state: 'ended',
+          currentTrackId: spotifyTrack.stableKey,
+          positionMs: spotifyTrack.duration * 1000,
+          durationMs: spotifyTrack.duration * 1000,
+          filePath: spotifyTrack.path,
+        },
+        audioStatus: {
+          ...audioStatus(spotifyTrack),
+          state: 'ended',
+          currentTrackId: spotifyTrack.stableKey,
+          currentFilePath: spotifyTrack.path,
+          positionSeconds: spotifyTrack.duration,
+        },
+        playbackVisualIntent: null,
+        error: null,
+      });
+    });
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: secondTrack.id })));
     await screen.findByText('Song 2');
   });
 

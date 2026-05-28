@@ -31,6 +31,9 @@ vi.mock('../components/library/TrackList', () => ({
           }}
         >
           {item.title}
+          <span>{item.artist}</span>
+          <span>{item.duration}</span>
+          {item.coverThumb ? <img alt={`${item.title} cover`} src={item.coverThumb} /> : null}
         </button>
       ))}
     </div>
@@ -180,6 +183,7 @@ let remoteSourcesMock: {
   list: ReturnType<typeof vi.fn>;
   browse: ReturnType<typeof vi.fn>;
   lookupTracks: ReturnType<typeof vi.fn>;
+  previewDirectoryItems: ReturnType<typeof vi.fn>;
   sync: ReturnType<typeof vi.fn>;
 };
 
@@ -204,6 +208,7 @@ beforeEach(() => {
       remoteItem(),
     ]),
     lookupTracks: vi.fn().mockResolvedValue([]),
+    previewDirectoryItems: vi.fn().mockResolvedValue([]),
     sync: vi.fn().mockResolvedValue({
       sourceId: 'remote-1',
       status: 'running',
@@ -388,10 +393,45 @@ describe('FoldersPage', () => {
     await waitFor(() => expect(screen.getAllByText('Baidu Music').length).toBeGreaterThan(0));
     expect(await screen.findByText('百度网盘 · 已启用 · OAuth 自动续期')).toBeTruthy();
     expect(await screen.findByText('song')).toBeTruthy();
+    expect(remoteSourcesMock.previewDirectoryItems).toHaveBeenCalledWith('remote-1', [expect.objectContaining({ path: '/Music/song.flac' })], { includeCover: true, limit: 12 });
 
     fireEvent.click(screen.getByRole('button', { name: /Album/ }));
     await waitFor(() => expect(remoteSourcesMock.browse).toHaveBeenLastCalledWith('remote-1', '/Music/Album'));
     expect(libraryMock.getFolderChildren).not.toHaveBeenCalled();
+  });
+
+  it('hydrates unindexed remote browser tracks with metadata and covers', async () => {
+    remoteSourcesMock.previewDirectoryItems.mockResolvedValue([
+      {
+        remotePath: '/Music/song.flac',
+        title: 'Tagged Song',
+        artist: 'Tagged Artist',
+        album: 'Tagged Album',
+        albumArtist: 'Tagged Artist',
+        trackNo: 2,
+        discNo: null,
+        year: null,
+        genre: null,
+        duration: 245,
+        codec: 'FLAC',
+        sampleRate: 48000,
+        bitDepth: 24,
+        bitrate: 1200000,
+        coverThumb: 'data:image/jpeg;base64,abc',
+        metadataStatus: 'ok',
+        coverStatus: 'ok',
+        fieldSources: { title: 'embedded', artist: 'embedded', album: 'embedded', duration: 'technical' },
+      },
+    ]);
+
+    renderFoldersPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '网盘' }));
+
+    expect(await screen.findByText('Tagged Song')).toBeTruthy();
+    expect(await screen.findByText('Tagged Artist')).toBeTruthy();
+    expect(await screen.findByText('245')).toBeTruthy();
+    expect(screen.getByAltText('Tagged Song cover').getAttribute('src')).toBe('data:image/jpeg;base64,abc');
   });
 
   it('opens settings from the remote empty state', async () => {

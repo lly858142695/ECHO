@@ -1,6 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TidalStreamingProvider } from './TidalStreamingProvider';
 
+const appSettingsMock = vi.hoisted(() => ({
+  current: {
+    tidalClientId: 'settings-client-id',
+    tidalClientSecret: null as string | null,
+    tidalCountryCode: null as string | null,
+  },
+}));
+
+vi.mock('../../app/appSettings', () => ({
+  getAppSettings: () => appSettingsMock.current,
+}));
+
 const jsonResponse = (value: unknown, status = 200): Response =>
   new Response(JSON.stringify(value), {
     status,
@@ -89,6 +101,11 @@ const secondTrackResource = {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  appSettingsMock.current = {
+    tidalClientId: 'settings-client-id',
+    tidalClientSecret: null,
+    tidalCountryCode: null,
+  };
 });
 
 describe('TidalStreamingProvider', () => {
@@ -100,6 +117,42 @@ describe('TidalStreamingProvider', () => {
       supportsDownload: false,
       status: 'needs_account',
     });
+  });
+
+  it('uses custom TIDAL developer credentials from settings', async () => {
+    appSettingsMock.current = {
+      tidalClientId: 'settings-client-id',
+      tidalClientSecret: 'settings-client-secret',
+      tidalCountryCode: 'HK',
+    };
+    const fetchRunner = vi
+      .fn()
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          id: 'Echo Unit',
+          type: 'searchResults',
+          relationships: {
+            tracks: { data: [{ id: 'track-1', type: 'tracks' }] },
+          },
+        },
+        included: [trackResource, albumResource, artistResource, coverResource],
+      }));
+    vi.stubGlobal('fetch', fetchRunner);
+
+    const result = await new TidalStreamingProvider().search({
+      provider: 'tidal',
+      query: 'Echo Unit',
+      mediaTypes: ['track'],
+      pageSize: 10,
+    });
+
+    const tokenRequest = fetchRunner.mock.calls[0][1] as RequestInit;
+    expect(tokenRequest.headers).toMatchObject({
+      Authorization: `Basic ${Buffer.from('settings-client-id:settings-client-secret', 'utf8').toString('base64')}`,
+    });
+    expect(String(fetchRunner.mock.calls[1][0])).toContain('countryCode=HK');
+    expect(result.tracks[0]?.providerTrackId).toBe('track-1');
   });
 
   it('maps TIDAL catalog search results as metadata-only streaming items', async () => {
@@ -153,6 +206,40 @@ describe('TidalStreamingProvider', () => {
     });
     expect(String(fetchRunner.mock.calls[1][0])).toContain('/searchResults/Echo%20Unit');
     expect(String(fetchRunner.mock.calls[1][0])).toContain('countryCode=JP');
+  });
+
+  it('falls back to TIDAL relationship search when root search returns 404', async () => {
+    vi.stubEnv('ECHO_TIDAL_CLIENT_ID', 'client-id');
+    vi.stubEnv('ECHO_TIDAL_CLIENT_SECRET', 'client-secret');
+    const fetchRunner = vi
+      .fn()
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(jsonResponse({ error: 'not_found' }, 404))
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{ id: 'track-1', type: 'tracks' }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: [trackResource],
+        included: [albumResource, artistResource, coverResource],
+      }));
+    vi.stubGlobal('fetch', fetchRunner);
+
+    const result = await new TidalStreamingProvider().search({
+      provider: 'tidal',
+      query: 'sing',
+      mediaTypes: ['track'],
+      pageSize: 10,
+    });
+
+    expect(result.tracks[0]).toMatchObject({
+      providerTrackId: 'track-1',
+      title: 'Blue Current',
+      artist: 'Echo Unit',
+      album: 'Signal Bloom',
+    });
+    expect(String(fetchRunner.mock.calls[2][0])).toContain('/searchResults/sing/relationships/tracks');
+    expect(String(fetchRunner.mock.calls[2][0])).toContain('explicitFilter=include');
+    expect(String(fetchRunner.mock.calls[3][0])).toContain('/tracks?filter[id]=track-1');
   });
 
   it('loads album detail with unplayable track metadata', async () => {

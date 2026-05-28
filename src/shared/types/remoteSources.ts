@@ -250,6 +250,32 @@ export type RemoteCoverResult = {
   errors: string[];
 };
 
+export type RemoteDirectoryPreviewOptions = {
+  limit?: number;
+  includeCover?: boolean;
+};
+
+export type RemoteDirectoryPreviewItem = {
+  remotePath: string;
+  title: string;
+  artist: string;
+  album: string;
+  albumArtist: string;
+  trackNo: number | null;
+  discNo: number | null;
+  year: number | null;
+  genre: string | null;
+  duration: number | null;
+  codec: string | null;
+  sampleRate: number | null;
+  bitDepth: number | null;
+  bitrate: number | null;
+  coverThumb: string | null;
+  metadataStatus: RemoteTrackStatus;
+  coverStatus: RemoteTrackStatus;
+  fieldSources: Record<string, string>;
+};
+
 export type RemoteStreamUrlResult = {
   url: string;
   expiresAt: string;

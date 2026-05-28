@@ -1068,13 +1068,28 @@ export const RemoteSourcesPanel = (): JSX.Element => {
 
     const redirectUri = form.baiduRedirectUri.trim() && form.baiduRedirectUri.trim() !== 'oob'
       ? form.baiduRedirectUri.trim()
-      : baiduLoopbackRedirectUri;
+      : 'oob';
     setBusy('baiduAccountLogin');
     setMessage(null);
     setBaiduAuthUrl(null);
-    setBaiduAuthFeedback('正在打开百度官方登录页，登录完成后会自动回到 ECHO。');
+    setBaiduAuthFeedback(redirectUri === 'oob'
+      ? '正在打开百度官方授权页；授权成功后页面会显示授权码，请复制回来换取 Token。'
+      : '正在打开百度官方登录页，登录完成后会自动回到 ECHO。');
     setForm((current) => ({ ...current, baiduRedirectUri: redirectUri }));
     try {
+      if (redirectUri === 'oob') {
+        const url = await remoteApi.createBaiduAuthUrl({
+          clientId: form.baiduClientId.trim() || null,
+          redirectUri,
+          qrcode: true,
+          responseType: 'code',
+        });
+        setBaiduAuthUrl(url);
+        setBaiduAuthFeedback('已打开百度官方授权页。授权成功后会显示授权码，请复制到“授权码”输入框，再点“换取 Token”。');
+        setMessage('百度网盘开放平台当前没有回调地址配置入口，已使用官方 oob 授权码方式。');
+        return;
+      }
+
       if (!remoteApi.startBaiduOAuthLogin) {
         const url = await remoteApi.createBaiduAuthUrl({
           clientId: form.baiduClientId.trim() || null,
@@ -1083,7 +1098,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           responseType: 'code',
         });
         setBaiduAuthUrl(url);
-        setBaiduAuthFeedback('当前运行中的 ECHO 需要重启后才能自动回调登录；已先打开授权页，请复制回调里的 code 到“开发配置 / 授权码”后换取 Token。');
+        setBaiduAuthFeedback('当前运行中的 ECHO 需要重启后才能自动回调登录；已先打开授权页，请复制页面里的 code 到“授权码”后换取 Token。');
         setMessage('当前运行中的 ECHO 需要重启后才能自动回调登录；请重启 ECHO 后再点“登录账号”，或先手动使用授权码。');
         return;
       }
@@ -1558,10 +1573,12 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           <input value={form.username} onChange={(event) => updateForm({ username: event.target.value })} />
         </label>
       ) : null}
-      <label>
+      {activeProvider !== 'baidu' || showBaiduDeveloperFields ? (
+        <label>
         {activeProvider === 'baidu' ? 'Access Token / OAuth Token' : activeProvider === 'webdav' ? '密码' : activeProvider === 'subsonic' ? '密码 / API token' : '密码 / API Key'}
         <input type="password" value={form.secret} onChange={(event) => updateForm({ secret: event.target.value })} />
-      </label>
+        </label>
+      ) : null}
       {activeProvider === 'baidu' ? (
         <div className="baidu-oauth-helper" aria-label="百度网盘 OAuth 授权">
           <div>
@@ -1595,16 +1612,26 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           ) : (
             <div className="baidu-oauth-guide baidu-oauth-guide-compact">
               <strong>已内置 ECHO 专用百度应用</strong>
-              <span>普通用户直接点“登录账号”即可。AppID、AppKey、SecretKey、SignKey 已写入软件；百度开放平台后台需要把下面这个地址加入“授权回调地址”。</span>
-              <code>{baiduLoopbackRedirectUri}</code>
+              <span>普通用户直接点“登录账号”即可。百度网盘开放平台目前没有显示回调地址配置入口，所以默认使用官方 oob 授权码方式，避免 redirect_uri_mismatch。</span>
             </div>
           )}
+          {!showBaiduDeveloperFields ? (
+            <label className="baidu-oauth-code-field">
+              授权码
+              <input value={form.baiduAuthCode} placeholder="授权完成后把 code 粘贴到这里" onChange={(event) => updateForm({ baiduAuthCode: event.target.value })} />
+            </label>
+          ) : null}
           <div className="remote-source-actions">
             <button type="button" disabled={busy === 'baiduAccountLogin'} onClick={() => void startBaiduAccountLogin()}>
               <KeyRound size={15} />登录账号
             </button>
+            {!showBaiduDeveloperFields ? (
+              <button type="button" disabled={busy === 'baiduExchangeCode'} onClick={() => void exchangeBaiduAuthCode()}>
+                <KeyRound size={15} />换取 Token
+              </button>
+            ) : null}
             <button type="button" onClick={() => setShowBaiduDeveloperFields((current) => !current)}>
-              <KeyRound size={15} />{showBaiduDeveloperFields ? '收起配置' : '开发配置'}
+              <KeyRound size={15} />{showBaiduDeveloperFields ? '普通模式' : '高级设置'}
             </button>
             {showBaiduDeveloperFields ? (
               <>
@@ -1629,7 +1656,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           {showBaiduDeveloperFields ? (
             <div className="baidu-oauth-guide">
               <strong>开发配置覆盖</strong>
-              <span>默认使用 ECHO 内置 AppKey / SecretKey。只有要替换百度开放平台应用时，才需要在这里填新的 API Key 和 Secret Key。SignKey 当前 OAuth 挂载流程不用填。</span>
+              <span>默认使用 ECHO 内置 AppKey / SecretKey。只有要替换百度开放平台应用，或你找到了 OAuth 安全设置回调入口时，才需要改这些字段。SignKey 当前 OAuth 挂载流程不用填。</span>
               <code>{baiduLoopbackRedirectUri}</code>
               <div className="remote-source-actions">
                 <button type="button" onClick={() => void openBaiduHelpUrl('https://pan.baidu.com/union', '百度网盘开放平台')}>

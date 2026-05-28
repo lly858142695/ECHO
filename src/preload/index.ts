@@ -1711,6 +1711,7 @@ const echoApi: EchoApi = {
     createStreamUrl: (input) => ipcRenderer.invoke(IpcChannels.RemoteSourcesCreateStreamUrl, input),
     hydrateVisibleTracks: (trackIds, options) => ipcRenderer.invoke(IpcChannels.RemoteSourcesHydrateVisibleTracks, trackIds, options),
     lookupTracks: (sourceId, remotePaths) => ipcRenderer.invoke(IpcChannels.RemoteSourcesLookupTracks, sourceId, remotePaths),
+    previewDirectoryItems: (sourceId, items, options) => ipcRenderer.invoke(IpcChannels.RemoteSourcesPreviewDirectoryItems, sourceId, items, options),
     startBackgroundJobs: (sourceId, kinds) => ipcRenderer.invoke(IpcChannels.RemoteSourcesStartBackgroundJobs, sourceId, kinds),
     pauseBackgroundJobs: (sourceId) => ipcRenderer.invoke(IpcChannels.RemoteSourcesPauseBackgroundJobs, sourceId),
     resumeBackgroundJobs: (sourceId) => ipcRenderer.invoke(IpcChannels.RemoteSourcesResumeBackgroundJobs, sourceId),

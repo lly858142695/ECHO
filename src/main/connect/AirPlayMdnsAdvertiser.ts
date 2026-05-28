@@ -20,8 +20,9 @@ const recordClassInternet = 1;
 const recordClassCacheFlush = 0x8001;
 const classicAirPlayVersion = '130.14';
 const airPlay2SourceVersion = '366.0';
-export const airPlay2FeatureMask = 0x8030040000a00;
-export const airPlay2FeatureBits = '0x40000a00,0x80300';
+// AirPlay2 experimental receiver: audio + artwork/progress + PCM/ALAC + transient pairing.
+export const airPlay2FeatureMask = 0x10300400dca00;
+export const airPlay2FeatureBits = '0x400dca00,0x10300';
 
 const cleanMac = (mac: string): string => {
   const cleaned = mac.replace(/[^a-fA-F0-9]/gu, '').toUpperCase();

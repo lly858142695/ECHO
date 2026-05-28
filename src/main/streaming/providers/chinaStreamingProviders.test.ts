@@ -960,7 +960,7 @@ describe('China streaming providers', () => {
   it('does not silently import an empty QQ Music playlist when the detail body is missing', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
+      vi.fn().mockImplementation(() =>
         jsonResponse({
           code: 0,
           subcode: 1,
@@ -970,6 +970,50 @@ describe('China streaming providers', () => {
     );
 
     await expect(new QQMusicStreamingProvider().getPlaylist({ providerPlaylistId: '9648223902' })).rejects.toThrow('invalid referer');
+  });
+
+  it('retries QQ Music playlist details with a raw Referer header when Electron net rejects the first request', async () => {
+    const fetchRunner = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          code: 0,
+          subcode: 1,
+          message: 'invalid referer',
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          code: 0,
+          subcode: 0,
+          cdlist: [
+            {
+              disstid: '9718644800',
+              dissname: 'QQ Imported Playlist',
+              songnum: 1,
+              total_song_num: 1,
+              songlist: [
+                {
+                  songmid: 'playlist-song-mid',
+                  songname: 'Playlist Song',
+                  interval: 240,
+                  singer: [{ mid: 'artist-mid', name: 'Playlist Artist' }],
+                },
+              ],
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal('fetch', fetchRunner);
+
+    const detail = await new QQMusicStreamingProvider().getPlaylist({ providerPlaylistId: '9718644800' });
+
+    expect(fetchRunner).toHaveBeenCalledTimes(2);
+    expect(fetchRunner.mock.calls[1][1]?.headers).toEqual(expect.objectContaining({ Referer: 'https://c.y.qq.com/' }));
+    expect(detail.tracks[0]).toMatchObject({
+      providerTrackId: 'playlist-song-mid',
+      title: 'Playlist Song',
+    });
   });
 
   it('does not silently import an empty QQ Music playlist when the first page has a nonzero total', async () => {
