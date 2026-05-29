@@ -1865,6 +1865,11 @@ export const registerLibraryIpc = (): void => {
   ipcMain.handle(IpcChannels.LibraryGetAlbumOnlineInfo, (_event, albumId: unknown, options: unknown) =>
     getLibraryService().getAlbumOnlineInfo(requireText(albumId, 'albumId'), {
       force: Boolean(options && typeof options === 'object' && (options as { force?: unknown }).force === true),
+      provider:
+        options && typeof options === 'object' &&
+        ((options as { provider?: unknown }).provider === 'musicbrainz' || (options as { provider?: unknown }).provider === 'wikipedia')
+          ? (options as { provider: 'musicbrainz' | 'wikipedia' }).provider
+          : undefined,
     }),
   );
   ipcMain.handle(IpcChannels.LibraryGetAlbumForTrack, (_event, trackId: unknown) =>

@@ -253,6 +253,7 @@ export type AppSettings = {
   onlineArtistInfoSeatGeekClientId?: string | null;
   onlineArtistInfoRegion?: string | null;
   onlineArtistInfoSources?: ArtistOnlineInfoSource[];
+  onlineAlbumInfoDiscogsUserToken?: string | null;
   audioAnalysisEnabled?: boolean;
   lyricsNetworkEnabled: boolean;
   lyricsPreferredProvider: 'lrclib';

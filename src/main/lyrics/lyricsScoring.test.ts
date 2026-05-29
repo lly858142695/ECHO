@@ -60,6 +60,60 @@ describe('lyrics version flags', () => {
   });
 });
 
+describe('lyrics query builder', () => {
+  it('adds conservative featured-artist and title-only search variants', () => {
+    const normalized = buildNormalizedLyricsQuery(query({
+      title: 'Echo Song (feat. Guest Vocal)',
+      artist: 'Echo Artist feat. Guest Vocal',
+    }));
+    const reasons = normalized.searchVariants.map((variant) => variant.reason);
+
+    expect(reasons).toEqual(expect.arrayContaining([
+      'raw_identity',
+      'title_without_feature',
+      'primary_featured_artist',
+      'title_only_fallback',
+    ]));
+    expect(normalized.searchVariants).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        title: 'Echo Song',
+        artist: 'Echo Artist feat. Guest Vocal',
+        reason: 'title_without_feature',
+      }),
+      expect.objectContaining({
+        title: 'Echo Song',
+        artist: 'Echo Artist',
+        reason: 'primary_featured_artist',
+      }),
+      expect.objectContaining({
+        title: 'Echo Song',
+        artist: '',
+        reason: 'title_only_fallback',
+      }),
+    ]));
+  });
+
+  it('adds bracket and slash title aliases without requiring title-only fallback', () => {
+    const normalized = buildNormalizedLyricsQuery(query({
+      title: 'Hikari / Light',
+      durationSeconds: null,
+    }));
+    const reasons = normalized.searchVariants.map((variant) => variant.reason);
+
+    expect(normalized.searchVariants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: 'Hikari', reason: 'title_alias' }),
+      expect.objectContaining({ title: 'Light', reason: 'title_alias' }),
+    ]));
+    expect(reasons).not.toContain('title_only_fallback');
+  });
+
+  it('does not treat version descriptors as title aliases', () => {
+    const normalized = buildNormalizedLyricsQuery(query({ title: 'Echo Song (Live)' }));
+
+    expect(normalized.searchVariants.some((variant) => variant.reason === 'title_alias')).toBe(false);
+  });
+});
+
 describe('lyricsScoring', () => {
   it('normalizes descriptors for search but preserves them in version flags', () => {
     expect(normalizeText('Echo Song (TV Size)')).toBe('echo song');
@@ -134,12 +188,13 @@ describe('lyricsScoring', () => {
     expect(decision.autoAccept).toBe(true);
   });
 
-  it('keeps different artists as manual candidates when title and duration are not enough to disambiguate', () => {
+  it('keeps different artists as manual candidates even when title and duration are close', () => {
     const decision = evaluateLyricsCandidate(query(), candidate({ artist: 'Other Artist' }));
 
     expect(decision.score).toBeGreaterThan(0.7);
-    expect(decision.autoAccept).toBe(true);
-    expect(decision.risk).toBe('low');
+    expect(decision.autoAccept).toBe(false);
+    expect(decision.risk).toBe('high');
+    expect(decision.reasons).toContain('artist_mismatch');
   });
 
   it('blocks different artists when the title is only a loose match', () => {

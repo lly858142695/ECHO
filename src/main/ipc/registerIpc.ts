@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { userInfo } from 'node:os';
 import { basename, extname, join, resolve } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
@@ -105,6 +106,14 @@ const requireFontPath = (value: unknown): string => {
 
 const toFontFamily = (fontPath: string): string => basename(fontPath, extname(fontPath)).replace(/[\r\n;]/g, '').trim() || 'Custom Font';
 
+const getSystemUserName = (): string | null => {
+  try {
+    return userInfo().username?.replace(/[\r\n]/g, '').trim() || null;
+  } catch {
+    return null;
+  }
+};
+
 const loadFontFile = (fontPathInput: unknown): FontFileAsset => {
   const fontPath = requireFontPath(fontPathInput);
   const extension = extname(fontPath).toLowerCase();
@@ -187,6 +196,9 @@ const normalizeCoverCacheRequest = (value: unknown): SetCoverCacheDirectoryReque
 };
 
 const getAppCacheInventory = (): AppCacheInventory => collectAppCacheInventory(app.getPath('userData'));
+
+const isWindowMaximizedForChrome = (window: BrowserWindow | null): boolean =>
+  Boolean(window && (window.isMaximized() || window.isFullScreen()));
 
 const formatBackupTimestamp = (): string => new Date().toISOString().replace(/[:.]/g, '-');
 
@@ -329,9 +341,13 @@ export const registerIpc = (): void => {
 
       window.maximize();
     });
+    ipcMain.handle(IpcChannels.AppWindowIsMaximized, (event: IpcMainInvokeEvent): boolean =>
+      isWindowMaximizedForChrome(BrowserWindow.fromWebContents(event.sender)),
+    );
     ipcMain.handle(IpcChannels.AppWindowClose, (event: IpcMainInvokeEvent): void => {
       BrowserWindow.fromWebContents(event.sender)?.close();
     });
+    ipcMain.handle(IpcChannels.AppGetSystemUserName, (): string | null => getSystemUserName());
     ipcMain.handle(IpcChannels.AppGetSettings, (): AppSettings => getAppSettings());
     ipcMain.handle(IpcChannels.AppSetSettings, (_event: IpcMainInvokeEvent, patch: Partial<AppSettings>): Promise<AppSettings> =>
       applyAppSettingsPatch(patch),

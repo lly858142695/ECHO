@@ -324,6 +324,7 @@ export type TranslationKey =
   | 'app.toolbar.windowControls'
   | 'app.window.minimize'
   | 'app.window.maximize'
+  | 'app.window.restore'
   | 'app.window.close'
   | 'firstRun.action.finish'
   | 'firstRun.action.next'
@@ -1109,6 +1110,24 @@ export type TranslationKey =
   | 'lyricsSettings.candidate.risk.high'
   | 'lyricsSettings.candidate.risk.low'
   | 'lyricsSettings.candidate.risk.medium'
+  | 'lyricsSettings.candidate.reason.albumMatch'
+  | 'lyricsSettings.candidate.reason.artistExact'
+  | 'lyricsSettings.candidate.reason.artistMismatch'
+  | 'lyricsSettings.candidate.reason.autoAccept'
+  | 'lyricsSettings.candidate.reason.candidateOnlyCover'
+  | 'lyricsSettings.candidate.reason.candidateOnlyDuration'
+  | 'lyricsSettings.candidate.reason.coverIntent'
+  | 'lyricsSettings.candidate.reason.durationClose'
+  | 'lyricsSettings.candidate.reason.durationExact'
+  | 'lyricsSettings.candidate.reason.durationMismatch'
+  | 'lyricsSettings.candidate.reason.embeddedTag'
+  | 'lyricsSettings.candidate.reason.localSidecar'
+  | 'lyricsSettings.candidate.reason.rejectedByUser'
+  | 'lyricsSettings.candidate.reason.syncedDurationSafe'
+  | 'lyricsSettings.candidate.reason.titleExact'
+  | 'lyricsSettings.candidate.reason.titleSimilar'
+  | 'lyricsSettings.candidate.reason.versionConflict'
+  | 'lyricsSettings.candidate.reason.versionMatch'
   | 'lyricsSettings.candidate.sourceFilters'
   | 'lyricsSettings.candidate.type.instrumental'
   | 'lyricsSettings.candidate.type.lyrics'
@@ -2259,6 +2278,7 @@ const zhCN: TranslationMap = {
   'app.toolbar.windowControls': '窗口控制',
   'app.window.minimize': '最小化',
   'app.window.maximize': '最大化',
+  'app.window.restore': '还原',
   'app.window.close': '关闭',
   'firstRun.action.finish': '完成设置',
   'firstRun.action.next': '下一步',
@@ -3273,6 +3293,24 @@ const zhCN: TranslationMap = {
   'lyricsSettings.candidate.risk.high': '需要确认',
   'lyricsSettings.candidate.risk.low': '精准匹配',
   'lyricsSettings.candidate.risk.medium': '可能匹配',
+  'lyricsSettings.candidate.reason.albumMatch': '专辑匹配',
+  'lyricsSettings.candidate.reason.artistExact': '艺人一致',
+  'lyricsSettings.candidate.reason.artistMismatch': '艺人不符',
+  'lyricsSettings.candidate.reason.autoAccept': '自动采用',
+  'lyricsSettings.candidate.reason.candidateOnlyCover': '翻唱需确认',
+  'lyricsSettings.candidate.reason.candidateOnlyDuration': '时长需确认',
+  'lyricsSettings.candidate.reason.coverIntent': '翻唱候选',
+  'lyricsSettings.candidate.reason.durationClose': '时长接近',
+  'lyricsSettings.candidate.reason.durationExact': '时长精准',
+  'lyricsSettings.candidate.reason.durationMismatch': '时长不符',
+  'lyricsSettings.candidate.reason.embeddedTag': '内嵌歌词',
+  'lyricsSettings.candidate.reason.localSidecar': '本地歌词',
+  'lyricsSettings.candidate.reason.rejectedByUser': '已拒绝',
+  'lyricsSettings.candidate.reason.syncedDurationSafe': '同步安全',
+  'lyricsSettings.candidate.reason.titleExact': '标题一致',
+  'lyricsSettings.candidate.reason.titleSimilar': '标题接近',
+  'lyricsSettings.candidate.reason.versionConflict': '版本冲突',
+  'lyricsSettings.candidate.reason.versionMatch': '版本匹配',
   'lyricsSettings.candidate.sourceFilters': '歌词来源筛选',
   'lyricsSettings.candidate.type.instrumental': '纯音乐',
   'lyricsSettings.candidate.type.lyrics': '歌词',
@@ -3747,7 +3785,7 @@ const zhCN: TranslationMap = {
   'settings.devices.title': '设备列表',
   'settings.general.artistInfoSources.description': '选择刷新艺人简介时使用的百科来源；百度百科更适合中文网络环境，Wikipedia 可作为国际艺人兜底。',
   'settings.general.artistInfoSources.title': '艺人信息源',
-  'settings.general.artistStreamingAlbums.description': '开启后，艺人详情的专辑页会在本地专辑下方按需搜索并显示流媒体专辑；默认关闭，避免增加页面和网络压力。',
+  'settings.general.artistStreamingAlbums.description': '开启后，艺人详情的专辑页会在本地专辑下方按需搜索并显示流媒体专辑；默认开启，可关闭以避免增加页面和网络压力。',
   'settings.general.artistStreamingAlbums.title': '流媒体专辑',
   'settings.general.backup.description': '导出或导入 ECHO Next 设置参数，用于迁移到新设备或恢复配置。',
   'settings.general.backup.export': '导出设置',
@@ -4342,6 +4380,7 @@ const zhCN: TranslationMap = {
 
 const zhTW: TranslationMap = {
   ...zhCN,
+  'app.window.restore': '還原',
   'albumTagEditor.action.applyToForm': '套用到表單',
   'albumTagEditor.action.cancel': '取消',
   'albumTagEditor.action.chooseCover': '選擇封面',
@@ -5356,6 +5395,24 @@ const zhTW: TranslationMap = {
   'lyricsSettings.candidate.risk.high': '需要確認',
   'lyricsSettings.candidate.risk.low': '精準匹配',
   'lyricsSettings.candidate.risk.medium': '可能匹配',
+  'lyricsSettings.candidate.reason.albumMatch': '專輯匹配',
+  'lyricsSettings.candidate.reason.artistExact': '藝人一致',
+  'lyricsSettings.candidate.reason.artistMismatch': '藝人不符',
+  'lyricsSettings.candidate.reason.autoAccept': '自動採用',
+  'lyricsSettings.candidate.reason.candidateOnlyCover': '翻唱需確認',
+  'lyricsSettings.candidate.reason.candidateOnlyDuration': '時長需確認',
+  'lyricsSettings.candidate.reason.coverIntent': '翻唱候選',
+  'lyricsSettings.candidate.reason.durationClose': '時長接近',
+  'lyricsSettings.candidate.reason.durationExact': '時長精準',
+  'lyricsSettings.candidate.reason.durationMismatch': '時長不符',
+  'lyricsSettings.candidate.reason.embeddedTag': '內嵌歌詞',
+  'lyricsSettings.candidate.reason.localSidecar': '本地歌詞',
+  'lyricsSettings.candidate.reason.rejectedByUser': '已拒絕',
+  'lyricsSettings.candidate.reason.syncedDurationSafe': '同步安全',
+  'lyricsSettings.candidate.reason.titleExact': '標題一致',
+  'lyricsSettings.candidate.reason.titleSimilar': '標題接近',
+  'lyricsSettings.candidate.reason.versionConflict': '版本衝突',
+  'lyricsSettings.candidate.reason.versionMatch': '版本匹配',
   'lyricsSettings.candidate.sourceFilters': '歌詞來源篩選',
   'lyricsSettings.candidate.type.instrumental': '純音樂',
   'lyricsSettings.candidate.type.lyrics': '歌詞',
@@ -6711,6 +6768,7 @@ const jaJP: TranslationMap = {
   'app.toolbar.windowControls': 'ウィンドウ操作',
   'app.window.minimize': '最小化',
   'app.window.maximize': '最大化',
+  'app.window.restore': '元に戻す',
   'app.window.close': '閉じる',
   'albumDetail.action.back': 'アルバム',
   'albumDetail.action.likeAlbum': 'アルバムをお気に入りに追加',
@@ -7225,6 +7283,24 @@ const jaJP: TranslationMap = {
   'lyricsSettings.candidate.risk.high': '確認が必要',
   'lyricsSettings.candidate.risk.low': '高精度一致',
   'lyricsSettings.candidate.risk.medium': '一致の可能性',
+  'lyricsSettings.candidate.reason.albumMatch': 'アルバム一致',
+  'lyricsSettings.candidate.reason.artistExact': 'アーティスト一致',
+  'lyricsSettings.candidate.reason.artistMismatch': 'アーティスト不一致',
+  'lyricsSettings.candidate.reason.autoAccept': '自動採用',
+  'lyricsSettings.candidate.reason.candidateOnlyCover': 'カバー要確認',
+  'lyricsSettings.candidate.reason.candidateOnlyDuration': '長さ要確認',
+  'lyricsSettings.candidate.reason.coverIntent': 'カバー候補',
+  'lyricsSettings.candidate.reason.durationClose': '長さ近い',
+  'lyricsSettings.candidate.reason.durationExact': '長さ一致',
+  'lyricsSettings.candidate.reason.durationMismatch': '長さ不一致',
+  'lyricsSettings.candidate.reason.embeddedTag': '埋め込み歌詞',
+  'lyricsSettings.candidate.reason.localSidecar': 'ローカル歌詞',
+  'lyricsSettings.candidate.reason.rejectedByUser': '拒否済み',
+  'lyricsSettings.candidate.reason.syncedDurationSafe': '同期安全',
+  'lyricsSettings.candidate.reason.titleExact': 'タイトル一致',
+  'lyricsSettings.candidate.reason.titleSimilar': 'タイトル類似',
+  'lyricsSettings.candidate.reason.versionConflict': 'バージョン衝突',
+  'lyricsSettings.candidate.reason.versionMatch': 'バージョン一致',
   'lyricsSettings.candidate.sourceFilters': '歌詞ソースフィルター',
   'lyricsSettings.candidate.type.instrumental': 'インストゥルメンタル',
   'lyricsSettings.candidate.type.lyrics': '歌詞',
@@ -8645,6 +8721,7 @@ const enUS: TranslationMap = {
   'app.toolbar.windowControls': 'Window controls',
   'app.window.minimize': 'Minimize',
   'app.window.maximize': 'Maximize',
+  'app.window.restore': 'Restore',
   'app.window.close': 'Close',
   'albumDetail.action.back': 'Albums',
   'albumDetail.action.likeAlbum': 'Like album',
@@ -9159,6 +9236,24 @@ const enUS: TranslationMap = {
   'lyricsSettings.candidate.risk.high': 'Needs review',
   'lyricsSettings.candidate.risk.low': 'Exact match',
   'lyricsSettings.candidate.risk.medium': 'Possible match',
+  'lyricsSettings.candidate.reason.albumMatch': 'Album match',
+  'lyricsSettings.candidate.reason.artistExact': 'Artist exact',
+  'lyricsSettings.candidate.reason.artistMismatch': 'Artist mismatch',
+  'lyricsSettings.candidate.reason.autoAccept': 'Auto accepted',
+  'lyricsSettings.candidate.reason.candidateOnlyCover': 'Cover needs review',
+  'lyricsSettings.candidate.reason.candidateOnlyDuration': 'Duration needs review',
+  'lyricsSettings.candidate.reason.coverIntent': 'Cover candidate',
+  'lyricsSettings.candidate.reason.durationClose': 'Duration close',
+  'lyricsSettings.candidate.reason.durationExact': 'Duration exact',
+  'lyricsSettings.candidate.reason.durationMismatch': 'Duration mismatch',
+  'lyricsSettings.candidate.reason.embeddedTag': 'Embedded lyrics',
+  'lyricsSettings.candidate.reason.localSidecar': 'Local lyrics',
+  'lyricsSettings.candidate.reason.rejectedByUser': 'Rejected',
+  'lyricsSettings.candidate.reason.syncedDurationSafe': 'Synced safe',
+  'lyricsSettings.candidate.reason.titleExact': 'Title exact',
+  'lyricsSettings.candidate.reason.titleSimilar': 'Title similar',
+  'lyricsSettings.candidate.reason.versionConflict': 'Version conflict',
+  'lyricsSettings.candidate.reason.versionMatch': 'Version match',
   'lyricsSettings.candidate.sourceFilters': 'Lyrics source filters',
   'lyricsSettings.candidate.type.instrumental': 'Instrumental',
   'lyricsSettings.candidate.type.lyrics': 'Lyrics',
@@ -9713,7 +9808,7 @@ const enUS: TranslationMap = {
   'settings.nav.danger.description': 'Recovery and network safety',
   'settings.general.artistInfoSources.description': 'Choose the encyclopedia sources used when refreshing artist bios. Baidu Baike fits Chinese network contexts better, while Wikipedia can backstop international artists.',
   'settings.general.artistInfoSources.title': 'Artist Info Sources',
-  'settings.general.artistStreamingAlbums.description': 'When enabled, artist detail pages can search for and show streaming albums below local albums on demand. Off by default to avoid extra page and network pressure.',
+  'settings.general.artistStreamingAlbums.description': 'When enabled, artist detail pages can search for and show streaming albums below local albums on demand. On by default; turn it off to avoid extra page and network pressure.',
   'settings.general.artistStreamingAlbums.title': 'Streaming Albums',
   'settings.general.language.title': 'Display Language',
   'settings.general.language.description': 'Choose the language used by menus, in-app settings, and system dialogs.',

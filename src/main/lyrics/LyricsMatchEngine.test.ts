@@ -3,14 +3,14 @@ import type { LyricsProvider, LyricsProviderResult, LyricsProviderSearchRequest 
 import { LyricsMatchEngine } from './LyricsMatchEngine';
 
 const provider = (
-  id: 'lrclib' | 'netease' | 'qqmusic' | 'kugou' | 'kuwo',
+  id: 'local' | 'lrclib' | 'netease' | 'qqmusic' | 'kugou' | 'kuwo',
   results: LyricsProviderResult[],
   delayMs = 0,
   capabilities: Partial<LyricsProvider['capabilities']> = {},
 ): LyricsProvider => ({
   id,
-  label: id === 'lrclib' ? 'LRCLIB' : id === 'netease' ? 'NetEase Lyrics' : id === 'qqmusic' ? 'QQ Music' : id === 'kugou' ? 'KuGou' : 'Kuwo',
-  priority: id === 'lrclib' ? 700 : id === 'netease' ? 600 : id === 'qqmusic' ? 590 : id === 'kugou' ? 570 : 560,
+  label: id === 'local' ? 'Local' : id === 'lrclib' ? 'LRCLIB' : id === 'netease' ? 'NetEase Lyrics' : id === 'qqmusic' ? 'QQ Music' : id === 'kugou' ? 'KuGou' : 'Kuwo',
+  priority: id === 'local' ? 1000 : id === 'lrclib' ? 700 : id === 'netease' ? 600 : id === 'qqmusic' ? 590 : id === 'kugou' ? 570 : 560,
   capabilities: {
     synced: true,
     plain: true,
@@ -96,6 +96,28 @@ describe('LyricsMatchEngine', () => {
     const matched = await engine.match(query, { enabledProviders: ['lrclib'] });
 
     expect(matched.accepted?.decision.autoAccept).toBe(true);
+  });
+
+  it('keeps duration-mismatched local sidecars manual and continues to network providers', async () => {
+    const engine = new LyricsMatchEngine([
+      provider('local', [
+        result({
+          provider: 'local',
+          providerLyricsId: 'local-long',
+          matchReasons: ['local_sidecar_priority', 'duration_mismatch', 'candidate_only_duration'],
+          raw: { filePath: 'Echo Song.lrc' },
+        }),
+      ]),
+      provider('lrclib', [result({ providerLyricsId: 'network-hit', raw: { id: 'network-hit' } })]),
+    ]);
+
+    const matched = await engine.match(query, { enabledProviders: ['local', 'lrclib'] });
+    const localCandidate = matched.candidates.find((candidate) => candidate.provider === 'local');
+
+    expect(matched.accepted?.providerLyricsId).toBe('network-hit');
+    expect(localCandidate?.decision.autoAccept).toBe(false);
+    expect(localCandidate?.risk).toBe('medium');
+    expect(localCandidate?.score).toBe(0.42);
   });
 
   it('treats karaoke-only provider results as synced candidates', async () => {

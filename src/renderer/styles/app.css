@@ -2915,6 +2915,74 @@
   gap: 12px;
 }
 
+#settings-sec-integrations {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  align-items: start;
+}
+
+#settings-sec-integrations > .section-title {
+  grid-column: 1 / -1;
+  order: -10;
+}
+
+#settings-sec-integrations > .setting-row {
+  grid-column: 1 / -1;
+  order: 100;
+}
+
+#settings-sec-integrations .settings-account-panel {
+  grid-column: 1 / -1;
+  order: 0;
+}
+
+#settings-sec-integrations .settings-credential-panel {
+  grid-column: 1 / -1;
+  order: 9;
+}
+
+#settings-sec-integrations > .setting-row--credential {
+  grid-column: auto;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-page #settings-row-spotify-auth-config {
+  order: 10;
+}
+
+.settings-page #settings-row-tidal-auth-config {
+  order: 11;
+}
+
+.settings-page #settings-row-online-album-info {
+  order: 12;
+}
+
+.settings-page #settings-row-online-artist-info {
+  order: 13;
+}
+
+.settings-page #settings-row-lastfm {
+  order: 14;
+}
+
+.settings-page #settings-row-lastfm-connection {
+  order: 15;
+  grid-column: 1 / -1;
+}
+
+.settings-page #settings-row-lastfm-now-playing {
+  order: 16;
+}
+
+.settings-page #settings-row-lastfm-scrobbling {
+  order: 17;
+}
+
+.settings-page #settings-sec-integrations #settings-row-network-proxy {
+  order: 999;
+}
+
 .settings-page #settings-row-network-proxy > :not(.setting-info) {
   justify-self: stretch;
 }
@@ -2927,10 +2995,108 @@
   max-width: none;
   gap: 14px;
   padding: 14px;
-  border: 1px solid rgba(120, 73, 92, 0.12);
+  border: 0;
   border-radius: 8px;
-  background: rgba(255, 250, 252, 0.72);
-  box-shadow: 0 10px 24px rgba(90, 46, 68, 0.06);
+  background: color-mix(in srgb, var(--theme-panel-bg-muted) 88%, transparent);
+  box-shadow:
+    0 12px 28px rgba(39, 59, 84, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.54);
+}
+
+.settings-page .setting-row--credential {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-panel-bg-muted) 82%, transparent);
+  box-shadow:
+    0 10px 24px rgba(39, 59, 84, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.56);
+  overflow: hidden;
+}
+
+.settings-page .setting-row--credential:hover {
+  background: color-mix(in srgb, var(--theme-panel-bg-muted) 96%, transparent);
+}
+
+.settings-page .setting-row--credential .setting-info {
+  gap: 4px;
+}
+
+.settings-page .setting-row--credential .setting-info h3 {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.settings-page .setting-row--credential .setting-info p {
+  max-width: none;
+  min-height: 30px;
+  font-size: 12px;
+  line-height: 1.28;
+}
+
+.settings-page .setting-row--credential > :not(.setting-info) {
+  justify-self: stretch;
+}
+
+.settings-page .setting-row--credential .settings-cache-panel {
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-page .setting-row--credential .settings-proxy-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.settings-page .setting-row--credential .settings-chip-row {
+  gap: 7px;
+}
+
+.settings-page .setting-row--credential .settings-action-button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.settings-page .setting-row--credential .settings-status-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.settings-page .setting-row--credential .settings-status-grid span {
+  padding: 7px 8px;
+}
+
+.settings-page .setting-row--credential .settings-inline-note {
+  margin: 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  #settings-sec-integrations {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-page .setting-row--credential .settings-proxy-grid,
+  .settings-page #settings-row-network-proxy .settings-proxy-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .settings-page .setting-row--credential .settings-inline-note {
+    white-space: normal;
+  }
 }
 
 .settings-page #settings-row-network-proxy .settings-proxy-grid {
@@ -10269,8 +10435,29 @@ html[data-theme="dark"] .settings-lyrics-panel .lyrics-source-filters button[dat
   display: grid;
   gap: 10px;
   width: 100%;
-  padding: 12px 0 4px;
-  border-top: 1px solid rgba(39, 59, 84, 0.08);
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-panel-bg-muted) 78%, transparent);
+  box-shadow:
+    0 10px 24px rgba(39, 59, 84, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.settings-account-panel[data-expanded="false"] {
+  padding-bottom: 12px;
+}
+
+.settings-credential-panel {
+  display: grid;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-panel-bg-muted) 78%, transparent);
+  box-shadow:
+    0 10px 24px rgba(39, 59, 84, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .settings-account-panel-header {
@@ -10280,25 +10467,59 @@ html[data-theme="dark"] .settings-lyrics-panel .lyrics-source-filters button[dat
   gap: 14px;
 }
 
+.settings-credential-panel-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
 .settings-account-panel-header h3,
 .settings-account-panel-header p,
+.settings-credential-panel-header h3,
+.settings-credential-panel-header p,
 .settings-account-row h3,
 .settings-account-row p {
   margin: 0;
 }
 
-.settings-account-panel-header h3 {
+.settings-account-panel-header h3,
+.settings-credential-panel-header h3 {
   color: var(--echo-heading-text);
   font-size: 14px;
   font-weight: 840;
 }
 
-.settings-account-panel-header p {
+.settings-account-panel-header p,
+.settings-credential-panel-header p {
   max-width: 620px;
   color: var(--color-muted);
   font-size: 12px;
   font-weight: 650;
   line-height: 1.4;
+}
+
+.settings-account-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-account-panel-toggle svg {
+  transition: transform 160ms ease;
+}
+
+.settings-credential-panel-toggle svg {
+  transition: transform 160ms ease;
+}
+
+.settings-account-panel-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.settings-credential-panel-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
 }
 
 .settings-account-list {
@@ -11025,8 +11246,44 @@ html[data-theme="dark"] .settings-update-progress-track span {
   background: linear-gradient(90deg, var(--theme-legacy-accent-strong), #46c0a9);
 }
 
-html[data-theme="dark"] .settings-account-panel {
+html[data-theme="dark"] .settings-account-panel,
+html[data-theme="dark"] .settings-credential-panel {
+  background: rgba(24, 30, 39, 0.5);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="dark"] .settings-page .setting-row--credential {
+  background: rgba(24, 30, 39, 0.58);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .settings-page .setting-row--credential:hover {
+  background: rgba(27, 33, 42, 0.78);
+}
+
+html[data-theme="dark"] .settings-page #settings-row-network-proxy .settings-cache-panel--network-proxy {
+  background: rgba(24, 30, 39, 0.78);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .settings-proxy-field > span {
+  color: var(--color-muted);
+}
+
+html[data-theme="dark"] .settings-proxy-field input {
+  color: var(--color-text);
   border-color: var(--color-border);
+  background: var(--theme-field-bg);
+}
+
+html[data-theme="dark"] .settings-proxy-field input::placeholder {
+  color: var(--color-subtle);
 }
 
 html[data-theme="dark"] .settings-account-cookie-field input,
@@ -11046,7 +11303,8 @@ html[data-theme="dark"] .settings-account-meta span {
 }
 
 html[data-theme="dark"] .settings-account-summary h3,
-html[data-theme="dark"] .settings-account-panel-header h3 {
+html[data-theme="dark"] .settings-account-panel-header h3,
+html[data-theme="dark"] .settings-credential-panel-header h3 {
   color: var(--echo-heading-text);
 }
 
@@ -13020,6 +13278,26 @@ html[data-theme="dark"] .history-play-count {
   color: var(--color-accent);
 }
 
+.remote-source-tabs button[data-recommended="true"] {
+  border-color: color-mix(in srgb, var(--color-accent) 48%, var(--color-border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 14%, transparent), color-mix(in srgb, var(--color-accent) 6%, transparent)),
+    var(--color-bg-elevated);
+  color: color-mix(in srgb, var(--color-accent) 70%, var(--color-text));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 10%, transparent),
+    0 8px 18px color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.remote-source-tabs button[data-recommended="true"].active,
+.remote-source-tabs button[data-recommended="true"]:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 18%, transparent), color-mix(in srgb, var(--color-accent) 9%, transparent)),
+    var(--color-bg-elevated);
+  color: var(--color-accent);
+}
+
 .remote-source-tabs button {
   display: grid;
   align-content: center;
@@ -13041,6 +13319,11 @@ html[data-theme="dark"] .history-play-count {
 .remote-source-tabs button small {
   color: var(--color-muted);
   font-size: 11px;
+}
+
+.remote-source-tabs button[data-recommended="true"] small {
+  color: color-mix(in srgb, var(--color-accent) 62%, var(--color-muted));
+  font-weight: 750;
 }
 
 .remote-provider-summary {
@@ -13501,6 +13784,67 @@ html[data-theme="dark"] .history-play-count {
 .remote-source-form .remote-source-actions,
 .remote-source-form p {
   grid-column: 1 / -1;
+}
+
+.remote-source-navidrome-guide {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 26%, var(--color-border));
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 10%, transparent), color-mix(in srgb, var(--color-accent) 4%, transparent)),
+    var(--color-bg);
+}
+
+.remote-source-navidrome-guide > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.remote-source-navidrome-guide svg {
+  color: var(--color-accent);
+}
+
+.remote-source-navidrome-guide strong,
+.remote-source-navidrome-guide span {
+  min-width: 0;
+}
+
+.remote-source-navidrome-guide strong {
+  color: var(--color-text);
+}
+
+.remote-source-navidrome-guide span {
+  grid-column: 2;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.remote-source-navidrome-guide button {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+  color: color-mix(in srgb, var(--color-accent) 70%, var(--color-text));
+  font-weight: 750;
+}
+
+.remote-source-navidrome-guide button:hover {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-elevated));
 }
 
 .baidu-oauth-helper {
@@ -15298,6 +15642,15 @@ html[data-theme="dark"] .history-play-count {
   .remote-job-grid,
   .remote-background-concurrency-controls {
     grid-template-columns: 1fr;
+  }
+
+  .remote-source-navidrome-guide {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .remote-source-navidrome-guide button {
+    justify-content: center;
   }
 }
 

@@ -1327,6 +1327,22 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppTestNetworkProxy);
   });
 
+  it('exposes app window maximized state through IPC', async () => {
+    const handler = vi.fn();
+
+    await exposedApi!.app.isMaximized();
+    const unsubscribe = exposedApi!.app.onMaximizedChange(handler);
+    const listener = listeners.get(IpcChannels.AppWindowMaximizedChanged);
+    listener?.({}, true);
+    listener?.({}, 'yes');
+    unsubscribe();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppWindowIsMaximized);
+    expect(handler).toHaveBeenNthCalledWith(1, true);
+    expect(handler).toHaveBeenNthCalledWith(2, false);
+    expect(listeners.has(IpcChannels.AppWindowMaximizedChanged)).toBe(false);
+  });
+
   it('exposes mini player window helpers through IPC', async () => {
     const handler = vi.fn();
     await exposedApi!.miniPlayer.show();

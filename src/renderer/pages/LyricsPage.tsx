@@ -34,6 +34,12 @@ import { shouldShowRomanizationForLyrics } from "../../shared/utils/lyricsLangua
 import { LyricsView, getActiveLyricIndex, getEstimatedPlainLyricIndex } from "../components/lyrics/LyricsView";
 import { MvPanel, type MvAudioClock } from "../components/lyrics/MvPanel";
 import {
+  readLyricsSourceQualitySummaries,
+  recordLyricsSourceQualityCandidates,
+  recordLyricsSourceQualityOutcome,
+  type LyricsSourceQualityProviderSummary,
+} from "../components/lyrics/lyricsSourceQualityMemory";
+import {
   evaluateLyricsSmartAlignment,
   type LyricsSmartAlignmentAnchor,
   type LyricsSmartAlignmentCandidate,
@@ -113,6 +119,20 @@ type TrackWithLargeCover = LibraryTrack & {
 };
 
 type CandidateSourceFilter = "all" | LyricsProviderId;
+
+type CandidateSourceQualitySummary = {
+  key: LyricsProviderId;
+  label: string;
+  count: number;
+  bestScore: number;
+  averageScore: number;
+  lowRiskCount: number;
+  syncedCount: number;
+  recentCandidateCount: number;
+  recentAppliedCount: number;
+  recentAverageScore: number;
+  order: number;
+};
 
 type LyricsDisplaySettings = Pick<
   AppSettings,
@@ -430,16 +450,24 @@ const riskLabel = (risk: LyricsSearchCandidate["risk"]): string => {
 };
 
 const reasonLabels: Record<string, string> = {
+  title_exact: "标题一致",
+  title_similar: "标题接近",
+  artist_exact: "艺人一致",
+  album_match: "专辑匹配",
   duration_exact: "时长精准",
   duration_close: "时长接近",
   duration_mismatch: "时长不同",
   artist_mismatch: "艺人不同",
   cover_intent: "可能翻唱",
   candidate_only_cover: "翻唱需确认",
+  candidate_only_duration: "时长需确认",
+  version_match: "版本匹配",
   version_conflict: "Version mismatch",
   synced_duration_safe: "同步歌词",
   embedded_tag_priority: "嵌入歌词",
   local_sidecar_priority: "本地歌词",
+  auto_accept: "自动采用",
+  rejected_by_user: "已拒绝",
   netease_provider: "NetEase",
   qqmusic_provider: "QQ 音乐",
   kugou_provider: "酷狗",
@@ -469,6 +497,17 @@ const lyricsProviderLabels: Partial<Record<LyricsProviderId, string>> = {
   musixmatch: "Musixmatch",
   genius: "Genius",
 };
+const lyricsProviderSortOrder = new Map<LyricsProviderId, number>([
+  ["local", 0],
+  ["lrclib", 1],
+  ["netease", 2],
+  ["qqmusic", 3],
+  ["kugou", 4],
+  ["kuwo", 5],
+  ["musixmatch", 6],
+  ["genius", 7],
+  ["manual", 8],
+]);
 
 const mergeLyricsCandidates = (
   current: LyricsSearchCandidate[],
@@ -1234,6 +1273,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const [lyricsStatus, setLyricsStatus] = useState<string | null>(null);
   const [isLyricsLoading, setIsLyricsLoading] = useState(false);
   const [candidates, setCandidates] = useState<LyricsSearchCandidate[]>([]);
+  const [sourceQualityMemoryVersion, setSourceQualityMemoryVersion] = useState(0);
   const [activeCandidateSource, setActiveCandidateSource] =
     useState<CandidateSourceFilter>(() => readRememberedCandidateSource());
   const [isLyricsMatchPanelClosed, setIsLyricsMatchPanelClosed] = useState(false);
@@ -1259,6 +1299,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
   const smtcLyricsProgressKeyRef = useRef<string | null>(null);
   const albumNavigationTimeoutRef = useRef<number | null>(null);
   const copyNoticeTimerRef = useRef<number | null>(null);
+  const noteSourceQualityMemoryChanged = useCallback((): void => {
+    setSourceQualityMemoryVersion((version) => (version + 1) % 1000000);
+  }, []);
   const setLyricsViewMode = useCallback((mode: LyricsViewMode): void => {
     rememberLyricsViewMode(mode);
     setLyricsViewModeState(mode);
@@ -1917,17 +1960,6 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     lyricsDisplaySettings.lyricsProviderOrder,
   ]);
   const candidateSourceOptions = useMemo<Array<{ key: CandidateSourceFilter; label: string; count: number; order: number }>>(() => {
-    const order = new Map<LyricsSearchCandidate["provider"], number>([
-      ["local", 0],
-      ["lrclib", 1],
-      ["netease", 2],
-      ["qqmusic", 3],
-      ["kugou", 4],
-      ["kuwo", 5],
-      ["musixmatch", 6],
-      ["genius", 7],
-      ["manual", 8],
-    ]);
     const sourceMap = new Map<
       CandidateSourceFilter,
       { key: CandidateSourceFilter; label: string; count: number; order: number }
@@ -1955,7 +1987,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
           key,
           label: lyricsProviderLabels[candidate.provider] ?? candidate.sourceLabel,
           count: 1,
-          order: order.get(candidate.provider) ?? 99,
+          order: lyricsProviderSortOrder.get(candidate.provider) ?? 99,
         });
       }
     }
@@ -1977,6 +2009,66 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
           ),
     [activeCandidateSource, candidates],
   );
+  const rememberedSourceQualityByProvider = useMemo(() => {
+    const summaries = readLyricsSourceQualitySummaries();
+    return new Map<LyricsProviderId, LyricsSourceQualityProviderSummary>(
+      summaries.map((summary) => [summary.provider, summary]),
+    );
+  }, [sourceQualityMemoryVersion]);
+  const candidateSourceQualitySummaries = useMemo<CandidateSourceQualitySummary[]>(() => {
+    const sourceMap = new Map<LyricsProviderId, CandidateSourceQualitySummary & { scoreTotal: number }>();
+
+    for (const candidate of candidates) {
+      const existing =
+        sourceMap.get(candidate.provider) ??
+        {
+          key: candidate.provider,
+          label: lyricsProviderLabels[candidate.provider] ?? candidate.sourceLabel,
+          count: 0,
+          bestScore: 0,
+          averageScore: 0,
+          lowRiskCount: 0,
+          syncedCount: 0,
+          recentCandidateCount: 0,
+          recentAppliedCount: 0,
+          recentAverageScore: 0,
+          order: lyricsProviderSortOrder.get(candidate.provider) ?? 99,
+          scoreTotal: 0,
+        };
+
+      existing.count += 1;
+      existing.scoreTotal += candidate.score;
+      existing.bestScore = Math.max(existing.bestScore, candidate.score);
+      if ((candidate.risk ?? "high") === "low") {
+        existing.lowRiskCount += 1;
+      }
+      if (candidate.hasSynced) {
+        existing.syncedCount += 1;
+      }
+      sourceMap.set(candidate.provider, existing);
+    }
+
+    return Array.from(sourceMap.values())
+      .map(({ scoreTotal, ...summary }) => {
+        const remembered = rememberedSourceQualityByProvider.get(summary.key);
+        return {
+          ...summary,
+          averageScore: summary.count > 0 ? scoreTotal / summary.count : 0,
+          recentCandidateCount: remembered?.candidateCount ?? 0,
+          recentAppliedCount: remembered?.appliedCount ?? 0,
+          recentAverageScore: remembered?.averageScore ?? 0,
+        };
+      })
+      .sort(
+        (left, right) =>
+          right.bestScore - left.bestScore ||
+          right.lowRiskCount - left.lowRiskCount ||
+          right.recentAppliedCount - left.recentAppliedCount ||
+          right.syncedCount - left.syncedCount ||
+          left.order - right.order ||
+          left.label.localeCompare(right.label),
+      );
+  }, [candidates, rememberedSourceQualityByProvider]);
   const selectCandidateSource = useCallback((source: CandidateSourceFilter): void => {
     setActiveCandidateSource(source);
     rememberCandidateSource(source);
@@ -2251,15 +2343,19 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         return [];
       }
 
-      if (lyricsSnapshotRequest && lyricsApi.searchCandidatesForSnapshot) {
-        return lyricsApi.searchCandidatesForSnapshot(lyricsSnapshotRequest, searchText ?? undefined, provider);
+      const providerCandidates = lyricsSnapshotRequest && lyricsApi.searchCandidatesForSnapshot
+        ? await lyricsApi.searchCandidatesForSnapshot(lyricsSnapshotRequest, searchText ?? undefined, provider)
+        : searchText
+          ? await lyricsApi.searchCandidates(trackId, searchText, provider)
+          : await lyricsApi.searchCandidates(trackId, undefined, provider);
+
+      if (recordLyricsSourceQualityCandidates(providerCandidates)) {
+        noteSourceQualityMemoryChanged();
       }
 
-      return searchText
-        ? lyricsApi.searchCandidates(trackId, searchText, provider)
-        : lyricsApi.searchCandidates(trackId, undefined, provider);
+      return providerCandidates;
     },
-    [lyricsSnapshotRequest, trackId],
+    [lyricsSnapshotRequest, noteSourceQualityMemoryChanged, trackId],
   );
 
   const applyLyricsCandidateForActiveTrack = useCallback(
@@ -2329,6 +2425,9 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
           return true;
         }
 
+        if (recordLyricsSourceQualityOutcome(autoCandidate, 'applied')) {
+          noteSourceQualityMemoryChanged();
+        }
         setLyrics(trackLyricsToState(trackLyrics));
         dispatchCurrentLyricsProviderChanged(trackLyrics);
         setCandidates([]);
@@ -2354,6 +2453,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       applyLyricsCandidateForActiveTrack,
       lyricsDisplaySettings.lyricsAutoSearch,
       lyricsDisplaySettings.lyricsRestartOnApplyEnabled,
+      noteSourceQualityMemoryChanged,
       trackId,
     ],
   );
@@ -2847,6 +2947,10 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
       setApplyingCandidateId(candidateId);
       try {
         const trackLyrics = await applyLyricsCandidateForActiveTrack(candidateId);
+        const appliedCandidate = candidates.find((candidate) => candidate.id === candidateId);
+        if (recordLyricsSourceQualityOutcome(appliedCandidate, 'applied')) {
+          noteSourceQualityMemoryChanged();
+        }
         setLyrics(trackLyricsToState(trackLyrics));
         dispatchCurrentLyricsProviderChanged(trackLyrics);
         smartAlignmentAutoAppliedKeyRef.current = null;
@@ -2867,7 +2971,14 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         setApplyingCandidateId(null);
       }
     },
-    [applyLyricsCandidateForActiveTrack, lyricsDisplaySettings.lyricsEnabled, lyricsDisplaySettings.lyricsRestartOnApplyEnabled, trackId],
+    [
+      applyLyricsCandidateForActiveTrack,
+      candidates,
+      lyricsDisplaySettings.lyricsEnabled,
+      lyricsDisplaySettings.lyricsRestartOnApplyEnabled,
+      noteSourceQualityMemoryChanged,
+      trackId,
+    ],
   );
 
   const applyCustomLyricsFile = useCallback(
@@ -3624,6 +3735,25 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
         </div>
         {candidates.length ? (
           <>
+            {candidateSourceQualitySummaries.length ? (
+              <div className="lyrics-source-quality" aria-label="Lyrics source quality">
+                {candidateSourceQualitySummaries.map((summary) => (
+                  <div className="lyrics-source-quality__item" key={summary.key}>
+                    <strong>{summary.label}</strong>
+                    <span>
+                      <small>{summary.count} 候选</small>
+                      <small>最佳 {formatScore(summary.bestScore)}</small>
+                      <small>均分 {formatScore(summary.averageScore)}</small>
+                      {summary.lowRiskCount > 0 ? <small>安全 {summary.lowRiskCount}</small> : null}
+                      {summary.syncedCount > 0 ? <small>同步 {summary.syncedCount}</small> : null}
+                      {summary.recentCandidateCount > 0 ? <small>近期 {summary.recentCandidateCount}</small> : null}
+                      {summary.recentAppliedCount > 0 ? <small>采用 {summary.recentAppliedCount}</small> : null}
+                      {summary.recentAverageScore > 0 ? <small>近均 {formatScore(summary.recentAverageScore)}</small> : null}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="lyrics-source-filters" aria-label="Lyrics source filter">
               {candidateSourceOptions.map((option) => (
                 <button
@@ -3692,6 +3822,7 @@ export const LyricsPage = ({ initialLyrics }: LyricsPageProps): JSX.Element => {
     applyingCandidateId,
     candidates,
     candidateSourceOptions,
+    candidateSourceQualitySummaries,
     handleApplyCandidate,
     isLyricsMatchPanelClosed,
     isLyricsMatchPanelRevealed,

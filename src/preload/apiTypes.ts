@@ -273,7 +273,10 @@ export type EchoApi = {
     getVersion: () => Promise<string>;
     minimize: () => Promise<void>;
     toggleMaximize: () => Promise<void>;
+    isMaximized: () => Promise<boolean>;
+    onMaximizedChange: (handler: (isMaximized: boolean) => void) => () => void;
     close: () => Promise<void>;
+    getSystemUserName: () => Promise<string | null>;
     getSettings: () => Promise<AppSettings>;
     setSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>;
     getTaskbarPlaybackStatus: () => Promise<TaskbarPlaybackStatus>;

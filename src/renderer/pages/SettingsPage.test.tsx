@@ -934,6 +934,7 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     clickSettingsNav('settings\\.nav\\.integrations\\.label');
+    fireEvent.click(screen.getByRole('button', { name: '展开 API 配置' }));
     await screen.findByText('在线歌手信息');
     fireEvent.change(screen.getByLabelText('Bandsintown app_id'), { target: { value: ' echo-next ' } });
     fireEvent.change(screen.getByLabelText('Ticketmaster apikey'), { target: { value: ' ticketmaster-key ' } });
@@ -952,6 +953,84 @@ describe('SettingsPage', () => {
     expect(screen.getByText('在线歌手信息配置已保存。艺人页会按需后台加载简介和演出。')).toBeTruthy();
   });
 
+  it('saves Discogs album rating token from integrations', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue({ ...settings, onlineAlbumInfoDiscogsUserToken: 'old-token' });
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.integrations\\.label');
+    fireEvent.click(screen.getByRole('button', { name: '展开 API 配置' }));
+    await screen.findByText('Discogs 专辑评分');
+    fireEvent.change(screen.getByLabelText('Discogs personal access token'), { target: { value: ' discogs-token ' } });
+    fireEvent.click(screen.getByRole('button', { name: /保存 Discogs Token/ }));
+
+    await waitFor(() =>
+      expect(setSettingsMock).toHaveBeenCalledWith({
+        onlineAlbumInfoDiscogsUserToken: 'discogs-token',
+      }),
+    );
+    expect(screen.getByText('Discogs token 已保存。回到专辑页点“刷新在线信息”即可重拉评分。')).toBeTruthy();
+  });
+
+  it('remembers the account login panel collapse state from integrations', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.integrations\\.label');
+
+    expect(screen.queryByLabelText('Spotify')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开账号登录' }));
+
+    expect(window.localStorage.getItem('echo:settings:integrations:account-panel-expanded')).toBe('true');
+    expect(screen.getByLabelText('Spotify')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '收起账号登录' }));
+
+    expect(window.localStorage.getItem('echo:settings:integrations:account-panel-expanded')).toBe('false');
+    expect(screen.queryByLabelText('Spotify')).toBeNull();
+  });
+
+  it('keeps developer API settings collapsed by default and remembers expansion', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.integrations\\.label');
+
+    expect(screen.queryByText('Discogs 专辑评分')).toBeNull();
+    expect(screen.queryByText('Spotify OAuth 配置')).toBeNull();
+    expect(screen.queryByText('Last.fm')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开 API 配置' }));
+
+    expect(window.localStorage.getItem('echo:settings:integrations:credential-panel-expanded')).toBe('true');
+    expect(screen.getByText('Discogs 专辑评分')).toBeTruthy();
+    expect(screen.getByText('Spotify OAuth 配置')).toBeTruthy();
+    expect(screen.getByText('Last.fm')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '收起 API 配置' }));
+
+    expect(window.localStorage.getItem('echo:settings:integrations:credential-panel-expanded')).toBe('false');
+    expect(screen.queryByText('Discogs 专辑评分')).toBeNull();
+    expect(screen.queryByText('Spotify OAuth 配置')).toBeNull();
+    expect(screen.queryByText('Last.fm')).toBeNull();
+  });
+
   it('clears online artist info cache from integrations', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);
@@ -962,6 +1041,7 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     clickSettingsNav('settings\\.nav\\.integrations\\.label');
+    fireEvent.click(screen.getByRole('button', { name: '展开 API 配置' }));
     await screen.findByText('在线歌手信息');
     fireEvent.click(screen.getByRole('button', { name: /清理艺人资料缓存/ }));
 

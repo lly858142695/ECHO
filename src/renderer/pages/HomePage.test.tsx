@@ -336,9 +336,9 @@ const installAppSettingsMock = (
   } = {},
 ) => {
   const effectiveSettings = {
-    homeRandomHeroTitleEnabled: true,
-    homeWaveformVisualizerEnabled: false,
-    audioVisualSpectrumEnabled: settings.homeWaveformVisualizerEnabled === true ? true : false,
+    homeRandomHeroTitleEnabled: false,
+    homeWaveformVisualizerEnabled: settings.homeWaveformVisualizerEnabled ?? true,
+    audioVisualSpectrumEnabled: settings.audioVisualSpectrumEnabled ?? (settings.homeWaveformVisualizerEnabled === true ? true : false),
     lowLoadPlaybackModeEnabled: false,
     ...settings,
   };
@@ -456,7 +456,8 @@ describe('HomePage', () => {
 
   it('picks one random hero title and keeps it stable for the home session', async () => {
     installLibraryMock();
-    expect(homeHeroTitleOptions).toEqual(expect.arrayContaining(['今天在用核电听歌吗？', '#define int long long']));
+    installAppSettingsMock({ homeRandomHeroTitleEnabled: true });
+    expect(homeHeroTitleOptions).toEqual(expect.arrayContaining(['#define int long long']));
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.62);
 
     render(<HomePage />);

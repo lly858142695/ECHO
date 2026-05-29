@@ -73,6 +73,30 @@ const candidateHasPreferredSecondary = (
 const isQuickAutoAcceptCandidate = (candidate: MatchedLyricsCandidate | null): boolean =>
   Boolean(candidate?.decision.autoAccept && candidate.decision.risk === 'low' && candidate.score >= quickAutoAcceptScore);
 
+const isAutoAcceptCandidate = (candidate: MatchedLyricsCandidate | null): boolean =>
+  Boolean(candidate?.decision.autoAccept && candidate.decision.risk === 'low');
+
+const localDecision = (provider: LyricsProvider, result: LyricsProviderResult, settings: LyricsMatchEngineOptions): LyricsMatchDecision => {
+  const reasons = result.matchReasons?.length ? [...result.matchReasons] : ['local_sidecar_priority'];
+  const needsManualDurationCheck = reasons.includes('candidate_only_duration');
+  const score = needsManualDurationCheck ? 0.42 : 1;
+  const autoAccept = !needsManualDurationCheck;
+  return {
+    score,
+    autoAccept,
+    candidateOnly: needsManualDurationCheck,
+    rejected: false,
+    risk: needsManualDurationCheck ? 'medium' : 'low',
+    reasons,
+    providerPriorityBonus: providerPriorityBonus(providerOrderPriority(settings.enabledProviders, provider)),
+    titleScore: 1,
+    artistScore: 1,
+    albumScore: 1,
+    durationScore: needsManualDurationCheck ? 0.32 : 1,
+    versionScore: 1,
+  };
+};
+
 const sanitizeQueryForProvider = (query: LyricsQuery, provider: LyricsProvider): LyricsQuery =>
   provider.id === 'local'
     ? query
@@ -113,9 +137,14 @@ export class LyricsMatchEngine {
 
       if (localCandidates.length && !settings.collectAllCandidates) {
         const sorted = sortLyricsCandidates(normalized.durationSeconds, dedupeLyricsCandidates(localCandidates));
+        const accepted = sorted.find(isAutoAcceptCandidate) ?? null;
+        if (!accepted) {
+          continue;
+        }
+
         return {
           normalized,
-          accepted: sorted[0],
+          accepted,
           candidates: sorted,
         };
       }
@@ -278,20 +307,7 @@ export class LyricsMatchEngine {
       sourceLabel: result.sourceLabel ?? provider.label,
     };
     const decision = provider.id === 'local'
-      ? {
-          score: 1,
-          autoAccept: true,
-          candidateOnly: false,
-          rejected: false,
-          risk: 'low' as const,
-          reasons: result.matchReasons?.length ? result.matchReasons : ['local_sidecar_priority'],
-          providerPriorityBonus: providerPriorityBonus(providerOrderPriority(settings.enabledProviders, provider)),
-          titleScore: 1,
-          artistScore: 1,
-          albumScore: 1,
-          durationScore: 1,
-          versionScore: 1,
-        }
+      ? localDecision(provider, result, settings)
       : evaluateLyricsCandidate(normalized, base, {
           autoAcceptScore: settings.autoAcceptScore,
           coverAutoAcceptScore: settings.coverAutoAcceptScore,

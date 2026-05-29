@@ -3,6 +3,7 @@ import {
   artistMergeKeyForName,
   chooseArtistDisplayName,
   findArtistMergeKey,
+  splitArtistCreditParts,
   type ArtistMergeExisting,
 } from './ArtistMerge';
 
@@ -20,6 +21,14 @@ describe('ArtistMerge', () => {
       artistMergeKeyForName('25\u6642 \u30ca\u30a4\u30c8\u30b3\u30fc\u30c9\u3067', 'conservative'),
     );
     expect(artistMergeKeyForName('Aiobahn +81', 'conservative')).not.toBe(artistMergeKeyForName('Aiobahn', 'conservative'));
+  });
+
+  it('keeps spaced ampersand artist names intact while preserving clear collaboration separators', () => {
+    expect(splitArtistCreditParts('MYTH & ROID')).toEqual(['MYTH & ROID']);
+    expect(splitArtistCreditParts('MYTH \uff06 ROID')).toEqual(['MYTH \uff06 ROID']);
+    expect(splitArtistCreditParts('Afterglow,FLOW')).toEqual(['Afterglow', 'FLOW']);
+    expect(splitArtistCreditParts('2PM/\u5c39\u6069\u60e0')).toEqual(['2PM', '\u5c39\u6069\u60e0']);
+    expect(splitArtistCreditParts('Aimer featuring milet')).toEqual(['Aimer', 'milet']);
   });
 
   it('lets standard matching merge safe suffix aliases without merging short typos', () => {

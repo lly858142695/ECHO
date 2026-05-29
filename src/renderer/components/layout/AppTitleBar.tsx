@@ -1,5 +1,6 @@
 import {
   Captions,
+  Copy,
   Film,
   Headphones,
   Minus,
@@ -22,6 +23,7 @@ type AppTitleBarProps = {
   onOpenMvSettings?: () => void;
   onMinimize: () => void;
   onToggleMaximize: () => void;
+  isWindowMaximized?: boolean;
   onClose: () => void;
 };
 
@@ -44,9 +46,12 @@ export const AppTitleBar = ({
   onOpenMvSettings = () => undefined,
   onMinimize,
   onToggleMaximize,
+  isWindowMaximized = false,
   onClose,
 }: AppTitleBarProps): JSX.Element => {
   const { t } = useI18n();
+  const maximizeLabel = t(isWindowMaximized ? 'app.window.restore' : 'app.window.maximize');
+  const MaximizeIcon = isWindowMaximized ? Copy : Square;
   const actions: TitleBarAction[] = [
     {
       id: 'audio-settings',
@@ -120,11 +125,12 @@ export const AppTitleBar = ({
         <button
           className="window-control"
           type="button"
-          aria-label={t('app.window.maximize')}
-          title={t('app.window.maximize')}
+          aria-label={maximizeLabel}
+          title={maximizeLabel}
+          data-window-maximized={isWindowMaximized ? 'true' : 'false'}
           onClick={onToggleMaximize}
         >
-          <Square size={14} />
+          <MaximizeIcon size={isWindowMaximized ? 15 : 14} />
         </button>
         <button className="window-control window-control--close" type="button" aria-label={t('app.window.close')} title={t('app.window.close')} onClick={onClose}>
           <X size={16} />

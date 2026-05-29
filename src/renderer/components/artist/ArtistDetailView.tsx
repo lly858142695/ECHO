@@ -573,7 +573,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
   const [configuredConcertSources, setConfiguredConcertSources] = useState<string[]>([]);
   const [configuredConcertRegion, setConfiguredConcertRegion] = useState<string | null>(null);
   const [onlineArtistInfoSourcesKey, setOnlineArtistInfoSourcesKey] = useState('');
-  const [streamingAlbumsEnabled, setStreamingAlbumsEnabled] = useState(false);
+  const [streamingAlbumsEnabled, setStreamingAlbumsEnabled] = useState(true);
   const [streamingAlbumProvider, setStreamingAlbumProvider] = useState<ArtistStreamingAlbumsProvider>(defaultArtistStreamingAlbumsProvider);
   const [streamingAlbums, setStreamingAlbums] = useState<StreamingAlbum[]>([]);
   const [streamingAlbumVisibleCount, setStreamingAlbumVisibleCount] = useState(streamingAlbumPageSize);
@@ -757,7 +757,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
         setOnlineArtistInfoSourcesKey(Array.isArray(settings?.onlineArtistInfoSources) ? settings.onlineArtistInfoSources.join('|') : '');
       }
       if (!settings || Object.prototype.hasOwnProperty.call(settings, 'artistStreamingAlbumsEnabled')) {
-        setStreamingAlbumsEnabled(settings?.artistStreamingAlbumsEnabled === true);
+        setStreamingAlbumsEnabled(settings?.artistStreamingAlbumsEnabled !== false);
       }
       if (!settings || Object.prototype.hasOwnProperty.call(settings, 'artistStreamingAlbumsProvider')) {
         setStreamingAlbumProvider(normalizeStreamingAlbumProvider(settings?.artistStreamingAlbumsProvider));

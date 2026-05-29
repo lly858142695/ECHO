@@ -6,6 +6,7 @@ import type {
   AlbumInformationSummary,
   AlbumOnlineInfo,
   AlbumOnlineInfoMatch,
+  AlbumOnlineInfoRequestOptions,
   AlbumReleaseDetails,
   AlbumReleaseLabel,
   AlbumReleaseVersion,
@@ -41,6 +42,13 @@ type CachedAlbumOnlineInfo = AlbumOnlineInfo & {
   cacheVersion: number;
 };
 
+type AlbumOnlineInfoProvider = NonNullable<AlbumOnlineInfoRequestOptions['provider']>;
+
+type AlbumOnlineInfoServiceOptions = AlbumOnlineInfoRequestOptions & {
+  locale?: AppLocale;
+  discogsUserToken?: string | null;
+};
+
 type ParsedInformationCache = {
   version: number;
   information: AlbumInformationSummary | null;
@@ -53,6 +61,7 @@ type ParsedInformationCache = {
 
 type MusicBrainzReleaseSearchResult = {
   id: string;
+  releaseGroupId: string | null;
   title: string;
   artist: string;
   artistId: string | null;
@@ -72,6 +81,15 @@ type MusicBrainzReleasePayload = {
   release: Record<string, unknown>;
   search: MusicBrainzReleaseSearchResult;
   versions: MusicBrainzReleaseSearchResult[];
+  releaseGroupId: string | null;
+};
+
+type DiscogsReleaseSearchResult = {
+  id: number;
+  title: string;
+  year: number | null;
+  uri: string | null;
+  score: number;
 };
 
 class AsyncLimiter {
@@ -110,6 +128,7 @@ class AsyncLimiter {
 }
 
 const musicBrainzLimiter = new AsyncLimiter(1, 1050);
+const discogsLimiter = new AsyncLimiter(1, 1050);
 const wikipediaLimiter = new AsyncLimiter(2);
 
 const successTtlMs = 30 * 24 * 60 * 60 * 1000;
@@ -118,6 +137,7 @@ const maxCreditGroups = 12;
 const maxPeoplePerGroup = 12;
 const maxSourceLinks = 18;
 const maxReleaseVersions = 8;
+const informationCacheVersion = 6;
 
 const asRecord = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {});
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
@@ -229,6 +249,14 @@ const musicBrainzJson = (url: string): Promise<unknown> =>
   musicBrainzLimiter.run(() =>
     fetchJson(url, {
       'User-Agent': 'ECHO-Next/26.5.19 (https://github.com/moekotori/echo)',
+    }),
+  );
+
+const discogsJson = (url: string, userToken: string | null = null): Promise<unknown> =>
+  discogsLimiter.run(() =>
+    fetchJson(url, {
+      'User-Agent': 'ECHO-Next/26.5.29 +https://github.com/moekotori/echo',
+      ...(userToken ? { Authorization: `Discogs token=${userToken}` } : {}),
     }),
   );
 
@@ -351,7 +379,7 @@ const normalizeSourceLink = (value: unknown): AlbumSourceLink | null => {
 const normalizeExternalRating = (value: unknown): AlbumExternalRating | null => {
   const record = asRecord(value);
   const provider = text(record.provider);
-  if (provider !== 'rateYourMusic') {
+  if (provider !== 'rateYourMusic' && provider !== 'musicbrainz' && provider !== 'discogs') {
     return null;
   }
   const score = numericValue(record.score);
@@ -501,8 +529,9 @@ const parseInformationCache = (value: unknown): ParsedInformationCache => {
   }
 
   const record = asRecord(parsed);
+  const version = Number(record.version);
   return {
-    version: Number(record.version) >= 4 ? 4 : Number(record.version) === 3 ? 3 : Number(record.version) === 2 ? 2 : 1,
+    version: Number.isFinite(version) ? Math.max(1, Math.min(informationCacheVersion, Math.floor(version))) : 1,
     information: normalizeInformationSummary(record.album),
     artistInformation: normalizeInformationSummary(record.artist),
     sourceLinks: Array.isArray(record.sourceLinks) ? record.sourceLinks.map(normalizeSourceLink).filter((link): link is AlbumSourceLink => Boolean(link)) : [],
@@ -518,7 +547,7 @@ const parseInformationCache = (value: unknown): ParsedInformationCache => {
 
 const serializeInformationCache = (info: AlbumOnlineInfo): string =>
   JSON.stringify({
-    version: 4,
+    version: informationCacheVersion,
     album: info.information,
     artist: info.artistInformation,
     sourceLinks: info.sourceLinks,
@@ -636,25 +665,32 @@ const groupsFromMap = (groups: Map<string, AlbumCreditPerson[]>): AlbumCreditGro
 export class AlbumOnlineInfoService {
   constructor(private readonly database: EchoDatabase) {}
 
-  async getAlbumOnlineInfo(snapshot: AlbumSnapshot, options: { force?: boolean; locale?: AppLocale } = {}): Promise<AlbumOnlineInfo> {
+  async getAlbumOnlineInfo(snapshot: AlbumSnapshot, options: AlbumOnlineInfoServiceOptions = {}): Promise<AlbumOnlineInfo> {
     const normalizedTitle = normalizeText(snapshot.album.title);
     const normalizedArtist = normalizeText(snapshot.album.albumArtist);
     const language = wikipediaLanguageForLocale(options.locale);
-    const cacheKey = cacheKeyFor(snapshot.album.id, snapshot.album.title, snapshot.album.albumArtist, language);
+    const provider: AlbumOnlineInfoProvider =
+      options.provider === 'musicbrainz' || options.provider === 'wikipedia' ? options.provider : 'all';
+    const cacheLanguageKey = provider === 'all' ? language : `${language}:${provider}`;
+    const cacheKey = cacheKeyFor(snapshot.album.id, snapshot.album.title, snapshot.album.albumArtist, cacheLanguageKey);
     const now = new Date();
     let legacyCache: CachedAlbumOnlineInfo | null = null;
 
     if (options.force !== true) {
       const cached = this.readCache(cacheKey, snapshot.album.id);
       if (cached && Date.parse(cached.expiresAt ?? '') > now.getTime()) {
-        if (cached.cacheVersion >= 2 && isRelevantAlbumInformation(snapshot, cached.information) && isRelevantArtistInformation(snapshot, cached.artistInformation)) {
+        if (
+          cached.cacheVersion >= informationCacheVersion &&
+          isRelevantAlbumInformation(snapshot, cached.information) &&
+          isRelevantArtistInformation(snapshot, cached.artistInformation)
+        ) {
           return cached;
         }
         legacyCache = cached;
       }
     }
 
-    const fetchedPayload = await this.fetchOnlineInfo(snapshot, language);
+    const fetchedPayload = await this.fetchOnlineInfo(snapshot, language, provider, options.discogsUserToken?.trim() || null);
     const payload: OnlinePayload = legacyCache
       ? (() => {
           const cachedInformation = isRelevantAlbumInformation(snapshot, legacyCache.information) ? legacyCache.information : null;
@@ -709,22 +745,30 @@ export class AlbumOnlineInfoService {
     return info;
   }
 
-  private async fetchOnlineInfo(snapshot: AlbumSnapshot, language: string): Promise<OnlinePayload> {
+  private async fetchOnlineInfo(snapshot: AlbumSnapshot, language: string, provider: AlbumOnlineInfoProvider = 'all', discogsUserToken: string | null = null): Promise<OnlinePayload> {
     const errors: string[] = [];
+    const shouldFetchMusicBrainz = provider === 'all' || provider === 'musicbrainz';
+    const shouldFetchWikipedia = provider === 'all' || provider === 'wikipedia';
 
     const [musicBrainz, information, artistInformation] = await Promise.all([
-      this.fetchMusicBrainzRelease(snapshot).catch((error: unknown) => {
-        errors.push(`MusicBrainz: ${error instanceof Error ? error.message : String(error)}`);
-        return null;
-      }),
-      this.fetchWikipediaInformation(snapshot, language).catch((error: unknown) => {
-        errors.push(`Wikipedia album: ${error instanceof Error ? error.message : String(error)}`);
-        return null;
-      }),
-      this.fetchWikipediaArtistInformation(snapshot, language).catch((error: unknown) => {
-        errors.push(`Wikipedia artist: ${error instanceof Error ? error.message : String(error)}`);
-        return null;
-      }),
+      shouldFetchMusicBrainz
+        ? this.fetchMusicBrainzRelease(snapshot).catch((error: unknown) => {
+            errors.push(`MusicBrainz: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+          })
+        : Promise.resolve(null),
+      shouldFetchWikipedia
+        ? this.fetchWikipediaInformation(snapshot, language).catch((error: unknown) => {
+            errors.push(`Wikipedia album: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+          })
+        : Promise.resolve(null),
+      shouldFetchWikipedia
+        ? this.fetchWikipediaArtistInformation(snapshot, language).catch((error: unknown) => {
+            errors.push(`Wikipedia artist: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+          })
+        : Promise.resolve(null),
     ]);
 
     const credits = musicBrainz ? this.extractCredits(musicBrainz.release) : [];
@@ -732,7 +776,21 @@ export class AlbumOnlineInfoService {
     const releaseDetails = musicBrainz ? this.extractReleaseDetails(musicBrainz.release) : null;
     const releaseVersions = musicBrainz ? this.toReleaseVersions(musicBrainz.versions, musicBrainz.search.id) : [];
     const sourceLinks = this.collectSourceLinks(musicBrainz?.release ?? null, match, information, artistInformation);
-    const externalRatings: AlbumExternalRating[] = [];
+    const [musicBrainzRating, discogsRating] = musicBrainz
+      ? await Promise.all([
+          musicBrainz.releaseGroupId
+            ? this.fetchMusicBrainzReleaseGroupRating(musicBrainz.releaseGroupId).catch((error: unknown) => {
+                errors.push(`MusicBrainz rating: ${error instanceof Error ? error.message : String(error)}`);
+                return null;
+              })
+            : Promise.resolve(null),
+          this.fetchDiscogsRating(snapshot, musicBrainz, discogsUserToken).catch((error: unknown) => {
+            errors.push(`Discogs rating: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+          }),
+        ])
+      : [null, null];
+    const externalRatings: AlbumExternalRating[] = [musicBrainzRating, discogsRating].filter((rating): rating is AlbumExternalRating => Boolean(rating));
     const sources: AlbumOnlineInfoSource[] = [];
     if (musicBrainz) {
       sources.push({ provider: 'musicbrainz', label: 'MusicBrainz' });
@@ -776,7 +834,8 @@ export class AlbumOnlineInfoService {
       `https://musicbrainz.org/ws/2/release/${encodeURIComponent(best.id)}` +
       '?fmt=json&inc=recordings+artist-credits+labels+url-rels+artist-rels+recording-rels+work-rels+release-groups';
     const release = asRecord(await musicBrainzJson(lookupUrl));
-    return { release, search: best, versions: scored.slice(0, maxReleaseVersions) };
+    const releaseGroupId = text(asRecord(release['release-group']).id) ?? best.releaseGroupId;
+    return { release, search: best, versions: scored.slice(0, maxReleaseVersions), releaseGroupId };
   }
 
   private scoreMusicBrainzRelease(release: Record<string, unknown>, snapshot: AlbumSnapshot): MusicBrainzReleaseSearchResult | null {
@@ -787,6 +846,7 @@ export class AlbumOnlineInfoService {
     }
 
     const artist = pickArtistCredit(release['artist-credit']);
+    const releaseGroupId = text(asRecord(release['release-group']).id);
     const media = Array.isArray(release.media) ? release.media.map(asRecord) : [];
     const mediumTrackCount = media.reduce((sum, item) => sum + Math.max(0, Number(item['track-count'] ?? 0)), 0);
     const labels = Array.isArray(release['label-info']) ? release['label-info'].map(asRecord) : [];
@@ -804,6 +864,7 @@ export class AlbumOnlineInfoService {
 
     return {
       id,
+      releaseGroupId,
       title,
       artist: artist.name ?? snapshot.album.albumArtist,
       artistId: artist.id,
@@ -816,6 +877,104 @@ export class AlbumOnlineInfoService {
       catalogNumbers: uniqueText(catalogNumbers),
       labels: uniqueText(labelNames),
       trackCount: mediumTrackCount || null,
+      score: Math.min(1, score),
+    };
+  }
+
+  private async fetchMusicBrainzReleaseGroupRating(releaseGroupId: string): Promise<AlbumExternalRating | null> {
+    const ratingUrl = `https://musicbrainz.org/ws/2/release-group/${encodeURIComponent(releaseGroupId)}?inc=ratings&fmt=json`;
+    const payload = asRecord(await musicBrainzJson(ratingUrl));
+    const rating = asRecord(payload.rating);
+    const score = numericValue(rating.value);
+    const votes = numericValue(rating['votes-count']);
+    if (score === null || score <= 0 || score > 5) {
+      return null;
+    }
+    return {
+      provider: 'musicbrainz',
+      score,
+      maxScore: 5,
+      ratingCount: votes === null || votes < 0 ? null : Math.floor(votes),
+      rankText: null,
+      url: `https://musicbrainz.org/release-group/${releaseGroupId}`,
+      fetchedAt: null,
+      expiresAt: null,
+      confidence: 1,
+    };
+  }
+
+  private async fetchDiscogsRating(snapshot: AlbumSnapshot, musicBrainz: MusicBrainzReleasePayload, discogsUserToken: string | null): Promise<AlbumExternalRating | null> {
+    const query = [musicBrainz.search.artist, musicBrainz.search.title].filter(Boolean).join(' ');
+    const searchParams = new URLSearchParams({
+      type: 'release',
+      q: query || `${snapshot.album.albumArtist} ${snapshot.album.title}`,
+      per_page: '5',
+    });
+    const searchYear = yearFromDate(musicBrainz.search.date) ?? snapshot.album.year;
+    if (searchYear) {
+      searchParams.set('year', String(searchYear));
+    }
+
+    const searchData = asRecord(await discogsJson(`https://api.discogs.com/database/search?${searchParams.toString()}`, discogsUserToken));
+    const results = Array.isArray(searchData.results) ? searchData.results.map(asRecord) : [];
+    const scored = results
+      .map((result) => this.scoreDiscogsRelease(result, snapshot, musicBrainz))
+      .filter((result): result is DiscogsReleaseSearchResult => Boolean(result))
+      .sort((left, right) => right.score - left.score);
+    const best = scored[0] ?? null;
+    if (!best || best.score < 0.62) {
+      return null;
+    }
+
+    const release = asRecord(await discogsJson(`https://api.discogs.com/releases/${best.id}`, discogsUserToken));
+    const rating = asRecord(asRecord(release.community).rating);
+    const score = numericValue(rating.average);
+    const count = numericValue(rating.count);
+    if (score === null || score <= 0 || score > 5 || count === null || count <= 0) {
+      return null;
+    }
+
+    return {
+      provider: 'discogs',
+      score,
+      maxScore: 5,
+      ratingCount: Math.floor(count),
+      rankText: 'Data provided by Discogs',
+      url: text(release.uri) ?? best.uri ?? `https://www.discogs.com/release/${best.id}`,
+      fetchedAt: null,
+      expiresAt: null,
+      confidence: Number(best.score.toFixed(2)),
+    };
+  }
+
+  private scoreDiscogsRelease(result: Record<string, unknown>, snapshot: AlbumSnapshot, musicBrainz: MusicBrainzReleasePayload): DiscogsReleaseSearchResult | null {
+    const id = numericValue(result.id);
+    const title = text(result.title);
+    if (id === null || id <= 0 || !Number.isInteger(id) || !title) {
+      return null;
+    }
+
+    const [artistPart, releasePart] = title.split(/\s+-\s+/u, 2);
+    const releaseTitle = releasePart ?? title;
+    const titleScore = Math.max(similarity(snapshot.album.title, releaseTitle), similarity(musicBrainz.search.title, releaseTitle), similarity(snapshot.album.title, title));
+    if (titleScore < 0.58) {
+      return null;
+    }
+
+    const artistScore = artistPart ? Math.max(similarity(snapshot.album.albumArtist, artistPart), similarity(musicBrainz.search.artist, artistPart)) : 0;
+    const year = numericValue(result.year);
+    const releaseYear = year === null || year <= 0 ? null : Math.floor(year);
+    let score = titleScore * 0.72 + artistScore * 0.18;
+    const expectedYear = yearFromDate(musicBrainz.search.date) ?? snapshot.album.year;
+    if (releaseYear && expectedYear && releaseYear === expectedYear) {
+      score += 0.1;
+    }
+
+    return {
+      id,
+      title,
+      year: releaseYear,
+      uri: text(result.uri),
       score: Math.min(1, score),
     };
   }

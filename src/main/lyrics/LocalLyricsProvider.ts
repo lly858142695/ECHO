@@ -117,6 +117,24 @@ const localLyricsSourceLabel = (extension: LocalLyricsCandidate['extension']): s
   return extension === '.lrc' ? 'Local LRC' : 'Local text';
 };
 
+const localSidecarReasons = (query: LyricsQuery, extension: LocalLyricsCandidate['extension'], raw: string | null): string[] => {
+  const reasons = ['local_sidecar_priority'];
+  const durationSeconds = Number(query.durationSeconds);
+  if (extension === '.txt' || !raw || !Number.isFinite(durationSeconds) || durationSeconds <= 20) {
+    return reasons;
+  }
+
+  const endMs = Math.max(0, ...parseSyncedLyrics(raw).map((line) => line.timeMs));
+  if (endMs > (durationSeconds + 20) * 1000) {
+    reasons.push('duration_mismatch', 'candidate_only_duration');
+  }
+
+  return reasons;
+};
+
+const localSidecarScore = (reasons: string[]): number =>
+  reasons.includes('candidate_only_duration') ? 0.42 : 1;
+
 export class LocalLyricsProvider implements LyricsProvider {
   readonly id = 'local' as const;
   readonly label = 'Local';
@@ -165,7 +183,7 @@ export class LocalLyricsProvider implements LyricsProvider {
       plainLyrics: candidate.extension === '.txt' ? raw : null,
       syncedLyrics: candidate.extension === '.txt' ? null : raw,
       sourceLabel: localLyricsSourceLabel(candidate.extension),
-      matchReasons: ['local_sidecar_priority'],
+      matchReasons: candidate.reasons?.length ? candidate.reasons : localSidecarReasons(query, candidate.extension, raw),
       raw: {
         filePath: candidate.filePath,
         extension: candidate.extension,
@@ -180,22 +198,27 @@ export class LocalLyricsProvider implements LyricsProvider {
 
     return candidatePaths(query.filePath)
       .filter((candidate) => existsSync(candidate.filePath))
-      .map((candidate): LocalLyricsCandidate => ({
-        id: randomUUID(),
-        provider: 'local',
-        providerLyricsId: fileHashId(candidate.filePath),
-        title: query.title,
-        artist: query.artist,
-        album: query.album ?? null,
-        durationSeconds: query.durationSeconds ?? null,
-        instrumental: false,
-        hasSynced: candidate.extension !== '.txt',
-        hasPlain: candidate.extension === '.txt',
-        score: 1,
-        sourceLabel: localLyricsSourceLabel(candidate.extension),
-        filePath: candidate.filePath,
-        extension: candidate.extension,
-      }));
+      .map((candidate): LocalLyricsCandidate => {
+        const reasons = localSidecarReasons(query, candidate.extension, readTextFile(candidate.filePath));
+        return {
+          id: randomUUID(),
+          provider: 'local',
+          providerLyricsId: fileHashId(candidate.filePath),
+          title: query.title,
+          artist: query.artist,
+          album: query.album ?? null,
+          durationSeconds: query.durationSeconds ?? null,
+          instrumental: false,
+          hasSynced: candidate.extension !== '.txt',
+          hasPlain: candidate.extension === '.txt',
+          score: localSidecarScore(reasons),
+          risk: reasons.includes('candidate_only_duration') ? 'medium' : undefined,
+          reasons,
+          sourceLabel: localLyricsSourceLabel(candidate.extension),
+          filePath: candidate.filePath,
+          extension: candidate.extension,
+        };
+      });
   }
 
   private async getEmbeddedResult(query: LyricsQuery): Promise<LyricsProviderResult | null> {

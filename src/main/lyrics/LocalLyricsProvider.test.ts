@@ -163,6 +163,24 @@ describe('LocalLyricsProvider', () => {
     expect(candidate.syncedLyrics).toBe('[00:01.00]Sidecar');
   });
 
+  it('keeps sidecar lyrics as manual candidates when timestamps exceed the track duration', async () => {
+    const root = makeTempRoot();
+    const filePath = join(root, 'Echo Song.flac');
+    writeFileSync(filePath, 'audio');
+    writeFileSync(join(root, 'Echo Song.lrc'), '[00:01.00]Start\n[02:40.00]Wrong long ending');
+    parseFileMock.mockResolvedValue({ common: { lyrics: [] } } as unknown as Awaited<ReturnType<typeof parseFile>>);
+
+    const provider = new LocalLyricsProvider();
+    const [candidate] = provider.searchCandidates(query(filePath));
+    const [result] = await provider.search(request(query(filePath)));
+
+    expect(candidate.score).toBe(0.42);
+    expect(candidate.risk).toBe('medium');
+    expect(candidate.reasons).toEqual(expect.arrayContaining(['local_sidecar_priority', 'duration_mismatch', 'candidate_only_duration']));
+    expect(result.matchReasons).toEqual(expect.arrayContaining(['local_sidecar_priority', 'duration_mismatch', 'candidate_only_duration']));
+    expect(result.syncedLyrics).toContain('Wrong long ending');
+  });
+
   it('decodes GBK sidecar LRC files without rewriting the source file', async () => {
     const root = makeTempRoot();
     const filePath = join(root, 'Echo Song.flac');

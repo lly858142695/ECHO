@@ -791,13 +791,9 @@ const parseTtmlParagraph = (
 ): LyricLine | null => {
   const attributes = parseTtmlAttributes(attributesText);
   const beginMs = parseTtmlTime(attributes.get('begin'));
-  if (beginMs === null) {
-    return null;
-  }
-
   const endMs = parseTtmlTime(attributes.get('end'));
   const durationMs = parseTtmlTime(attributes.get('dur'));
-  const lineEndMs = endMs ?? (durationMs === null ? null : beginMs + durationMs);
+  const parentStartMs = beginMs ?? 0;
   const parts: TtmlTextPart[] = [];
   let cursor = 0;
 
@@ -813,9 +809,9 @@ const parseTtmlParagraph = (
     });
 
     const spanAttributes = parseTtmlAttributes(match[1]);
-    const spanStartMs = resolveTtmlChildTime(parseTtmlTime(spanAttributes.get('begin')), beginMs);
+    const spanStartMs = resolveTtmlChildTime(parseTtmlTime(spanAttributes.get('begin')), parentStartMs);
     const spanEndMs =
-      resolveTtmlChildTime(parseTtmlTime(spanAttributes.get('end')), beginMs) ??
+      resolveTtmlChildTime(parseTtmlTime(spanAttributes.get('end')), parentStartMs) ??
       (spanStartMs === null
         ? null
         : (() => {
@@ -837,6 +833,12 @@ const parseTtmlParagraph = (
     endMs: null,
   });
   const timedParts = parts.filter((part): part is TtmlTextPart & { startMs: number } => part.startMs !== null);
+  const lineBeginMs = beginMs ?? timedParts[0]?.startMs ?? null;
+  if (lineBeginMs === null) {
+    return null;
+  }
+
+  const lineEndMs = endMs ?? (durationMs === null ? null : lineBeginMs + durationMs);
   for (let index = 0; index < timedParts.length; index += 1) {
     const part = timedParts[index];
     const nextStartMs = timedParts[index + 1]?.startMs ?? null;
@@ -861,7 +863,7 @@ const parseTtmlParagraph = (
   );
 
   const line = {
-    timeMs: beginMs,
+    timeMs: lineBeginMs,
     ...attachWordTimings(splitInlineTranslation(text), words),
   };
   const lineId = firstTtmlAttribute(attributes, ['itunes:key', 'xml:id', 'id', 'key']);

@@ -269,13 +269,13 @@ const getPlaybackLoadSettings = (): PlaybackLoadSettings => {
   try {
     const settings = getAppSettings();
     return {
-      homeWaveformVisualizerEnabled: settings.homeWaveformVisualizerEnabled === true,
+      homeWaveformVisualizerEnabled: settings.homeWaveformVisualizerEnabled !== false,
       audioVisualSpectrumEnabled: settings.audioVisualSpectrumEnabled === true,
       lowLoadPlaybackModeEnabled: settings.lowLoadPlaybackModeEnabled === true,
     };
   } catch {
     return {
-      homeWaveformVisualizerEnabled: false,
+      homeWaveformVisualizerEnabled: true,
       audioVisualSpectrumEnabled: false,
       lowLoadPlaybackModeEnabled: false,
     };

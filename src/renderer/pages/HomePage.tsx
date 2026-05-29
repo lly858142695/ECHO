@@ -58,21 +58,138 @@ export const defaultHomeHeroTitle = '从你的音乐库开始播放。';
 export const homeHeroTitleOptions = [
   '从这里开始听。',
   '今天先听哪张专辑？',
-  '你的下一首在这里。',
+  'Wish You Were Here',
   '挑一首，马上开播。',
   '把音乐库交给随机。',
-  '今天在用核电听歌吗？',
+  '数字信号0101没区别',
   '#define int long long',
   '不会还有人没开随机吧？',
   '这首歌 O(1) 好听。',
-  '音量别太大，邻居会 AC。',
-  '正在把歌单编译进大脑。',
+  'ECCCCCCCCCCCCCCHO',
+  '#include <bits/stdc++.h>',
   '缓存命中：快乐。',
-  '当前播放：赛博玄学。',
-  '从最近常听开始。',
+  '当前播放:DSD1024超高清母带原声大碟..',
+  '今天的电不好听!',
+  'Buy Accuphase DP750',
+  '这段低频简直像线段树一样稳!',
+  'NOI 退役选手正在重建歌单。',
+  'DSD 在跑，风扇在打拍子。',
+  '这首歌结项非常准!',
+  '随机播放，但复杂度看心情。',
+  '解码热机中...',
+  '这首歌的动态范围没有被卡常。',
+  '别二分了，喜欢就点播放。',
+  '高频不刺，像样例一样友好。',
+  '歌单已过样例，准备上强测。',
+  'WASAPI 独占中，别的声音先排队。',
+  'ASIO 缓冲拉满，延迟先自闭。',
+  '今天的 jitter 有点押韵。',
+  '比特完美，情绪不完美。',
+  '升频到 768k，快乐也插值。',
+  '这首歌的瞬态像快排一样看脸。',
+  'SRC 已关闭，玄学已开启。',
+  '左右声道平衡，人生暂时不平衡。',
+  '正在寻找 0.1dB 的宇宙真理。',
+  '底噪很黑，钱包很空。',
+  'Roon 没开，但仪式感开了。',
+  '这段齿音需要一点温柔滤波。',
+  'Task failed successfully: 播放成功。',
+  'It just works, until WASAPI says no.',
+  'Can it run Crysis? 先跑这首 24/192。',
+  '404 Bass Not Found.',
+  'No thoughts, just PCM.',
+  'Let him cook: DAC 正在热身。',
+  'This is fine, buffer underrun edition.',
+  'One does not simply skip this track.',
+  'POV: 你听出了电源线方向。',
+  'Sir, this is a music library.',
+  'Bro thinks he can hear 0.01dB.',
+  'You had one job: bit-perfect.',
+  'Directed by Robert B. Weide, but with reverb.',
+  'Mom said it is my turn on the aux.',
+  'I understood that reference, in 32-bit float.',
+  'Keep calm and normalize nothing.',
+  '192.168.1.1',
+  '223.42.34.22',
+  '已对 192.168.1.1 地址进行攻击。',
+  '已对 223.42.34.22 地址进行攻击。',
+  '正在对 192.168.1.1 进行无损握手。',
+  '223.42.34.22 已加入今日歌单战场。',
+  '你好，Windows 用户。今天也要 bit-perfect。',
+  'Windows 用户已进入听歌房间。',
+  '正在给 Windows 用户推送今日低频。',
+  '今天加训了吗',
   '让收藏开始发声。',
   '专辑封面已经排好队。',
 ] as const;
+
+const homeHeroIpFallbackOptions = ['192.168.1.1', '223.42.34.22'] as const;
+const homeHeroIpTitlePattern = /(?:已对|正在对) (?:192\.168\.1\.1|223\.42\.34\.22) /u;
+const homeHeroUserTitlePattern = /Windows 用户/u;
+const ipv4Pattern = /\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/u;
+
+const isUsableHeroIPv4 = (address: string): boolean =>
+  !address.startsWith('0.') &&
+  !address.startsWith('127.') &&
+  !address.startsWith('169.254.') &&
+  address !== '255.255.255.255';
+
+const detectBrowserIPv4Address = async (): Promise<string | null> => {
+  if (typeof RTCPeerConnection === 'undefined') {
+    return null;
+  }
+
+  const connection = new RTCPeerConnection({ iceServers: [] });
+  try {
+    connection.createDataChannel('echo-home-ip');
+    const candidates = new Set<string>();
+    const waitForCandidate = new Promise<string | null>((resolve) => {
+      const timeoutId = window.setTimeout(() => resolve(null), 900);
+      connection.onicecandidate = (event) => {
+        const candidate = event.candidate?.candidate ?? '';
+        const match = candidate.match(ipv4Pattern);
+        if (!match || !isUsableHeroIPv4(match[0])) {
+          return;
+        }
+        candidates.add(match[0]);
+        window.clearTimeout(timeoutId);
+        resolve(match[0]);
+      };
+    });
+
+    const offer = await connection.createOffer();
+    await connection.setLocalDescription(offer);
+    return (await waitForCandidate) ?? candidates.values().next().value ?? null;
+  } catch {
+    return null;
+  } finally {
+    connection.close();
+  }
+};
+
+const sanitizeHomeHeroUserName = (value: string | null | undefined): string | null => {
+  const name = value?.replace(/[\r\n]/g, '').trim();
+  if (!name) {
+    return null;
+  }
+  return name.length > 28 ? `${name.slice(0, 28)}...` : name;
+};
+
+const personalizeHomeHeroTitle = async (title: string): Promise<string> => {
+  const [ipAddress, userName] = await Promise.all([
+    homeHeroIpTitlePattern.test(title) ? detectBrowserIPv4Address() : Promise.resolve(null),
+    homeHeroUserTitlePattern.test(title) ? window.echo.app.getSystemUserName().then(sanitizeHomeHeroUserName).catch(() => null) : Promise.resolve(null),
+  ]);
+
+  let nextTitle = title;
+  if (ipAddress) {
+    nextTitle = nextTitle.replace(homeHeroIpFallbackOptions[0], ipAddress).replace(homeHeroIpFallbackOptions[1], ipAddress);
+  }
+  if (userName) {
+    nextTitle = nextTitle.replace(/Windows 用户/gu, userName);
+  }
+  return nextTitle;
+};
 
 type HomeRouteId = Extract<AppRouteId, 'albums' | 'artists' | 'folders' | 'history' | 'inbox' | 'liked' | 'playlists' | 'queue' | 'songs'>;
 type RecentPanelMode = 'added' | 'played';
@@ -401,7 +518,7 @@ let cachedHomePageData: HomePageData | null = readStoredHomePageData();
 let cachedRecentPanelMode: RecentPanelMode = 'added';
 let cachedHomeWaveformVisualizerEnabled: boolean | null = null;
 let cachedHomeWaveformVisualizerSettings = {
-  homeWaveformVisualizerEnabled: false,
+  homeWaveformVisualizerEnabled: true,
   audioVisualSpectrumEnabled: false,
   lowLoadPlaybackModeEnabled: false,
 };
@@ -418,7 +535,7 @@ export const resetHomePageCacheForTest = (): void => {
   cachedRecentPanelMode = 'added';
   cachedHomeWaveformVisualizerEnabled = null;
   cachedHomeWaveformVisualizerSettings = {
-    homeWaveformVisualizerEnabled: false,
+    homeWaveformVisualizerEnabled: true,
     audioVisualSpectrumEnabled: false,
     lowLoadPlaybackModeEnabled: false,
   };
@@ -776,12 +893,12 @@ const navigateHomeRoute = (routeId: HomeRouteId): void => {
 };
 
 const readHomeWaveformVisualizerEnabled = (settings: Partial<AppSettings> | null | undefined): boolean =>
-  settings?.homeWaveformVisualizerEnabled === true &&
-  settings.audioVisualSpectrumEnabled === true &&
-  settings.lowLoadPlaybackModeEnabled !== true;
+  settings?.homeWaveformVisualizerEnabled !== false &&
+  settings?.audioVisualSpectrumEnabled === true &&
+  settings?.lowLoadPlaybackModeEnabled !== true;
 
 const readHomeRandomHeroTitleEnabled = (settings: Partial<AppSettings> | null | undefined): boolean =>
-  settings?.homeRandomHeroTitleEnabled !== false;
+  settings?.homeRandomHeroTitleEnabled === true;
 
 const useHomeWaveformVisualizerEnabled = (): boolean => {
   const [enabled, setEnabled] = useState(() => cachedHomeWaveformVisualizerEnabled ?? false);
@@ -1367,12 +1484,26 @@ export const HomePage = (): JSX.Element => {
   const audioStatus = playbackStatusSnapshot.audioStatus;
   const homeWaveformVisualizerEnabled = useHomeWaveformVisualizerEnabled();
   const homeRandomHeroTitleEnabled = useHomeRandomHeroTitleEnabled();
-  const [randomHomeHeroTitle] = useState(() => {
+  const [randomHomeHeroTitle, setRandomHomeHeroTitle] = useState(() => {
     cachedHomeHeroTitle ??= pickHomeHeroTitle();
     return cachedHomeHeroTitle;
   });
   const homeHeroTitle = homeRandomHeroTitleEnabled ? randomHomeHeroTitle : defaultHomeHeroTitle;
   const topArtist = stats?.topArtists[0]?.artist ?? focusTrack?.artist ?? 'ECHO';
+
+  useEffect(() => {
+    let cancelled = false;
+    void personalizeHomeHeroTitle(randomHomeHeroTitle).then((nextTitle) => {
+      if (cancelled || nextTitle === randomHomeHeroTitle) {
+        return;
+      }
+      cachedHomeHeroTitle = nextTitle;
+      setRandomHomeHeroTitle(nextTitle);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [randomHomeHeroTitle]);
 
   const playTrack = useCallback(
     async (track: LibraryTrack): Promise<void> => {

@@ -7,6 +7,7 @@ import { bindBackgroundPlaybackShortcutsToWindow } from './backgroundPlaybackSho
 import { bindTaskbarPlaybackIntegration } from './taskbarPlaybackIntegration';
 import { ensureTray, isAppQuitRequested, requestAppQuit } from './tray';
 import { clearMainWindow, setMainWindow } from './windowManager';
+import { IpcChannels } from '../../shared/constants/ipcChannels';
 import { getCrashReportService } from '../diagnostics/CrashReportService';
 import { closeDevConsoleWindow, recordMainRuntimeIssue, recordRendererConsoleMessage } from '../diagnostics/DevConsoleService';
 import { markStartupStage } from '../diagnostics/StartupDiagnostics';
@@ -85,6 +86,12 @@ export const createMainWindow = (): BrowserWindow => {
   });
   let rememberSizeTimer: ReturnType<typeof setTimeout> | null = null;
 
+  const publishMaximizedState = (): void => {
+    if (!window.isDestroyed()) {
+      window.webContents.send(IpcChannels.AppWindowMaximizedChanged, window.isMaximized() || window.isFullScreen());
+    }
+  };
+
   window.webContents.on('console-message', (details) => {
     recordRendererConsoleMessage(details);
     const { level, message, lineNumber, sourceId } = details;
@@ -136,6 +143,10 @@ export const createMainWindow = (): BrowserWindow => {
   });
 
   window.on('resize', scheduleRememberSize);
+  window.on('maximize', publishMaximizedState);
+  window.on('unmaximize', publishMaximizedState);
+  window.on('enter-full-screen', publishMaximizedState);
+  window.on('leave-full-screen', publishMaximizedState);
 
   window.on('close', (event) => {
     if (rememberSizeTimer !== null) {

@@ -21,6 +21,7 @@ import {
   chooseArtistDisplayName,
   findArtistMergeKey,
   normalizeArtistMergeStrategy,
+  splitArtistCreditParts,
 } from './ArtistMerge';
 import { updateCoverPathsInDatabase } from './CoverCacheManager';
 import { DuplicateTrackService } from './duplicates/DuplicateTrackService';
@@ -817,7 +818,6 @@ const coverFingerprint = (sourceType: string | null, sourceHash: string | null, 
 const playbackHistoryKey = (trackId: string | null, trackPath: string): string => trackId ?? trackPath;
 const coverSourceOrNull = (value: unknown): CoverSource | null =>
   value === 'manual' || value === 'embedded' || value === 'folder' || value === 'network' || value === 'default' ? value : null;
-const artistNameSeparatorPattern = /\s*(?:\/|,|;|；|&|×)\s*|\s+\b(?:feat\.?|ft\.?|featuring|with|x)\b\s+/iu;
 const artistImageStatusOrNull = (value: unknown): ArtistImageCacheStatus | null =>
   value === 'pending' ||
   value === 'loading' ||
@@ -873,8 +873,7 @@ const splitArtistNames = (value: unknown): string[] => {
     return [];
   }
 
-  const names = protectNumericArtistSlashes(normalized)
-    .split(artistNameSeparatorPattern)
+  const names = splitArtistCreditParts(protectNumericArtistSlashes(normalized))
     .map((name) => normalizeArtistComponentName(restoreNumericArtistSlashes(name)))
     .filter(Boolean);
   const uniqueNames = new Map<string, string>();

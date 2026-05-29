@@ -556,7 +556,8 @@ export class LibraryService {
 
     const tracks = this.getAllAlbumTracks(albumId);
     const service = this.albumOnlineInfoService ?? new AlbumOnlineInfoService(this.database);
-    return service.getAlbumOnlineInfo({ album, tracks }, { ...options, locale: this.readAppSettings().locale });
+    const settings = this.readAppSettings();
+    return service.getAlbumOnlineInfo({ album, tracks }, { ...options, locale: settings.locale, discogsUserToken: settings.onlineAlbumInfoDiscogsUserToken });
   }
 
   getAlbumForTrack(trackId: string): LibraryAlbum | null {

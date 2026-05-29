@@ -33,6 +33,10 @@ import type { LyricsProviderId, LyricsSearchCandidate, LyricsSource, TrackLyrics
 import { registerAppearanceFontFile } from '../../preferences/appearancePreferences';
 import { translateFallback, useOptionalI18n } from '../../i18n/I18nProvider';
 import type { TranslationKey } from '../../i18n/locales';
+import {
+  recordLyricsSourceQualityCandidates,
+  recordLyricsSourceQualityOutcome,
+} from './lyricsSourceQualityMemory';
 
 type LyricsSettingsDrawerProps = {
   isOpen: boolean;
@@ -420,6 +424,37 @@ const riskLabel = (
   if (risk === 'medium') return t('lyricsSettings.candidate.risk.medium');
   return t('lyricsSettings.candidate.risk.high');
 };
+
+const lyricsCandidateReasonLabelKeys: Partial<Record<string, TranslationKey>> = {
+  title_exact: 'lyricsSettings.candidate.reason.titleExact',
+  title_similar: 'lyricsSettings.candidate.reason.titleSimilar',
+  artist_exact: 'lyricsSettings.candidate.reason.artistExact',
+  artist_mismatch: 'lyricsSettings.candidate.reason.artistMismatch',
+  album_match: 'lyricsSettings.candidate.reason.albumMatch',
+  duration_exact: 'lyricsSettings.candidate.reason.durationExact',
+  duration_close: 'lyricsSettings.candidate.reason.durationClose',
+  duration_mismatch: 'lyricsSettings.candidate.reason.durationMismatch',
+  version_match: 'lyricsSettings.candidate.reason.versionMatch',
+  version_conflict: 'lyricsSettings.candidate.reason.versionConflict',
+  cover_intent: 'lyricsSettings.candidate.reason.coverIntent',
+  candidate_only_cover: 'lyricsSettings.candidate.reason.candidateOnlyCover',
+  candidate_only_duration: 'lyricsSettings.candidate.reason.candidateOnlyDuration',
+  synced_duration_safe: 'lyricsSettings.candidate.reason.syncedDurationSafe',
+  embedded_tag_priority: 'lyricsSettings.candidate.reason.embeddedTag',
+  local_sidecar_priority: 'lyricsSettings.candidate.reason.localSidecar',
+  auto_accept: 'lyricsSettings.candidate.reason.autoAccept',
+  rejected_by_user: 'lyricsSettings.candidate.reason.rejectedByUser',
+};
+
+const visibleCandidateReasonLabels = (
+  candidate: LyricsSearchCandidate,
+  t: (key: TranslationKey, options?: Record<string, string | number>) => string = translateFallback,
+): string[] =>
+  (candidate.reasons ?? [])
+    .map((reason) => lyricsCandidateReasonLabelKeys[reason])
+    .filter((key): key is TranslationKey => Boolean(key))
+    .map((key) => t(key))
+    .slice(0, 3);
 
 const sourceFilterKey = (candidate: LyricsSearchCandidate): string => `${candidate.provider}:${candidate.sourceLabel}`;
 const searchableLyricsProviderIds: LyricsProviderId[] = ['local', 'lrclib', 'netease', 'qqmusic', 'kugou', 'kuwo'];
@@ -1225,6 +1260,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
             const providerCandidates = normalizedSearchText
               ? await lyricsApi.searchCandidates(currentTrackId, normalizedSearchText, provider)
               : await lyricsApi.searchCandidates(currentTrackId, undefined, provider);
+            recordLyricsSourceQualityCandidates(providerCandidates);
             collectedCandidates = mergeLyricsCandidates(collectedCandidates, providerCandidates);
             setLyricsCandidates(collectedCandidates);
             setActiveLyricsCandidateSource('all');
@@ -1278,6 +1314,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
       await Promise.allSettled(
         providers.map(async (provider) => {
           const providerCandidates = await lyricsApi.searchCandidates(currentTrackId, undefined, provider);
+          recordLyricsSourceQualityCandidates(providerCandidates);
           collectedCandidates = mergeLyricsCandidates(collectedCandidates, providerCandidates);
           setLyricsCandidates(collectedCandidates);
           setActiveLyricsCandidateSource('all');
@@ -1321,6 +1358,10 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
         }
 
         const trackLyrics = await lyricsApi.applyCandidate(currentTrackId, candidateId);
+        recordLyricsSourceQualityOutcome(
+          lyricsCandidates.find((candidate) => candidate.id === candidateId),
+          'applied',
+        );
         setCurrentLyricsProviderLabel(providerLabelFor(trackLyrics.provider, t));
         setCurrentLyricsKind(trackLyrics.kind);
         setLyricsCandidates([]);
@@ -1337,7 +1378,7 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
         setApplyingLyricsCandidateId(null);
       }
     },
-    [effectiveSettings.lyricsEnabled, effectiveSettings.lyricsRestartOnApplyEnabled, resolveCurrentTrackId, t],
+    [effectiveSettings.lyricsEnabled, effectiveSettings.lyricsRestartOnApplyEnabled, lyricsCandidates, resolveCurrentTrackId, t],
   );
 
   const markCurrentTrackInstrumental = useCallback(async (): Promise<void> => {
@@ -1504,6 +1545,11 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                           </small>
                           <small>{candidate.sourceLabel}</small>
                           <small>{formatScore(candidate.score)}</small>
+                          {visibleCandidateReasonLabels(candidate, t).map((reason) => (
+                            <small className="lyrics-reason-badge" key={reason}>
+                              {reason}
+                            </small>
+                          ))}
                           {applyingLyricsCandidateId === candidate.id ? <small>{t('lyricsSettings.status.applying')}</small> : null}
                         </span>
                       </button>

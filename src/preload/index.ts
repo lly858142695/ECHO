@@ -1277,7 +1277,16 @@ const echoApi: EchoApi = {
     getVersion: () => ipcRenderer.invoke(IpcChannels.AppGetVersion),
     minimize: () => ipcRenderer.invoke(IpcChannels.AppWindowMinimize),
     toggleMaximize: () => ipcRenderer.invoke(IpcChannels.AppWindowToggleMaximize),
+    isMaximized: () => ipcRenderer.invoke(IpcChannels.AppWindowIsMaximized),
+    onMaximizedChange: (handler) => {
+      const listener = (_event: Electron.IpcRendererEvent, isMaximized: unknown): void => {
+        handler(isMaximized === true);
+      };
+      ipcRenderer.on(IpcChannels.AppWindowMaximizedChanged, listener);
+      return () => ipcRenderer.off(IpcChannels.AppWindowMaximizedChanged, listener);
+    },
     close: () => ipcRenderer.invoke(IpcChannels.AppWindowClose),
+    getSystemUserName: () => ipcRenderer.invoke(IpcChannels.AppGetSystemUserName),
     getSettings: () => ipcRenderer.invoke(IpcChannels.AppGetSettings),
     setSettings: (patch) => ipcRenderer.invoke(IpcChannels.AppSetSettings, patch),
     getTaskbarPlaybackStatus: () => ipcRenderer.invoke(IpcChannels.AppGetTaskbarPlaybackStatus),

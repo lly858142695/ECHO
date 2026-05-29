@@ -241,7 +241,7 @@ export const evaluateLyricsCandidate = (
   const hasInstrumentalMismatch =
     (flags.instrumental || flags.karaoke || flags.offVocal) &&
     !(normalized.versionFlags.instrumental || normalized.versionFlags.karaoke || normalized.versionFlags.offVocal);
-  const hasArtistMismatch = artistScore < 0.75 && !(hasStrongTitle && hasCloseDuration);
+  const hasArtistMismatch = artistScore < 0.75;
   const hasUnsafeVersionMismatch = versionConflict || versionScore < 0.9;
   const hasBlockingVersionMismatch = hasInstrumentalMismatch || (hasUnsafeVersionMismatch && !hasStrongVersionLabelMatch);
   const coverAutoAcceptSafe =

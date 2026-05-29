@@ -1213,7 +1213,7 @@ export type AlbumSourceLink = {
 };
 
 export type AlbumExternalRating = {
-  provider: 'rateYourMusic';
+  provider: 'rateYourMusic' | 'musicbrainz' | 'discogs';
   score: number;
   maxScore: number;
   ratingCount: number | null;
@@ -1315,6 +1315,7 @@ export type AlbumOnlineInfo = {
 
 export type AlbumOnlineInfoRequestOptions = {
   force?: boolean;
+  provider?: 'all' | 'musicbrainz' | 'wikipedia';
 };
 
 export type LibraryArtist = {

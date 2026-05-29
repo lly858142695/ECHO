@@ -2912,9 +2912,10 @@ html[data-theme="dark"] .tag-editor-section {
 }
 
 .tag-editor-cover {
-  width: 100%;
+  width: min(100%, 190px);
   height: auto;
   aspect-ratio: 1;
+  justify-self: center;
   box-shadow: 0 10px 24px color-mix(in srgb, #0b1018 16%, transparent);
 }
 
@@ -3261,11 +3262,14 @@ html[data-theme="dark"] .tag-editor-lyrics-status {
 }
 
 .tag-editor-lyrics-badges {
+  align-items: center;
+  align-self: start;
   justify-content: flex-end;
 }
 
 .tag-editor-lyrics-badges span {
   display: inline-flex;
+  flex: 0 0 auto;
   min-height: 24px;
   align-items: center;
   padding: 0 8px;
@@ -3275,6 +3279,8 @@ html[data-theme="dark"] .tag-editor-lyrics-status {
   background: color-mix(in srgb, var(--theme-panel-bg) 72%, transparent);
   font-size: 11px;
   font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .tag-editor-lyrics-actions {

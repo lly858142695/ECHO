@@ -72,6 +72,7 @@ const tabs: Tab[] = [
 ];
 
 const baiduLoopbackRedirectUri = 'http://127.0.0.1:53682/baidu/oauth/callback';
+const navidromeDockerDocsUrl = 'https://www.navidrome.org/docs/installation/docker/';
 
 const syncModeOptions: Array<{ value: RemoteSourceSyncMode; label: string }> = [
   { value: 'browse', label: '仅浏览' },
@@ -1386,6 +1387,20 @@ export const RemoteSourcesPanel = (): JSX.Element => {
     }
   };
 
+  const openNavidromeDockerDocs = async (): Promise<void> => {
+    if (!appApi?.openExternalUrl) {
+      setMessage('桌面桥接不可用，不能打开 Navidrome Docker 文档。');
+      return;
+    }
+
+    try {
+      await appApi.openExternalUrl(navidromeDockerDocsUrl);
+      setMessage('已用系统浏览器打开 Navidrome Docker 部署文档。');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '打开 Navidrome Docker 文档失败。');
+    }
+  };
+
   const useBaiduLoopbackRedirectUri = (): void => {
     updateForm({ baiduRedirectUri: baiduLoopbackRedirectUri });
     setBaiduAuthFeedback(`已填入本机回调地址：${baiduLoopbackRedirectUri}。需要在百度开放平台应用里配置同一个地址。`);
@@ -1992,6 +2007,18 @@ export const RemoteSourcesPanel = (): JSX.Element => {
 
   const renderForm = (): JSX.Element => (
     <section className="remote-source-form">
+      {activeProvider === 'subsonic' ? (
+        <div className="remote-source-navidrome-guide" aria-label="Navidrome 推荐">
+          <div>
+            <Server size={17} />
+            <strong>推荐使用 Navidrome</strong>
+            <span>轻量、稳定、兼容 Subsonic API，适合把 NAS 或本机音乐库部署成远程音乐服务器；ECHO 只做索引和按需取流，不会直接改动服务端音乐文件。</span>
+          </div>
+          <button type="button" onClick={() => void openNavidromeDockerDocs()}>
+            <ExternalLink size={15} />Docker 部署
+          </button>
+        </div>
+      ) : null}
       <label>
         显示名称
         <input value={form.displayName} placeholder={defaultNameFor(activeProvider)} onChange={(event) => updateForm({ displayName: event.target.value })} />
@@ -2323,11 +2350,18 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       <nav className="remote-source-tabs" aria-label="远程音乐库类型">
         {tabs.map((tab) => {
           const summary = providerSummaries.find((item) => item.provider === tab.provider);
+          const recommended = tab.provider === 'subsonic';
           const statusText = summary && summary.sourceCount > 0
-            ? `${formatCount(summary.sourceCount)} 个 · ${formatCount(summary.trackCount)} 首`
-            : '未连接';
+            ? `${recommended ? '推荐 · ' : ''}${formatCount(summary.sourceCount)} 个 · ${formatCount(summary.trackCount)} 首`
+            : recommended ? '推荐 · 未连接' : '未连接';
           return (
-            <button key={tab.provider} type="button" className={tab.provider === activeProvider ? 'active' : ''} onClick={() => setActiveProvider(tab.provider)}>
+            <button
+              key={tab.provider}
+              type="button"
+              className={tab.provider === activeProvider ? 'active' : ''}
+              data-recommended={recommended ? 'true' : undefined}
+              onClick={() => setActiveProvider(tab.provider)}
+            >
               <span>{tab.label}</span>
               <small>{statusText}</small>
             </button>

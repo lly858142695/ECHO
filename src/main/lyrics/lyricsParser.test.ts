@@ -176,6 +176,27 @@ describe('lyricsParser', () => {
     ]);
   });
 
+  it('derives TTML paragraph timing from child spans when the paragraph has no begin', () => {
+    const ttml = [
+      '<tt xmlns="http://www.w3.org/ns/ttml">',
+      '<body><div>',
+      '<p xml:id="L1"><span begin="00:00:01.000" end="00:00:01.500">Hello</span><span begin="00:00:01.500" end="00:00:02.000">world</span></p>',
+      '</div></body>',
+      '</tt>',
+    ].join('');
+
+    expect(parseSyncedLyrics(ttml)).toEqual([
+      {
+        timeMs: 1000,
+        text: 'Hello world',
+        words: [
+          { text: 'Hello ', startMs: 1000, endMs: 1500 },
+          { text: 'world', startMs: 1500, endMs: 2000 },
+        ],
+      },
+    ]);
+  });
+
   it('parses NetEase YRC word timings', () => {
     expect(parseSyncedLyrics('[1000,1200](1000,300,0)Hello (1300,400,0)world')).toEqual([
       {

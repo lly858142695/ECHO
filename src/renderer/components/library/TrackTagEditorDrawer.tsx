@@ -111,6 +111,18 @@ const emptyNetworkSelection = (): NetworkFieldSelection => ({
 const allNetworkFieldsSelected = (selection: NetworkFieldSelection): boolean => networkFieldLabels.every((field) => selection[field.key]);
 const someNetworkFieldsSelected = (selection: NetworkFieldSelection): boolean => networkFieldLabels.some((field) => selection[field.key]);
 
+const previewCoverUrl = (coverId: string | null | undefined, coverThumb: string | null | undefined): string | null => {
+  if (coverId) {
+    return `echo-cover://large/${encodeURIComponent(coverId)}`;
+  }
+
+  if (coverThumb?.startsWith('echo-cover://thumb/')) {
+    return coverThumb.replace('echo-cover://thumb/', 'echo-cover://album/');
+  }
+
+  return coverThumb ?? null;
+};
+
 const stateFromTrack = (track: LibraryTrack | null): TagFormState => ({
   title: track?.title ?? '',
   artist: track?.artist ?? '',
@@ -348,7 +360,10 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
   const lyricsSearchRequestIdRef = useRef(0);
 
   const fileName = useMemo(() => track?.path.split(/[\\/]/).pop() ?? '', [track?.path]);
-  const previewCover = selectedCover?.dataUrl ?? pendingNetworkCover?.previewUrl ?? loadedCoverThumb ?? track?.coverThumb ?? null;
+  const previewCover =
+    selectedCover?.dataUrl ??
+    pendingNetworkCover?.previewUrl ??
+    (loadedCoverThumb ? previewCoverUrl(null, loadedCoverThumb) : previewCoverUrl(track?.coverId, track?.coverThumb));
   const initialForm = useMemo(() => stateFromTrack(track), [track]);
   const validationErrors = useMemo(() => getValidationErrors(form), [form]);
   const isBusy = isSaving || isLoadingEmbedded || isSearchingNetwork || isSearchingPluginMetadata;

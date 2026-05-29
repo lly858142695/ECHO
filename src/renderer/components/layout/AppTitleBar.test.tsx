@@ -114,4 +114,23 @@ describe('AppTitleBar', () => {
     expect(onToggleMaximize).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('shows a restore control while the window is maximized', () => {
+    const onToggleMaximize = vi.fn();
+
+    renderTitleBar({
+      activeRouteId: 'songs',
+      isWindowMaximized: true,
+      onRouteChange: vi.fn(),
+      onOpenAudioSettings: vi.fn(),
+      onMinimize: vi.fn(),
+      onToggleMaximize,
+      onClose: vi.fn(),
+    });
+
+    expect(screen.queryByRole('button', { name: 'Maximize' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+
+    expect(onToggleMaximize).toHaveBeenCalledTimes(1);
+  });
 });

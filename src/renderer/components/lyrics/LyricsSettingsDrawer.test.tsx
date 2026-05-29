@@ -1199,7 +1199,7 @@ describe('LyricsSettingsDrawer', () => {
       },
     } as unknown as Window['echo'];
 
-    render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
+    const { container } = render(<LyricsSettingsDrawer isOpen onClose={vi.fn()} />);
 
     await waitFor(() => expect(window.echo?.app.getSettings).toHaveBeenCalled());
     fireEvent.change(screen.getByRole('searchbox', { name: /搜索歌词文本|鎼滅储姝岃瘝鏂囨湰/ }), { target: { value: 'rough query' } });
@@ -1207,6 +1207,7 @@ describe('LyricsSettingsDrawer', () => {
 
     expect(await screen.findByText('Low Match Song')).toBeTruthy();
     expect(screen.getByText('12%')).toBeTruthy();
+    expect(container.querySelector('.lyrics-reason-badge')?.textContent?.trim()).toBeTruthy();
     expect(searchCandidates).toHaveBeenCalledWith('track-1', 'rough query', 'lrclib');
     expect(searchCandidates).toHaveBeenCalledWith('track-1', 'rough query', 'netease');
     expect(searchCandidates).toHaveBeenCalledWith('track-1', 'rough query', 'qqmusic');

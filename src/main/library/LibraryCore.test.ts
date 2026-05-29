@@ -2890,6 +2890,8 @@ describe('Library Core', () => {
     const comma = writeAudioFile(harness.folder, 'Comma.flac');
     const japaneseGroup = writeAudioFile(harness.folder, 'JapaneseGroup.flac');
     const repeated = writeAudioFile(harness.folder, 'Repeated.flac');
+    const ampersandGroup = writeAudioFile(harness.folder, 'AmpersandGroup.flac');
+    const fullWidthAmpersandGroup = writeAudioFile(harness.folder, 'FullWidthAmpersandGroup.flac');
     harness.metadataService.overrides.set(
       duet,
       baseMetadata({ title: 'Duet Song', artist: '2PM/尹恩惠', album: 'Duet Album', albumArtist: '2PM/尹恩惠' }),
@@ -2915,6 +2917,14 @@ describe('Library Core', () => {
       repeated,
       baseMetadata({ title: 'Repeated Song', artist: 'Repeat/Repeat', album: 'Repeat Album', albumArtist: 'Repeat/Repeat' }),
     );
+    harness.metadataService.overrides.set(
+      ampersandGroup,
+      baseMetadata({ title: 'Ampersand Song', artist: 'MYTH & ROID', album: 'Ampersand Album', albumArtist: 'MYTH & ROID' }),
+    );
+    harness.metadataService.overrides.set(
+      fullWidthAmpersandGroup,
+      baseMetadata({ title: 'Full Width Ampersand Song', artist: 'MYTH \uff06 ROID', album: 'Full Width Ampersand Album', albumArtist: 'MYTH \uff06 ROID' }),
+    );
     harness.addFolder();
 
     await harness.scanFolder();
@@ -2924,14 +2934,18 @@ describe('Library Core', () => {
     const flow = harness.service.getArtists({ search: 'FLOW', pageSize: 10 }).items.find((artist) => artist.name === 'FLOW')!;
     const [nightCode] = harness.service.getArtists({ search: '25時 ナイトコード', pageSize: 10 }).items;
     const [repeat] = harness.service.getArtists({ search: 'Repeat', pageSize: 10 }).items;
+    const mythRoid = harness.service.getArtists({ search: 'MYTH ROID', pageSize: 10 }).items.find((artist) => artist.name === 'MYTH & ROID')!;
 
     expect(harness.service.getArtists({ search: '2PM/尹恩惠', pageSize: 10 }).total).toBe(0);
+    expect(harness.service.getArtists({ search: 'MYTH', pageSize: 10 }).items.some((artist) => artist.name === 'MYTH')).toBe(false);
+    expect(harness.service.getArtists({ search: 'ROID', pageSize: 10 }).items.some((artist) => artist.name === 'ROID')).toBe(false);
     expect(twoPm).toMatchObject({ name: '2PM', trackCount: 2, albumCount: 2 });
     expect(yoon).toMatchObject({ name: '尹恩惠', trackCount: 1, albumCount: 1 });
     expect(afterglow).toMatchObject({ name: 'Afterglow', trackCount: 1, albumCount: 1 });
     expect(flow).toMatchObject({ name: 'FLOW', trackCount: 1, albumCount: 1 });
     expect(nightCode).toMatchObject({ name: '25時、ナイトコードで。', trackCount: 1, albumCount: 1 });
     expect(repeat).toMatchObject({ name: 'Repeat', trackCount: 1, albumCount: 1 });
+    expect(mythRoid).toMatchObject({ name: 'MYTH & ROID', trackCount: 2, albumCount: 2 });
     expect(harness.service.getArtistTracks(twoPm.id, { pageSize: 10 }).items.map((track) => track.title)).toEqual([
       'Duet Song',
       'Solo Song',

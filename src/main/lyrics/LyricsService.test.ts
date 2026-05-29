@@ -679,6 +679,41 @@ describe('LyricsService', () => {
     expect(online.getLyrics).not.toHaveBeenCalled();
   });
 
+  it('prefers local TTML sidecar over network', async () => {
+    const root = makeTempRoot();
+    const audioPath = join(root, 'Echo Song.flac');
+    writeFileSync(audioPath, 'audio');
+    writeFileSync(
+      join(root, 'Echo Song.ttml'),
+      [
+        '<tt xmlns="http://www.w3.org/ns/ttml"><body><div>',
+        '<p><span begin="00:00:01.000" end="00:00:01.500">Local</span><span begin="00:00:01.500" end="00:00:02.000">TTML</span></p>',
+        '</div></body></tt>',
+      ].join(''),
+    );
+    const { online, service } = createHarness({
+      currentTrack: track(audioPath),
+      localProvider: new LocalLyricsProvider(),
+      onlineProvider: { getLyrics: vi.fn(async () => trackLyrics()), searchCandidates: vi.fn(async () => []) },
+    });
+
+    const lyrics = await service.getLyricsForTrack('track-1');
+
+    expect(lyrics?.provider).toBe('local');
+    expect(lyrics?.kind).toBe('synced');
+    expect(lyrics?.lines).toEqual([
+      {
+        timeMs: 1000,
+        text: 'Local TTML',
+        words: [
+          { text: 'Local ', startMs: 1000, endMs: 1500 },
+          { text: 'TTML', startMs: 1500, endMs: 2000 },
+        ],
+      },
+    ]);
+    expect(online.getLyrics).not.toHaveBeenCalled();
+  });
+
   it('keeps network candidates searchable when local lrc exists', async () => {
     const root = makeTempRoot();
     const audioPath = join(root, 'Echo Song.flac');

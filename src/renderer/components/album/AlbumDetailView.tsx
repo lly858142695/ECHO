@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { ArrowLeft, Disc3, ExternalLink, Heart, Info, Loader2, MoreHorizontal, Play, RefreshCw, Star } from 'lucide-react';
-import type { AlbumOnlineInfo, EditableTrackTags, LibraryAlbum, LibraryArtist, LibraryPlaylist, LibraryTrack } from '../../../shared/types/library';
+import type { AlbumOnlineInfo, AlbumOnlineInfoRequestOptions, EditableTrackTags, LibraryAlbum, LibraryArtist, LibraryPlaylist, LibraryTrack } from '../../../shared/types/library';
 import { likedAlbumsChangedEvent, likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../../hooks/useLikedMedia';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
@@ -96,6 +96,13 @@ type OnlineInfoState = {
 
 type ExternalRating = AlbumOnlineInfo['externalRatings'][number];
 
+type AlbumInformationBlock =
+  | { type: 'heading'; key: string; level: 2 | 3 | 4; text: string }
+  | { type: 'paragraph'; key: string; text: string }
+  | { type: 'list'; key: string; items: string[] };
+
+type OnlineInfoProvider = Exclude<NonNullable<AlbumOnlineInfoRequestOptions['provider']>, 'all'>;
+
 type RelatedAlbumsState = {
   loading: boolean;
   albums: LibraryAlbum[];
@@ -118,6 +125,147 @@ const emptyRelatedAlbumsState = (): RelatedAlbumsState => ({
   error: null,
   loadedForAlbumId: null,
 });
+
+const albumOnlineInfoProviders: OnlineInfoProvider[] = ['wikipedia', 'musicbrainz'];
+
+const hasOnlineInfoPayload = (info: AlbumOnlineInfo | null): boolean =>
+  Boolean(
+    info &&
+      (info.credits.length > 0 ||
+        info.sourceLinks.length > 0 ||
+        info.externalRatings.length > 0 ||
+        info.releaseVersions.length > 0 ||
+        info.releaseDetails ||
+        info.information ||
+        info.artistInformation),
+  );
+
+const mergeUnique = <T,>(left: T[], right: T[], keyFor: (item: T) => string): T[] => {
+  const seen = new Set<string>();
+  const merged: T[] = [];
+  for (const item of [...left, ...right]) {
+    const key = keyFor(item);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged;
+};
+
+const mergeAlbumOnlineInfo = (current: AlbumOnlineInfo | null, next: AlbumOnlineInfo): AlbumOnlineInfo => {
+  if (!current) {
+    return next;
+  }
+
+  const errors = Array.from(new Set([...current.errors, ...next.errors]));
+  const hasErrors = errors.length > 0;
+  return {
+    ...current,
+    status: hasOnlineInfoPayload(current) || hasOnlineInfoPayload(next) ? (hasErrors ? 'partial' : 'ready') : hasErrors ? 'error' : 'empty',
+    sources: mergeUnique(current.sources, next.sources, (source) => `${source.provider}:${source.label}`),
+    match: current.match ?? next.match,
+    sourceLinks: mergeUnique(current.sourceLinks, next.sourceLinks, (link) => `${link.provider}:${link.url}`),
+    externalRatings: mergeUnique(current.externalRatings, next.externalRatings, (rating) => `${rating.provider}:${rating.url ?? rating.score}`),
+    releaseDetails: current.releaseDetails ?? next.releaseDetails,
+    releaseVersions: mergeUnique(current.releaseVersions, next.releaseVersions, (version) => version.providerItemId),
+    credits: mergeUnique(current.credits, next.credits, (group) => group.role),
+    information: current.information ?? next.information,
+    artistInformation: current.artistInformation ?? next.artistInformation,
+    fetchedAt: next.fetchedAt ?? current.fetchedAt,
+    expiresAt: next.expiresAt ?? current.expiresAt,
+    fromCache: current.fromCache && next.fromCache,
+    errors,
+  };
+};
+
+const stripWikiInlineMarkup = (value: string): string =>
+  value
+    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/gu, '$2')
+    .replace(/\[\[([^\]]+)\]\]/gu, '$1')
+    .replace(/'{2,5}([^']+)'{2,5}/gu, '$1')
+    .replace(/<[^>]+>/gu, '')
+    .replace(/[_\t]+/gu, ' ')
+    .replace(/\s{2,}/gu, ' ')
+    .trim();
+
+const wikiHeadingLevel = (marker: string): 2 | 3 | 4 => {
+  if (marker.length <= 2) {
+    return 2;
+  }
+  if (marker.length === 3) {
+    return 3;
+  }
+  return 4;
+};
+
+const informationBlocksFromExtract = (extract: string): AlbumInformationBlock[] => {
+  const normalized = extract
+    .replace(/\r\n?/gu, '\n')
+    .replace(/[ \t]+\n/gu, '\n')
+    .replace(/\n{3,}/gu, '\n\n')
+    .trim();
+
+  if (!normalized) {
+    return [];
+  }
+
+  const blocks: AlbumInformationBlock[] = [];
+  let paragraphLines: string[] = [];
+  let listItems: string[] = [];
+
+  const flushParagraph = (): void => {
+    const text = stripWikiInlineMarkup(paragraphLines.join(' '));
+    paragraphLines = [];
+    if (text) {
+      blocks.push({ type: 'paragraph', key: `p-${blocks.length}-${text.slice(0, 32)}`, text });
+    }
+  };
+
+  const flushList = (): void => {
+    const items = listItems.map(stripWikiInlineMarkup).filter(Boolean);
+    listItems = [];
+    if (items.length > 0) {
+      blocks.push({ type: 'list', key: `list-${blocks.length}-${items[0]?.slice(0, 32) ?? ''}`, items });
+    }
+  };
+
+  for (const line of normalized.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const heading = trimmed.match(/^(={2,6})\s*(.*?)\s*\1$/u);
+    if (heading?.[2]) {
+      flushParagraph();
+      flushList();
+      const text = stripWikiInlineMarkup(heading[2]);
+      if (text) {
+        blocks.push({ type: 'heading', key: `h-${blocks.length}-${text}`, level: wikiHeadingLevel(heading[1]), text });
+      }
+      continue;
+    }
+
+    const listItem = trimmed.match(/^[*#;:]+\s*(.+)$/u);
+    if (listItem?.[1]) {
+      flushParagraph();
+      listItems.push(listItem[1]);
+      continue;
+    }
+
+    flushList();
+    paragraphLines.push(trimmed);
+  }
+
+  flushParagraph();
+  flushList();
+
+  return blocks.length > 0 ? blocks : [{ type: 'paragraph', key: 'p-fallback', text: normalized }];
+};
 
 const normalizeArtistName = (value: string): string => value.normalize('NFKC').trim().toLocaleLowerCase();
 
@@ -297,6 +445,10 @@ const ratingProviderLabel = (provider: ExternalRating['provider']): string => {
   switch (provider) {
     case 'rateYourMusic':
       return 'Rate Your Music';
+    case 'musicbrainz':
+      return 'MusicBrainz';
+    case 'discogs':
+      return 'Discogs';
     default:
       return 'Community';
   }
@@ -385,18 +537,26 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     ].filter((item): item is string => Boolean(item));
   }, [loadedTotal, loadedTracks, t]);
   const albumFacts = useMemo(
-    () => [
-      { label: t('albumDetail.fact.format'), value: signalItems.join(' / ') || t('albumDetail.status.readingSignal') },
-      { label: t('albumDetail.fact.genre'), value: textureItems[0] ?? t('albumDetail.status.unknownGenre') },
-      { label: t('albumDetail.fact.released'), value: album.year ? String(album.year) : t('albumDetail.status.unknownYear') },
-      {
-        label: t('albumDetail.fact.library'),
-        value: t('albumDetail.status.libraryReady', {
-          value: loadedTotal > 0 ? `${loadedTracks.length}/${loadedTotal}` : formatTrackCount(album.trackCount, t),
-        }),
-      },
-    ],
-    [album.trackCount, album.year, loadedTotal, loadedTracks.length, signalItems, textureItems, t],
+    () => {
+      const ratingFacts = (onlineInfoState.info?.externalRatings ?? []).slice(0, 2).map((rating) => ({
+        label: ratingProviderLabel(rating.provider),
+        value: formatRatingScore(rating, locale),
+      }));
+
+      return [
+        { label: t('albumDetail.fact.format'), value: signalItems.join(' / ') || t('albumDetail.status.readingSignal') },
+        { label: t('albumDetail.fact.genre'), value: textureItems[0] ?? t('albumDetail.status.unknownGenre') },
+        { label: t('albumDetail.fact.released'), value: album.year ? String(album.year) : t('albumDetail.status.unknownYear') },
+        ...ratingFacts,
+        {
+          label: t('albumDetail.fact.library'),
+          value: t('albumDetail.status.libraryReady', {
+            value: loadedTotal > 0 ? `${loadedTracks.length}/${loadedTotal}` : formatTrackCount(album.trackCount, t),
+          }),
+        },
+      ];
+    },
+    [album.trackCount, album.year, loadedTotal, loadedTracks.length, locale, onlineInfoState.info?.externalRatings, signalItems, textureItems, t],
   );
   const albumSource = useMemo(
     () => ({ type: 'album' as const, label: album.title, albumId: album.id }),
@@ -437,28 +597,45 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
       const requestId = onlineInfoRequestRef.current + 1;
       onlineInfoRequestRef.current = requestId;
 
-      try {
-        const info = await bridge.getAlbumOnlineInfo(album.id, { force });
-        if (onlineInfoRequestRef.current !== requestId) {
-          return;
-        }
-        setOnlineInfoState({
-          loading: false,
-          info,
-          error: null,
-          loadedForAlbumId: album.id,
-        });
-      } catch (error) {
-        if (onlineInfoRequestRef.current !== requestId) {
-          return;
-        }
-        setOnlineInfoState((current) => ({
-          ...current,
-          loading: false,
-          error: error instanceof Error ? error.message : String(error),
-          loadedForAlbumId: album.id,
-        }));
+      let mergedInfo: AlbumOnlineInfo | null = null;
+      const errors: string[] = [];
+      await Promise.all(
+        albumOnlineInfoProviders.map(async (provider) => {
+          try {
+            const info = await bridge.getAlbumOnlineInfo(album.id, { force, provider });
+            if (onlineInfoRequestRef.current !== requestId) {
+              return;
+            }
+            mergedInfo = mergeAlbumOnlineInfo(mergedInfo, info);
+            setOnlineInfoState({
+              loading: true,
+              info: hasOnlineInfoPayload(mergedInfo) ? mergedInfo : null,
+              error: null,
+              loadedForAlbumId: album.id,
+            });
+          } catch (error) {
+            errors.push(`${provider}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }),
+      );
+
+      if (onlineInfoRequestRef.current !== requestId) {
+        return;
       }
+      const settledInfo = mergedInfo as AlbumOnlineInfo | null;
+      const finalInfo = settledInfo && errors.length > 0
+        ? {
+            ...settledInfo,
+            status: hasOnlineInfoPayload(settledInfo) ? 'partial' as const : 'error' as const,
+            errors: Array.from(new Set([...settledInfo.errors, ...errors])),
+          }
+        : settledInfo;
+      setOnlineInfoState({
+        loading: false,
+        info: finalInfo,
+        error: finalInfo ? null : errors.join('\n') || 'Online album info is unavailable.',
+        loadedForAlbumId: album.id,
+      });
     },
     [album.id],
   );
@@ -1265,13 +1442,29 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     }
 
     const info = onlineInfoState.info;
+    const renderInformationBlock = (block: AlbumInformationBlock): JSX.Element => {
+      if (block.type === 'heading') {
+        const HeadingTag = block.level <= 2 ? 'h4' : 'h5';
+        return <HeadingTag key={block.key}>{block.text}</HeadingTag>;
+      }
+      if (block.type === 'list') {
+        return (
+          <ul key={block.key}>
+            {block.items.map((item, index) => (
+              <li key={`${block.key}-${index}`}>{item}</li>
+            ))}
+          </ul>
+        );
+      }
+      return <p key={block.key}>{block.text}</p>;
+    };
     const renderInformationArticle = (information: NonNullable<AlbumOnlineInfo['information']>, label: string): JSX.Element => (
       <section className="album-information-article" key={label}>
         <div className="album-information-main">
           <span>{label} - {information.language}.wikipedia.org</span>
           <h3>{information.title}</h3>
           {information.description ? <small>{information.description}</small> : null}
-          <p>{information.extract}</p>
+          <div className="album-information-body">{informationBlocksFromExtract(information.extract).map(renderInformationBlock)}</div>
           {information.externalLinks?.length ? (
             <div className="album-information-links" aria-label={t('albumDetail.information.externalLinks')}>
               <span>{t('albumDetail.information.externalLinks')}</span>

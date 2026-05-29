@@ -72,6 +72,7 @@ export const defaultNetworkProxyBypassRules = '<local>;localhost;127.0.0.1;::1;*
 export const defaultTidalClientId = 'vmtQLf79BHl9YgUT';
 const appMemoryVersion = 6;
 const locales: AppLocale[] = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP'];
+const fallbackLocale: AppLocale = 'zh-CN';
 const appThemeModes: AppThemeMode[] = ['light', 'dark', 'system'];
 const defaultAppearanceThemeScheduleDarkAt = '19:00';
 const defaultAppearanceThemeScheduleLightAt = '07:00';
@@ -304,10 +305,39 @@ export const defaultChannelBalanceSettings: ChannelBalanceState = {
   constantPower: true,
 };
 
+export const normalizeSystemLocale = (value: unknown): AppLocale => {
+  if (typeof value !== 'string') {
+    return fallbackLocale;
+  }
+
+  const locale = value.toLowerCase();
+  if (locale.startsWith('zh-tw') || locale.startsWith('zh-hk') || locale.startsWith('zh-mo') || locale.startsWith('zh-hant')) {
+    return 'zh-TW';
+  }
+  if (locale.startsWith('ja')) {
+    return 'ja-JP';
+  }
+  if (locale.startsWith('en')) {
+    return 'en-US';
+  }
+  if (locale.startsWith('zh')) {
+    return 'zh-CN';
+  }
+  return fallbackLocale;
+};
+
+const getDefaultLocale = (): AppLocale => {
+  try {
+    return normalizeSystemLocale(app.getLocale?.());
+  } catch {
+    return fallbackLocale;
+  }
+};
+
 export const defaultSettings: AppSettings = {
   appMemoryVersion,
   onboardingCompleted: false,
-  locale: 'zh-CN',
+  locale: getDefaultLocale(),
   appearanceTheme: 'light',
   appearanceThemeScheduleEnabled: false,
   appearanceThemeScheduleDarkAt: defaultAppearanceThemeScheduleDarkAt,
@@ -338,7 +368,7 @@ export const defaultSettings: AppSettings = {
   chineseCrossScriptSearchEnabled: true,
   artistWallAlbumArtwork: false,
   artistWallAlbumFallbackForMissingAvatars: false,
-  artistStreamingAlbumsEnabled: false,
+  artistStreamingAlbumsEnabled: true,
   artistStreamingAlbumsProvider: defaultArtistStreamingAlbumsProvider,
   autoFetchArtistImages: false,
   artistImageFetchPaused: false,
@@ -392,6 +422,7 @@ export const defaultSettings: AppSettings = {
   onlineArtistInfoSeatGeekClientId: null,
   onlineArtistInfoRegion: null,
   onlineArtistInfoSources: [...defaultArtistOnlineInfoSources],
+  onlineAlbumInfoDiscogsUserToken: null,
   audioAnalysisEnabled: true,
   lyricsNetworkEnabled: true,
   lyricsPreferredProvider: 'lrclib',
@@ -478,11 +509,11 @@ export const defaultSettings: AppSettings = {
   mvAllow60fps: true,
   channelBalance: defaultChannelBalanceSettings,
   playerVolume: 1,
-  homeWaveformVisualizerEnabled: false,
+  homeWaveformVisualizerEnabled: true,
   audioVisualSpectrumEnabled: false,
   lowLoadPlaybackModeEnabled: false,
   lowLoadPlaybackEnhancementsEnabled: false,
-  homeRandomHeroTitleEnabled: true,
+  homeRandomHeroTitleEnabled: false,
   playerWaveformProgressEnabled: false,
   fixedVolumeEnabled: false,
   gaplessPlaybackEnabled: false,
@@ -688,7 +719,7 @@ export const normalizeHqPlayerSettings = (value: unknown): HqPlayerSettings => {
 };
 
 const normalizeLocale = (value: unknown): AppLocale =>
-  locales.includes(value as AppLocale) ? (value as AppLocale) : 'zh-CN';
+  locales.includes(value as AppLocale) ? (value as AppLocale) : getDefaultLocale();
 
 const normalizeAppearanceTheme = (value: unknown): AppThemeMode =>
   appThemeModes.includes(value as AppThemeMode) ? (value as AppThemeMode) : defaultSettings.appearanceTheme;
@@ -1481,7 +1512,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     chineseCrossScriptSearchEnabled: settings.chineseCrossScriptSearchEnabled !== false,
     artistWallAlbumArtwork: settings.artistWallAlbumArtwork === true,
     artistWallAlbumFallbackForMissingAvatars: settings.artistWallAlbumFallbackForMissingAvatars === true,
-    artistStreamingAlbumsEnabled: settings.artistStreamingAlbumsEnabled === true,
+    artistStreamingAlbumsEnabled: settings.artistStreamingAlbumsEnabled !== false,
     artistStreamingAlbumsProvider: normalizeArtistStreamingAlbumsProvider(settings.artistStreamingAlbumsProvider),
     autoFetchArtistImages: settings.autoFetchArtistImages === true,
     artistImageFetchPaused: settings.artistImageFetchPaused === true,
@@ -1543,6 +1574,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     onlineArtistInfoSeatGeekClientId: normalizeOptionalText(settings.onlineArtistInfoSeatGeekClientId),
     onlineArtistInfoRegion: normalizeOptionalText(settings.onlineArtistInfoRegion),
     onlineArtistInfoSources: normalizeArtistOnlineInfoSources(settings.onlineArtistInfoSources),
+    onlineAlbumInfoDiscogsUserToken: normalizeOptionalText(settings.onlineAlbumInfoDiscogsUserToken),
     audioAnalysisEnabled: settings.audioAnalysisEnabled !== false,
     lyricsNetworkEnabled: settings.lyricsNetworkEnabled !== false,
     lyricsPreferredProvider: 'lrclib',
@@ -1689,11 +1721,11 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     mvAllow60fps: settings.mvAllow60fps !== false,
     channelBalance: normalizeChannelBalanceSettings(settings.channelBalance),
     playerVolume: Number.isFinite(playerVolume) ? Math.max(0, Math.min(1, playerVolume)) : defaultSettings.playerVolume,
-    homeWaveformVisualizerEnabled: settings.homeWaveformVisualizerEnabled === true,
+    homeWaveformVisualizerEnabled: settings.homeWaveformVisualizerEnabled !== false,
     audioVisualSpectrumEnabled: settings.audioVisualSpectrumEnabled === true,
     lowLoadPlaybackModeEnabled: settings.lowLoadPlaybackModeEnabled === true,
     lowLoadPlaybackEnhancementsEnabled: settings.lowLoadPlaybackEnhancementsEnabled === true,
-    homeRandomHeroTitleEnabled: settings.homeRandomHeroTitleEnabled !== false,
+    homeRandomHeroTitleEnabled: settings.homeRandomHeroTitleEnabled === true,
     playerWaveformProgressEnabled: settings.playerWaveformProgressEnabled === true,
     fixedVolumeEnabled: settings.fixedVolumeEnabled === true,
     gaplessPlaybackEnabled: settings.gaplessPlaybackEnabled === true,

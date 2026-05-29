@@ -155,6 +155,28 @@ const onlineInfo = (): AlbumOnlineInfo => ({
       expiresAt: '2026-06-21T00:00:00.000Z',
       confidence: 0.95,
     },
+    {
+      provider: 'musicbrainz',
+      score: 4.55,
+      maxScore: 5,
+      ratingCount: 85,
+      rankText: null,
+      url: 'https://musicbrainz.org/release-group/mb-release-group-1',
+      fetchedAt: null,
+      expiresAt: null,
+      confidence: 1,
+    },
+    {
+      provider: 'discogs',
+      score: 4.25,
+      maxScore: 5,
+      ratingCount: 12,
+      rankText: 'Data provided by Discogs',
+      url: 'https://www.discogs.com/release/12345-Cache-Artist-Cache-Album',
+      fetchedAt: null,
+      expiresAt: null,
+      confidence: 0.92,
+    },
   ],
   releaseDetails: {
     title: 'Mock Album',
@@ -234,6 +256,33 @@ const onlineInfo = (): AlbumOnlineInfo => ({
   errors: [],
 });
 
+const onlineInfoForProvider = (provider?: 'all' | 'musicbrainz' | 'wikipedia'): AlbumOnlineInfo => {
+  const info = onlineInfo();
+  if (provider === 'wikipedia') {
+    return {
+      ...info,
+      status: 'ready',
+      sources: [{ provider: 'wikipedia', label: 'en.wikipedia.org' }],
+      match: null,
+      sourceLinks: [],
+      externalRatings: [],
+      releaseDetails: null,
+      releaseVersions: [],
+      credits: [],
+    };
+  }
+  if (provider === 'musicbrainz') {
+    return {
+      ...info,
+      status: 'ready',
+      sources: [{ provider: 'musicbrainz', label: 'MusicBrainz' }],
+      information: null,
+      artistInformation: null,
+    };
+  }
+  return info;
+};
+
 const relatedAlbum = (): LibraryAlbum => ({
   ...album(),
   id: 'album-2',
@@ -251,7 +300,9 @@ const installLibrary = (): {
   getArtists: ReturnType<typeof vi.fn>;
   getArtistAlbums: ReturnType<typeof vi.fn>;
 } => {
-  const getAlbumOnlineInfo = vi.fn().mockResolvedValue(onlineInfo());
+  const getAlbumOnlineInfo = vi.fn((_albumId: string, options?: { provider?: 'all' | 'musicbrainz' | 'wikipedia' }) =>
+    Promise.resolve(onlineInfoForProvider(options?.provider)),
+  );
   const getArtists = vi.fn().mockResolvedValue({
     items: [artist()],
     page: 1,
@@ -316,22 +367,32 @@ describe('AlbumDetailView', () => {
 
     render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
 
-    await waitFor(() => expect(getAlbumOnlineInfo).toHaveBeenCalledWith('album-1', { force: false }));
+    await waitFor(() => expect(getAlbumOnlineInfo).toHaveBeenCalledWith('album-1', { force: false, provider: 'wikipedia' }));
+    expect(getAlbumOnlineInfo).toHaveBeenCalledWith('album-1', { force: false, provider: 'musicbrainz' });
 
     expect(screen.getByText('Mock album tracks')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Tracks' }).getAttribute('aria-current')).toBe('page');
+    expect(await screen.findByText('4.55 / 5')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sources' }));
     expect(await screen.findByText('1234567890123')).toBeTruthy();
-    expect(screen.getByText('3.82 / 5')).toBeTruthy();
+    expect(screen.getAllByText('3.82 / 5').length).toBeGreaterThan(0);
     expect(screen.getByText('12,431 ratings - #24 in 2024')).toBeTruthy();
+    expect(screen.getAllByText('4.55 / 5').length).toBeGreaterThan(0);
+    expect(screen.getByText('85 ratings')).toBeTruthy();
+    expect(screen.getAllByText('MusicBrainz').length).toBeGreaterThan(0);
+    expect(screen.getByText('4.25 / 5')).toBeTruthy();
+    expect(screen.getByText('12 ratings - Data provided by Discogs')).toBeTruthy();
+    expect(screen.getAllByText('Discogs').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Rate Your Music').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Spotify').length).toBeGreaterThan(0);
   });
 
   it('hides the external rating panel when rating data is absent', async () => {
     const { getAlbumOnlineInfo } = installLibrary();
-    getAlbumOnlineInfo.mockResolvedValueOnce({ ...onlineInfo(), externalRatings: [] });
+    getAlbumOnlineInfo.mockImplementation((_albumId: string, options?: { provider?: 'all' | 'musicbrainz' | 'wikipedia' }) =>
+      Promise.resolve({ ...onlineInfoForProvider(options?.provider), externalRatings: [] }),
+    );
 
     render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
 
@@ -361,6 +422,59 @@ describe('AlbumDetailView', () => {
 
     expect(await screen.findByText('Artist profile - en.wikipedia.org')).toBeTruthy();
     expect(screen.getByText('Echo Unit artist overview.')).toBeTruthy();
+  });
+
+  it('shows Wikipedia information before MusicBrainz finishes', async () => {
+    const { getAlbumOnlineInfo } = installLibrary();
+    let resolveMusicBrainz: (info: AlbumOnlineInfo) => void = () => {};
+    getAlbumOnlineInfo.mockImplementation((_albumId: string, options?: { provider?: 'all' | 'musicbrainz' | 'wikipedia' }) => {
+      if (options?.provider === 'wikipedia') {
+        return Promise.resolve(onlineInfoForProvider('wikipedia'));
+      }
+      return new Promise<AlbumOnlineInfo>((resolve) => {
+        resolveMusicBrainz = resolve;
+      });
+    });
+
+    render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Information' }));
+
+    expect(await screen.findByText('Artist profile - en.wikipedia.org')).toBeTruthy();
+    expect(screen.getByText('Echo Unit artist overview.')).toBeTruthy();
+
+    resolveMusicBrainz(onlineInfoForProvider('musicbrainz'));
+    await waitFor(() => expect(getAlbumOnlineInfo).toHaveBeenCalledTimes(2));
+  });
+
+  it('formats wiki-style information into readable blocks', async () => {
+    const { getAlbumOnlineInfo } = installLibrary();
+    const info = onlineInfo();
+    getAlbumOnlineInfo.mockResolvedValueOnce({
+      ...info,
+      artistInformation: {
+        ...info.artistInformation!,
+        extract: [
+          'Echo Unit artist overview.',
+          '',
+          '== Career ==',
+          'First era line.',
+          '',
+          '=== Discography ===',
+          '* First album',
+          '* Second album',
+        ].join('\n'),
+      },
+    });
+
+    render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Information' }));
+
+    expect(await screen.findByRole('heading', { name: 'Career' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Discography' })).toBeTruthy();
+    expect(screen.getByText('First album').closest('li')).toBeTruthy();
+    expect(screen.queryByText(/== Career ==/u)).toBeNull();
   });
 
   it('uses original album artwork in the detail hero', async () => {

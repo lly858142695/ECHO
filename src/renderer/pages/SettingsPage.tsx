@@ -379,6 +379,42 @@ const defaultSpotifyRedirectUri = 'http://127.0.0.1:43879/spotify/callback';
 const defaultTidalRedirectUri = 'http://127.0.0.1:43880/tidal/callback';
 const spotifyDeveloperDashboardUrl = 'https://developer.spotify.com/dashboard';
 const tidalDeveloperDashboardUrl = 'https://developer.tidal.com/dashboard';
+const discogsDeveloperSettingsUrl = 'https://www.discogs.com/settings/developers';
+const integrationsAccountPanelExpandedStorageKey = 'echo:settings:integrations:account-panel-expanded';
+const integrationsCredentialPanelExpandedStorageKey = 'echo:settings:integrations:credential-panel-expanded';
+const integrationCredentialSettingIds = new Set([
+  'settings-row-spotify-auth-config',
+  'settings-row-tidal-auth-config',
+  'settings-row-online-album-info',
+  'settings-row-online-artist-info',
+  'settings-row-lastfm',
+  'settings-row-lastfm-connection',
+  'settings-row-lastfm-now-playing',
+  'settings-row-lastfm-scrobbling',
+]);
+
+const isIntegrationCredentialSettingId = (value: string | null | undefined): boolean =>
+  typeof value === 'string' && integrationCredentialSettingIds.has(value);
+
+const readBooleanStoragePreference = (key: string, fallback: boolean): boolean => {
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+
+  try {
+    const value = window.localStorage.getItem(key);
+    if (value === 'true') {
+      return true;
+    }
+    if (value === 'false') {
+      return false;
+    }
+  } catch {
+    return fallback;
+  }
+
+  return fallback;
+};
 
 const isSpotifyClientIdInputValid = (value: string): boolean => {
   const trimmed = value.trim();
@@ -3890,8 +3926,27 @@ export const SettingsPage = (): JSX.Element => {
     seatGeekClientId: '',
     region: '',
   });
+  const [onlineAlbumInfoDraft, setOnlineAlbumInfoDraft] = useState({
+    discogsUserToken: '',
+  });
   const [onlineArtistInfoBusyAction, setOnlineArtistInfoBusyAction] = useState<'save' | 'clear' | null>(null);
   const [onlineArtistInfoMessage, setOnlineArtistInfoMessage] = useState<string | null>(null);
+  const [onlineAlbumInfoBusyAction, setOnlineAlbumInfoBusyAction] = useState<'save' | null>(null);
+  const [onlineAlbumInfoMessage, setOnlineAlbumInfoMessage] = useState<string | null>(null);
+  const [accountPanelExpanded, setAccountPanelExpanded] = useState(() =>
+    readBooleanStoragePreference(integrationsAccountPanelExpandedStorageKey, false),
+  );
+  const [credentialPanelExpanded, setCredentialPanelExpanded] = useState(() =>
+    readBooleanStoragePreference(integrationsCredentialPanelExpandedStorageKey, false),
+  );
+  const credentialPanelSearchTarget = isIntegrationCredentialSettingId(highlightedSettingId);
+  const credentialPanelVisible = credentialPanelExpanded;
+
+  useEffect(() => {
+    if (credentialPanelSearchTarget) {
+      setCredentialPanelExpanded(true);
+    }
+  }, [credentialPanelSearchTarget]);
 
   const libraryScanStatusList = useMemo(() => Object.values(libraryScanStatuses), [libraryScanStatuses]);
   const libraryScanRunningList = useMemo(
@@ -3958,7 +4013,7 @@ export const SettingsPage = (): JSX.Element => {
         id: 'row-data-protection-disabled',
         sectionKey: 'general',
         targetId: 'settings-row-data-protection-disabled',
-        title: '关闭 data-protection',
+        title: '关闭数据保护',
         description: '打开后不再执行启动、后台、扫描完成和更新前的数据保护快照。默认关闭。',
         terms: ['关闭 data-protection', '关闭数据保护', 'data protection', 'database snapshot', '数据保护', '快照', '播放卡顿'],
       },
@@ -4107,6 +4162,14 @@ export const SettingsPage = (): JSX.Element => {
         title: 'Spotify OAuth 配置',
         description: '必须使用用户自己的 Spotify Client ID 和本机回调地址登录。',
         terms: ['Spotify OAuth 配置', 'Spotify Client ID', 'Spotify redirect URI', 'Spotify API', 'Spotify 登录', 'spotify client_id', 'redirect_uri'],
+      },
+      {
+        id: 'row-online-album-info',
+        sectionKey: 'integrations',
+        targetId: 'settings-row-online-album-info',
+        title: 'Discogs 专辑评分',
+        description: '给专辑页评分做兜底；不填也会尝试公开 API，填入 Personal access token 后更稳定。',
+        terms: ['Discogs 专辑评分', 'Discogs token', 'Discogs API', 'album rating', '专辑评分', '在线专辑信息', 'Personal access token'],
       },
       {
         id: 'row-online-artist-info',
@@ -4461,7 +4524,7 @@ export const SettingsPage = (): JSX.Element => {
       },
       {
         id: 'row-dev-console',
-        sectionKey: 'about',
+        sectionKey: 'general',
         targetId: 'settings-row-dev-console',
         title: '开发控制台',
         description: '实时显示主进程 stdout/stderr 与渲染器 console，接近 npm run dev 的调试输出。',
@@ -5454,6 +5517,9 @@ export const SettingsPage = (): JSX.Element => {
 
   const jumpToSettingsSection = (key: SettingsNavKey, options: { clearSearch?: boolean; targetId?: string } = {}): void => {
     setActiveSection(key);
+    if (isIntegrationCredentialSettingId(options.targetId)) {
+      setCredentialPanelExpanded(true);
+    }
     if (options.clearSearch) {
       setSettingsQuery('');
     }
@@ -5527,6 +5593,16 @@ export const SettingsPage = (): JSX.Element => {
     appSettings?.tidalCountryCode,
     appSettings?.tidalRedirectUri,
   ]);
+
+  useEffect(() => {
+    if (!appSettings) {
+      return;
+    }
+
+    setOnlineAlbumInfoDraft({
+      discogsUserToken: appSettings.onlineAlbumInfoDiscogsUserToken ?? '',
+    });
+  }, [appSettings?.onlineAlbumInfoDiscogsUserToken]);
 
   useEffect(() => {
     if (!appSettings) {
@@ -6471,6 +6547,60 @@ export const SettingsPage = (): JSX.Element => {
       })
       .finally(() => setNetworkProxyBusy(null));
   }, [appSettings?.networkProxyMode]);
+
+  const toggleAccountPanelExpanded = useCallback((): void => {
+    setAccountPanelExpanded((expanded) => {
+      const next = !expanded;
+      try {
+        window.localStorage.setItem(integrationsAccountPanelExpandedStorageKey, next ? 'true' : 'false');
+      } catch {
+        // Local storage can be unavailable in privacy-restricted shells; the in-memory toggle still works.
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleCredentialPanelExpanded = useCallback((): void => {
+    setCredentialPanelExpanded((expanded) => {
+      const next = !expanded;
+      try {
+        window.localStorage.setItem(integrationsCredentialPanelExpandedStorageKey, next ? 'true' : 'false');
+      } catch {
+        // Local storage can be unavailable in privacy-restricted shells; the in-memory toggle still works.
+      }
+      return next;
+    });
+  }, []);
+
+  const handleOnlineAlbumInfoSave = useCallback((): void => {
+    const patch: Partial<AppSettings> = {
+      onlineAlbumInfoDiscogsUserToken: onlineAlbumInfoDraft.discogsUserToken.trim() || null,
+    };
+
+    setOnlineAlbumInfoBusyAction('save');
+    setOnlineAlbumInfoMessage('正在保存 Discogs 专辑评分配置...');
+    const app = getAppBridge();
+    if (!app) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to save Discogs settings.');
+      setOnlineAlbumInfoBusyAction(null);
+      setOnlineAlbumInfoMessage(null);
+      return;
+    }
+
+    void app
+      .setSettings(patch)
+      .then((settings) => {
+        setAppSettings(settings);
+        dispatchSettingsChanged(settings);
+        setOnlineAlbumInfoMessage('Discogs token 已保存。回到专辑页点“刷新在线信息”即可重拉评分。');
+      })
+      .catch((settingsError) => {
+        const message = settingsError instanceof Error ? settingsError.message : String(settingsError);
+        setError(message);
+        setOnlineAlbumInfoMessage(message);
+      })
+      .finally(() => setOnlineAlbumInfoBusyAction(null));
+  }, [dispatchSettingsChanged, onlineAlbumInfoDraft.discogsUserToken]);
 
   const handleOnlineArtistInfoSave = useCallback((): void => {
     const patch: Partial<AppSettings> = {
@@ -9102,7 +9232,7 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow
                 id="settings-row-data-protection-disabled"
                 highlighted={highlightedSettingId === 'settings-row-data-protection-disabled'}
-                title="关闭 data-protection"
+                title="关闭数据保护"
                 description="打开后不再执行启动、后台、扫描完成和更新前的数据保护快照。默认关闭。"
               >
                 <ToggleButton
@@ -9134,11 +9264,11 @@ export const SettingsPage = (): JSX.Element => {
                 description={t('settings.general.homeWaveformVisualizer.description')}
               >
                 <ToggleButton
-                  active={appSettings?.homeWaveformVisualizerEnabled === true}
+                  active={appSettings?.homeWaveformVisualizerEnabled !== false}
                   disabled={!appSettings}
                   onClick={() =>
                     patchAppSettings({
-                      homeWaveformVisualizerEnabled: appSettings?.homeWaveformVisualizerEnabled !== true,
+                      homeWaveformVisualizerEnabled: !(appSettings?.homeWaveformVisualizerEnabled ?? true),
                     })
                   }
                 />
@@ -9166,11 +9296,11 @@ export const SettingsPage = (): JSX.Element => {
                 description={t('settings.general.homeRandomHeroTitle.description')}
               >
                 <ToggleButton
-                  active={appSettings?.homeRandomHeroTitleEnabled ?? true}
+                  active={appSettings?.homeRandomHeroTitleEnabled === true}
                   disabled={!appSettings}
                   onClick={() =>
                     patchAppSettings({
-                      homeRandomHeroTitleEnabled: !(appSettings?.homeRandomHeroTitleEnabled ?? true),
+                      homeRandomHeroTitleEnabled: !(appSettings?.homeRandomHeroTitleEnabled ?? false),
                     })
                   }
                 />
@@ -9207,11 +9337,11 @@ export const SettingsPage = (): JSX.Element => {
                     ))}
                   </div>
                   <ToggleButton
-                    active={appSettings?.artistStreamingAlbumsEnabled === true}
+                    active={appSettings?.artistStreamingAlbumsEnabled !== false}
                     disabled={!appSettings}
                     onClick={() =>
                       patchAppSettings({
-                        artistStreamingAlbumsEnabled: !(appSettings?.artistStreamingAlbumsEnabled ?? false),
+                        artistStreamingAlbumsEnabled: !(appSettings?.artistStreamingAlbumsEnabled ?? true),
                       })
                     }
                   />
@@ -9292,6 +9422,22 @@ export const SettingsPage = (): JSX.Element => {
                   )}
                 </SettingRow>
               ) : null}
+              <SettingRow
+                id="settings-row-dev-console"
+                highlighted={highlightedSettingId === 'settings-row-dev-console'}
+                title="开发控制台"
+                description="显示 ECHO 当前运行期的 stdout/stderr、主进程日志和渲染器 console，方便像 npm run dev 一样排查问题。"
+              >
+                <div className="settings-cache-panel settings-cache-panel--diagnostics">
+                  <div className="settings-chip-row">
+                    <button className="settings-action-button" type="button" onClick={() => void handleDiagnosticsOpenDevConsole()}>
+                      <Code2 size={15} />
+                      打开控制台
+                    </button>
+                  </div>
+                  {devConsoleMessage ? <p className="settings-inline-note">{devConsoleMessage}</p> : null}
+                </div>
+              </SettingRow>
               <SettingRow title={t('settings.general.backup.title')} description={t('settings.general.backup.description')}>
                 <div className="settings-chip-row">
                   <button
@@ -10369,12 +10515,73 @@ export const SettingsPage = (): JSX.Element => {
                   ) : null}
                 </div>
               </SettingRow>
+              <div className="settings-credential-panel" data-expanded={credentialPanelVisible}>
+                <header className="settings-credential-panel-header">
+                  <div>
+                    <h3>开发者 / API 配置</h3>
+                    <p>Spotify、TIDAL、Discogs、在线歌手和 Last.fm；用不到可以保持收起。</p>
+                  </div>
+                  <button
+                    className="settings-action-button settings-credential-panel-toggle"
+                    type="button"
+                    aria-expanded={credentialPanelVisible}
+                    aria-label={credentialPanelVisible ? '收起 API 配置' : '展开 API 配置'}
+                    onClick={toggleCredentialPanelExpanded}
+                  >
+                    {credentialPanelVisible ? '收起 API 配置' : '展开 API 配置'}
+                    <ChevronDown size={15} />
+                  </button>
+                </header>
+              </div>
+              {credentialPanelVisible ? (
               <SettingRow
-                className="setting-row--full"
+                className="setting-row--full setting-row--credential"
+                id="settings-row-online-album-info"
+                highlighted={highlightedSettingId === 'settings-row-online-album-info'}
+                title="Discogs 专辑评分"
+                description="专辑评分兜底；可留空，填 token 更稳定。"
+              >
+                <div className="settings-cache-panel settings-cache-panel--bare settings-cache-panel--online-album-info">
+                  <div className="settings-proxy-grid">
+                    <label className="settings-proxy-field">
+                      <span>Discogs personal access token</span>
+                      <input
+                        type="password"
+                        value={onlineAlbumInfoDraft.discogsUserToken}
+                        placeholder="可留空；粘贴 Discogs User Token"
+                        disabled={!appSettings || onlineAlbumInfoBusyAction !== null}
+                        autoComplete="off"
+                        onChange={(event) => {
+                          setOnlineAlbumInfoDraft({ discogsUserToken: event.target.value });
+                          setOnlineAlbumInfoMessage(null);
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div className="settings-chip-row settings-chip-row--left">
+                    <button className="settings-action-button" type="button" disabled={!appSettings || onlineAlbumInfoBusyAction !== null} onClick={handleOnlineAlbumInfoSave}>
+                      <Save size={15} />
+                      {onlineAlbumInfoBusyAction === 'save' ? '保存中...' : '保存 Discogs Token'}
+                    </button>
+                    <button className="settings-action-button" type="button" onClick={() => void handleOpenExternalUrl(discogsDeveloperSettingsUrl)}>
+                      <ExternalLink size={15} />
+                      打开 Discogs Token 页面
+                    </button>
+                  </div>
+                  <p className="settings-inline-note">
+                    Discogs Settings &gt; Developers 复制 Personal access token；仅用于评分查询。
+                  </p>
+                  {onlineAlbumInfoMessage ? <p className="settings-inline-note">{onlineAlbumInfoMessage}</p> : null}
+                </div>
+              </SettingRow>
+              ) : null}
+              {credentialPanelVisible ? (
+              <SettingRow
+                className="setting-row--full setting-row--credential"
                 id="settings-row-online-artist-info"
                 highlighted={highlightedSettingId === 'settings-row-online-artist-info'}
                 title="在线歌手信息"
-                description="配置演出和歌手补强数据源；未配置时歌手页只显示本地关系，不会展示假内容。"
+                description="演出和歌手补强数据源；留空则跳过对应来源。"
               >
                 <div className="settings-cache-panel settings-cache-panel--bare settings-cache-panel--online-artist-info">
                   <div className="settings-proxy-grid">
@@ -10442,11 +10649,12 @@ export const SettingsPage = (): JSX.Element => {
                     </button>
                   </div>
                   <p className="settings-inline-note">
-                    使用方式：在对应服务后台申请 key，填入任意已准备好的 app_id / apikey / client_id；地区过滤可填 HK、Tokyo、US 等关键词，留空为全球。艺人页会按需后台缓存简介和演出，不会显示假内容。
+                    地区可填 HK、Tokyo、US；艺人页按需缓存，不伪造内容。
                   </p>
                   {onlineArtistInfoMessage ? <p className="settings-inline-note">{onlineArtistInfoMessage}</p> : null}
                 </div>
               </SettingRow>
+              ) : null}
               <SettingRow
                 id="settings-row-discord-presence"
                 highlighted={highlightedSettingId === 'settings-row-discord-presence'}
@@ -10533,7 +10741,9 @@ export const SettingsPage = (): JSX.Element => {
               </SettingRow>
                 </>
               ) : null}
+              {credentialPanelVisible ? (
               <SettingRow
+                className="setting-row--full setting-row--credential"
                 id="settings-row-lastfm"
                 highlighted={highlightedSettingId === 'settings-row-lastfm'}
                 title={t('settings.integrations.lastfm.title')}
@@ -10544,7 +10754,15 @@ export const SettingsPage = (): JSX.Element => {
                   <ToggleButton active={lastFmStatus?.enabled ?? appSettings?.lastFmEnabled ?? false} disabled={!appSettings} onClick={() => void handleLastFmToggle()} />
                 </div>
               </SettingRow>
-              <SettingRow className="setting-row--full" title={t('settings.integrations.lastfm.connection.title')} description={t('settings.integrations.lastfm.connection.description')}>
+              ) : null}
+              {credentialPanelVisible ? (
+              <SettingRow
+                className="setting-row--full setting-row--credential"
+                id="settings-row-lastfm-connection"
+                highlighted={highlightedSettingId === 'settings-row-lastfm'}
+                title={t('settings.integrations.lastfm.connection.title')}
+                description="浏览器授权后回到 ECHO 完成连接。"
+              >
                 <div className="settings-cache-panel settings-cache-panel--bpm-analysis">
                   <div className="settings-chip-row settings-chip-row--left">
                     <button className="settings-action-button" type="button" onClick={() => void handleLastFmConnect()}>
@@ -10580,12 +10798,29 @@ export const SettingsPage = (): JSX.Element => {
                   </div>
                 </div>
               </SettingRow>
-              <SettingRow title={t('settings.integrations.lastfm.nowPlaying.title')} description={t('settings.integrations.lastfm.nowPlaying.description')}>
+              ) : null}
+              {credentialPanelVisible ? (
+              <SettingRow
+                className="setting-row--full setting-row--credential"
+                id="settings-row-lastfm-now-playing"
+                highlighted={highlightedSettingId === 'settings-row-lastfm'}
+                title={t('settings.integrations.lastfm.nowPlaying.title')}
+                description={t('settings.integrations.lastfm.nowPlaying.description')}
+              >
                 <ToggleButton active={lastFmStatus?.nowPlayingEnabled ?? true} disabled={!lastFmStatus} onClick={() => void handleLastFmNowPlayingToggle()} />
               </SettingRow>
-              <SettingRow title={t('settings.integrations.lastfm.scrobbling.title')} description={t('settings.integrations.lastfm.scrobbling.description')}>
+              ) : null}
+              {credentialPanelVisible ? (
+              <SettingRow
+                className="setting-row--full setting-row--credential"
+                id="settings-row-lastfm-scrobbling"
+                highlighted={highlightedSettingId === 'settings-row-lastfm'}
+                title={t('settings.integrations.lastfm.scrobbling.title')}
+                description={t('settings.integrations.lastfm.scrobbling.description')}
+              >
                 <ToggleButton active={lastFmStatus?.scrobbleEnabled ?? true} disabled={!lastFmStatus} onClick={() => void handleLastFmScrobbleToggle()} />
               </SettingRow>
+              ) : null}
               <SettingRow
                 id="settings-row-account-startup-refresh"
                 highlighted={highlightedSettingId === 'settings-row-account-startup-refresh'}
@@ -10617,12 +10852,13 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() => patchAppSettings({ spotifyAutoLaunchOfficialPlayer: !(appSettings?.spotifyAutoLaunchOfficialPlayer ?? true) })}
                 />
               </SettingRow>
+              {credentialPanelVisible ? (
               <SettingRow
-                className="setting-row--full"
+                className="setting-row--full setting-row--credential"
                 id="settings-row-spotify-auth-config"
                 highlighted={highlightedSettingId === 'settings-row-spotify-auth-config'}
                 title="Spotify OAuth 配置"
-                description="必须使用用户自己的 Spotify Developer App；登录会打开系统默认浏览器，优先复用浏览器里的 Spotify 会话。"
+                description="填自己的 Developer App；保存后重新登录。"
               >
                 <div className="settings-cache-panel settings-cache-panel--bare settings-cache-panel--spotify-auth">
                   <div className="settings-proxy-grid">
@@ -10664,17 +10900,19 @@ export const SettingsPage = (): JSX.Element => {
                     </button>
                   </div>
                   <p className="settings-inline-note">
-                    在 Spotify Developer Dashboard 中添加同一个 Redirect URI；建议使用本机回环地址，例如 {defaultSpotifyRedirectUri}。保存后重新登录 Spotify。
+                    Dashboard 回调地址填：{defaultSpotifyRedirectUri}
                   </p>
                   {spotifyAuthMessage ? <p className="settings-inline-note">{spotifyAuthMessage}</p> : null}
                 </div>
               </SettingRow>
+              ) : null}
+              {credentialPanelVisible ? (
               <SettingRow
-                className="setting-row--full"
+                className="setting-row--full setting-row--credential"
                 id="settings-row-tidal-auth-config"
                 highlighted={highlightedSettingId === 'settings-row-tidal-auth-config'}
-                title="TIDAL Developer Credentials"
-                description="Use your own TIDAL Developer app credentials for catalog metadata search. OAuth login only keeps account connection state."
+                title="TIDAL Developer 配置"
+                description="用于 catalog 元数据搜索；不接入播放流。"
               >
                 <div className="settings-cache-panel settings-cache-panel--bare settings-cache-panel--tidal-auth">
                   <div className="settings-proxy-grid">
@@ -10734,78 +10972,94 @@ export const SettingsPage = (): JSX.Element => {
                   <div className="settings-chip-row settings-chip-row--left">
                     <button className="settings-action-button" type="button" disabled={!appSettings} onClick={handleTidalAuthConfigSave}>
                       <Save size={15} />
-                      Save TIDAL Credentials
+                      保存 TIDAL 配置
                     </button>
                     <button className="settings-action-button" type="button" onClick={() => void handleOpenExternalUrl(tidalDeveloperDashboardUrl)}>
                       <ExternalLink size={15} />
-                      Open TIDAL Dashboard
+                      打开 TIDAL Dashboard
                     </button>
                   </div>
                   <p className="settings-inline-note">
-                    Add this Redirect URI in TIDAL Dashboard: {defaultTidalRedirectUri}. ECHO only uses TIDAL catalog metadata; no playback, download, or audio URL extraction.
+                    Dashboard 回调地址填：{defaultTidalRedirectUri}
                   </p>
                   {tidalAuthMessage ? <p className="settings-inline-note">{tidalAuthMessage}</p> : null}
                 </div>
               </SettingRow>
-              <div className="settings-account-panel">
+              ) : null}
+              <div className="settings-account-panel" data-expanded={accountPanelExpanded}>
                 <header className="settings-account-panel-header">
                   <div>
                     <h3>{t('settings.integrations.accountPanel.title')}</h3>
                     <p>{t('settings.integrations.accountPanel.description')}</p>
                   </div>
-                  <button className="settings-action-button" type="button" onClick={() => void refreshAccountStatuses()}>
-                    {t('settings.integrations.accountPanel.refreshAll')}
-                  </button>
+                  <div className="settings-account-panel-actions">
+                    <button className="settings-action-button" type="button" onClick={() => void refreshAccountStatuses()}>
+                      {t('settings.integrations.accountPanel.refreshAll')}
+                    </button>
+                    <button
+                      className="settings-action-button settings-account-panel-toggle"
+                      type="button"
+                      aria-controls="settings-account-list"
+                      aria-expanded={accountPanelExpanded}
+                      aria-label={accountPanelExpanded ? '收起账号登录' : '展开账号登录'}
+                      onClick={toggleAccountPanelExpanded}
+                    >
+                      {accountPanelExpanded ? '收起账号登录' : '展开账号登录'}
+                      <ChevronDown size={15} />
+                    </button>
+                  </div>
                 </header>
-                <div className="settings-account-list">
-                  {cookieAccountProviders.map((provider) => (
-                    <AccountCookieCard
-                      key={provider}
-                      provider={provider}
-                      status={accountStatusByProvider[provider]}
-                      cookieValue={accountCookies[provider]}
-                      busyAction={accountBusy[provider]}
-                      error={accountErrors[provider]}
-                      message={accountMessages[provider]}
-                      onChangeCookie={(value) => setAccountCookies((current) => ({ ...current, [provider]: value }))}
-                      onSave={() => void handleAccountSaveCookie(provider)}
-                      onCheck={() => void handleAccountCheck(provider)}
-                      onOpenLogin={() => void handleAccountOpenLogin(provider)}
-                      onClear={() => void handleAccountClear(provider)}
+                {accountPanelExpanded ? (
+                  <div className="settings-account-list" id="settings-account-list">
+                    {cookieAccountProviders.map((provider) => (
+                      <AccountCookieCard
+                        key={provider}
+                        provider={provider}
+                        status={accountStatusByProvider[provider]}
+                        cookieValue={accountCookies[provider]}
+                        busyAction={accountBusy[provider]}
+                        error={accountErrors[provider]}
+                        message={accountMessages[provider]}
+                        onChangeCookie={(value) => setAccountCookies((current) => ({ ...current, [provider]: value }))}
+                        onSave={() => void handleAccountSaveCookie(provider)}
+                        onCheck={() => void handleAccountCheck(provider)}
+                        onOpenLogin={() => void handleAccountOpenLogin(provider)}
+                        onClear={() => void handleAccountClear(provider)}
+                      />
+                    ))}
+                    <YouTubeAccountCard
+                      status={accountStatusByProvider.youtube}
+                      browser={youtubeBrowser}
+                      busyAction={accountBusy.youtube}
+                      error={accountErrors.youtube}
+                      message={accountMessages.youtube}
+                      onBrowserChange={(browser) => void handleYouTubeBrowserChange(browser)}
+                      onCheck={() => void handleAccountCheck('youtube')}
+                      onOpenLogin={() => void handleAccountOpenLogin('youtube')}
+                      onClear={() => void handleAccountClear('youtube')}
                     />
-                  ))}
-                  <YouTubeAccountCard
-                    status={accountStatusByProvider.youtube}
-                    browser={youtubeBrowser}
-                    busyAction={accountBusy.youtube}
-                    error={accountErrors.youtube}
-                    message={accountMessages.youtube}
-                    onBrowserChange={(browser) => void handleYouTubeBrowserChange(browser)}
-                    onCheck={() => void handleAccountCheck('youtube')}
-                    onOpenLogin={() => void handleAccountOpenLogin('youtube')}
-                    onClear={() => void handleAccountClear('youtube')}
-                  />
-                  <SpotifyAccountCard
-                    status={accountStatusByProvider.spotify}
-                    busyAction={accountBusy.spotify}
-                    error={accountErrors.spotify}
-                    message={accountMessages.spotify}
-                    onCheck={() => void handleAccountCheck('spotify')}
-                    onOpenDashboard={() => void handleOpenExternalUrl(spotifyDeveloperDashboardUrl)}
-                    onOpenLogin={() => void handleAccountOpenLogin('spotify')}
-                    onClear={() => void handleAccountClear('spotify')}
-                  />
-                  <TidalAccountCard
-                    status={accountStatusByProvider.tidal}
-                    busyAction={accountBusy.tidal}
-                    error={accountErrors.tidal}
-                    message={accountMessages.tidal}
-                    onCheck={() => void handleAccountCheck('tidal')}
-                    onOpenDashboard={() => void handleOpenExternalUrl(tidalDeveloperDashboardUrl)}
-                    onOpenLogin={() => void handleAccountOpenLogin('tidal')}
-                    onClear={() => void handleAccountClear('tidal')}
-                  />
-                </div>
+                    <SpotifyAccountCard
+                      status={accountStatusByProvider.spotify}
+                      busyAction={accountBusy.spotify}
+                      error={accountErrors.spotify}
+                      message={accountMessages.spotify}
+                      onCheck={() => void handleAccountCheck('spotify')}
+                      onOpenDashboard={() => void handleOpenExternalUrl(spotifyDeveloperDashboardUrl)}
+                      onOpenLogin={() => void handleAccountOpenLogin('spotify')}
+                      onClear={() => void handleAccountClear('spotify')}
+                    />
+                    <TidalAccountCard
+                      status={accountStatusByProvider.tidal}
+                      busyAction={accountBusy.tidal}
+                      error={accountErrors.tidal}
+                      message={accountMessages.tidal}
+                      onCheck={() => void handleAccountCheck('tidal')}
+                      onOpenDashboard={() => void handleOpenExternalUrl(tidalDeveloperDashboardUrl)}
+                      onOpenLogin={() => void handleAccountOpenLogin('tidal')}
+                      onClear={() => void handleAccountClear('tidal')}
+                    />
+                  </div>
+                ) : null}
               </div>
               <SettingRow title={t('settings.integrations.mobile.title')} description={t('settings.integrations.mobile.description')}>
                 <ToggleButton />
@@ -12350,25 +12604,6 @@ export const SettingsPage = (): JSX.Element => {
                   </div>
                   {devConsoleMessage ? <p className="settings-inline-note">{devConsoleMessage}</p> : null}
                   {diagnosticsMessage ? <p className="settings-inline-note">{diagnosticsMessage}</p> : null}
-                </div>
-              </SettingRow>
-              <SettingRow
-                id="settings-row-dev-console"
-                highlighted={highlightedSettingId === 'settings-row-dev-console'}
-                title="开发控制台"
-                description="显示 ECHO 当前运行期的 stdout/stderr、主进程日志和渲染器 console，方便像 npm run dev 一样排查问题。"
-              >
-                <div className="settings-cache-panel settings-cache-panel--diagnostics">
-                  <div className="settings-chip-row settings-chip-row--left">
-                    <button className="settings-action-button" type="button" onClick={() => void handleDiagnosticsOpenDevConsole()}>
-                      <Code2 size={15} />
-                      打开控制台
-                    </button>
-                  </div>
-                  <p className="settings-inline-note">
-                    说明：Electron 不能读取父级 PowerShell/cmd 里已经输出过的历史文本；这里会实时镜像 ECHO 后续写出的 stdout/stderr 和 renderer console。
-                  </p>
-                  {devConsoleMessage ? <p className="settings-inline-note">{devConsoleMessage}</p> : null}
                 </div>
               </SettingRow>
               <SettingRow

@@ -5,20 +5,37 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDefaultLocalShortcuts } from '../../shared/types/globalShortcuts';
 
 let userDataPath = process.cwd();
+let systemLocale = 'zh-CN';
 const tempRoots: string[] = [];
 
 vi.mock('electron', () => ({
   app: {
     getPath: () => userDataPath,
+    getLocale: () => systemLocale,
   },
 }));
 
 describe('app settings normalization', () => {
   afterEach(() => {
     userDataPath = process.cwd();
+    systemLocale = 'zh-CN';
     for (const root of tempRoots.splice(0)) {
       rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     }
+  });
+
+  it('uses the system locale when no display language has been chosen', async () => {
+    const { normalizeSettings, normalizeSystemLocale } = await import('./appSettings');
+
+    expect(normalizeSystemLocale('zh-HK')).toBe('zh-TW');
+    expect(normalizeSystemLocale('ja-JP')).toBe('ja-JP');
+    expect(normalizeSystemLocale('en-GB')).toBe('en-US');
+    expect(normalizeSystemLocale('fr-FR')).toBe('zh-CN');
+
+    systemLocale = 'ja-JP';
+    expect(normalizeSettings({}).locale).toBe('ja-JP');
+    expect(normalizeSettings({ locale: 'en-US' }).locale).toBe('en-US');
+    expect(normalizeSettings({ locale: 'bad' }).locale).toBe('ja-JP');
   });
 
   it('keeps old settings files compatible when coverCacheDir is missing', async () => {
@@ -87,6 +104,7 @@ describe('app settings normalization', () => {
     expect(settings.onlineArtistInfoSeatGeekClientId).toBeNull();
     expect(settings.onlineArtistInfoRegion).toBeNull();
     expect(settings.onlineArtistInfoSources).toEqual(['wikipedia']);
+    expect(settings.onlineAlbumInfoDiscogsUserToken).toBeNull();
     expect(settings.scanPerformanceMode).toBe('balanced');
     expect(settings.backgroundSpacePauseEnabled).toBe(false);
     expect(settings.localShortcuts).toEqual(createDefaultLocalShortcuts());
@@ -159,8 +177,8 @@ describe('app settings normalization', () => {
     expect(settings.mvLyricsReadabilityEnhanced).toBe(false);
     expect(settings.mvMaxQuality).toBe('max');
     expect(settings.mvAllow60fps).toBe(true);
-    expect(settings.homeWaveformVisualizerEnabled).toBe(false);
-    expect(settings.homeRandomHeroTitleEnabled).toBe(true);
+    expect(settings.homeWaveformVisualizerEnabled).toBe(true);
+    expect(settings.homeRandomHeroTitleEnabled).toBe(false);
     expect(settings.gaplessPlaybackEnabled).toBe(false);
     expect(settings.audioTransportFadeEnabled).toBe(false);
     expect(settings.audioTransportFadeInMs).toBe(80);
@@ -198,22 +216,22 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ dataProtectionDisabled: 'true' }).dataProtectionDisabled).toBe(false);
   });
 
-  it('keeps the home waveform visualizer disabled unless explicitly enabled', async () => {
+  it('keeps the home waveform visualizer enabled unless explicitly disabled', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
-    expect(normalizeSettings({}).homeWaveformVisualizerEnabled).toBe(false);
+    expect(normalizeSettings({}).homeWaveformVisualizerEnabled).toBe(true);
     expect(normalizeSettings({ homeWaveformVisualizerEnabled: true }).homeWaveformVisualizerEnabled).toBe(true);
     expect(normalizeSettings({ homeWaveformVisualizerEnabled: false }).homeWaveformVisualizerEnabled).toBe(false);
-    expect(normalizeSettings({ homeWaveformVisualizerEnabled: 'true' }).homeWaveformVisualizerEnabled).toBe(false);
+    expect(normalizeSettings({ homeWaveformVisualizerEnabled: 'true' }).homeWaveformVisualizerEnabled).toBe(true);
   });
 
-  it('keeps the home random hero title enabled unless explicitly disabled', async () => {
+  it('keeps the home random hero title disabled unless explicitly enabled', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
-    expect(normalizeSettings({}).homeRandomHeroTitleEnabled).toBe(true);
+    expect(normalizeSettings({}).homeRandomHeroTitleEnabled).toBe(false);
     expect(normalizeSettings({ homeRandomHeroTitleEnabled: true }).homeRandomHeroTitleEnabled).toBe(true);
     expect(normalizeSettings({ homeRandomHeroTitleEnabled: false }).homeRandomHeroTitleEnabled).toBe(false);
-    expect(normalizeSettings({ homeRandomHeroTitleEnabled: 'false' }).homeRandomHeroTitleEnabled).toBe(true);
+    expect(normalizeSettings({ homeRandomHeroTitleEnabled: 'false' }).homeRandomHeroTitleEnabled).toBe(false);
   });
 
   it('normalizes play/pause fade as a default-off customizable opt-in', async () => {
@@ -289,16 +307,19 @@ describe('app settings normalization', () => {
       onlineArtistInfoTicketmasterApiKey: ' ticketmaster-key ',
       onlineArtistInfoSeatGeekClientId: ' seatgeek-id ',
       onlineArtistInfoRegion: ' HK ',
+      onlineAlbumInfoDiscogsUserToken: ' discogs-token ',
     });
 
     expect(settings.onlineArtistInfoBandsintownAppId).toBe('echo-next');
     expect(settings.onlineArtistInfoTicketmasterApiKey).toBe('ticketmaster-key');
     expect(settings.onlineArtistInfoSeatGeekClientId).toBe('seatgeek-id');
     expect(settings.onlineArtistInfoRegion).toBe('HK');
+    expect(settings.onlineAlbumInfoDiscogsUserToken).toBe('discogs-token');
     expect(normalizeSettings({ onlineArtistInfoSources: ['moegirl', 'bad', 'baidu-baike'] }).onlineArtistInfoSources).toEqual(['baidu-baike']);
     expect(normalizeSettings({ onlineArtistInfoSources: ['moegirl'] }).onlineArtistInfoSources).toEqual(['wikipedia']);
     expect(normalizeSettings({ onlineArtistInfoSources: [] }).onlineArtistInfoSources).toEqual(['wikipedia']);
     expect(normalizeSettings({ onlineArtistInfoBandsintownAppId: '   ' }).onlineArtistInfoBandsintownAppId).toBeNull();
+    expect(normalizeSettings({ onlineAlbumInfoDiscogsUserToken: '   ' }).onlineAlbumInfoDiscogsUserToken).toBeNull();
   });
 
   it('normalizes HQPlayer settings as an opt-in external playback foundation', async () => {
@@ -1258,15 +1279,16 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ duplicateTracksAutoRebuildAfterScan: true }).duplicateTracksAutoRebuildAfterScan).toBe(true);
   });
 
-  it('keeps artist streaming albums opt-in', async () => {
+  it('keeps artist streaming albums enabled by default with an opt-out', async () => {
     const { normalizeSettings } = await import('./appSettings');
 
-    expect(normalizeSettings({}).artistStreamingAlbumsEnabled).toBe(false);
+    expect(normalizeSettings({}).artistStreamingAlbumsEnabled).toBe(true);
     expect(normalizeSettings({}).artistStreamingAlbumsProvider).toBe('netease');
     expect(normalizeSettings({ artistStreamingAlbumsEnabled: true }).artistStreamingAlbumsEnabled).toBe(true);
+    expect(normalizeSettings({ artistStreamingAlbumsEnabled: false }).artistStreamingAlbumsEnabled).toBe(false);
     expect(normalizeSettings({ artistStreamingAlbumsProvider: 'qqmusic' }).artistStreamingAlbumsProvider).toBe('qqmusic');
     expect(normalizeSettings({ artistStreamingAlbumsProvider: 'spotify' as never }).artistStreamingAlbumsProvider).toBe('netease');
-    expect(normalizeSettings({ artistStreamingAlbumsEnabled: 'yes' as never }).artistStreamingAlbumsEnabled).toBe(false);
+    expect(normalizeSettings({ artistStreamingAlbumsEnabled: 'yes' as never }).artistStreamingAlbumsEnabled).toBe(true);
   });
 
   it('keeps streaming download actions behind the downloads unlock', async () => {

@@ -463,6 +463,19 @@ describe('app IPC cover cache directory', () => {
     expect(window.unmaximize).not.toHaveBeenCalled();
   });
 
+  it('reports the current maximized state for custom window controls', () => {
+    const window = {
+      isFullScreen: vi.fn(() => false),
+      isMaximized: vi.fn(() => true),
+    };
+    fromWebContentsMock.mockReturnValue(window);
+
+    const result = handlers[IpcChannels.AppWindowIsMaximized]!({ sender: {} });
+
+    expect(result).toBe(true);
+    expect(window.isMaximized).toHaveBeenCalledTimes(1);
+  });
+
   it('exports app settings to a selected JSON backup', async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'echo-settings-export-'));
     const exportPath = join(tempRoot, 'settings.json');

@@ -15,6 +15,11 @@
   transform-origin: 48% 44%;
 }
 
+.page-surface:has(.album-detail-page) {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .album-detail-page.is-returning {
   pointer-events: none;
   animation: detail-page-return 180ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
@@ -975,16 +980,42 @@
   font-weight: 760;
 }
 
-.album-information-article p {
-  margin: 4px 0 0;
-  color: var(--theme-page-text);
+.album-information-body {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
   max-width: 1180px;
-  column-gap: 34px;
-  columns: 2 360px;
+}
+
+.album-information-body h4,
+.album-information-body h5 {
+  margin: 10px 0 0;
+  color: var(--theme-heading-text);
+  font-size: 14px;
+  font-weight: 860;
+  line-height: 1.35;
+}
+
+.album-information-body h5 {
+  color: var(--theme-page-text);
+  font-size: 13px;
+}
+
+.album-information-body p,
+.album-information-body li {
+  margin: 0;
+  color: var(--theme-page-text);
   font-size: 15px;
   font-weight: 580;
   line-height: 1.86;
-  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.album-information-body ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
 }
 
 .album-information-aside > a {
@@ -1416,7 +1447,13 @@ html[data-theme="dark"] .album-information-article small {
   color: var(--color-muted);
 }
 
-html[data-theme="dark"] .album-information-article p {
+html[data-theme="dark"] .album-information-body h4,
+html[data-theme="dark"] .album-information-body h5 {
+  color: var(--echo-heading-text);
+}
+
+html[data-theme="dark"] .album-information-body p,
+html[data-theme="dark"] .album-information-body li {
   color: var(--color-text);
 }
 
@@ -1506,10 +1543,6 @@ html[data-theme="dark"] .album-detail-error {
 
   .album-information-article img {
     max-width: 220px;
-  }
-
-  .album-information-article p {
-    columns: auto;
   }
 
   .album-track-toolbar {

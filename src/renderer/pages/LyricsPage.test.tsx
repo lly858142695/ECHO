@@ -2523,7 +2523,14 @@ describe("LyricsPage", () => {
     });
     window.echo.lyrics = {
       getForTrack: vi.fn().mockResolvedValue(null),
-      searchCandidates: vi.fn().mockResolvedValue([makeLyricsCandidate({ id: "candidate-1", score: 0.12, risk: "high" })]),
+      searchCandidates: vi.fn().mockResolvedValue([
+        makeLyricsCandidate({
+          id: "candidate-1",
+          score: 0.12,
+          risk: "high",
+          reasons: ["title_exact", "artist_exact", "candidate_only_duration"],
+        }),
+      ]),
       applyCandidate: vi.fn(),
       markInstrumental: vi.fn().mockResolvedValue(
         makeTrackLyrics({
@@ -2547,6 +2554,9 @@ describe("LyricsPage", () => {
     );
 
     await waitFor(() => expect(container.querySelector(".lyrics-candidate-list")).toBeTruthy());
+    expect(container.querySelector(".lyrics-source-quality")?.textContent).toContain("LRCLIB");
+    expect(container.querySelector(".lyrics-source-quality")?.textContent).toContain("近期");
+    expect(container.querySelectorAll(".lyrics-reason-badge").length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByRole("button", { name: "标记为纯音乐" })).toBeNull();
 
     act(() => {
