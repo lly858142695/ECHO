@@ -3297,6 +3297,39 @@
   font-style: normal;
 }
 
+.plugin-settings-list {
+  display: grid;
+  gap: 8px;
+}
+
+.plugin-setting-row {
+  align-items: center;
+  border: 1px solid rgba(122, 143, 166, 0.22);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 220px);
+  padding: 10px;
+}
+
+.plugin-setting-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plugin-setting-row em {
+  color: #667589;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.plugin-setting-row input,
+.plugin-setting-row select {
+  min-width: 0;
+}
+
 .plugin-command-list,
 .plugin-panel-preview,
 .plugin-log-list {

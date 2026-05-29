@@ -13,7 +13,7 @@ type EchoPluginPermission =
   | 'settings:read'
   /** Active high-risk permission: write a small settings patch, not a full settings object. */
   | 'settings:write'
-  /** Reserved in v1: declared for forward compatibility, but no network API is exposed. */
+  /** Active in apiVersion 2: host-mediated http/https fetch with timeout, size, method, and header guardrails. */
   | 'network'
   /** Limited in v1: use echo.storage only; no arbitrary file API is exposed. */
   | 'fs:plugin';
@@ -171,6 +171,42 @@ type EchoPluginSourceProviderHandlers = {
   resolvePlayback?(request: EchoPluginSourcePlaybackRequest): EchoPluginSourcePlaybackResult | Promise<EchoPluginSourcePlaybackResult>;
 };
 
+type EchoPluginLyricsCandidate = {
+  title?: string;
+  language?: string;
+  lrc?: string;
+  text?: string;
+  source?: string;
+  sourceUrl?: string;
+  confidence?: number;
+};
+
+type EchoPluginLyricsProviderResult = {
+  candidates?: EchoPluginLyricsCandidate[];
+};
+
+type EchoPluginCoverCandidate = {
+  imageUrl: string;
+  title?: string;
+  source?: string;
+  sourceUrl?: string;
+  width?: number;
+  height?: number;
+  confidence?: number;
+};
+
+type EchoPluginCoverProviderResult = {
+  candidates?: EchoPluginCoverCandidate[];
+};
+
+type EchoPluginNetworkRequest = {
+  url: string;
+  method?: 'GET' | 'POST';
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+};
+
 type EchoPluginTrackQuery = {
   page?: number;
   pageSize?: number;
@@ -194,7 +230,7 @@ type EchoPluginCommandOptions = {
 };
 
 /**
- * ECHO Next plugin API v1.
+ * ECHO Next plugin API v1/v2.
  *
  * Runtime guardrails:
  * - command args are limited to 64 KB serialized JSON
@@ -203,6 +239,8 @@ type EchoPluginCommandOptions = {
  * - async event handlers that exceed 2 seconds are logged as timeouts
  * - metadata providers return candidates only; the host decides whether and how to apply them
  * - source providers return bounded track candidates; playback must resolve to explicit http/https audio URLs
+ * - apiVersion 2 network access must go through echo.net and requires the network permission
+ * - apiVersion 2 settings are plugin-owned; apiVersion 1 settings keep the legacy app-settings bridge
  * - plugins do not get Node, Electron, SQLite, app DOM, decoder, DSP, or output access
  */
 type EchoPluginApi = {
@@ -223,6 +261,14 @@ type EchoPluginApi = {
     registerProvider(providerId: string, handlers: EchoPluginSourceProviderHandlers): void;
     registerProvider(providerId: string, options: EchoPluginSourceProviderOptions, handlers: EchoPluginSourceProviderHandlers): void;
   };
+  lyrics: {
+    registerProvider(providerId: string, handler: (request: EchoPluginMetadataLookupRequest) => EchoPluginLyricsProviderResult | Promise<EchoPluginLyricsProviderResult>): void;
+    registerProvider(providerId: string, options: EchoPluginMetadataProviderOptions, handler: (request: EchoPluginMetadataLookupRequest) => EchoPluginLyricsProviderResult | Promise<EchoPluginLyricsProviderResult>): void;
+  };
+  covers: {
+    registerProvider(providerId: string, handler: (request: EchoPluginMetadataLookupRequest) => EchoPluginCoverProviderResult | Promise<EchoPluginCoverProviderResult>): void;
+    registerProvider(providerId: string, options: EchoPluginMetadataProviderOptions, handler: (request: EchoPluginMetadataLookupRequest) => EchoPluginCoverProviderResult | Promise<EchoPluginCoverProviderResult>): void;
+  };
   playback: {
     getStatus(): Promise<EchoPlaybackStatus>;
     play(): Promise<unknown>;
@@ -235,8 +281,14 @@ type EchoPluginApi = {
     getTracks(query?: EchoPluginTrackQuery): Promise<EchoPluginPage<EchoPluginTrack>>;
   };
   settings: {
-    get(): Promise<Record<string, unknown>>;
-    set(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
+    get<T = unknown>(key?: string): Promise<T>;
+    getAll(): Promise<Record<string, string | number | boolean | null>>;
+    set(key: string, value: string | number | boolean | null): Promise<Record<string, string | number | boolean | null>>;
+    set(patch: Record<string, string | number | boolean | null>): Promise<Record<string, string | number | boolean | null>>;
+  };
+  net: {
+    fetchJson<T = unknown>(request: string | EchoPluginNetworkRequest): Promise<T>;
+    fetchText(request: string | EchoPluginNetworkRequest): Promise<string>;
   };
   storage: {
     get<T = unknown>(key: string): Promise<T | undefined>;

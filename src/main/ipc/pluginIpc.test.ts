@@ -19,6 +19,10 @@ const serviceMock = {
   queryMetadata: vi.fn(async () => ({ providers: [], candidates: [] })),
   querySources: vi.fn(async () => ({ providers: [], tracks: [] })),
   resolveSourcePlayback: vi.fn(async () => ({ url: 'https://example.com/audio.mp3' })),
+  queryLyrics: vi.fn(async () => ({ providers: [], candidates: [] })),
+  queryCovers: vi.fn(async () => ({ providers: [], candidates: [] })),
+  getPluginSettings: vi.fn(() => ({ pluginId: 'echo.playback-panel', values: {} })),
+  updatePluginSettings: vi.fn((_pluginId: string, patch: unknown) => ({ pluginId: 'echo.playback-panel', values: patch })),
   getLogs: vi.fn(() => []),
 };
 
@@ -55,6 +59,10 @@ describe('plugin IPC', () => {
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsQueryMetadata, expect.any(Function));
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsQuerySources, expect.any(Function));
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsResolveSourcePlayback, expect.any(Function));
+    expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsQueryLyrics, expect.any(Function));
+    expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsQueryCovers, expect.any(Function));
+    expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsGetSettings, expect.any(Function));
+    expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsSetSettings, expect.any(Function));
     expect(handleMock).toHaveBeenCalledWith(IpcChannels.PluginsImportPackage, expect.any(Function));
   });
 
@@ -74,6 +82,10 @@ describe('plugin IPC', () => {
       providerId: 'direct-url',
       providerTrackId: 'demo-stream',
     })).resolves.toEqual({ url: 'https://example.com/audio.mp3' });
+    await expect(handlers[IpcChannels.PluginsQueryLyrics]!(null, { track: { title: 'Song' } })).resolves.toEqual({ providers: [], candidates: [] });
+    await expect(handlers[IpcChannels.PluginsQueryCovers]!(null, { track: { title: 'Song' } })).resolves.toEqual({ providers: [], candidates: [] });
+    expect(handlers[IpcChannels.PluginsGetSettings]!(null, 'echo.playback-panel')).toEqual({ pluginId: 'echo.playback-panel', values: {} });
+    expect(handlers[IpcChannels.PluginsSetSettings]!(null, 'echo.playback-panel', { mode: 'fast' })).toEqual({ pluginId: 'echo.playback-panel', values: { mode: 'fast' } });
     expect(handlers[IpcChannels.PluginsGetLogs]!(null, 'echo.playback-panel')).toEqual([]);
 
     expect(serviceMock.createExample).toHaveBeenCalledWith('playback-panel');
@@ -88,6 +100,10 @@ describe('plugin IPC', () => {
       providerId: 'direct-url',
       providerTrackId: 'demo-stream',
     });
+    expect(serviceMock.queryLyrics).toHaveBeenCalledWith({ track: { title: 'Song' } });
+    expect(serviceMock.queryCovers).toHaveBeenCalledWith({ track: { title: 'Song' } });
+    expect(serviceMock.getPluginSettings).toHaveBeenCalledWith('echo.playback-panel');
+    expect(serviceMock.updatePluginSettings).toHaveBeenCalledWith('echo.playback-panel', { mode: 'fast' });
   });
 
   it('rejects malformed plugin IPC payloads before reaching the service', () => {
@@ -99,5 +115,9 @@ describe('plugin IPC', () => {
     expect(() => handlers[IpcChannels.PluginsQueryMetadata]!(null, null)).toThrow('plugin metadata request must be an object');
     expect(() => handlers[IpcChannels.PluginsQuerySources]!(null, null)).toThrow('plugin source search request must be an object');
     expect(() => handlers[IpcChannels.PluginsResolveSourcePlayback]!(null, null)).toThrow('plugin source playback request must be an object');
+    expect(() => handlers[IpcChannels.PluginsQueryLyrics]!(null, null)).toThrow('plugin lyrics request must be an object');
+    expect(() => handlers[IpcChannels.PluginsQueryCovers]!(null, null)).toThrow('plugin cover request must be an object');
+    expect(() => handlers[IpcChannels.PluginsGetSettings]!(null, '')).toThrow('pluginId must be a non-empty string');
+    expect(() => handlers[IpcChannels.PluginsSetSettings]!(null, 'echo.playback-panel', null)).toThrow('plugin settings patch must be an object');
   });
 });

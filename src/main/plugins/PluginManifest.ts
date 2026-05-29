@@ -3,19 +3,23 @@ import {
   pluginApiVersion,
   pluginPermissions,
   type PluginCommandContribution,
+  type PluginCoverProviderContribution,
+  type PluginLyricsProviderContribution,
   type PluginManifest,
   type PluginManifestContributes,
   type PluginMetadataProviderContribution,
   type PluginPanelContribution,
   type PluginPermission,
+  type PluginSettingContribution,
+  type PluginSettingOption,
+  type PluginSettingType,
   type PluginSourceProviderContribution,
 } from '../../shared/types/plugins';
-
-type PluginSettingContribution = NonNullable<PluginManifestContributes['settings']>[number];
 
 const pluginIdPattern = /^[a-z0-9][a-z0-9._-]{1,63}$/u;
 const safeRelativePathPattern = /^[^<>:"|?*\u0000-\u001f]+$/u;
 const permissionSet = new Set<PluginPermission>(pluginPermissions);
+const settingTypes = new Set<PluginSettingType>(['string', 'select', 'boolean', 'number', 'secret']);
 
 const asText = (value: unknown, field: string, maxLength = 120): string => {
   if (typeof value !== 'string') {
@@ -66,7 +70,10 @@ const normalizePermissions = (value: unknown): PluginPermission[] => {
 
   const normalized: PluginPermission[] = [];
   for (const item of value) {
-    if (typeof item === 'string' && permissionSet.has(item as PluginPermission) && !normalized.includes(item as PluginPermission)) {
+    if (typeof item !== 'string' || !permissionSet.has(item as PluginPermission)) {
+      throw new Error(`unknown plugin permission:${String(item)}`);
+    }
+    if (!normalized.includes(item as PluginPermission)) {
       normalized.push(item as PluginPermission);
     }
   }
@@ -111,19 +118,95 @@ const normalizePanel = (value: unknown): PluginPanelContribution | null => {
   }
 };
 
+const normalizeSettingDefaultValue = (type: PluginSettingType, value: unknown): PluginSettingContribution['defaultValue'] | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  if ((type === 'string' || type === 'select' || type === 'secret') && typeof value === 'string') {
+    return value.slice(0, 500);
+  }
+  if (type === 'boolean' && typeof value === 'boolean') {
+    return value;
+  }
+  if (type === 'number' && typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  return undefined;
+};
+
+const normalizeSettingOptions = (value: unknown): PluginSettingOption[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const options: PluginSettingOption[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      continue;
+    }
+    const input = item as Partial<PluginSettingOption>;
+    if (typeof input.label !== 'string' || typeof input.value !== 'string' || !input.label.trim() || !input.value.trim()) {
+      continue;
+    }
+    const option = {
+      label: input.label.trim().slice(0, 80),
+      value: input.value.trim().slice(0, 160),
+    };
+    if (!options.some((existing) => existing.value === option.value)) {
+      options.push(option);
+    }
+  }
+  return options.length > 0 ? options.slice(0, 24) : undefined;
+};
+
+const normalizeOptionalNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
 const normalizeSetting = (item: unknown): PluginSettingContribution | null => {
   if (!item || typeof item !== 'object' || Array.isArray(item)) {
     return null;
   }
 
-  const setting = item as { id?: unknown; title?: unknown; description?: unknown };
+  const setting = item as Partial<PluginSettingContribution>;
   try {
+    const type = typeof setting.type === 'string' && settingTypes.has(setting.type as PluginSettingType)
+      ? setting.type as PluginSettingType
+      : 'string';
     const normalized: PluginSettingContribution = {
       id: normalizePluginId(setting.id),
       title: asText(setting.title, 'setting title', 80),
+      type,
     };
     if (typeof setting.description === 'string' && setting.description.trim()) {
       normalized.description = setting.description.trim().slice(0, 180);
+    }
+    const defaultValue = normalizeSettingDefaultValue(type, setting.defaultValue);
+    if (defaultValue !== undefined) {
+      normalized.defaultValue = defaultValue;
+    }
+    if (type === 'select') {
+      normalized.options = normalizeSettingOptions(setting.options);
+      if (!normalized.options) {
+        return null;
+      }
+    }
+    if (typeof setting.placeholder === 'string' && setting.placeholder.trim()) {
+      normalized.placeholder = setting.placeholder.trim().slice(0, 120);
+    }
+    if (type === 'number') {
+      const min = normalizeOptionalNumber(setting.min);
+      const max = normalizeOptionalNumber(setting.max);
+      if (min !== undefined) {
+        normalized.min = min;
+      }
+      if (max !== undefined) {
+        normalized.max = max;
+      }
+    }
+    if (typeof setting.required === 'boolean') {
+      normalized.required = setting.required;
     }
     return normalized;
   } catch {
@@ -165,6 +248,40 @@ const normalizeSourceProvider = (value: unknown): PluginSourceProviderContributi
   }
 };
 
+const normalizeLyricsProvider = (value: unknown): PluginLyricsProviderContribution | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const input = value as Partial<PluginLyricsProviderContribution>;
+  try {
+    return {
+      id: normalizePluginId(input.id),
+      title: asText(input.title, 'lyrics provider title', 80),
+      description: typeof input.description === 'string' && input.description.trim() ? input.description.trim().slice(0, 180) : undefined,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const normalizeCoverProvider = (value: unknown): PluginCoverProviderContribution | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const input = value as Partial<PluginCoverProviderContribution>;
+  try {
+    return {
+      id: normalizePluginId(input.id),
+      title: asText(input.title, 'cover provider title', 80),
+      description: typeof input.description === 'string' && input.description.trim() ? input.description.trim().slice(0, 180) : undefined,
+    };
+  } catch {
+    return null;
+  }
+};
+
 const normalizeContributes = (value: unknown): PluginManifestContributes => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -183,6 +300,16 @@ const normalizeContributes = (value: unknown): PluginManifestContributes => {
       ? input.sourceProviders
           .map(normalizeSourceProvider)
           .filter((item): item is PluginSourceProviderContribution => Boolean(item))
+      : [],
+    lyricsProviders: Array.isArray(input.lyricsProviders)
+      ? input.lyricsProviders
+          .map(normalizeLyricsProvider)
+          .filter((item): item is PluginLyricsProviderContribution => Boolean(item))
+      : [],
+    coverProviders: Array.isArray(input.coverProviders)
+      ? input.coverProviders
+          .map(normalizeCoverProvider)
+          .filter((item): item is PluginCoverProviderContribution => Boolean(item))
       : [],
     settings: Array.isArray(input.settings)
       ? input.settings
@@ -218,6 +345,7 @@ export const normalizePluginManifest = (value: unknown, directoryName = ''): Plu
     name: asText(input.name ?? id, 'name', 80),
     version: asText(input.version ?? '0.0.1', 'version', 40),
     apiVersion,
+    ...(typeof input.minEchoVersion === 'string' && input.minEchoVersion.trim() ? { minEchoVersion: input.minEchoVersion.trim().slice(0, 40) } : {}),
     entry,
     panel,
     permissions: normalizePermissions(input.permissions),

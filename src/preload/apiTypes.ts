@@ -175,13 +175,19 @@ import type {
 import type {
   PluginCreateExampleKind,
   PluginCreateExampleResult,
+  PluginCoverLookupRequest,
+  PluginCoverLookupResult,
   PluginEnableRequest,
   PluginImportPackageResult,
+  PluginLyricsLookupRequest,
+  PluginLyricsLookupResult,
   PluginListResult,
   PluginLogEntry,
   PluginMetadataLookupRequest,
   PluginMetadataLookupResult,
   PluginRunCommandRequest,
+  PluginSettingsPatch,
+  PluginSettingsResult,
   PluginSourcePlaybackRequest,
   PluginSourcePlaybackResult,
   PluginSourceSearchRequest,
@@ -710,6 +716,10 @@ export type EchoApi = {
     queryMetadata: (request: PluginMetadataLookupRequest) => Promise<PluginMetadataLookupResult>;
     querySources: (request: PluginSourceSearchRequest) => Promise<PluginSourceSearchResult>;
     resolveSourcePlayback: (request: PluginSourcePlaybackRequest) => Promise<PluginSourcePlaybackResult>;
+    queryLyrics: (request: PluginLyricsLookupRequest) => Promise<PluginLyricsLookupResult>;
+    queryCovers: (request: PluginCoverLookupRequest) => Promise<PluginCoverLookupResult>;
+    getSettings: (pluginId: string) => Promise<PluginSettingsResult>;
+    setSettings: (pluginId: string, patch: PluginSettingsPatch) => Promise<PluginSettingsResult>;
     getLogs: (pluginId?: string) => Promise<PluginLogEntry[]>;
   };
   accounts: {

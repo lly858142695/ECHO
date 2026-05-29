@@ -610,6 +610,16 @@ const readWaveInfoTags = async (filePath: string): Promise<WaveInfoTags> => {
   }
 };
 
+const stripFilenameSortPrefix = (value: string): string => {
+  const trimmed = value.trim();
+  const stripped = trimmed
+    .replace(/^\d{1,3}\s*[.)．。]\s*/u, '')
+    .replace(/^\d{1,3}\s*[-_]\s*(?=[^\d\s([（])/u, '')
+    .trim();
+
+  return stripped || trimmed;
+};
+
 const guessFromFilename = (filePath: string): { artist: string | null; title: string } => {
   const name = basename(filePath, extname(filePath)).trim();
   const parts = name.split(' - ').map((part) => part.trim()).filter(Boolean);
@@ -617,13 +627,13 @@ const guessFromFilename = (filePath: string): { artist: string | null; title: st
   if (parts.length >= 2) {
     return {
       artist: parts[0],
-      title: parts.slice(1).join(' - '),
+      title: stripFilenameSortPrefix(parts.slice(1).join(' - ')),
     };
   }
 
   return {
     artist: null,
-    title: name || 'Untitled',
+    title: stripFilenameSortPrefix(name) || 'Untitled',
   };
 };
 

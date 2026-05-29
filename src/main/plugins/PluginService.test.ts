@@ -124,6 +124,7 @@ describe('PluginService', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     rmSync(pluginRoot, { recursive: true, force: true });
   });
 
@@ -373,7 +374,7 @@ describe('PluginService', () => {
     expect(service.list().plugins[0]).toMatchObject({ id: 'echo.event-timeout', status: 'running' });
   });
 
-  it('marks reserved and limited permissions in the security summary without adding APIs', () => {
+  it('marks active network, reserved library writes, and limited permissions in the security summary', () => {
     const manifest: PluginManifest = {
       id: 'echo.reserved-permissions',
       name: 'Reserved Permissions',
@@ -387,9 +388,10 @@ describe('PluginService', () => {
     service.enable({ pluginId: 'echo.reserved-permissions', trustedPermissions: ['network', 'library:write', 'fs:plugin'] });
 
     const summary = service.list().plugins[0];
-    expect(summary.security.reservedPermissions).toEqual(['network', 'library:write']);
+    expect(summary.security.reservedPermissions).toEqual(['library:write']);
     expect(summary.security.limitedPermissions).toEqual(['fs:plugin']);
     expect(summary.security.highRiskPermissions).toEqual(['network', 'library:write']);
+    expect(summary.security.networkEnabled).toBe(true);
   });
 
   it('registers metadata providers and returns bounded candidates without writing library data', async () => {
@@ -611,5 +613,147 @@ describe('PluginService', () => {
       providerId: 'unsafe',
       providerTrackId: 'file',
     })).rejects.toThrow('plugin_source_playback_url_invalid');
+  });
+
+  it('supports v2 host-mediated network API with permission and header guardrails', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        method: init?.method,
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const manifest: PluginManifest = {
+      id: 'echo.network-provider',
+      name: 'Network Provider',
+      version: '0.0.1',
+      apiVersion: 2,
+      entry: 'plugin.js',
+      permissions: ['network'],
+      contributes: {
+        settings: [{ id: 'endpoint', title: 'Endpoint', type: 'string', defaultValue: 'https://example.com/api' }],
+      },
+    };
+    writePlugin(pluginRoot, manifest, [
+      "echo.commands.register('fetch', async () => {",
+      "  const settings = await echo.settings.getAll();",
+      "  const result = await echo.net.fetchJson({",
+      '    url: settings.endpoint,',
+      "    method: 'GET',",
+      "    headers: { Accept: 'application/json', Authorization: 'secret' }",
+      '  });',
+      "  await echo.storage.set('networkResult', result);",
+      '});',
+    ].join('\n'));
+
+    service.enable({ pluginId: 'echo.network-provider', trustedPermissions: ['network'] });
+    await service.runCommand({ pluginId: 'echo.network-provider', commandId: 'fetch' });
+
+    expect(fetchMock).toHaveBeenCalledWith('https://example.com/api', expect.objectContaining({
+      method: 'GET',
+    }));
+    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ Accept: 'application/json' });
+    const storage = JSON.parse(readFileSync(join(pluginRoot, 'echo.network-provider', 'plugin-storage.json'), 'utf8')) as {
+      networkResult: { method: string; headers: Record<string, string> };
+    };
+    expect(storage.networkResult.method).toBe('GET');
+    expect(storage.networkResult.headers.authorization).toBeUndefined();
+    expect(service.list().plugins[0].activity.networkCallCount).toBe(1);
+    expect(service.list().plugins[0].security.networkEnabled).toBe(true);
+  });
+
+  it('keeps v2 plugin-owned settings isolated from application settings', async () => {
+    const manifest: PluginManifest = {
+      id: 'echo.owned-settings',
+      name: 'Owned Settings',
+      version: '0.0.1',
+      apiVersion: 2,
+      entry: 'plugin.js',
+      permissions: [],
+      contributes: {
+        settings: [
+          { id: 'mode', title: 'Mode', type: 'select', defaultValue: 'safe', options: [{ label: 'Safe', value: 'safe' }, { label: 'Fast', value: 'fast' }] },
+          { id: 'secret', title: 'Secret', type: 'secret' },
+        ],
+      },
+    };
+    writePlugin(pluginRoot, manifest, [
+      "echo.commands.register('read-settings', async () => {",
+      "  await echo.storage.set('settings', await echo.settings.getAll());",
+      '});',
+    ].join('\n'));
+
+    service.enable({ pluginId: 'echo.owned-settings', trustedPermissions: [] });
+    expect(service.getPluginSettings('echo.owned-settings').values).toEqual({ mode: 'safe' });
+    expect(service.updatePluginSettings('echo.owned-settings', { mode: 'fast', secret: 'token', unknown: 'ignored' }).values).toEqual({
+      mode: 'fast',
+      secret: 'token',
+    });
+    await service.runCommand({ pluginId: 'echo.owned-settings', commandId: 'read-settings' });
+
+    expect(mocks.getAppSettingsMock).not.toHaveBeenCalled();
+    expect(mocks.setAppSettingsMock).not.toHaveBeenCalled();
+    const storage = JSON.parse(readFileSync(join(pluginRoot, 'echo.owned-settings', 'plugin-storage.json'), 'utf8')) as {
+      settings: Record<string, unknown>;
+    };
+    expect(storage.settings).toEqual({ mode: 'fast', secret: 'token' });
+  });
+
+  it('registers bounded lyrics and cover providers as candidates only', async () => {
+    const manifest: PluginManifest = {
+      id: 'echo.media-candidates',
+      name: 'Media Candidates',
+      version: '0.0.1',
+      apiVersion: 2,
+      entry: 'plugin.js',
+      permissions: ['library:read'],
+      contributes: {
+        lyricsProviders: [{ id: 'lyrics', title: 'Lyrics' }],
+        coverProviders: [{ id: 'covers', title: 'Covers' }],
+      },
+    };
+    writePlugin(pluginRoot, manifest, [
+      "echo.lyrics.registerProvider('lyrics', { title: 'Lyrics' }, async () => ({",
+      "  candidates: [{ title: 'LRC', language: 'ja', lrc: '[00:00.00]hello', confidence: 2 }]",
+      '}));',
+      "echo.covers.registerProvider('covers', { title: 'Covers' }, async () => ({",
+      "  candidates: [{ imageUrl: 'https://example.com/cover.jpg', width: 99999, confidence: 2 }, { imageUrl: 'file:///bad.jpg' }]",
+      '}));',
+    ].join('\n'));
+
+    service.enable({ pluginId: 'echo.media-candidates', trustedPermissions: ['library:read'] });
+
+    await expect(service.queryLyrics({ track: { title: 'Song' } })).resolves.toMatchObject({
+      providers: [{ id: 'lyrics', title: 'Lyrics', pluginId: 'echo.media-candidates' }],
+      candidates: [{ title: 'LRC', language: 'ja', lrc: '[00:00.00]hello', confidence: 1, pluginId: 'echo.media-candidates', providerId: 'lyrics' }],
+    });
+    await expect(service.queryCovers({ track: { title: 'Song' } })).resolves.toMatchObject({
+      providers: [{ id: 'covers', title: 'Covers', pluginId: 'echo.media-candidates' }],
+      candidates: [{ imageUrl: 'https://example.com/cover.jpg', width: 12000, confidence: 1, pluginId: 'echo.media-candidates', providerId: 'covers' }],
+    });
+    const summary = service.list().plugins[0];
+    expect(summary.security.lyricsProviderCount).toBe(1);
+    expect(summary.security.coverProviderCount).toBe(1);
+    expect(summary.activity.providerCallCount).toBe(2);
+    expect(mocks.getTracksMock).not.toHaveBeenCalled();
+  });
+
+  it('overwrites imported packages only when explicitly allowed and keeps a backup', async () => {
+    service.createExample('command-tool');
+    const packagePath = join(pluginRoot, 'echo.command-tool.echo-plugin.json');
+    await service.exportPluginPackage('echo.command-tool', packagePath);
+
+    await expect(service.importPluginPackage(packagePath)).rejects.toThrow('plugin_import_target_exists');
+    await expect(service.importPluginPackage(packagePath, { allowOverwrite: true })).resolves.toMatchObject({
+      pluginId: 'echo.command-tool',
+      importedFileCount: 2,
+      checksum: expect.any(String),
+      backedUpDirectory: expect.stringContaining('echo.command-tool.backup-'),
+    });
+    const summary = service.list().plugins[0];
+    expect(summary.packageInfo.checksum).toMatch(/^[a-f0-9]{64}$/u);
+    expect(summary.enabled).toBe(false);
   });
 });

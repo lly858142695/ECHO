@@ -3,8 +3,11 @@ import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type {
   PluginCreateExampleKind,
   PluginEnableRequest,
+  PluginCoverLookupRequest,
+  PluginLyricsLookupRequest,
   PluginMetadataLookupRequest,
   PluginRunCommandRequest,
+  PluginSettingsPatch,
   PluginSourcePlaybackRequest,
   PluginSourceSearchRequest,
 } from '../../shared/types/plugins';
@@ -66,6 +69,25 @@ export const registerPluginIpc = (): void => {
       throw new Error('plugin source playback request must be an object');
     }
     return service.resolveSourcePlayback(request as PluginSourcePlaybackRequest);
+  });
+  ipcMain.handle(IpcChannels.PluginsQueryLyrics, (_event, request: unknown) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+      throw new Error('plugin lyrics request must be an object');
+    }
+    return service.queryLyrics(request as PluginLyricsLookupRequest);
+  });
+  ipcMain.handle(IpcChannels.PluginsQueryCovers, (_event, request: unknown) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+      throw new Error('plugin cover request must be an object');
+    }
+    return service.queryCovers(request as PluginCoverLookupRequest);
+  });
+  ipcMain.handle(IpcChannels.PluginsGetSettings, (_event, pluginId: unknown) => service.getPluginSettings(requireText(pluginId, 'pluginId')));
+  ipcMain.handle(IpcChannels.PluginsSetSettings, (_event, pluginId: unknown, patch: unknown) => {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      throw new Error('plugin settings patch must be an object');
+    }
+    return service.updatePluginSettings(requireText(pluginId, 'pluginId'), patch as PluginSettingsPatch);
   });
   ipcMain.handle(IpcChannels.PluginsGetLogs, (_event, pluginId: unknown) =>
     service.getLogs(typeof pluginId === 'string' && pluginId.trim() ? pluginId.trim() : undefined),

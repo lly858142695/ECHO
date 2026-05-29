@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import { basename, extname, join, resolve } from 'node:path';
 import vm from 'node:vm';
 import { app, dialog, shell } from 'electron';
@@ -8,11 +8,23 @@ import { pluginEventNames, pluginLibraryTrackFields, pluginPermissionDescriptors
 import type {
   PluginActivitySummary,
   PluginCommand,
+  PluginCompatibilitySummary,
+  PluginCoverCandidate,
+  PluginCoverLookupRequest,
+  PluginCoverLookupResult,
+  PluginCoverProvider,
+  PluginCoverProviderResult,
   PluginCreateExampleKind,
   PluginCreateExampleResult,
   PluginEnableRequest,
+  PluginHealthSummary,
   PluginEventName,
   PluginImportPackageResult,
+  PluginLyricsCandidate,
+  PluginLyricsLookupRequest,
+  PluginLyricsLookupResult,
+  PluginLyricsProvider,
+  PluginLyricsProviderResult,
   PluginLibraryTrack,
   PluginLibraryTrackField,
   PluginLibraryTrackPage,
@@ -27,9 +39,13 @@ import type {
   PluginMetadataLookupTrack,
   PluginMetadataProvider,
   PluginMetadataProviderResult,
+  PluginNetworkRequest,
+  PluginPackageInfo,
   PluginPackage,
   PluginPackageFile,
   PluginPermission,
+  PluginSettingsPatch,
+  PluginSettingsResult,
   PluginRunCommandRequest,
   PluginSecuritySummary,
   PluginSourcePlaybackRequest,
@@ -44,6 +60,7 @@ import type {
 import { getAppSettings, setAppSettings } from '../app/appSettings';
 import { getAudioSession } from '../audio/AudioSession';
 import { getLibraryService } from '../library/LibraryService';
+import { fetchWithNetworkProxy } from '../network/networkFetch';
 import { normalizePluginManifest } from './PluginManifest';
 
 type PluginState = {
@@ -53,6 +70,7 @@ type PluginState = {
   crashTimestamps?: string[];
   lastError?: string;
   lastErrorAt?: string;
+  packageInfo?: PluginPackageInfo;
 };
 
 type PluginStateFile = {
@@ -81,12 +99,28 @@ type RuntimeSourceProvider = {
   resolvePlayback?: (request: PluginSourcePlaybackRequest) => unknown;
 };
 
+type RuntimeLyricsProvider = {
+  id: string;
+  title: string;
+  description?: string;
+  handler: (request: PluginLyricsLookupRequest) => unknown;
+};
+
+type RuntimeCoverProvider = {
+  id: string;
+  title: string;
+  description?: string;
+  handler: (request: PluginCoverLookupRequest) => unknown;
+};
+
 type RuntimeRecord = {
   manifest: PluginManifest;
   directory: string;
   commands: Map<string, RuntimeCommand>;
   metadataProviders: Map<string, RuntimeMetadataProvider>;
   sourceProviders: Map<string, RuntimeSourceProvider>;
+  lyricsProviders: Map<string, RuntimeLyricsProvider>;
+  coverProviders: Map<string, RuntimeCoverProvider>;
   eventHandlers: Map<string, Set<(payload: unknown) => unknown>>;
   statusTimer: ReturnType<typeof setTimeout> | null;
   pendingStatus: AudioStatus | null;
@@ -108,13 +142,18 @@ const storageFileName = 'plugin-storage.json';
 const commandTimeoutMs = 2_000;
 const eventHandlerTimeoutMs = 2_000;
 const metadataProviderTimeoutMs = 2_500;
+const pluginNetworkTimeoutMs = 5_000;
 const maxLogEntries = 160;
 const maxLogMessageLength = 1_000;
 const maxEventHandlersPerPlugin = 24;
 const maxMetadataProvidersPerPlugin = 8;
 const maxMetadataCandidatesPerProvider = 5;
 const maxSourceProvidersPerPlugin = 4;
+const maxLyricsProvidersPerPlugin = 4;
+const maxCoverProvidersPerPlugin = 4;
 const maxSourceTracksPerProvider = 25;
+const maxLyricsCandidatesPerProvider = 5;
+const maxCoverCandidatesPerProvider = 8;
 const playbackStatusThrottleMs = 500;
 const maxPluginLibraryPageSize = 100;
 const defaultPluginLibraryPageSize = 50;
@@ -131,6 +170,14 @@ const maxPluginSourceSearchRequestBytes = 32 * 1024;
 const maxPluginSourceSearchResultBytes = 128 * 1024;
 const maxPluginSourcePlaybackRequestBytes = 16 * 1024;
 const maxPluginSourcePlaybackResultBytes = 32 * 1024;
+const maxPluginLyricsRequestBytes = 32 * 1024;
+const maxPluginLyricsResultBytes = 128 * 1024;
+const maxPluginCoverRequestBytes = 32 * 1024;
+const maxPluginCoverResultBytes = 128 * 1024;
+const maxPluginNetworkRequestBytes = 64 * 1024;
+const maxPluginNetworkResponseBytes = 512 * 1024;
+const maxPluginSettingValueBytes = 32 * 1024;
+const maxPluginSettingsBytes = 128 * 1024;
 const pluginCrashLoopWindowMs = 10 * 60 * 1_000;
 const pluginCrashLoopLimit = 3;
 const pluginPackageType = 'echo-next-plugin-package';
@@ -140,6 +187,11 @@ const maxPluginPackageFiles = 32;
 const maxPluginPackageFileBytes = 512 * 1024;
 const exportablePluginFileExtensions = new Set(['.js', '.mjs', '.cjs', '.html', '.css', '.json', '.md', '.txt']);
 const pluginPackageExcludedFiles = new Set([stateFileName, storageFileName]);
+const pluginSettingsFileName = 'plugin-settings.json';
+pluginPackageExcludedFiles.add(pluginSettingsFileName);
+const allowedPluginNetworkMethods = new Set(['GET', 'POST']);
+const allowedPluginRequestHeaders = new Set(['accept', 'accept-language', 'content-type', 'user-agent']);
+const redactedHeaderNames = new Set(['authorization', 'cookie', 'set-cookie', 'x-api-key', 'x-auth-token']);
 
 const pluginEventSet = new Set<PluginEventName>(pluginEventNames);
 const pluginEventPermissions: Record<PluginEventName, PluginPermission> = {
@@ -351,11 +403,15 @@ const createEmptyPluginActivity = (): PluginActivitySummary => ({
   lastStoppedAt: null,
   lastCommandAt: null,
   lastEventAt: null,
+  lastNetworkAt: null,
+  lastProviderCallAt: null,
   lastStorageWriteAt: null,
   lastSettingsWriteAt: null,
   lastErrorAt: null,
   commandRunCount: 0,
   eventDispatchCount: 0,
+  networkCallCount: 0,
+  providerCallCount: 0,
   storageWriteCount: 0,
   settingsWriteCount: 0,
   errorCount: 0,
@@ -374,6 +430,8 @@ const normalizePluginPackageFilePath = (value: unknown): string => {
 
 const isPluginPackageFile = (value: unknown): value is PluginPackageFile =>
   isRecord(value) && typeof value.path === 'string' && typeof value.content === 'string';
+
+const checksumText = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
 
 const normalizePositiveInteger = (value: unknown, fallback: number, max: number): number => {
   const normalized = Math.floor(Number(value));
@@ -650,6 +708,15 @@ const normalizePluginPlaybackUrl = (value: unknown): string => {
   }
 };
 
+const isSafeHttpUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+};
+
 const normalizePluginSourcePlaybackRequest = (value: unknown): PluginSourcePlaybackRequest => {
   const input = isRecord(value) ? value : {};
   const pluginId = boundedText(input.pluginId, 120);
@@ -683,6 +750,149 @@ const normalizePluginSourcePlaybackResult = (
     headers: normalizePluginHeaders(input.headers),
     requiresProxy: Boolean(input.requiresProxy),
     supportsRange: input.supportsRange !== false,
+  };
+};
+
+const normalizePluginLyricsLookupRequest = (value: unknown): PluginLyricsLookupRequest => {
+  const input = isRecord(value) ? value : {};
+  const provider = normalizePluginMetadataLookupProvider(input.provider);
+  return {
+    track: normalizePluginMetadataLookupTrack(input.track),
+    ...(provider ? { provider } : {}),
+  };
+};
+
+const normalizePluginLyricsCandidate = (value: unknown): PluginLyricsCandidate | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const candidate: PluginLyricsCandidate = {};
+  const title = boundedText(value.title, 180);
+  const language = boundedText(value.language, 24);
+  const lrc = boundedText(value.lrc, 80_000);
+  const text = boundedText(value.text, 80_000);
+  const source = boundedText(value.source, 80);
+  const sourceUrl = boundedText(value.sourceUrl, 500);
+  if (title) candidate.title = title;
+  if (language) candidate.language = language;
+  if (lrc) candidate.lrc = lrc;
+  if (text) candidate.text = text;
+  if (source) candidate.source = source;
+  if (sourceUrl) candidate.sourceUrl = sourceUrl;
+  if (typeof value.confidence === 'number' && Number.isFinite(value.confidence)) {
+    candidate.confidence = Math.max(0, Math.min(1, value.confidence));
+  }
+  return candidate.lrc || candidate.text ? candidate : null;
+};
+
+const normalizePluginLyricsProviderResult = (value: unknown): PluginLyricsProviderResult => {
+  const input = isRecord(value) ? value : {};
+  const candidates = Array.isArray(input.candidates)
+    ? input.candidates
+        .map(normalizePluginLyricsCandidate)
+        .filter((item): item is PluginLyricsCandidate => Boolean(item))
+        .slice(0, maxLyricsCandidatesPerProvider)
+    : [];
+  return { candidates };
+};
+
+const normalizePluginCoverLookupRequest = (value: unknown): PluginCoverLookupRequest => {
+  const input = isRecord(value) ? value : {};
+  const provider = normalizePluginMetadataLookupProvider(input.provider);
+  return {
+    track: normalizePluginMetadataLookupTrack(input.track),
+    ...(provider ? { provider } : {}),
+  };
+};
+
+const normalizePluginCoverCandidate = (value: unknown): PluginCoverCandidate | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const imageUrl = boundedText(value.imageUrl, 1_000);
+  if (!imageUrl || !isSafeHttpUrl(imageUrl)) {
+    return null;
+  }
+  const candidate: PluginCoverCandidate = { imageUrl };
+  const title = boundedText(value.title, 180);
+  const source = boundedText(value.source, 80);
+  const sourceUrl = boundedText(value.sourceUrl, 500);
+  if (title) candidate.title = title;
+  if (source) candidate.source = source;
+  if (sourceUrl) candidate.sourceUrl = sourceUrl;
+  const width = boundedInteger(value.width, 12_000);
+  const height = boundedInteger(value.height, 12_000);
+  if (width) candidate.width = width;
+  if (height) candidate.height = height;
+  if (typeof value.confidence === 'number' && Number.isFinite(value.confidence)) {
+    candidate.confidence = Math.max(0, Math.min(1, value.confidence));
+  }
+  return candidate;
+};
+
+const normalizePluginCoverProviderResult = (value: unknown): PluginCoverProviderResult => {
+  const input = isRecord(value) ? value : {};
+  const candidates = Array.isArray(input.candidates)
+    ? input.candidates
+        .map(normalizePluginCoverCandidate)
+        .filter((item): item is PluginCoverCandidate => Boolean(item))
+        .slice(0, maxCoverCandidatesPerProvider)
+    : [];
+  return { candidates };
+};
+
+const normalizePluginSettingsPatch = (value: unknown, contributes: PluginManifestContributes | undefined): PluginSettingsPatch => {
+  const input = isRecord(value) ? value : {};
+  const settings = contributes?.settings ?? [];
+  const output: PluginSettingsPatch = {};
+  for (const setting of settings) {
+    if (!Object.prototype.hasOwnProperty.call(input, setting.id)) {
+      continue;
+    }
+    const rawValue = input[setting.id];
+    if (rawValue === null) {
+      output[setting.id] = null;
+    } else if ((setting.type === 'string' || setting.type === 'secret') && typeof rawValue === 'string') {
+      output[setting.id] = rawValue.slice(0, 2_000);
+    } else if (setting.type === 'select' && typeof rawValue === 'string' && setting.options?.some((option) => option.value === rawValue)) {
+      output[setting.id] = rawValue;
+    } else if (setting.type === 'boolean' && typeof rawValue === 'boolean') {
+      output[setting.id] = rawValue;
+    } else if (setting.type === 'number' && typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+      output[setting.id] = Math.min(setting.max ?? Number.MAX_SAFE_INTEGER, Math.max(setting.min ?? Number.MIN_SAFE_INTEGER, rawValue));
+    }
+  }
+  return output;
+};
+
+const normalizePluginNetworkRequest = (value: unknown): PluginNetworkRequest => {
+  const input = isRecord(value) ? value : { url: value };
+  const url = boundedText(input.url, 2_000);
+  if (!url || !isSafeHttpUrl(url)) {
+    throw new Error('plugin_network_url_invalid');
+  }
+  const method = typeof input.method === 'string' ? input.method.toUpperCase() : 'GET';
+  if (!allowedPluginNetworkMethods.has(method)) {
+    throw new Error('plugin_network_method_not_allowed');
+  }
+  const headers: Record<string, string> = {};
+  if (isRecord(input.headers)) {
+    for (const [header, headerValue] of Object.entries(input.headers)) {
+      const normalizedHeader = header.toLowerCase();
+      if (!allowedPluginRequestHeaders.has(normalizedHeader) || redactedHeaderNames.has(normalizedHeader)) {
+        continue;
+      }
+      if (typeof headerValue === 'string') {
+        headers[header] = headerValue.slice(0, 1_000);
+      }
+    }
+  }
+  return {
+    url,
+    method: method as PluginNetworkRequest['method'],
+    headers,
+    ...(typeof input.body === 'string' && method === 'POST' ? { body: input.body.slice(0, maxPluginNetworkRequestBytes) } : {}),
+    timeoutMs: normalizePositiveInteger(input.timeoutMs, pluginNetworkTimeoutMs, pluginNetworkTimeoutMs),
   };
 };
 
@@ -844,7 +1054,7 @@ export class PluginService {
     return target;
   }
 
-  async importPluginPackage(sourcePath?: string): Promise<PluginImportPackageResult | null> {
+  async importPluginPackage(sourcePath?: string, options?: { allowOverwrite?: boolean }): Promise<PluginImportPackageResult | null> {
     const targetSource = sourcePath ?? await this.chooseImportPath();
     if (!targetSource) {
       return null;
@@ -855,7 +1065,9 @@ export class PluginService {
       throw new Error('plugin_package_too_large');
     }
 
-    const parsed = JSON.parse(readFileSync(targetSource, 'utf8')) as unknown;
+    const packageText = readFileSync(targetSource, 'utf8');
+    const checksum = checksumText(packageText);
+    const parsed = JSON.parse(packageText) as unknown;
     if (!isRecord(parsed) || parsed.type !== pluginPackageType || parsed.version !== pluginPackageVersion || !Array.isArray(parsed.files)) {
       throw new Error('plugin_package_invalid');
     }
@@ -865,35 +1077,61 @@ export class PluginService {
 
     const manifest = normalizePluginManifest(parsed.manifest, isRecord(parsed.manifest) && typeof parsed.manifest.id === 'string' ? parsed.manifest.id : 'imported-plugin');
     const targetDirectory = join(this.pluginDirectory, manifest.id);
+    let backedUpDirectory: string | null = null;
     if (existsSync(targetDirectory)) {
-      throw new Error('plugin_import_target_exists');
+      if (options?.allowOverwrite !== true) {
+        throw new Error('plugin_import_target_exists');
+      }
+      this.stopPlugin(manifest.id);
+      backedUpDirectory = `${targetDirectory}.backup-${Date.now()}`;
+      renameSync(targetDirectory, backedUpDirectory);
     }
 
-    mkdirSync(targetDirectory, { recursive: true });
-    writeFileSync(join(targetDirectory, manifestFileName), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    try {
+      mkdirSync(targetDirectory, { recursive: true });
+      writeFileSync(join(targetDirectory, manifestFileName), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 
-    let importedFileCount = 1;
-    for (const file of parsed.files) {
-      if (!isPluginPackageFile(file)) {
-        continue;
+      let importedFileCount = 1;
+      for (const file of parsed.files) {
+        if (!isPluginPackageFile(file)) {
+          continue;
+        }
+        const safePath = normalizePluginPackageFilePath(file.path);
+        if (!safePath || safePath === manifestFileName || safePath.endsWith('.echo-plugin.json') || pluginPackageExcludedFiles.has(safePath)) {
+          continue;
+        }
+        if (!exportablePluginFileExtensions.has(extname(safePath).toLowerCase())) {
+          continue;
+        }
+        if (Buffer.byteLength(file.content, 'utf8') > maxPluginPackageFileBytes) {
+          throw new Error('plugin_package_file_too_large');
+        }
+        writeFileSync(join(targetDirectory, safePath), file.content, 'utf8');
+        importedFileCount += 1;
       }
-      const safePath = normalizePluginPackageFilePath(file.path);
-      if (!safePath || safePath === manifestFileName || safePath.endsWith('.echo-plugin.json') || pluginPackageExcludedFiles.has(safePath)) {
-        continue;
+
+      this.state.plugins[manifest.id] = {
+        ...this.state.plugins[manifest.id],
+        enabled: false,
+        disabledByHost: false,
+        packageInfo: {
+          origin: targetSource,
+          importedAt: new Date().toISOString(),
+          packageVersion: pluginPackageVersion,
+          checksum,
+        },
+      };
+      this.writeState();
+      this.scan();
+      this.log(manifest.id, 'info', `plugin_package_imported:${checksum}`);
+      return { pluginId: manifest.id, directory: targetDirectory, importedFileCount, checksum, backedUpDirectory };
+    } catch (error) {
+      rmSync(targetDirectory, { recursive: true, force: true });
+      if (backedUpDirectory && existsSync(backedUpDirectory)) {
+        renameSync(backedUpDirectory, targetDirectory);
       }
-      if (!exportablePluginFileExtensions.has(extname(safePath).toLowerCase())) {
-        continue;
-      }
-      if (Buffer.byteLength(file.content, 'utf8') > maxPluginPackageFileBytes) {
-        throw new Error('plugin_package_file_too_large');
-      }
-      writeFileSync(join(targetDirectory, safePath), file.content, 'utf8');
-      importedFileCount += 1;
+      throw error;
     }
-
-    this.scan();
-    this.log(manifest.id, 'info', `plugin_package_imported:${targetSource}`);
-    return { pluginId: manifest.id, directory: targetDirectory, importedFileCount };
   }
 
   createExample(kind: PluginCreateExampleKind): PluginCreateExampleResult {
@@ -977,6 +1215,7 @@ export class PluginService {
           description: provider.description,
           pluginId: record.manifest.id,
         });
+        this.bumpProviderCall(record.manifest.id);
         try {
           const rawResult = await timeout(
             Promise.resolve(provider.handler(jsonClone(safeRequest))),
@@ -1029,6 +1268,7 @@ export class PluginService {
           description: provider.description,
           pluginId: record.manifest.id,
         });
+        this.bumpProviderCall(record.manifest.id);
         try {
           const rawResult = await timeout(
             Promise.resolve(provider.search(jsonClone(safeRequest))),
@@ -1052,6 +1292,84 @@ export class PluginService {
     }
 
     return { providers, tracks };
+  }
+
+  async queryLyrics(request: PluginLyricsLookupRequest): Promise<PluginLyricsLookupResult> {
+    this.scan();
+    const safeRequest = normalizePluginLyricsLookupRequest(request);
+    assertJsonByteLimit(safeRequest, maxPluginLyricsRequestBytes, 'plugin_lyrics_request_too_large');
+
+    const providers: PluginLyricsProvider[] = [];
+    const candidates: PluginLyricsLookupResult['candidates'] = [];
+
+    for (const record of this.records.values()) {
+      if (!record.enabled || !record.manifest) {
+        continue;
+      }
+      if (safeRequest.provider && safeRequest.provider.pluginId !== record.manifest.id) {
+        continue;
+      }
+      const runtime = await this.ensureRuntime(record.manifest.id);
+      for (const provider of runtime.lyricsProviders.values()) {
+        if (safeRequest.provider && safeRequest.provider.providerId !== provider.id) {
+          continue;
+        }
+        providers.push({ id: provider.id, title: provider.title, description: provider.description, pluginId: record.manifest.id });
+        this.bumpProviderCall(record.manifest.id);
+        try {
+          const rawResult = await timeout(Promise.resolve(provider.handler(jsonClone(safeRequest))), metadataProviderTimeoutMs, 'plugin_lyrics_provider_timeout');
+          assertJsonByteLimit(rawResult, maxPluginLyricsResultBytes, 'plugin_lyrics_result_too_large');
+          const result = normalizePluginLyricsProviderResult(rawResult);
+          for (const candidate of result.candidates ?? []) {
+            candidates.push({ ...candidate, pluginId: record.manifest.id, providerId: provider.id });
+          }
+        } catch (error) {
+          this.recordPluginErrorActivity(record.manifest.id);
+          this.log(record.manifest.id, 'error', `lyrics_provider_failed:${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+
+    return { providers, candidates };
+  }
+
+  async queryCovers(request: PluginCoverLookupRequest): Promise<PluginCoverLookupResult> {
+    this.scan();
+    const safeRequest = normalizePluginCoverLookupRequest(request);
+    assertJsonByteLimit(safeRequest, maxPluginCoverRequestBytes, 'plugin_cover_request_too_large');
+
+    const providers: PluginCoverProvider[] = [];
+    const candidates: PluginCoverLookupResult['candidates'] = [];
+
+    for (const record of this.records.values()) {
+      if (!record.enabled || !record.manifest) {
+        continue;
+      }
+      if (safeRequest.provider && safeRequest.provider.pluginId !== record.manifest.id) {
+        continue;
+      }
+      const runtime = await this.ensureRuntime(record.manifest.id);
+      for (const provider of runtime.coverProviders.values()) {
+        if (safeRequest.provider && safeRequest.provider.providerId !== provider.id) {
+          continue;
+        }
+        providers.push({ id: provider.id, title: provider.title, description: provider.description, pluginId: record.manifest.id });
+        this.bumpProviderCall(record.manifest.id);
+        try {
+          const rawResult = await timeout(Promise.resolve(provider.handler(jsonClone(safeRequest))), metadataProviderTimeoutMs, 'plugin_cover_provider_timeout');
+          assertJsonByteLimit(rawResult, maxPluginCoverResultBytes, 'plugin_cover_result_too_large');
+          const result = normalizePluginCoverProviderResult(rawResult);
+          for (const candidate of result.candidates ?? []) {
+            candidates.push({ ...candidate, pluginId: record.manifest.id, providerId: provider.id });
+          }
+        } catch (error) {
+          this.recordPluginErrorActivity(record.manifest.id);
+          this.log(record.manifest.id, 'error', `cover_provider_failed:${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+
+    return { providers, candidates };
   }
 
   async resolveSourcePlayback(request: PluginSourcePlaybackRequest): Promise<PluginSourcePlaybackResult> {
@@ -1082,6 +1400,40 @@ export class PluginService {
       this.log(record.manifest.id, 'error', `音源解析失败：${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
+  }
+
+  getPluginSettings(pluginId: string): PluginSettingsResult {
+    this.scan();
+    const record = this.requireRecord(pluginId);
+    if (!record.manifest) {
+      throw new Error(record.error ?? 'plugin_manifest_invalid');
+    }
+    return {
+      pluginId: record.manifest.id,
+      values: this.getPluginSettingsValues(record),
+    };
+  }
+
+  updatePluginSettings(pluginId: string, patch: unknown): PluginSettingsResult {
+    this.scan();
+    const record = this.requireRecord(pluginId);
+    if (!record.manifest) {
+      throw new Error(record.error ?? 'plugin_manifest_invalid');
+    }
+    const safePatch = normalizePluginSettingsPatch(patch, record.manifest.contributes);
+    assertJsonByteLimit(safePatch, maxPluginSettingValueBytes, 'plugin_setting_value_too_large');
+    const next = {
+      ...this.getPluginSettingsValues(record),
+      ...safePatch,
+    };
+    assertJsonByteLimit(next, maxPluginSettingsBytes, 'plugin_settings_quota_exceeded');
+    this.writePluginSettings(record, next);
+    this.bumpPluginActivity(record.manifest.id, (activity, now) => ({
+      ...activity,
+      lastSettingsWriteAt: now,
+      settingsWriteCount: activity.settingsWriteCount + 1,
+    }));
+    return { pluginId: record.manifest.id, values: next };
   }
 
   getLogs(pluginId?: string): PluginLogEntry[] {
@@ -1216,6 +1568,8 @@ export class PluginService {
       commands: new Map(),
       metadataProviders: new Map(),
       sourceProviders: new Map(),
+      lyricsProviders: new Map(),
+      coverProviders: new Map(),
       eventHandlers: new Map(),
       statusTimer: null,
       pendingStatus: null,
@@ -1274,6 +1628,44 @@ export class PluginService {
           }
           const id = providerId.trim();
           runtime.metadataProviders.set(id, {
+            id,
+            title: isRecord(options) && typeof options.title === 'string' && options.title.trim() ? options.title.trim() : id,
+            description: isRecord(options) && typeof options.description === 'string' && options.description.trim() ? options.description.trim() : undefined,
+            handler: actualHandler,
+          });
+        },
+      }),
+      lyrics: Object.freeze({
+        registerProvider: (providerId: string, options: { title?: unknown; description?: unknown } | ((request: PluginLyricsLookupRequest) => unknown), handler?: (request: PluginLyricsLookupRequest) => unknown): void => {
+          requirePermission('library:read');
+          const actualHandler = typeof options === 'function' ? options : handler;
+          if (typeof providerId !== 'string' || !providerId.trim() || typeof actualHandler !== 'function') {
+            throw new Error('plugin_lyrics_provider_invalid');
+          }
+          if (runtime.lyricsProviders.size >= maxLyricsProvidersPerPlugin) {
+            throw new Error('plugin_lyrics_provider_limit');
+          }
+          const id = providerId.trim();
+          runtime.lyricsProviders.set(id, {
+            id,
+            title: isRecord(options) && typeof options.title === 'string' && options.title.trim() ? options.title.trim() : id,
+            description: isRecord(options) && typeof options.description === 'string' && options.description.trim() ? options.description.trim() : undefined,
+            handler: actualHandler,
+          });
+        },
+      }),
+      covers: Object.freeze({
+        registerProvider: (providerId: string, options: { title?: unknown; description?: unknown } | ((request: PluginCoverLookupRequest) => unknown), handler?: (request: PluginCoverLookupRequest) => unknown): void => {
+          requirePermission('library:read');
+          const actualHandler = typeof options === 'function' ? options : handler;
+          if (typeof providerId !== 'string' || !providerId.trim() || typeof actualHandler !== 'function') {
+            throw new Error('plugin_cover_provider_invalid');
+          }
+          if (runtime.coverProviders.size >= maxCoverProvidersPerPlugin) {
+            throw new Error('plugin_cover_provider_limit');
+          }
+          const id = providerId.trim();
+          runtime.coverProviders.set(id, {
             id,
             title: isRecord(options) && typeof options.title === 'string' && options.title.trim() ? options.title.trim() : id,
             description: isRecord(options) && typeof options.description === 'string' && options.description.trim() ? options.description.trim() : undefined,
@@ -1349,24 +1741,43 @@ export class PluginService {
         },
       }),
       settings: Object.freeze({
-        get: async () => {
-          requirePermission('settings:read');
-          return jsonClone(getAppSettings());
-        },
-        set: async (patch: unknown) => {
-          requirePermission('settings:write');
-          const safePatch = isRecord(patch) ? jsonClone(patch) : {};
-          assertJsonByteLimit(safePatch, maxPluginSettingsPatchBytes, 'plugin_settings_patch_too_large');
-          const result = setAppSettings(safePatch);
-          if (record.manifest) {
-            this.bumpPluginActivity(record.manifest.id, (activity, now) => ({
-              ...activity,
-              lastSettingsWriteAt: now,
-              settingsWriteCount: activity.settingsWriteCount + 1,
-            }));
+        get: async (key?: unknown) => {
+          if (record.manifest?.apiVersion === 1) {
+            requirePermission('settings:read');
+            return jsonClone(getAppSettings());
           }
-          return jsonClone(result);
+          const values = this.getPluginSettingsValues(record);
+          return typeof key === 'string' && key.trim() ? jsonClone(values[key.trim()]) : jsonClone(values);
         },
+        getAll: async () => {
+          if (record.manifest?.apiVersion === 1) {
+            requirePermission('settings:read');
+            return jsonClone(getAppSettings());
+          }
+          return jsonClone(this.getPluginSettingsValues(record));
+        },
+        set: async (keyOrPatch: unknown, value?: unknown) => {
+          if (record.manifest?.apiVersion === 1) {
+            requirePermission('settings:write');
+            const safePatch = isRecord(keyOrPatch) ? jsonClone(keyOrPatch) : {};
+            assertJsonByteLimit(safePatch, maxPluginSettingsPatchBytes, 'plugin_settings_patch_too_large');
+            const result = setAppSettings(safePatch);
+            if (record.manifest) {
+              this.bumpPluginActivity(record.manifest.id, (activity, now) => ({
+                ...activity,
+                lastSettingsWriteAt: now,
+                settingsWriteCount: activity.settingsWriteCount + 1,
+              }));
+            }
+            return jsonClone(result);
+          }
+          const patch = typeof keyOrPatch === 'string' ? { [keyOrPatch]: value } : keyOrPatch;
+          return jsonClone(this.updatePluginSettings(record.manifest?.id ?? '', patch).values);
+        },
+      }),
+      net: Object.freeze({
+        fetchJson: async (request: unknown) => this.fetchPluginNetwork(record, request, 'json'),
+        fetchText: async (request: unknown) => this.fetchPluginNetwork(record, request, 'text'),
       }),
       storage: Object.freeze({
         get: async (key: unknown) => this.readPluginStorageValue(record, String(key ?? '')),
@@ -1415,6 +1826,86 @@ export class PluginService {
       return isRecord(parsed) ? parsed : {};
     } catch {
       return {};
+    }
+  }
+
+  private getPluginSettingsValues(record: PluginRecord): PluginSettingsPatch {
+    if (!record.manifest) {
+      return {};
+    }
+    const settings = record.manifest.contributes?.settings ?? [];
+    const stored = this.readPluginSettings(record.directory);
+    const values: PluginSettingsPatch = {};
+    for (const setting of settings) {
+      const storedValue = stored[setting.id];
+      if (storedValue !== undefined) {
+        values[setting.id] = storedValue as PluginSettingsPatch[string];
+      } else if (setting.defaultValue !== undefined) {
+        values[setting.id] = setting.defaultValue;
+      }
+    }
+    return values;
+  }
+
+  private readPluginSettings(directory: string): PluginSettingsPatch {
+    const path = join(directory, pluginSettingsFileName);
+    if (!existsSync(path)) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+      return isRecord(parsed) ? parsed as PluginSettingsPatch : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private writePluginSettings(record: PluginRecord, values: PluginSettingsPatch): void {
+    writeFileSync(join(record.directory, pluginSettingsFileName), `${JSON.stringify(values, null, 2)}\n`, 'utf8');
+  }
+
+  private async fetchPluginNetwork(record: PluginRecord, request: unknown, responseType: 'json' | 'text'): Promise<unknown> {
+    if (!record.manifest) {
+      throw new Error('plugin_manifest_invalid');
+    }
+    if (record.manifest.apiVersion < 2) {
+      throw new Error('plugin_network_requires_api_v2');
+    }
+    if (!record.trustedPermissions.includes('network')) {
+      throw new Error('plugin_permission_denied:network');
+    }
+    const safeRequest = normalizePluginNetworkRequest(request);
+    assertJsonByteLimit(safeRequest, maxPluginNetworkRequestBytes, 'plugin_network_request_too_large');
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), safeRequest.timeoutMs ?? pluginNetworkTimeoutMs);
+    try {
+      const response = await fetchWithNetworkProxy(safeRequest.url, {
+        method: safeRequest.method ?? 'GET',
+        headers: safeRequest.headers,
+        body: safeRequest.body,
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      if (Buffer.byteLength(text, 'utf8') > maxPluginNetworkResponseBytes) {
+        throw new Error('plugin_network_response_too_large');
+      }
+      this.bumpPluginActivity(record.manifest.id, (activity, now) => ({
+        ...activity,
+        lastNetworkAt: now,
+        networkCallCount: activity.networkCallCount + 1,
+      }));
+      this.log(record.manifest.id, 'info', `plugin_network:${safeRequest.method ?? 'GET'}:${new URL(safeRequest.url).origin}:${response.status}`);
+      if (!response.ok) {
+        throw new Error(`plugin_network_http_${response.status}`);
+      }
+      return responseType === 'json' ? JSON.parse(text) : text;
+    } catch (error) {
+      this.recordPluginErrorActivity(record.manifest.id);
+      this.log(record.manifest.id, 'error', `plugin_network_failed:${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -1505,12 +1996,34 @@ export class PluginService {
         pluginId: manifest?.id ?? basename(record.directory),
       })) : []),
     ];
+    const lyricsProviders: PluginLyricsProvider[] = [
+      ...(contributes.lyricsProviders ?? []).map((provider) => ({ ...provider, pluginId: manifest?.id ?? basename(record.directory) })),
+      ...(runtime ? [...runtime.lyricsProviders.values()].map((provider) => ({
+        id: provider.id,
+        title: provider.title,
+        description: provider.description,
+        pluginId: manifest?.id ?? basename(record.directory),
+      })) : []),
+    ];
+    const coverProviders: PluginCoverProvider[] = [
+      ...(contributes.coverProviders ?? []).map((provider) => ({ ...provider, pluginId: manifest?.id ?? basename(record.directory) })),
+      ...(runtime ? [...runtime.coverProviders.values()].map((provider) => ({
+        id: provider.id,
+        title: provider.title,
+        description: provider.description,
+        pluginId: manifest?.id ?? basename(record.directory),
+      })) : []),
+    ];
+    const activity = this.getPluginActivity(manifest?.id ?? basename(record.directory));
 
     return {
       id: manifest?.id ?? basename(record.directory),
       name: manifest?.name ?? basename(record.directory),
       version: manifest?.version ?? '0.0.0',
       apiVersion: manifest?.apiVersion ?? 0,
+      compatibility: this.createCompatibilitySummary(record),
+      packageInfo: this.createPackageInfo(record),
+      health: this.createHealthSummary(record, activity),
       directory: record.directory,
       entry: manifest?.entry ?? null,
       panel: manifest?.panel ? resolve(record.directory, manifest.panel) : null,
@@ -1520,12 +2033,15 @@ export class PluginService {
       status: record.disabledByHost ? 'disabled' : record.error ? 'error' : record.enabled ? record.status : 'disabled',
       error: record.error,
       disabledByHost: record.disabledByHost,
-      activity: this.getPluginActivity(manifest?.id ?? basename(record.directory)),
+      activity,
       security: this.createSecuritySummary(record, commands),
       contributes,
       commands: commands.filter((command, index, list) => list.findIndex((item) => item.id === command.id) === index),
       metadataProviders: metadataProviders.filter((provider, index, list) => list.findIndex((item) => item.id === provider.id && item.pluginId === provider.pluginId) === index),
       sourceProviders: sourceProviders.filter((provider, index, list) => list.findIndex((item) => item.id === provider.id && item.pluginId === provider.pluginId) === index),
+      lyricsProviders: lyricsProviders.filter((provider, index, list) => list.findIndex((item) => item.id === provider.id && item.pluginId === provider.pluginId) === index),
+      coverProviders: coverProviders.filter((provider, index, list) => list.findIndex((item) => item.id === provider.id && item.pluginId === provider.pluginId) === index),
+      settingsValues: record.manifest ? this.getPluginSettingsValues(record) : {},
     };
   }
 
@@ -1535,6 +2051,10 @@ export class PluginService {
     const runtimeProviderCount = record.manifest ? this.runtimes.get(record.manifest.id)?.metadataProviders.size ?? 0 : 0;
     const manifestSourceProviderCount = record.manifest?.contributes?.sourceProviders?.length ?? 0;
     const runtimeSourceProviderCount = record.manifest ? this.runtimes.get(record.manifest.id)?.sourceProviders.size ?? 0 : 0;
+    const manifestLyricsProviderCount = record.manifest?.contributes?.lyricsProviders?.length ?? 0;
+    const runtimeLyricsProviderCount = record.manifest ? this.runtimes.get(record.manifest.id)?.lyricsProviders.size ?? 0 : 0;
+    const manifestCoverProviderCount = record.manifest?.contributes?.coverProviders?.length ?? 0;
+    const runtimeCoverProviderCount = record.manifest ? this.runtimes.get(record.manifest.id)?.coverProviders.size ?? 0 : 0;
     return {
       requestedPermissionCount: requestedPermissions.length,
       trustedPermissionCount: record.trustedPermissions.length,
@@ -1548,6 +2068,10 @@ export class PluginService {
       commandCount: commands.filter((command, index, list) => list.findIndex((item) => item.id === command.id) === index).length,
       metadataProviderCount: Math.max(manifestProviderCount, runtimeProviderCount),
       sourceProviderCount: Math.max(manifestSourceProviderCount, runtimeSourceProviderCount),
+      lyricsProviderCount: Math.max(manifestLyricsProviderCount, runtimeLyricsProviderCount),
+      coverProviderCount: Math.max(manifestCoverProviderCount, runtimeCoverProviderCount),
+      settingCount: record.manifest?.contributes?.settings?.length ?? 0,
+      networkEnabled: requestedPermissions.includes('network') && record.trustedPermissions.includes('network'),
     };
   }
 
@@ -1560,6 +2084,47 @@ export class PluginService {
   private bumpPluginActivity(pluginId: string, updater: (activity: PluginActivitySummary, now: string) => PluginActivitySummary): void {
     const current = this.activity.get(pluginId) ?? createEmptyPluginActivity();
     this.activity.set(pluginId, updater(current, new Date().toISOString()));
+  }
+
+  private createCompatibilitySummary(record: PluginRecord): PluginCompatibilitySummary {
+    const manifest = record.manifest;
+    if (!manifest) {
+      return {
+        isCompatible: false,
+        reason: record.error ?? 'plugin_manifest_invalid',
+        minEchoVersion: null,
+      };
+    }
+    return {
+      isCompatible: !record.error,
+      reason: record.error,
+      minEchoVersion: manifest.minEchoVersion ?? null,
+    };
+  }
+
+  private createPackageInfo(record: PluginRecord): PluginPackageInfo {
+    if (!record.manifest) {
+      return { origin: null, importedAt: null, packageVersion: null, checksum: null };
+    }
+    return this.state.plugins[record.manifest.id]?.packageInfo ?? { origin: null, importedAt: null, packageVersion: null, checksum: null };
+  }
+
+  private createHealthSummary(record: PluginRecord, activity: PluginActivitySummary): PluginHealthSummary {
+    return {
+      lastStartedAt: activity.lastStartedAt,
+      lastApiCallAt: activity.lastNetworkAt ?? activity.lastProviderCallAt ?? activity.lastCommandAt ?? activity.lastEventAt,
+      lastErrorAt: activity.lastErrorAt,
+      errorCount: activity.errorCount,
+      disabledByHost: record.disabledByHost,
+    };
+  }
+
+  private bumpProviderCall(pluginId: string): void {
+    this.bumpPluginActivity(pluginId, (activity, now) => ({
+      ...activity,
+      lastProviderCallAt: now,
+      providerCallCount: activity.providerCallCount + 1,
+    }));
   }
 
   private recordPluginErrorActivity(pluginId: string): void {

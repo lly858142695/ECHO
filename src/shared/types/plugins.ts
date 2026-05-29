@@ -1,6 +1,6 @@
 import type { LibraryPage, LibraryPageQuery, LibraryTrack } from './library';
 
-export const pluginApiVersion = 1;
+export const pluginApiVersion = 2;
 
 export const pluginPermissions = [
   'playback:read',
@@ -79,10 +79,10 @@ export const pluginPermissionDescriptors: Record<PluginPermission, PluginPermiss
   },
   network: {
     permission: 'network',
-    label: '访问网络（预留）',
-    description: '预留给未来网络访问能力；v1 不提供实际网络 API。',
+    label: '访问网络',
+    description: '通过宿主受控 API 访问 http/https；v2 起生效，受超时、大小、方法和 header 限制。',
     risk: 'high',
-    availability: 'reserved',
+    availability: 'active',
   },
   'fs:plugin': {
     permission: 'fs:plugin',
@@ -117,16 +117,46 @@ export type PluginSourceProviderContribution = {
   description?: string;
 };
 
+export type PluginLyricsProviderContribution = {
+  id: string;
+  title: string;
+  description?: string;
+};
+
+export type PluginCoverProviderContribution = {
+  id: string;
+  title: string;
+  description?: string;
+};
+
+export type PluginSettingType = 'string' | 'select' | 'boolean' | 'number' | 'secret';
+
+export type PluginSettingOption = {
+  label: string;
+  value: string;
+};
+
+export type PluginSettingContribution = {
+  id: string;
+  title: string;
+  description?: string;
+  type: PluginSettingType;
+  defaultValue?: string | number | boolean | null;
+  options?: PluginSettingOption[];
+  placeholder?: string;
+  min?: number;
+  max?: number;
+  required?: boolean;
+};
+
 export type PluginManifestContributes = {
   commands?: PluginCommandContribution[];
   panels?: PluginPanelContribution[];
   metadataProviders?: PluginMetadataProviderContribution[];
   sourceProviders?: PluginSourceProviderContribution[];
-  settings?: Array<{
-    id: string;
-    title: string;
-    description?: string;
-  }>;
+  lyricsProviders?: PluginLyricsProviderContribution[];
+  coverProviders?: PluginCoverProviderContribution[];
+  settings?: PluginSettingContribution[];
 };
 
 export type PluginManifest = {
@@ -134,6 +164,7 @@ export type PluginManifest = {
   name: string;
   version: string;
   apiVersion: number;
+  minEchoVersion?: string;
   entry?: string;
   panel?: string;
   permissions?: PluginPermission[];
@@ -305,6 +336,83 @@ export type PluginSourcePlaybackResult = {
   supportsRange: boolean;
 };
 
+export type PluginLyricsLookupRequest = {
+  track: PluginMetadataLookupTrack;
+  provider?: PluginMetadataLookupProvider;
+};
+
+export type PluginLyricsCandidate = {
+  title?: string;
+  language?: string;
+  lrc?: string;
+  text?: string;
+  source?: string;
+  sourceUrl?: string;
+  confidence?: number;
+};
+
+export type PluginLyricsProviderResult = {
+  candidates?: PluginLyricsCandidate[];
+};
+
+export type PluginLyricsProvider = PluginLyricsProviderContribution & {
+  pluginId: string;
+};
+
+export type PluginLyricsLookupResult = {
+  providers: PluginLyricsProvider[];
+  candidates: Array<PluginLyricsCandidate & {
+    pluginId: string;
+    providerId: string;
+  }>;
+};
+
+export type PluginCoverLookupRequest = {
+  track: PluginMetadataLookupTrack;
+  provider?: PluginMetadataLookupProvider;
+};
+
+export type PluginCoverCandidate = {
+  imageUrl: string;
+  title?: string;
+  source?: string;
+  sourceUrl?: string;
+  width?: number;
+  height?: number;
+  confidence?: number;
+};
+
+export type PluginCoverProviderResult = {
+  candidates?: PluginCoverCandidate[];
+};
+
+export type PluginCoverProvider = PluginCoverProviderContribution & {
+  pluginId: string;
+};
+
+export type PluginCoverLookupResult = {
+  providers: PluginCoverProvider[];
+  candidates: Array<PluginCoverCandidate & {
+    pluginId: string;
+    providerId: string;
+  }>;
+};
+
+export type PluginNetworkRequest = {
+  url: string;
+  method?: 'GET' | 'POST';
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+};
+
+export type PluginSettingsPatch = Record<string, string | number | boolean | null>;
+
+export type PluginSettingsResult = {
+  pluginId: string;
+  values: PluginSettingsPatch;
+};
+
 export const pluginPanelBridgeChannel = 'echo:plugin-panel';
 export const pluginPanelBridgeVersion = 1;
 
@@ -360,11 +468,15 @@ export type PluginActivitySummary = {
   lastStoppedAt: string | null;
   lastCommandAt: string | null;
   lastEventAt: string | null;
+  lastNetworkAt: string | null;
+  lastProviderCallAt: string | null;
   lastStorageWriteAt: string | null;
   lastSettingsWriteAt: string | null;
   lastErrorAt: string | null;
   commandRunCount: number;
   eventDispatchCount: number;
+  networkCallCount: number;
+  providerCallCount: number;
   storageWriteCount: number;
   settingsWriteCount: number;
   errorCount: number;
@@ -383,10 +495,35 @@ export type PluginSecuritySummary = {
   commandCount: number;
   metadataProviderCount: number;
   sourceProviderCount: number;
+  lyricsProviderCount: number;
+  coverProviderCount: number;
+  settingCount: number;
+  networkEnabled: boolean;
 };
 
 export type PluginCommand = PluginCommandContribution & {
   pluginId: string;
+};
+
+export type PluginCompatibilitySummary = {
+  isCompatible: boolean;
+  reason: string | null;
+  minEchoVersion: string | null;
+};
+
+export type PluginPackageInfo = {
+  origin: string | null;
+  importedAt: string | null;
+  packageVersion: number | null;
+  checksum: string | null;
+};
+
+export type PluginHealthSummary = {
+  lastStartedAt: string | null;
+  lastApiCallAt: string | null;
+  lastErrorAt: string | null;
+  errorCount: number;
+  disabledByHost: boolean;
 };
 
 export type PluginSummary = {
@@ -394,6 +531,9 @@ export type PluginSummary = {
   name: string;
   version: string;
   apiVersion: number;
+  compatibility: PluginCompatibilitySummary;
+  packageInfo: PluginPackageInfo;
+  health: PluginHealthSummary;
   directory: string;
   entry: string | null;
   panel: string | null;
@@ -409,6 +549,9 @@ export type PluginSummary = {
   commands: PluginCommand[];
   metadataProviders: PluginMetadataProvider[];
   sourceProviders: PluginSourceProvider[];
+  lyricsProviders: PluginLyricsProvider[];
+  coverProviders: PluginCoverProvider[];
+  settingsValues: PluginSettingsPatch;
 };
 
 export type PluginListResult = {
@@ -451,4 +594,6 @@ export type PluginImportPackageResult = {
   pluginId: string;
   directory: string;
   importedFileCount: number;
+  checksum: string;
+  backedUpDirectory?: string | null;
 };

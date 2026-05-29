@@ -10,11 +10,15 @@ const activity: PluginSummary['activity'] = {
   lastStoppedAt: null,
   lastCommandAt: null,
   lastEventAt: null,
+  lastNetworkAt: null,
+  lastProviderCallAt: null,
   lastStorageWriteAt: null,
   lastSettingsWriteAt: null,
   lastErrorAt: null,
   commandRunCount: 0,
   eventDispatchCount: 0,
+  networkCallCount: 0,
+  providerCallCount: 0,
   storageWriteCount: 0,
   settingsWriteCount: 0,
   errorCount: 0,
@@ -33,6 +37,10 @@ const security: PluginSummary['security'] = {
   commandCount: 1,
   metadataProviderCount: 0,
   sourceProviderCount: 0,
+  lyricsProviderCount: 0,
+  coverProviderCount: 0,
+  settingCount: 0,
+  networkEnabled: false,
 };
 
 const plugins: PluginSummary[] = [
@@ -41,6 +49,9 @@ const plugins: PluginSummary[] = [
     name: '播放状态面板',
     version: '0.0.1',
     apiVersion: 1,
+    compatibility: { isCompatible: true, reason: null, minEchoVersion: null },
+    packageInfo: { origin: null, importedAt: null, packageVersion: null, checksum: null },
+    health: { lastStartedAt: activity.lastStartedAt, lastApiCallAt: null, lastErrorAt: null, errorCount: 0, disabledByHost: false },
     directory: 'D:\\Echo\\plugins\\echo.playback-panel',
     entry: 'plugin.js',
     panel: 'D:\\Echo\\plugins\\echo.playback-panel\\panel.html',
@@ -58,6 +69,9 @@ const plugins: PluginSummary[] = [
     commands: [{ id: 'show-status', title: '显示状态', pluginId: 'echo.playback-panel' }],
     metadataProviders: [],
     sourceProviders: [],
+    lyricsProviders: [],
+    coverProviders: [],
+    settingsValues: {},
   },
 ];
 
@@ -69,8 +83,12 @@ const pluginsBridge = {
   reload: vi.fn(async () => plugins[0]),
   openDirectory: vi.fn(async () => undefined),
   exportPackage: vi.fn(async () => 'D:\\Echo\\plugins\\echo.playback-panel.echo-plugin.json'),
-  importPackage: vi.fn(async () => ({ pluginId: 'echo.playback-panel', directory: 'D:\\Echo\\plugins\\echo.playback-panel', importedFileCount: 2 })),
+  importPackage: vi.fn(async () => ({ pluginId: 'echo.playback-panel', directory: 'D:\\Echo\\plugins\\echo.playback-panel', importedFileCount: 2, checksum: 'abc' })),
   runCommand: vi.fn(async () => undefined),
+  queryLyrics: vi.fn(async () => ({ providers: [], candidates: [] })),
+  queryCovers: vi.fn(async () => ({ providers: [], candidates: [] })),
+  getSettings: vi.fn(async () => ({ pluginId: 'echo.playback-panel', values: {} })),
+  setSettings: vi.fn(async () => ({ pluginId: 'echo.playback-panel', values: {} })),
   getLogs: vi.fn(async () => [{ id: 'log-1', pluginId: 'echo.playback-panel', level: 'info' as const, message: '已启动', createdAt: '2026-05-19T00:00:00.000Z' }]),
 };
 

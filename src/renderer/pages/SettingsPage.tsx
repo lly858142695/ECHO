@@ -92,6 +92,7 @@ import type {
   DuplicateTrackCleanupPreview,
   DuplicateTrackIndexSummary,
   LibraryDatabaseProtectionStatus,
+  LibraryScanStatus,
   ReplayGainAnalysisJobStatus,
 } from '../../shared/types/library';
 import type { UpdateStatus } from '../../shared/types/updates';
@@ -144,7 +145,12 @@ import {
   updateThemePreferences,
   updateThemePresetOverrides,
 } from '../preferences/themePreferences';
-import { rememberLibraryScanStatus } from '../stores/libraryScanSession';
+import {
+  getLibraryScanStatuses,
+  rememberLibraryScanStatus,
+  subscribeLibraryScanStatuses,
+  type ScanStatusByFolder,
+} from '../stores/libraryScanSession';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { isSpotifyTrack, seekSpotifyPlayback } from '../integrations/spotify/spotifyPlayback';
 import { getVisualPlaybackState, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../stores/playbackStatusStore';
@@ -638,6 +644,44 @@ const accountProviderLabels: Record<AccountProvider, string> = {
 
 type ArtistImageProgress = ArtistImageJobStatus & {
   startedAt: number;
+};
+
+const libraryScanRunningStatuses = new Set<LibraryScanStatus['status']>(['queued', 'running']);
+
+const libraryScanPhaseLabels: Record<LibraryScanStatus['phase'], string> = {
+  queued: '排队中',
+  discovering: '发现文件',
+  checking_cache: '检查缓存',
+  reading_metadata: '读取元数据',
+  extracting_covers: '处理封面',
+  grouping_albums: '整理专辑/艺人',
+  writing_database: '写入数据库',
+  finished: '完成',
+  failed: '失败',
+  cancelled: '已取消',
+};
+
+const formatLibraryScanProgressMessage = (statuses: LibraryScanStatus[]): string | null => {
+  if (statuses.length === 0) {
+    return null;
+  }
+
+  const active = statuses.filter((status) => libraryScanRunningStatuses.has(status.status));
+  const failed = statuses.filter((status) => status.status === 'failed').length;
+  const completed = statuses.filter((status) => status.status === 'completed').length;
+  const cancelled = statuses.filter((status) => status.status === 'cancelled').length;
+  const totalFiles = statuses.reduce((total, status) => total + status.totalFiles, 0);
+  const processedFiles = statuses.reduce((total, status) => total + status.processedFiles, 0);
+  const skippedFiles = statuses.reduce((total, status) => total + status.skippedFiles, 0);
+  const errorCount = statuses.reduce((total, status) => total + status.errorCount, 0);
+
+  if (active.length > 0) {
+    const current = active.find((status) => status.status === 'running') ?? active[0];
+    const phase = current ? libraryScanPhaseLabels[current.phase] ?? current.phase : '扫描中';
+    return `扫描进度：${processedFiles}/${totalFiles || '?'}，跳过 ${skippedFiles}，错误 ${errorCount}。当前 ${phase}，排队/运行 ${active.length} 个。`;
+  }
+
+  return `扫描结束：完成 ${completed} 个，取消 ${cancelled} 个，失败 ${failed} 个；已处理 ${processedFiles}/${totalFiles || 0}，跳过 ${skippedFiles}，错误 ${errorCount}。`;
 };
 
 const emptyArtistImageSummary: ArtistImageCacheSummary = {
@@ -3684,6 +3728,7 @@ export const SettingsPage = (): JSX.Element => {
   const [albumGroupingMessage, setAlbumGroupingMessage] = useState<string | null>(null);
   const [libraryScanBusy, setLibraryScanBusy] = useState(false);
   const [libraryScanMessage, setLibraryScanMessage] = useState<string | null>(null);
+  const [libraryScanStatuses, setLibraryScanStatuses] = useState<ScanStatusByFolder>(getLibraryScanStatuses);
   const [artistImageBusyAction, setArtistImageBusyAction] = useState<'refresh' | 'clear' | null>(null);
   const [artistImageMessage, setArtistImageMessage] = useState<string | null>(null);
   const [artistImageProgress, setArtistImageProgress] = useState<ArtistImageProgress | null>(null);
@@ -3755,6 +3800,23 @@ export const SettingsPage = (): JSX.Element => {
   });
   const [onlineArtistInfoBusyAction, setOnlineArtistInfoBusyAction] = useState<'save' | 'clear' | null>(null);
   const [onlineArtistInfoMessage, setOnlineArtistInfoMessage] = useState<string | null>(null);
+
+  const libraryScanStatusList = useMemo(() => Object.values(libraryScanStatuses), [libraryScanStatuses]);
+  const libraryScanRunningList = useMemo(
+    () => libraryScanStatusList.filter((scanStatus) => libraryScanRunningStatuses.has(scanStatus.status)),
+    [libraryScanStatusList],
+  );
+  const libraryScanActiveJobIds = useMemo(
+    () => libraryScanRunningList.map((scanStatus) => scanStatus.id).sort(),
+    [libraryScanRunningList],
+  );
+  const libraryScanProgressTotal = libraryScanStatusList.reduce((total, scanStatus) => total + scanStatus.totalFiles, 0);
+  const libraryScanProgressDone = libraryScanStatusList.reduce((total, scanStatus) => total + scanStatus.processedFiles, 0);
+  const libraryScanProgressPercent =
+    libraryScanProgressTotal > 0 ? Math.max(0, Math.min(100, Math.round((libraryScanProgressDone / libraryScanProgressTotal) * 100))) : 0;
+  const libraryScanProgressMessage = formatLibraryScanProgressMessage(libraryScanStatusList);
+  const libraryScanHasVisibleProgress = libraryScanStatusList.length > 0 && (libraryScanRunningList.length > 0 || libraryScanMessage !== null);
+  const libraryScanActionDisabled = libraryScanBusy || libraryScanRunningList.length > 0;
 
   const settingsSearchEntries = useMemo(() => {
     const sectionEntries: Array<{
@@ -4771,6 +4833,41 @@ export const SettingsPage = (): JSX.Element => {
       void refreshDuplicateSummary();
     });
   }, [activeSection, refreshCacheInventory, refreshDuplicateSummary]);
+
+  useEffect(() => {
+    if (activeSection !== 'library') {
+      return undefined;
+    }
+
+    return subscribeLibraryScanStatuses(setLibraryScanStatuses);
+  }, [activeSection]);
+
+  useEffect(() => {
+    if (activeSection !== 'library' || libraryScanActiveJobIds.length === 0) {
+      return undefined;
+    }
+
+    const pollActiveScans = (): void => {
+      const library = getLibraryBridge();
+      if (!library?.getScanStatus) {
+        return;
+      }
+
+      for (const jobId of libraryScanActiveJobIds) {
+        void Promise.resolve(library.getScanStatus(jobId))
+          .then((status) => {
+            if (status) {
+              rememberLibraryScanStatus(status);
+            }
+          })
+          .catch(() => undefined);
+      }
+    };
+
+    pollActiveScans();
+    const timer = window.setInterval(pollActiveScans, 1000);
+    return () => window.clearInterval(timer);
+  }, [activeSection, libraryScanActiveJobIds]);
 
   useEffect(() => {
     if (activeSection !== 'about') {
@@ -7423,9 +7520,25 @@ export const SettingsPage = (): JSX.Element => {
         return;
       }
 
-      const scans = await Promise.all(folders.map((folder) => library.scanFolder(folder.id)));
+      const runningFolderIds = new Set(
+        Object.values(getLibraryScanStatuses())
+          .filter((status) => libraryScanRunningStatuses.has(status.status))
+          .map((status) => status.folderId),
+      );
+      const foldersToScan = folders.filter((folder) => !runningFolderIds.has(folder.id));
+
+      if (foldersToScan.length === 0) {
+        setLibraryScanMessage('曲库扫描已经在后台运行，下面会持续显示进度。');
+        return;
+      }
+
+      const scans = await Promise.all(foldersToScan.map((folder) => library.scanFolder(folder.id)));
       scans.forEach(rememberLibraryScanStatus);
-      setLibraryScanMessage(`已开始扫描 ${scans.length} 个曲库文件夹。`);
+      setLibraryScanMessage(
+        runningFolderIds.size > 0
+          ? `已加入 ${scans.length} 个曲库文件夹到扫描队列，已有 ${runningFolderIds.size} 个正在排队/运行。`
+          : `已加入 ${scans.length} 个曲库文件夹到扫描队列。`,
+      );
     } catch (scanError) {
       setLibraryScanMessage(null);
       setError(scanError instanceof Error ? scanError.message : String(scanError));
@@ -11472,14 +11585,40 @@ export const SettingsPage = (): JSX.Element => {
                       className="settings-action-button"
                       type="button"
                       onClick={() => void handleScanLibraryFolders()}
-                      disabled={libraryScanBusy}
+                      disabled={libraryScanActionDisabled}
                     >
-                      <RotateCw className={libraryScanBusy ? 'spinning-icon' : undefined} size={15} />
-                      {libraryScanBusy ? '扫描中...' : '扫描曲库'}
+                      <RotateCw className={libraryScanActionDisabled ? 'spinning-icon' : undefined} size={15} />
+                      {libraryScanActionDisabled ? '扫描队列中...' : '扫描曲库'}
                     </button>
                   </div>
                   {albumGroupingMessage ? <p className="settings-inline-note">{albumGroupingMessage}</p> : null}
                   {libraryScanMessage ? <p className="settings-inline-note">{libraryScanMessage}</p> : null}
+                  {libraryScanHasVisibleProgress ? (
+                    <div className="settings-update-progress settings-library-scan-progress" role="status" aria-live="polite">
+                      <div className="settings-update-progress-label">
+                        <strong>{libraryScanRunningList.length > 0 ? '曲库扫描进度' : '最近一次曲库扫描'}</strong>
+                        <span>
+                          {libraryScanProgressDone} / {libraryScanProgressTotal || '?'}
+                        </span>
+                      </div>
+                      <div
+                        className="settings-update-progress-track"
+                        role="progressbar"
+                        aria-label="曲库扫描进度"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={libraryScanProgressPercent}
+                        data-indeterminate={libraryScanProgressTotal === 0 ? 'true' : undefined}
+                      >
+                        <span style={{ width: `${libraryScanProgressTotal === 0 ? 35 : libraryScanProgressPercent}%` }} />
+                      </div>
+                      {libraryScanProgressMessage ? (
+                        <div className="settings-update-progress-meta">
+                          <span>{libraryScanProgressMessage}</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </SettingRow>
               <SettingRow

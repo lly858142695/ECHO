@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import { createDatabase } from '../database/createDatabase';
 import { migrations } from '../database/migrations';
 import { schemaMigrationTableSql } from '../database/schema';
+import { defaultSettings } from '../app/appSettings';
 import { MetadataService } from './MetadataService';
 import { createLibraryService } from './LibraryService';
 import { NetworkMetadataStore } from './network/NetworkMetadataStore';
@@ -2127,27 +2128,63 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
-  it('getTracks sorts mixed Chinese and Latin titles naturally before pagination', async () => {
-    const harness = createHarness();
-    const zFile = writeAudioFile(harness.folder, 'z.flac');
-    const aiFile = writeAudioFile(harness.folder, 'ai.flac');
-    const cFile = writeAudioFile(harness.folder, 'c.flac');
-    const buFile = writeAudioFile(harness.folder, 'bu.flac');
-    harness.metadataService.overrides.set(zFile, baseMetadata({ title: 'Zebra' }));
-    harness.metadataService.overrides.set(aiFile, baseMetadata({ title: '爱你' }));
-    harness.metadataService.overrides.set(cFile, baseMetadata({ title: 'Coffee' }));
-    harness.metadataService.overrides.set(buFile, baseMetadata({ title: '不如' }));
-    harness.addFolder();
+  it('getTracks title sorting pages directly from SQLite rows', () => {
+    const root = makeTempRoot();
+    const folder = join(root, 'music');
+    const databasePath = join(root, 'library.sqlite');
+    const coverCacheDir = join(root, 'cover-cache');
+    const database = createDatabase(databasePath);
+    const service = createLibraryService(databasePath, {
+      databaseConnection: {
+        id: 'title-sort-pagination-test',
+        serviceName: 'library-test',
+        databasePath,
+        database,
+        close: () => database.close(),
+      },
+      coverCacheDir,
+      appSettings: () => ({ ...defaultSettings, coverCacheDir }),
+    });
+    const now = new Date('2024-01-01T00:00:00.000Z').toISOString();
+    const fieldSources = JSON.stringify(baseMetadata().fieldSources);
+    const insertTrack = database.prepare<[string, string, string, string, string, string]>(
+      `INSERT INTO tracks (
+        id, path, folder_id, size_bytes, mtime_ms, title, artist, album, album_artist,
+        duration, field_sources_json, created_at, updated_at
+      ) VALUES (?, ?, 'folder-1', 1, 1, ?, 'Artist', 'Album', 'Artist', 180, ?, ?, ?)`,
+    );
 
-    await harness.scanFolder();
-    const ascending = harness.service.getTracks({ page: 1, pageSize: 3, sort: 'titleAsc' });
-    const descending = harness.service.getTracks({ page: 1, pageSize: 3, sort: 'titleDesc' });
+    try {
+      database.prepare<[string, string, string, string, string]>(
+        `INSERT INTO folders (id, path, name, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run('folder-1', folder, 'music', now, now);
 
-    expect(ascending.items.map((track) => track.title)).toEqual(['Coffee', 'Zebra', '爱你']);
-    expect(ascending.hasMore).toBe(true);
-    expect(descending.items.map((track) => track.title)).toEqual(['不如', '爱你', 'Zebra']);
-    expect(descending.hasMore).toBe(true);
-    harness.cleanup();
+      for (const [id, title] of [
+        ['track-z', 'Zebra'],
+        ['track-ai', '爱你'],
+        ['track-c', 'Coffee'],
+        ['track-bu', '不如'],
+      ] as const) {
+        insertTrack.run(id, join(folder, `${id}.flac`), title, fieldSources, now, now);
+      }
+
+      const ascending = service.getTracks({ page: 1, pageSize: 2, sort: 'titleAsc' });
+      const descending = service.getTracks({ page: 1, pageSize: 2, sort: 'titleDesc' });
+      const folderPage = service.getFolderTracks({ folderId: 'folder-1', path: folder, page: 1, pageSize: 2, sort: 'titleAsc' });
+
+      expect(ascending.items.map((track) => track.title)).toEqual(['Coffee', 'Zebra']);
+      expect(ascending.total).toBe(4);
+      expect(ascending.hasMore).toBe(true);
+      expect(descending.items.map((track) => track.title)).toEqual(['爱你', '不如']);
+      expect(descending.total).toBe(4);
+      expect(descending.hasMore).toBe(true);
+      expect(folderPage.items.map((track) => track.title)).toEqual(['Coffee', 'Zebra']);
+      expect(folderPage.total).toBe(4);
+      expect(folderPage.hasMore).toBe(true);
+    } finally {
+      service.close();
+    }
   });
 
   it('getTracks sorts by file modified time', async () => {

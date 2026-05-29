@@ -224,6 +224,19 @@ echo.sources.registerProvider('direct-url', { title: 'Direct URL Demo' }, {
 - 播放解析只接受 `http` / `https` URL；本地文件、任意文件系统访问、Node、Electron、SQLite、原生音频 host 不开放给插件。
 - 插件不应该把短时高频轮询放进 `search` 或 `resolvePlayback`；这些接口只在用户搜索或播放时调用。
 
+## Plugin API v2
+
+v2 在 v1 基础上补齐“安全的第三方 provider”能力，v1 插件继续兼容运行。
+
+- `apiVersion` 支持 `1` / `2`；v2 manifest 可声明 `minEchoVersion`，插件页会展示兼容状态。
+- `network` 权限在 v2 生效，但插件只能调用 `echo.net.fetchJson()` / `echo.net.fetchText()`；宿主只允许 `http/https`、`GET/POST`、有限 header、超时和 512 KB 响应上限。
+- `contributes.lyricsProviders` / `echo.lyrics.registerProvider()` 用于返回歌词候选；宿主决定是否展示、预览、应用或缓存。
+- `contributes.coverProviders` / `echo.covers.registerProvider()` 用于返回封面候选；候选必须是 `http/https` 图片 URL，宿主决定后续缓存和写库。
+- `contributes.settings` 是插件自有设置表单，支持 `string`、`select`、`boolean`、`number`、`secret`。v2 的 `echo.settings.get/getAll/set` 只读写插件命名空间，不再写应用全局 settings。
+- 插件包导入会记录 `origin`、`importedAt`、`packageVersion`、`checksum`；覆盖已有插件必须显式允许，并会保留旧目录备份以便回滚。
+
+v2 仍然不支持 DSP、解码器、输出设备、后台全库扫描、自动写库、Node、Electron、SQLite、任意文件系统或播放热路径 hook。
+
 ## 配额和保护
 
 - 插件启动脚本同步执行最多 1 秒。

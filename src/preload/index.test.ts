@@ -1415,6 +1415,10 @@ describe('preload SMTC API', () => {
     await exposedApi!.plugins.queryMetadata({ track: { title: 'Song' } });
     await exposedApi!.plugins.querySources({ query: 'Song' });
     await exposedApi!.plugins.resolveSourcePlayback({ pluginId: 'echo.source-provider', providerId: 'direct-url', providerTrackId: 'demo-stream' });
+    await exposedApi!.plugins.queryLyrics({ track: { title: 'Song' } });
+    await exposedApi!.plugins.queryCovers({ track: { title: 'Song' } });
+    await exposedApi!.plugins.getSettings('echo.playback-panel');
+    await exposedApi!.plugins.setSettings('echo.playback-panel', { mode: 'fast' });
     await exposedApi!.plugins.getLogs('echo.playback-panel');
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.PluginsList);
@@ -1439,6 +1443,10 @@ describe('preload SMTC API', () => {
       providerId: 'direct-url',
       providerTrackId: 'demo-stream',
     });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.PluginsQueryLyrics, { track: { title: 'Song' } });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.PluginsQueryCovers, { track: { title: 'Song' } });
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.PluginsGetSettings, 'echo.playback-panel');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.PluginsSetSettings, 'echo.playback-panel', { mode: 'fast' });
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.PluginsGetLogs, 'echo.playback-panel');
   });
 

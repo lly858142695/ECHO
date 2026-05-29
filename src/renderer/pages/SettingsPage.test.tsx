@@ -13,8 +13,9 @@ import {
   createRecommendedLocalShortcuts,
 } from '../../shared/types/globalShortcuts';
 import type { HqPlayerConnectionTestResult, HqPlayerSettings, HqPlayerStatus } from '../../shared/types/hqplayer';
-import type { LibraryDatabaseProtectionStatus } from '../../shared/types/library';
+import type { LibraryDatabaseProtectionStatus, LibraryScanStatus } from '../../shared/types/library';
 import type { MvSettings } from '../../shared/types/mv';
+import { resetLibraryScanSessionForTests } from '../stores/libraryScanSession';
 
 const settings: AppSettings = {
   appearanceTheme: 'light',
@@ -159,6 +160,9 @@ const getArtistImageJobStatusMock = vi.fn();
 const clearArtistOnlineInfoCacheMock = vi.fn();
 const previewDuplicateTrackCleanupMock = vi.fn();
 const applyDuplicateTrackCleanupMock = vi.fn();
+const getFoldersMock = vi.fn();
+const scanFolderMock = vi.fn();
+const getScanStatusMock = vi.fn();
 const startReplayGainAnalysisMock = vi.fn();
 const getReplayGainAnalysisStatusMock = vi.fn();
 const openPluginDirectoryMock = vi.fn();
@@ -370,6 +374,9 @@ vi.mock('../utils/echoBridge', () => ({
     }),
     previewDuplicateTrackCleanup: previewDuplicateTrackCleanupMock,
     applyDuplicateTrackCleanup: applyDuplicateTrackCleanupMock,
+    getFolders: getFoldersMock,
+    scanFolder: scanFolderMock,
+    getScanStatus: getScanStatusMock,
     refreshAlbumGrouping: vi.fn().mockResolvedValue({ songCount: 0, albumCount: 0, artistCount: 0, folderCount: 0, totalDuration: 0, lastScanAt: null }),
     startReplayGainAnalysis: startReplayGainAnalysisMock,
     getReplayGainAnalysisStatus: getReplayGainAnalysisStatusMock,
@@ -424,6 +431,7 @@ const setNavigatorPlatform = (platform: string, userAgent: string): void => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetLibraryScanSessionForTests();
   setNavigatorPlatform('Win32', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
   getDownloadSettingsMock.mockResolvedValue(downloadSettings);
   chooseDownloadOutputDirectoryMock.mockResolvedValue({ ...downloadSettings, outputDirectory: 'E:\\Music Downloads' });
@@ -583,6 +591,41 @@ beforeEach(() => {
       updatedAt: '',
     },
   });
+  getFoldersMock.mockResolvedValue([]);
+  scanFolderMock.mockImplementation(async (folderId: string): Promise<LibraryScanStatus> => ({
+    id: `scan-${folderId}`,
+    folderId,
+    status: 'queued',
+    phase: 'queued',
+    totalFiles: 0,
+    processedFiles: 0,
+    skippedFiles: 0,
+    addedTracks: 0,
+    updatedTracks: 0,
+    removedTracks: 0,
+    coverCount: 0,
+    errorCount: 0,
+    errors: [],
+    startedAt: null,
+    finishedAt: null,
+  }));
+  getScanStatusMock.mockImplementation(async (jobId: string): Promise<LibraryScanStatus> => ({
+    id: jobId,
+    folderId: jobId.replace(/^scan-/, ''),
+    status: 'completed',
+    phase: 'finished',
+    totalFiles: 0,
+    processedFiles: 0,
+    skippedFiles: 0,
+    addedTracks: 0,
+    updatedTracks: 0,
+    removedTracks: 0,
+    coverCount: 0,
+    errorCount: 0,
+    errors: [],
+    startedAt: '2026-05-29T00:00:00.000Z',
+    finishedAt: '2026-05-29T00:00:01.000Z',
+  }));
   startReplayGainAnalysisMock.mockResolvedValue({
     id: 'replay-gain-job',
     status: 'completed',
@@ -1454,6 +1497,64 @@ describe('SettingsPage', () => {
     fireEvent.click(fallbackToggle);
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ artistWallAlbumFallbackForMissingAvatars: true }));
+  });
+
+  it('starts library scans as queued jobs and shows aggregate progress in Settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    resetSettingsMock.mockResolvedValue(settings);
+    getFoldersMock.mockResolvedValue([
+      { id: 'folder-a', path: 'D:\\Music\\A', name: 'A', status: 'active', createdAt: '2026-05-29T00:00:00.000Z', updatedAt: '2026-05-29T00:00:00.000Z' },
+      { id: 'folder-b', path: 'D:\\Music\\B', name: 'B', status: 'active', createdAt: '2026-05-29T00:00:00.000Z', updatedAt: '2026-05-29T00:00:00.000Z' },
+    ]);
+    scanFolderMock.mockImplementation(async (folderId: string): Promise<LibraryScanStatus> => ({
+      id: `scan-${folderId}`,
+      folderId,
+      status: folderId === 'folder-a' ? 'running' : 'queued',
+      phase: folderId === 'folder-a' ? 'reading_metadata' : 'queued',
+      totalFiles: 100,
+      processedFiles: folderId === 'folder-a' ? 25 : 0,
+      skippedFiles: 3,
+      addedTracks: 0,
+      updatedTracks: 0,
+      removedTracks: 0,
+      coverCount: 0,
+      errorCount: 1,
+      errors: [],
+      startedAt: '2026-05-29T00:00:00.000Z',
+      finishedAt: null,
+    }));
+    getScanStatusMock.mockImplementation(async (jobId: string): Promise<LibraryScanStatus> => {
+      const folderId = jobId.replace(/^scan-/, '');
+      return {
+        id: jobId,
+        folderId,
+        status: folderId === 'folder-a' ? 'running' : 'queued',
+        phase: folderId === 'folder-a' ? 'reading_metadata' : 'queued',
+        totalFiles: 100,
+        processedFiles: folderId === 'folder-a' ? 25 : 0,
+        skippedFiles: 3,
+        addedTracks: 0,
+        updatedTracks: 0,
+        removedTracks: 0,
+        coverCount: 0,
+        errorCount: 1,
+        errors: [],
+        startedAt: '2026-05-29T00:00:00.000Z',
+        finishedAt: null,
+      };
+    });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.library\\.label');
+    fireEvent.click(screen.getByRole('button', { name: '扫描曲库' }));
+
+    await waitFor(() => expect(scanFolderMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('已加入 2 个曲库文件夹到扫描队列。')).toBeTruthy();
+    expect(await screen.findByText('曲库扫描进度')).toBeTruthy();
+    expect(screen.getByText(/扫描进度：25\/200，跳过 6，错误 2。当前 读取元数据/)).toBeTruthy();
   });
 
   it('starts missing artist avatar fetching immediately when automatic fetching is enabled', async () => {

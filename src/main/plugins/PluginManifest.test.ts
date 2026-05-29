@@ -2,21 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { normalizePluginManifest } from './PluginManifest';
 
 describe('plugin manifest validation', () => {
-  it('normalizes a valid editable local plugin manifest', () => {
+  it('normalizes a valid editable local plugin manifest with v2 contributions', () => {
     const manifest = normalizePluginManifest({
       id: 'Echo.Tools',
-      name: '工具插件',
+      name: 'Tools Plugin',
       version: '1.0.0',
-      apiVersion: 1,
+      apiVersion: 2,
+      minEchoVersion: '26.5.29',
       entry: 'plugin.js',
       panel: 'panel.html',
-      permissions: ['playback:read', 'network', 'network', 'unknown'],
+      permissions: ['playback:read', 'network', 'network'],
       contributes: {
-        commands: [{ id: 'Show_Status', title: '显示状态', description: '读取当前播放状态' }],
-        panels: [{ id: 'Main', title: '主面板', path: 'panel.html' }],
-        metadataProviders: [{ id: 'Online_Tags', title: '在线标签', description: '补充曲目信息' }],
-        sourceProviders: [{ id: 'Direct_Url', title: '直连音源', description: '用户自定义 URL' }],
-        settings: [{ id: 'Mode', title: '模式' }],
+        commands: [{ id: 'Show_Status', title: 'Show Status', description: 'Read current playback status' }],
+        panels: [{ id: 'Main', title: 'Main Panel', path: 'panel.html' }],
+        metadataProviders: [{ id: 'Online_Tags', title: 'Online Tags', description: 'Suggest metadata' }],
+        sourceProviders: [{ id: 'Direct_Url', title: 'Direct URL', description: 'User custom URL' }],
+        lyricsProviders: [{ id: 'Lyrics_Online', title: 'Lyrics Online' }],
+        coverProviders: [{ id: 'Cover_Online', title: 'Cover Online' }],
+        settings: [{ id: 'Mode', title: 'Mode', type: 'select', options: [{ label: 'A', value: 'a' }], defaultValue: 'a' }],
       },
     }, 'echo.tools');
 
@@ -24,13 +27,16 @@ describe('plugin manifest validation', () => {
       id: 'echo.tools',
       entry: 'plugin.js',
       panel: 'panel.html',
+      minEchoVersion: '26.5.29',
       permissions: ['playback:read', 'network'],
     });
-    expect(manifest.contributes?.commands?.[0]).toMatchObject({ id: 'show_status', title: '显示状态' });
+    expect(manifest.contributes?.commands?.[0]).toMatchObject({ id: 'show_status', title: 'Show Status' });
     expect(manifest.contributes?.panels?.[0]).toMatchObject({ id: 'main', path: 'panel.html' });
-    expect(manifest.contributes?.metadataProviders?.[0]).toMatchObject({ id: 'online_tags', title: '在线标签' });
-    expect(manifest.contributes?.sourceProviders?.[0]).toMatchObject({ id: 'direct_url', title: '直连音源' });
-    expect(manifest.contributes?.settings?.[0]).toMatchObject({ id: 'mode', title: '模式' });
+    expect(manifest.contributes?.metadataProviders?.[0]).toMatchObject({ id: 'online_tags', title: 'Online Tags' });
+    expect(manifest.contributes?.sourceProviders?.[0]).toMatchObject({ id: 'direct_url', title: 'Direct URL' });
+    expect(manifest.contributes?.lyricsProviders?.[0]).toMatchObject({ id: 'lyrics_online', title: 'Lyrics Online' });
+    expect(manifest.contributes?.coverProviders?.[0]).toMatchObject({ id: 'cover_online', title: 'Cover Online' });
+    expect(manifest.contributes?.settings?.[0]).toMatchObject({ id: 'mode', title: 'Mode', type: 'select', defaultValue: 'a' });
   });
 
   it('rejects paths outside the plugin folder and unsupported entry types', () => {
@@ -55,7 +61,7 @@ describe('plugin manifest validation', () => {
     ).toThrow('entry must be a .js file');
   });
 
-  it('marks invalid plugin ids and api versions as unusable instead of guessing', () => {
+  it('marks invalid plugin ids, api versions, and unknown permissions as unusable', () => {
     expect(() =>
       normalizePluginManifest({
         id: 'ECHO Plugin!',
@@ -72,6 +78,16 @@ describe('plugin manifest validation', () => {
         version: '1.0.0',
         apiVersion: 999,
       }),
-    ).toThrow('apiVersion must be between 1 and 1');
+    ).toThrow('apiVersion must be between 1 and 2');
+
+    expect(() =>
+      normalizePluginManifest({
+        id: 'echo.unknown-permission',
+        name: 'Unknown Permission',
+        version: '1.0.0',
+        apiVersion: 2,
+        permissions: ['network', 'unknown'],
+      }),
+    ).toThrow('unknown plugin permission:unknown');
   });
 });

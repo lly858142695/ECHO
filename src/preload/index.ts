@@ -2027,6 +2027,10 @@ const echoApi: EchoApi = {
     queryMetadata: (request) => ipcRenderer.invoke(IpcChannels.PluginsQueryMetadata, request),
     querySources: (request) => ipcRenderer.invoke(IpcChannels.PluginsQuerySources, request),
     resolveSourcePlayback: (request) => ipcRenderer.invoke(IpcChannels.PluginsResolveSourcePlayback, request),
+    queryLyrics: (request) => ipcRenderer.invoke(IpcChannels.PluginsQueryLyrics, request),
+    queryCovers: (request) => ipcRenderer.invoke(IpcChannels.PluginsQueryCovers, request),
+    getSettings: (pluginId) => ipcRenderer.invoke(IpcChannels.PluginsGetSettings, pluginId),
+    setSettings: (pluginId, patch) => ipcRenderer.invoke(IpcChannels.PluginsSetSettings, pluginId, patch),
     getLogs: (pluginId) => ipcRenderer.invoke(IpcChannels.PluginsGetLogs, pluginId),
   },
   accounts: {

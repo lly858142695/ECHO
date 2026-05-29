@@ -175,6 +175,7 @@ class ScanCancelledError extends Error {
 
 export class ScanJobQueue {
   private readonly runningJobs = new Map<string, Promise<void>>();
+  private scanJobTail: Promise<void> = Promise.resolve();
   private readonly metadataConcurrency: number;
   private readonly coverConcurrency: number;
   private readonly getAlbumMergeStrategy: () => AlbumMergeStrategy;
@@ -231,13 +232,7 @@ export class ScanJobQueue {
 
   scanFolder(folder: LibraryFolder, options: LibraryScanOptions = {}): LibraryScanStatus {
     const job = this.store.createScanJob(folder.id);
-    const run = this.runJob(job.id, folder, options.mode ?? 'normal', options.deferGroupingRefresh === true).finally(async () => {
-      this.runningJobs.delete(job.id);
-      this.notifyScanSettled(job.id);
-      await this.recoverPendingDatabaseFailure(job.id);
-    });
-
-    this.runningJobs.set(job.id, run);
+    this.enqueueScanJob(job.id, () => this.runJob(job.id, folder, options.mode ?? 'normal', options.deferGroupingRefresh === true));
 
     return job;
   }
@@ -248,26 +243,14 @@ export class ScanJobQueue {
     }
 
     const job = this.store.createScanJob(folder.id);
-    const run = this.runPathsJob(job.id, folder, paths, options.mode ?? 'normal', options.deferGroupingRefresh === true).finally(async () => {
-      this.runningJobs.delete(job.id);
-      this.notifyScanSettled(job.id);
-      await this.recoverPendingDatabaseFailure(job.id);
-    });
-
-    this.runningJobs.set(job.id, run);
+    this.enqueueScanJob(job.id, () => this.runPathsJob(job.id, folder, paths, options.mode ?? 'normal', options.deferGroupingRefresh === true));
 
     return job;
   }
 
   scanStoredTracks(folder: LibraryFolder, options: LibraryScanOptions = {}): LibraryScanStatus {
     const job = this.store.createScanJob(folder.id);
-    const run = this.runStoredTracksJob(job.id, folder, options.mode ?? 'normal', options.deferGroupingRefresh === true).finally(async () => {
-      this.runningJobs.delete(job.id);
-      this.notifyScanSettled(job.id);
-      await this.recoverPendingDatabaseFailure(job.id);
-    });
-
-    this.runningJobs.set(job.id, run);
+    this.enqueueScanJob(job.id, () => this.runStoredTracksJob(job.id, folder, options.mode ?? 'normal', options.deferGroupingRefresh === true));
 
     return job;
   }
@@ -299,6 +282,27 @@ export class ScanJobQueue {
 
   async waitForIdle(jobId: string): Promise<void> {
     await this.runningJobs.get(jobId);
+  }
+
+  private enqueueScanJob(jobId: string, runJob: () => Promise<void>): void {
+    const run = this.scanJobTail
+      .catch(() => undefined)
+      .then(async () => {
+        const current = this.store.getScanJob(jobId);
+        if (current?.status === 'cancelled') {
+          return;
+        }
+
+        await runJob();
+      })
+      .finally(async () => {
+        this.runningJobs.delete(jobId);
+        this.notifyScanSettled(jobId);
+        await this.recoverPendingDatabaseFailure(jobId);
+      });
+
+    this.runningJobs.set(jobId, run);
+    this.scanJobTail = run.catch(() => undefined);
   }
 
   private async runJob(jobId: string, folder: LibraryFolder, mode: LibraryScanMode, deferGroupingRefresh: boolean): Promise<void> {

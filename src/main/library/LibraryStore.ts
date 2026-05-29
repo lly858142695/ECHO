@@ -705,53 +705,6 @@ const sanitizeScanDirectorySnapshotEntries = (entries: readonly ScanDirectorySna
 
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value.length > 0 ? value : null);
 const numberOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
-const titleCollator = new Intl.Collator(['zh-Hans-u-co-pinyin', 'zh-Hant', 'ja', 'ko', 'en'], {
-  numeric: true,
-  sensitivity: 'base',
-});
-const latinLeadingPattern = /^[\s\p{P}\p{S}]*[\dA-Za-z]/u;
-const cjkLeadingPattern = /^[\s\p{P}\p{S}]*[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/u;
-
-const titleSortGroup = (value: unknown): number => {
-  const text = typeof value === 'string' ? value : '';
-  if (latinLeadingPattern.test(text)) {
-    return 0;
-  }
-  if (cjkLeadingPattern.test(text)) {
-    return 1;
-  }
-  return 2;
-};
-
-const compareNaturalTitleRows = (left: DbRow, right: DbRow): number => {
-  const leftGroup = titleSortGroup(left.title);
-  const rightGroup = titleSortGroup(right.title);
-  if (leftGroup !== rightGroup) {
-    return leftGroup - rightGroup;
-  }
-
-  const titleCompare = titleCollator.compare(String(left.title ?? ''), String(right.title ?? ''));
-  if (titleCompare !== 0) {
-    return titleCompare;
-  }
-
-  const artistCompare = titleCollator.compare(String(left.artist ?? ''), String(right.artist ?? ''));
-  if (artistCompare !== 0) {
-    return artistCompare;
-  }
-
-  return String(left.id ?? left.path ?? '').localeCompare(String(right.id ?? right.path ?? ''));
-};
-
-const isNaturalTitleSort = (sort: string): sort is 'titleAsc' | 'titleDesc' => sort === 'titleAsc' || sort === 'titleDesc';
-
-const applyNaturalTitleSortPage = <T extends DbRow>(rows: T[], sort: 'titleAsc' | 'titleDesc', offset: number, pageSize: number): T[] => {
-  const direction = sort === 'titleDesc' ? -1 : 1;
-  return [...rows]
-    .sort((left, right) => compareNaturalTitleRows(left, right) * direction)
-    .slice(offset, offset + pageSize);
-};
-
 const mostCommonMapKey = (counts: Map<string, number>): string | null => {
   let selected: string | null = null;
   let selectedCount = 0;
@@ -1489,16 +1442,14 @@ export class LibraryStore {
        ${whereSql}`;
     const orderSql = this.trackOrderSql(sort);
     const totalRow = this.getRow(`SELECT COUNT(*) AS total FROM tracks ${whereSql}`, ...params);
-    const rows = isNaturalTitleSort(sort)
-      ? applyNaturalTitleSortPage(this.allRows(selectSql, ...params), sort, offset, pageSize)
-      : this.allRows(
-          `${selectSql}
+    const rows = this.allRows(
+      `${selectSql}
        ${orderSql}
        LIMIT ? OFFSET ?`,
-          ...params,
-          pageSize,
-          offset,
-        );
+      ...params,
+      pageSize,
+      offset,
+    );
     const total = Number(totalRow?.total ?? 0);
 
     try {
@@ -4544,30 +4495,17 @@ export class LibraryStore {
               ),
             ).slice(0, pageSize);
           })()
-        : isNaturalTitleSort(sort)
-          ? applyNaturalTitleSortPage(
-              this.allRows(
-                `${unifiedTracksSql}
-      SELECT *
-      FROM library_tracks
-      ${mediaTypeWhereSql}`,
-                ...pageParams,
-              ),
-              sort,
-              offset,
-              pageSize,
-            )
-          : this.allRows(
-              `${unifiedTracksSql}
+        : this.allRows(
+            `${unifiedTracksSql}
       SELECT *
       FROM library_tracks
       ${mediaTypeWhereSql}
       ${orderSql}
       LIMIT ? OFFSET ?`,
-              ...pageParams,
-              pageSize,
-              offset,
-            );
+            ...pageParams,
+            pageSize,
+            offset,
+          );
 
     try {
       return {

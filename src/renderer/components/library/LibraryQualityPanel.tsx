@@ -117,11 +117,34 @@ export const LibraryQualityPanel = ({ networkMetadataEnabled = false }: LibraryQ
   );
 
   useEffect(() => {
-    void refreshOverview();
+    let cancelled = false;
+    let idleId: number | null = null;
+    let timeoutId: number | null = null;
+    const refreshWhenIdle = (): void => {
+      if (!cancelled) {
+        void refreshOverview();
+      }
+    };
+
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(refreshWhenIdle, { timeout: 1500 });
+    } else {
+      timeoutId = window.setTimeout(refreshWhenIdle, 250);
+    }
+
     const unsubscribe = getLibraryBridge()?.onLibraryChanged?.(() => {
       void refreshOverview();
     });
-    return () => unsubscribe?.();
+    return () => {
+      cancelled = true;
+      if (idleId !== null && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+      unsubscribe?.();
+    };
   }, [refreshOverview]);
 
   const handleSelectKind = useCallback(
@@ -139,10 +162,13 @@ export const LibraryQualityPanel = ({ networkMetadataEnabled = false }: LibraryQ
   const handleToggleExpanded = useCallback((): void => {
     const nextExpanded = !expanded;
     setExpanded(nextExpanded);
+    if (nextExpanded && overview.length === 0 && !overviewBusy) {
+      void refreshOverview();
+    }
     if (nextExpanded && issuePage.items.length === 0 && issuePage.total === 0) {
       void loadIssues(selectedKind, 1);
     }
-  }, [expanded, issuePage.items.length, issuePage.total, loadIssues, selectedKind]);
+  }, [expanded, issuePage.items.length, issuePage.total, loadIssues, overview.length, overviewBusy, refreshOverview, selectedKind]);
 
   const handleOpenTrack = useCallback(async (trackId: string): Promise<void> => {
     const library = getLibraryBridge();

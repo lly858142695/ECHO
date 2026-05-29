@@ -450,6 +450,27 @@ describe('TsMetadataReader parser fallbacks', () => {
     expect(result.fieldSources.artist).toBe('embedded');
   });
 
+  it('strips track sort prefixes from filename fallback titles', async () => {
+    parseFileMock.mockResolvedValue(emptyMetadata({
+      format: {
+        duration: 180,
+        codec: 'FLAC',
+      },
+    }));
+
+    const reader = new TsMetadataReader();
+    const dotted = await reader.read('D:\\Music\\05. 緊張.flac');
+    const dashed = await reader.read('D:\\Music\\02-月夕引.flac');
+    const artistTitle = await reader.read('D:\\Music\\Album Artist - 09. 愛憎.flac');
+    const realNumberTitle = await reader.read('D:\\Music\\RADWIMPS - 05410-(ん).flac');
+
+    expect(dotted.fields.title).toBe('緊張');
+    expect(dashed.fields.title).toBe('月夕引');
+    expect(artistTitle.fields.artist).toBe('Album Artist');
+    expect(artistTitle.fields.title).toBe('愛憎');
+    expect(realNumberTitle.fields.title).toBe('05410-(ん)');
+  });
+
   it('uses native container tags when common metadata mapping is sparse', async () => {
     parseFileMock.mockResolvedValue(emptyMetadata({
       native: {

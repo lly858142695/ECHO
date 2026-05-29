@@ -8,6 +8,7 @@ import type {
   PluginPanelBridgeRequest,
   PluginPanelBridgeResponse,
   PluginPermission,
+  PluginSettingsPatch,
   PluginSummary,
 } from '../../shared/types/plugins';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -147,6 +148,22 @@ const SecurityOverview = ({ plugin }: { plugin: PluginSummary }): JSX.Element =>
           <Code2 size={16} />
           {plugin.security.sourceProviderCount} 个音源 provider
         </span>
+        <span>
+          <Code2 size={16} />
+          API v{plugin.apiVersion}{plugin.compatibility.minEchoVersion ? ` / min ${plugin.compatibility.minEchoVersion}` : ''}
+        </span>
+        <span data-risk={plugin.security.networkEnabled ? 'high' : 'low'}>
+          <LockKeyhole size={16} />
+          {plugin.security.networkEnabled ? 'Network API enabled' : 'Network API off'}
+        </span>
+        <span>
+          <Code2 size={16} />
+          {plugin.security.lyricsProviderCount} lyrics / {plugin.security.coverProviderCount} cover providers
+        </span>
+        <span>
+          <Code2 size={16} />
+          {plugin.security.settingCount} plugin settings
+        </span>
       </div>
       <PermissionList plugin={plugin} />
     </section>
@@ -198,6 +215,7 @@ export const PluginsPage = (): JSX.Element => {
   const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [settingsDraft, setSettingsDraft] = useState<PluginSettingsPatch>({});
 
   const selectedPlugin = useMemo(
     () => plugins.find((plugin) => plugin.id === selectedPluginId) ?? plugins[0] ?? null,
@@ -228,6 +246,17 @@ export const PluginsPage = (): JSX.Element => {
   useEffect(() => {
     void refreshLogs(selectedPlugin?.id).catch(() => undefined);
   }, [refreshLogs, selectedPlugin?.id]);
+
+  useEffect(() => {
+    if (!pluginsApi || !selectedPlugin) {
+      setSettingsDraft({});
+      return;
+    }
+    setSettingsDraft(selectedPlugin.settingsValues ?? {});
+    void pluginsApi.getSettings?.(selectedPlugin.id)
+      .then((result) => setSettingsDraft(result.values))
+      .catch(() => undefined);
+  }, [pluginsApi, selectedPlugin]);
 
   const runAction = useCallback(
     async (key: string, action: () => Promise<unknown>, success: string): Promise<void> => {
@@ -330,6 +359,20 @@ export const PluginsPage = (): JSX.Element => {
       `command:${plugin.id}:${commandId}`,
       () => pluginsApi.runCommand({ pluginId: plugin.id, commandId }),
       '命令已执行，详情可查看日志。',
+    );
+  };
+
+  const handleSavePluginSettings = (plugin: PluginSummary): void => {
+    if (!pluginsApi?.setSettings) {
+      return;
+    }
+    void runAction(
+      `settings:${plugin.id}`,
+      async () => {
+        const result = await pluginsApi.setSettings(plugin.id, settingsDraft);
+        setSettingsDraft(result.values);
+      },
+      '插件设置已保存。',
     );
   };
 
@@ -495,6 +538,59 @@ export const PluginsPage = (): JSX.Element => {
 
               <SecurityOverview plugin={selectedPlugin} />
               <ActivityOverview plugin={selectedPlugin} />
+
+              {selectedPlugin.contributes.settings && selectedPlugin.contributes.settings.length > 0 ? (
+                <section className="plugin-activity-panel">
+                  <header>
+                    <Code2 size={17} />
+                    <strong>Plugin settings</strong>
+                  </header>
+                  <div className="plugin-settings-list">
+                    {selectedPlugin.contributes.settings.map((setting) => {
+                      const value = settingsDraft[setting.id] ?? setting.defaultValue ?? (setting.type === 'boolean' ? false : '');
+                      return (
+                        <label className="plugin-setting-row" key={setting.id}>
+                          <span>
+                            <strong>{setting.title}</strong>
+                            <em>{setting.description ?? setting.id}</em>
+                          </span>
+                          {setting.type === 'boolean' ? (
+                            <input
+                              type="checkbox"
+                              checked={value === true}
+                              onChange={(event) => setSettingsDraft((current) => ({ ...current, [setting.id]: event.target.checked }))}
+                            />
+                          ) : setting.type === 'select' ? (
+                            <select
+                              value={typeof value === 'string' ? value : ''}
+                              onChange={(event) => setSettingsDraft((current) => ({ ...current, [setting.id]: event.target.value }))}
+                            >
+                              {(setting.options ?? []).map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type={setting.type === 'number' ? 'number' : setting.type === 'secret' ? 'password' : 'text'}
+                              min={setting.min}
+                              max={setting.max}
+                              placeholder={setting.placeholder}
+                              value={typeof value === 'number' || typeof value === 'string' ? value : ''}
+                              onChange={(event) => setSettingsDraft((current) => ({
+                                ...current,
+                                [setting.id]: setting.type === 'number' ? Number(event.target.value) : event.target.value,
+                              }))}
+                            />
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <button className="settings-action-button" type="button" disabled={busyAction === `settings:${selectedPlugin.id}`} onClick={() => handleSavePluginSettings(selectedPlugin)}>
+                    Save settings
+                  </button>
+                </section>
+              ) : null}
 
               <div className="plugin-actions">
                 {selectedPlugin.enabled ? (
