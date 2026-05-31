@@ -96,6 +96,11 @@ export const createMainWindow = (): BrowserWindow => {
       window.webContents.send(IpcChannels.AppWindowFullscreenChanged, window.isFullScreen());
     }
   };
+  const toggleFullscreenFromShortcut = (): void => {
+    if (!window.isDestroyed()) {
+      window.setFullScreen(!window.isFullScreen());
+    }
+  };
 
   window.webContents.on('console-message', (details) => {
     recordRendererConsoleMessage(details);
@@ -124,6 +129,12 @@ export const createMainWindow = (): BrowserWindow => {
       stack: error.stack,
       sourceId: preloadPath,
     });
+  });
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F11') {
+      event.preventDefault();
+      toggleFullscreenFromShortcut();
+    }
   });
 
   const scheduleRememberSize = (): void => {

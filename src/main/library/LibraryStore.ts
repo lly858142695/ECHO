@@ -6220,6 +6220,10 @@ export class LibraryStore {
         throw new Error('Streaming track provider and providerTrackId are required');
       }
 
+      if (playlist.sourceProvider === 'local' || playlist.kind === 'manual' || playlist.sourceProvider !== provider) {
+        throw new Error('Streaming tracks cannot be added to local or unrelated playlists. Manage them inside their source streaming playlist.');
+      }
+
       const itemId = randomUUID();
       const nextPosition = Number(this.getRow('SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM playlist_items WHERE playlist_id = ?', playlistId)?.next_position ?? 0);
       this.run(
@@ -6309,6 +6313,10 @@ export class LibraryStore {
       const playlist = this.getPlaylist(playlistId);
       if (!playlist) {
         throw new Error(`Unknown playlist ${playlistId}`);
+      }
+
+      if (playlist.sourceProvider !== 'local') {
+        throw new Error('Local tracks cannot be added to streaming playlists. Keep local and streaming playlists separate.');
       }
 
       const items: LibraryPlaylistItem[] = [];

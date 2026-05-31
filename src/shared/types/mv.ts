@@ -42,6 +42,7 @@ export type MvSettings = {
   immersiveBackgroundBrightnessPercent?: number;
   immersiveBackgroundOverlayOpacityPercent?: number;
   lyricsReadabilityEnhanced?: boolean;
+  hideLyrics?: boolean;
   restartAudioOnLoad: boolean;
   syncMode?: MvSyncMode;
   replayAudioOnChange?: boolean;

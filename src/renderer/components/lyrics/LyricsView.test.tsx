@@ -16,6 +16,10 @@ const makeRect = (top: number, height: number): DOMRect => ({
   toJSON: () => ({}),
 });
 
+const setLayoutNumber = (element: HTMLElement, property: 'clientHeight' | 'scrollHeight' | 'offsetHeight' | 'offsetTop', value: number): void => {
+  Object.defineProperty(element, property, { configurable: true, value });
+};
+
 const lyrics: LyricsState = {
   kind: 'synced',
   source: 'placeholder',
@@ -368,6 +372,122 @@ describe('LyricsView', () => {
     expect(frames.size).toBe(0);
   });
 
+  it('centers from layout coordinates so line transform transitions do not change the target', () => {
+    let frameId = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frameId += 1;
+      frames.set(frameId, callback);
+      return frameId;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(id);
+    });
+
+    const { container } = render(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={lyrics}
+        playbackState="paused"
+        positionMs={1000}
+        onSeek={vi.fn()}
+      />,
+    );
+    const scrollContainer = container.querySelector('.lyrics-scroll') as HTMLElement;
+    const activeLine = container.querySelector('.lyrics-line[data-active="true"]') as HTMLButtonElement;
+
+    setLayoutNumber(scrollContainer, 'clientHeight', 200);
+    setLayoutNumber(scrollContainer, 'scrollHeight', 1000);
+    setLayoutNumber(activeLine, 'offsetTop', 300);
+    setLayoutNumber(activeLine, 'offsetHeight', 40);
+    scrollContainer.getBoundingClientRect = vi.fn(() => makeRect(0, 200));
+    activeLine.getBoundingClientRect = vi.fn(() => makeRect(820, 40));
+
+    act(() => {
+      for (const [id, callback] of Array.from(frames.entries())) {
+        frames.delete(id);
+        callback(16);
+      }
+    });
+
+    expect(scrollContainer.scrollTop).toBe(216);
+    expect(frames.size).toBe(0);
+  });
+
+  it('recenters immediately when the lyric set changes but the active index stays the same', async () => {
+    let frameId = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frameId += 1;
+      frames.set(frameId, callback);
+      return frameId;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(id);
+    });
+    const nextLyrics: LyricsState = {
+      ...lyrics,
+      lines: [
+        { timeMs: 0, text: 'New first line' },
+        { timeMs: 1000, text: 'New second line' },
+        { timeMs: 2000, text: 'New third line' },
+      ],
+    };
+
+    const { container, rerender } = render(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={lyrics}
+        playbackState="paused"
+        positionMs={1000}
+        onSeek={vi.fn()}
+      />,
+    );
+    const scrollContainer = container.querySelector('.lyrics-scroll') as HTMLElement;
+    setLayoutNumber(scrollContainer, 'clientHeight', 200);
+    setLayoutNumber(scrollContainer, 'scrollHeight', 1000);
+
+    let activeLine = container.querySelector('.lyrics-line[data-active="true"]') as HTMLButtonElement;
+    setLayoutNumber(activeLine, 'offsetTop', 300);
+    setLayoutNumber(activeLine, 'offsetHeight', 40);
+    act(() => {
+      for (const [id, callback] of Array.from(frames.entries())) {
+        frames.delete(id);
+        callback(16);
+      }
+    });
+    scrollContainer.scrollTop = 620;
+
+    rerender(
+      <LyricsView
+        durationMs={3000}
+        hideEmptyState={false}
+        lyrics={nextLyrics}
+        playbackState="paused"
+        positionMs={1000}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(frames.size).toBeGreaterThan(0));
+    activeLine = container.querySelector('.lyrics-line[data-active="true"]') as HTMLButtonElement;
+    setLayoutNumber(activeLine, 'offsetTop', 300);
+    setLayoutNumber(activeLine, 'offsetHeight', 40);
+
+    act(() => {
+      for (const [id, callback] of Array.from(frames.entries())) {
+        frames.delete(id);
+        callback(32);
+      }
+    });
+
+    expect(container.querySelector('.lyrics-line[data-active="true"]')?.textContent).toContain('New second line');
+    expect(scrollContainer.scrollTop).toBe(216);
+    expect(frames.size).toBe(0);
+  });
+
   it('preserves the active lyric screen position when display settings change', () => {
     let frameId = 0;
     const frames = new Map<number, FrameRequestCallback>();
@@ -443,6 +563,14 @@ describe('LyricsView', () => {
     Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: 1200 });
     scrollContainer.getBoundingClientRect = vi.fn(() => makeRect(0, 400));
     activeLine.getBoundingClientRect = vi.fn(() => makeRect(activeTop, 42));
+    scrollContainer.scrollTop = 120;
+
+    act(() => {
+      for (const [id, callback] of Array.from(frames.entries())) {
+        frames.delete(id);
+        callback(16);
+      }
+    });
     scrollContainer.scrollTop = 120;
 
     act(() => {

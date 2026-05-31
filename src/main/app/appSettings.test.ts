@@ -179,6 +179,7 @@ describe('app settings normalization', () => {
     expect(settings.mvImmersiveBackgroundBrightnessPercent).toBe(100);
     expect(settings.mvImmersiveBackgroundOverlayOpacityPercent).toBe(0);
     expect(settings.mvLyricsReadabilityEnhanced).toBe(false);
+    expect(settings.mvHideLyrics).toBe(false);
     expect(settings.mvMaxQuality).toBe('max');
     expect(settings.mvAllow60fps).toBe(true);
     expect(settings.homeWaveformVisualizerEnabled).toBe(true);
@@ -1578,6 +1579,7 @@ describe('app settings normalization', () => {
         mvImmersiveBackgroundBrightnessPercent: 118,
         mvImmersiveBackgroundOverlayOpacityPercent: 42,
         mvLyricsReadabilityEnhanced: true,
+        mvHideLyrics: true,
         mvReplayAudioOnChange: false,
         mvMaxQuality: 'max',
         mvAllow60fps: false,
@@ -1597,6 +1599,7 @@ describe('app settings normalization', () => {
       mvImmersiveBackgroundBrightnessPercent: 118,
       mvImmersiveBackgroundOverlayOpacityPercent: 42,
       mvLyricsReadabilityEnhanced: true,
+      mvHideLyrics: true,
       mvReplayAudioOnChange: false,
       mvMaxQuality: 'max',
       mvAllow60fps: false,
@@ -1613,6 +1616,7 @@ describe('app settings normalization', () => {
         mvImmersiveBackgroundBrightnessPercent: 12,
         mvImmersiveBackgroundOverlayOpacityPercent: -10,
         mvLyricsReadabilityEnhanced: 'yes' as never,
+        mvHideLyrics: 'yes' as never,
         mvPreferHighestViewCount: 'yes' as never,
       }),
     ).toMatchObject({
@@ -1627,6 +1631,7 @@ describe('app settings normalization', () => {
       mvImmersiveBackgroundBrightnessPercent: 60,
       mvImmersiveBackgroundOverlayOpacityPercent: 0,
       mvLyricsReadabilityEnhanced: false,
+      mvHideLyrics: false,
       mvReplayAudioOnChange: true,
       mvMaxQuality: 'max',
       mvAllow60fps: true,

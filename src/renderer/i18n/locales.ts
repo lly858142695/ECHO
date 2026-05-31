@@ -1597,6 +1597,8 @@ export type TranslationKey =
   | 'mvSettings.immersive.brightness'
   | 'mvSettings.immersive.description'
   | 'mvSettings.immersive.dragHint'
+  | 'mvSettings.immersive.hideLyrics'
+  | 'mvSettings.immersive.hideLyricsDescription'
   | 'mvSettings.immersive.lyricsReadability'
   | 'mvSettings.immersive.lyricsReadabilityDescription'
   | 'mvSettings.immersive.overlay'
@@ -4398,6 +4400,8 @@ const zhCN: TranslationMap = {
   'mvSettings.immersive.brightness': '背景亮度',
   'mvSettings.immersive.description': '开启后，歌词页使用当前 MV 作为背景。',
   'mvSettings.immersive.dragHint': '也可以在歌词页空白处拖动调整。',
+  'mvSettings.immersive.hideLyrics': 'MV 界面隐藏歌词',
+  'mvSettings.immersive.hideLyricsDescription': '开启后，切到 MV 界面时不显示歌词文本；默认关闭。',
   'mvSettings.immersive.lyricsReadability': '歌词可读性增强',
   'mvSettings.immersive.lyricsReadabilityDescription': '为沉浸式 MV 上的歌词增加描边和投影。',
   'mvSettings.immersive.overlay': '暗色遮罩',
@@ -4616,7 +4620,7 @@ const zhCN: TranslationMap = {
   'settings.appearance.font.chinese.title': '中文字体',
   'settings.appearance.font.fallback.description': '界面字体的第三组备用，优先级最低，用于继续补齐缺失字符。',
   'settings.appearance.font.fallback.title': '备用字体',
-  'settings.appearance.font.main.description': 'ECHO 默认使用 Outfit；也可以输入任意已安装字体名称。',
+  'settings.appearance.font.main.description': 'ECHO 默认使用内置 Monocraft 与站酷快乐体；也可以输入任意已安装字体名称。',
   'settings.appearance.font.main.title': '主字体',
   'settings.appearance.fontSize.description': '调整全局界面的基础字号。',
   'settings.appearance.fontSize.title': '基础字号',
@@ -4625,7 +4629,7 @@ const zhCN: TranslationMap = {
   'settings.appearance.nowPlayingCoverColor.title': '播放界面封面取色',
   'settings.appearance.nowPlayingCoverColor.description': '开启后，正在播放页会在空闲时从小封面抽样生成轻量背景；低负载模式会自动跳过。默认关闭。',
   'settings.appearance.reset.action': '恢复默认',
-  'settings.appearance.reset.description': '恢复 Outfit、默认中文字体、备用字体、字号、行距与文字深浅。',
+  'settings.appearance.reset.description': '恢复 Monocraft、站酷快乐体、字号、行距与文字深浅。',
   'settings.appearance.reset.title': '外观默认值',
   'settings.appearance.sidebar.title': '左侧栏',
   'settings.appearance.sidebar.description': '调整左侧入口的顺序和显示状态，不会改动页面或播放链路。',
@@ -7117,6 +7121,8 @@ const zhTW: TranslationMap = {
   'mvSettings.immersive.brightness': '背景亮度',
   'mvSettings.immersive.description': '開啟後，歌詞頁使用目前 MV 作為背景。',
   'mvSettings.immersive.dragHint': '也可以在歌詞頁空白處拖動調整。',
+  'mvSettings.immersive.hideLyrics': 'MV 介面隱藏歌詞',
+  'mvSettings.immersive.hideLyricsDescription': '開啟後，切到 MV 介面時不顯示歌詞文字；預設關閉。',
   'mvSettings.immersive.lyricsReadability': '歌詞可讀性增強',
   'mvSettings.immersive.lyricsReadabilityDescription': '為沉浸式 MV 上的歌詞增加描邊和投影。',
   'mvSettings.immersive.overlay': '暗色遮罩',
@@ -9676,6 +9682,8 @@ const jaJP: TranslationMap = {
   'mvSettings.immersive.brightness': '背景の明るさ',
   'mvSettings.immersive.description': 'オンにすると、歌詞ページで現在の MV を背景として使います。',
   'mvSettings.immersive.dragHint': '歌詞ページの空き領域をドラッグして調整できます。',
+  'mvSettings.immersive.hideLyrics': 'MV 画面で歌詞を隠す',
+  'mvSettings.immersive.hideLyricsDescription': 'オンにすると、MV 画面では歌詞テキストを表示しません。既定ではオフです。',
   'mvSettings.immersive.lyricsReadability': '歌詞の読みやすさを強化',
   'mvSettings.immersive.lyricsReadabilityDescription': '没入型 MV 上の歌詞にアウトラインと影を追加します。',
   'mvSettings.immersive.overlay': '暗色オーバーレイ',
@@ -12301,6 +12309,8 @@ const enUS: TranslationMap = {
   'mvSettings.immersive.brightness': 'Background brightness',
   'mvSettings.immersive.description': 'Use the current MV as the lyrics page background.',
   'mvSettings.immersive.dragHint': 'Drag empty space on the lyrics page to fine tune it.',
+  'mvSettings.immersive.hideLyrics': 'Hide lyrics in MV view',
+  'mvSettings.immersive.hideLyricsDescription': 'When enabled, lyrics text is hidden while the MV view is open. Off by default.',
   'mvSettings.immersive.lyricsReadability': 'Lyrics readability boost',
   'mvSettings.immersive.lyricsReadabilityDescription': 'Adds outline and shadow to lyrics over immersive MV.',
   'mvSettings.immersive.overlay': 'Dark overlay',
@@ -13457,14 +13467,14 @@ const enUS: TranslationMap = {
   'settings.appearance.font.chinese.title': 'Chinese Font',
   'settings.appearance.font.fallback.description': 'The third and lowest-priority interface font group, used to continue filling missing glyphs.',
   'settings.appearance.font.fallback.title': 'Fallback Font',
-  'settings.appearance.font.main.description': 'ECHO uses Outfit by default. You can enter any installed font family.',
+  'settings.appearance.font.main.description': 'ECHO uses bundled Monocraft and ZCOOL Happy by default. You can enter any installed font family.',
   'settings.appearance.font.main.title': 'Main Font',
   'settings.appearance.fontSize.description': 'Adjust the base size used by the interface.',
   'settings.appearance.fontSize.title': 'Base Font Size',
   'settings.appearance.lineHeight.description': 'Adjust default UI text spacing for denser or airier reading.',
   'settings.appearance.lineHeight.title': 'Interface Line Height',
   'settings.appearance.reset.action': 'Reset',
-  'settings.appearance.reset.description': 'Restore Outfit, default Chinese and fallback fonts, base size, line height, and text depth.',
+  'settings.appearance.reset.description': 'Restore Monocraft, ZCOOL Happy, base size, line height, and text depth.',
   'settings.appearance.reset.title': 'Appearance Defaults',
   'settings.appearance.textDepth.description': 'Adjust interface text darkness. Lower values make text lighter.',
   'settings.appearance.textDepth.title': 'Text Depth',

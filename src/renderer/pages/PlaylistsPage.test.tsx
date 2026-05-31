@@ -928,6 +928,29 @@ describe('PlaylistsPage actions menu', () => {
     await waitFor(() => expect(openTrackWithSystem).toHaveBeenCalledWith('track-1'));
   });
 
+  it('removes a song from the selected playlist from the track context menu', async () => {
+    const removePlaylistItem = vi.fn().mockResolvedValue(undefined);
+    window.echo = {
+      library: {
+        getPlaylists: vi.fn().mockResolvedValue([playlist()]),
+        getPlaylistItems: vi.fn().mockResolvedValueOnce(page([item()])).mockResolvedValue(page([])),
+        getLikedTrackIds: vi.fn().mockResolvedValue({}),
+        removePlaylistItem,
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({ state: 'idle', currentTrackId: null, positionMs: 0, durationMs: 0, filePath: null }),
+      },
+    } as unknown as Window['echo'];
+
+    renderPlaylistsPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open menu for Song One' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from playlist' }));
+
+    await waitFor(() => expect(removePlaylistItem).toHaveBeenCalledWith('item-1'));
+    expect(await screen.findByText('已从歌单移除：Song One')).toBeTruthy();
+  });
+
   it('refreshes a remote playlist by re-importing its source playlist', async () => {
     const remotePlaylist = playlist({
       sourceProvider: 'qqmusic',

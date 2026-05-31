@@ -856,11 +856,92 @@ describe('Library Core', () => {
     harness.cleanup();
   }, 20000);
 
+  it('rejects manually adding streaming tracks to local playlists', () => {
+    const harness = createHarness();
+    const playlist = harness.service.createPlaylist({ name: 'Local Mix' });
+
+    expect(() =>
+      harness.service.addStreamingTrackToPlaylist(playlist.id, {
+        id: 'streaming:netease:123',
+        provider: 'netease',
+        providerTrackId: '123',
+        stableKey: 'streaming:netease:123',
+        title: 'Cloud Song',
+        artist: 'Cloud Artist',
+        album: 'Cloud Album',
+        duration: 180,
+        unavailable: false,
+      }),
+    ).toThrow(/Streaming tracks cannot be added to local/i);
+    expect(harness.service.getPlaylistItems(playlist.id, { pageSize: 10 }).total).toBe(0);
+    harness.cleanup();
+  });
+
+  it('rejects adding local tracks to synced streaming playlists', async () => {
+    const harness = createHarness();
+    const filePath = writeAudioFile(harness.folder, 'Local Only.flac');
+    harness.metadataService.overrides.set(filePath, baseMetadata({ title: 'Local Only' }));
+    harness.addFolder();
+    await harness.scanFolder();
+    const [track] = harness.service.getTracks({ pageSize: 1 }).items;
+    const streamingPlaylistId = 'streaming-playlist-local-block';
+    const database = createDatabase(harness.databasePath);
+    database
+      .prepare(
+        `INSERT INTO playlists (
+          id, name, description, kind, source_provider, source_playlist_id,
+          cover_id, sort_mode, item_count, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        streamingPlaylistId,
+        'Streaming Mix',
+        null,
+        'synced',
+        'netease',
+        'provider-playlist-local-block',
+        null,
+        'manual',
+        0,
+        '2026-05-18T00:00:00.000Z',
+        '2026-05-18T00:00:00.000Z',
+      );
+    database.close();
+
+    expect(() => harness.service.addTrackToPlaylist(streamingPlaylistId, track.id)).toThrow(/Local tracks cannot be added to streaming playlists/i);
+    expect(harness.service.getPlaylistItems(streamingPlaylistId, { pageSize: 10 }).total).toBe(0);
+    harness.cleanup();
+  });
+
   it('switches matching streaming playlist items to the downloaded local track', async () => {
     const harness = createHarness();
     const filePath = writeAudioFile(harness.folder, 'Downloaded Stream.flac');
-    const playlist = harness.service.createPlaylist({ name: 'Streaming Mix' });
-    const streamingItem = harness.service.addStreamingTrackToPlaylist(playlist.id, {
+    const streamingPlaylistId = 'streaming-playlist-1';
+    const database = createDatabase(harness.databasePath);
+    database
+      .prepare(
+        `INSERT INTO playlists (
+          id, name, description, kind, source_provider, source_playlist_id,
+          cover_id, sort_mode, item_count, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        streamingPlaylistId,
+        'Streaming Mix',
+        null,
+        'synced',
+        'netease',
+        'provider-playlist-1',
+        null,
+        'manual',
+        0,
+        '2026-05-18T00:00:00.000Z',
+        '2026-05-18T00:00:00.000Z',
+      );
+    database.close();
+    const playlist = harness.service.getPlaylist(streamingPlaylistId);
+    expect(playlist).not.toBeNull();
+    const streamingItem = harness.service.addStreamingTrackToPlaylist(playlist!.id, {
       id: 'streaming:netease:123',
       provider: 'netease',
       providerTrackId: '123',
@@ -880,7 +961,7 @@ describe('Library Core', () => {
       stableKey: 'streaming:netease:123',
       trackId: localTrack.id,
     });
-    const [linkedItem] = harness.service.getPlaylistItems(playlist.id, { pageSize: 10 }).items;
+    const [linkedItem] = harness.service.getPlaylistItems(playlist!.id, { pageSize: 10 }).items;
 
     expect(result.updatedItems).toBe(1);
     expect(linkedItem.id).toBe(streamingItem.id);

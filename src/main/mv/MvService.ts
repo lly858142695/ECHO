@@ -586,6 +586,10 @@ const normalizeSettingsPatch = (patch: Partial<MvSettings>): Partial<MvSettings>
     normalized.lyricsReadabilityEnhanced = patch.lyricsReadabilityEnhanced;
   }
 
+  if (typeof patch.hideLyrics === 'boolean') {
+    normalized.hideLyrics = patch.hideLyrics;
+  }
+
   if (typeof patch.restartAudioOnLoad === 'boolean') {
     normalized.restartAudioOnLoad = patch.restartAudioOnLoad;
   }
@@ -617,6 +621,7 @@ const appSettingsToMvSettings = (): MvSettings => {
     immersiveBackgroundBrightnessPercent: normalizePercent(settings.mvImmersiveBackgroundBrightnessPercent, 100, 60, 140),
     immersiveBackgroundOverlayOpacityPercent: normalizePercent(settings.mvImmersiveBackgroundOverlayOpacityPercent, 0, 0, 100),
     lyricsReadabilityEnhanced: settings.mvLyricsReadabilityEnhanced === true,
+    hideLyrics: settings.mvHideLyrics === true,
     restartAudioOnLoad: settings.mvRestartAudioOnLoad === true,
     syncMode: settings.mvSyncMode ?? 'balanced',
     replayAudioOnChange: settings.mvReplayAudioOnChange !== false,
@@ -724,6 +729,9 @@ export class MvService {
     }
     if (typeof normalized.lyricsReadabilityEnhanced === 'boolean') {
       appSettingsPatch.mvLyricsReadabilityEnhanced = normalized.lyricsReadabilityEnhanced;
+    }
+    if (typeof normalized.hideLyrics === 'boolean') {
+      appSettingsPatch.mvHideLyrics = normalized.hideLyrics;
     }
     if (typeof normalized.restartAudioOnLoad === 'boolean') {
       appSettingsPatch.mvRestartAudioOnLoad = normalized.restartAudioOnLoad;

@@ -1060,6 +1060,15 @@ const pickLyricsReadabilityEnhanced = (value: unknown): boolean | null => {
     : null;
 };
 
+const pickMvHideLyrics = (value: unknown): boolean | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const patch = value as Partial<MvSettings>;
+  return typeof patch.hideLyrics === "boolean" ? patch.hideLyrics : null;
+};
+
 const getCurrentDocumentThemeMode = (): "light" | "dark" =>
   typeof document !== "undefined" && document.documentElement.dataset.theme === "dark"
     ? "dark"
@@ -1248,6 +1257,7 @@ const useLyricsDisplayPosition = (
           nativeBufferedMs <= lyricsClockUnderrunBufferThresholdMs
         )
       );
+    const sourceClockNeedsBridge = nativeClockLooksStale || sourceClockLooksStalled;
     const seekAnchor = seekAnchorRef.current;
     if (seekAnchor) {
       if (seekAnchor.trackId && currentTrackId && seekAnchor.trackId !== currentTrackId) {
@@ -1270,9 +1280,7 @@ const useLyricsDisplayPosition = (
       }
     }
 
-    const shouldTrustReportedClock = nativeClockLooksStale || sourceClockLooksStalled;
-
-    if (!seekAnchorRef.current && samePlayback && !stateChanged && state === "playing" && !shouldTrustReportedClock) {
+    if (!seekAnchorRef.current && samePlayback && !stateChanged && state === "playing") {
       const mediaElapsedSeconds = wallElapsedSeconds * previous.playbackRate;
       const estimatedPositionSeconds = Math.min(previous.positionSeconds + mediaElapsedSeconds, durationLimit);
       const sourceJumpedBackward = boundedSourcePosition + 1 < previous.sourcePositionSeconds;
@@ -1288,6 +1296,8 @@ const useLyricsDisplayPosition = (
       const canIgnoreStaleForwardJump = canBridgeSourceLag && sourceJumpedForward && Math.abs(previous.playbackRate - 1) > 0.001;
 
       if (rateChangeSourceDiscontinuity) {
+        nextPositionSeconds = estimatedPositionSeconds;
+      } else if (sourceClockNeedsBridge && !sourceJumpedForward) {
         nextPositionSeconds = estimatedPositionSeconds;
       } else if (canIgnoreStaleRegression) {
         nextPositionSeconds = estimatedPositionSeconds;
@@ -1315,7 +1325,7 @@ const useLyricsDisplayPosition = (
       durationSeconds: sourceDurationSeconds,
       playbackRate,
       positionSeconds: nextPositionSeconds,
-      state: shouldTrustReportedClock ? "paused" : state,
+      state,
       updatedAtMs,
     });
   }, [
@@ -1415,6 +1425,7 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
   const [lyricsViewMode, setLyricsViewModeState] =
     useState<LyricsViewMode>(() => readRememberedLyricsViewMode());
   const [lyricsReadabilityEnhanced, setLyricsReadabilityEnhanced] = useState(false);
+  const [mvHideLyrics, setMvHideLyrics] = useState(false);
   const [imageReadableSample, setImageReadableSample] = useState<ReadableColorSample | null>(null);
   const [mvReadableSample, setMvReadableSample] = useState<ReadableColorSample | null>(null);
   const [documentThemeMode, setDocumentThemeMode] = useState<"light" | "dark">(getCurrentDocumentThemeMode);
@@ -2482,11 +2493,12 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
   useEffect(() => {
     let isCancelled = false;
 
-    const loadLyricsReadabilityEnhanced = async (): Promise<void> => {
+    const loadMvDisplaySettings = async (): Promise<void> => {
       try {
         const nextSettings = await window.echo?.mv?.getSettings?.();
         if (!isCancelled && nextSettings) {
           setLyricsReadabilityEnhanced(nextSettings.lyricsReadabilityEnhanced === true);
+          setMvHideLyrics(nextSettings.hideLyrics === true);
         }
       } catch {
         // Keep the last known value when the MV bridge is unavailable.
@@ -2494,18 +2506,25 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
     };
 
     const handleSettingsChanged = (event: Event): void => {
-      const nextValue = pickLyricsReadabilityEnhanced(getSettingsEventDetailObject(event));
-      if (nextValue !== null) {
-        setLyricsReadabilityEnhanced(nextValue);
+      const detail = getSettingsEventDetailObject(event);
+      const nextReadabilityValue = pickLyricsReadabilityEnhanced(detail);
+      const nextHideLyricsValue = pickMvHideLyrics(detail);
+      if (nextReadabilityValue !== null || nextHideLyricsValue !== null) {
+        if (nextReadabilityValue !== null) {
+          setLyricsReadabilityEnhanced(nextReadabilityValue);
+        }
+        if (nextHideLyricsValue !== null) {
+          setMvHideLyrics(nextHideLyricsValue);
+        }
         return;
       }
 
       if (!isExplicitObjectSettingsPatch(event)) {
-        void loadLyricsReadabilityEnhanced();
+        void loadMvDisplaySettings();
       }
     };
 
-    void loadLyricsReadabilityEnhanced();
+    void loadMvDisplaySettings();
     window.addEventListener("settings:changed", handleSettingsChanged);
     return () => {
       isCancelled = true;
@@ -4122,6 +4141,8 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
     visibleCandidates,
   ]);
 
+  const shouldHideLyricsInMv = lyricsViewMode === "mv" && mvHideLyrics;
+
   if (!currentTrack && !filePath && !trackId) {
     return (
       <div className="lyrics-page lyrics-page--empty">
@@ -4157,6 +4178,7 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
       data-album-transition={isAlbumNavigating ? "true" : undefined}
       data-custom-lrc-dragging={isCustomLyricsDragging}
       data-view-mode={lyricsViewMode}
+      data-mv-lyrics-hidden={shouldHideLyricsInMv ? "true" : undefined}
       data-airplay-receiver={isCurrentAirPlayReceiverTrack ? "true" : undefined}
       data-window-maximized={isWindowMaximized}
       style={lyricsPageStyle}
@@ -4278,10 +4300,10 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
           </header>
         )}
 
-        {lyricsControls}
-        {lyricsOffsetControls}
-        {lyricsDisplaySettings.lyricsOffsetControlsEnabled ? lyricsSmartAlignmentControls : null}
-        {lyricsDisplaySettings.lyricsEnabled ? (
+        {shouldHideLyricsInMv ? null : lyricsControls}
+        {shouldHideLyricsInMv ? null : lyricsOffsetControls}
+        {!shouldHideLyricsInMv && lyricsDisplaySettings.lyricsOffsetControlsEnabled ? lyricsSmartAlignmentControls : null}
+        {lyricsDisplaySettings.lyricsEnabled && !shouldHideLyricsInMv ? (
           <LyricsView
             durationMs={displayDurationSeconds * 1000}
             hideEmptyState={lyricsDisplaySettings.lyricsEmptyStateHidden && !isCurrentAirPlayReceiverTrack}

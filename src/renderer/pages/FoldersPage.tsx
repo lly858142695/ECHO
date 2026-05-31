@@ -72,6 +72,7 @@ type FolderTarget = {
 
 type TrackMenuState = {
   track: LibraryTrack;
+  tracks: LibraryTrack[];
   position: { x: number; y: number };
 };
 
@@ -536,6 +537,7 @@ export const FoldersPage = (): JSX.Element => {
   const [loadingChildren, setLoadingChildren] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<FolderTarget | null>(null);
   const [tracks, setTracks] = useState<LibraryTrack[]>([]);
+  const [selectedTrackIds, setSelectedTrackIds] = useState<Record<string, boolean>>({});
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const { search, searchInputProps } = useImeAwareDebouncedSearch(220);
@@ -684,8 +686,16 @@ export const FoldersPage = (): JSX.Element => {
     [selectedRemote],
   );
   const activeTracks = mode === 'remote' ? remoteTracks : tracks;
+  const selectedTracks = useMemo(
+    () => activeTracks.filter((track) => selectedTrackIds[track.id] === true && !track.unavailable),
+    [activeTracks, selectedTrackIds],
+  );
 
   useEffect(() => subscribeLibraryScanStatuses(setScanStatuses), []);
+
+  useEffect(() => {
+    setSelectedTrackIds({});
+  }, [mode, recursive, search, selected?.folderId, selected?.path, selectedRemote?.sourceId, selectedRemote?.path, sort]);
 
   const refreshOverviews = useCallback(async (): Promise<void> => {
     const library = window.echo?.library;
@@ -1565,6 +1575,7 @@ export const FoldersPage = (): JSX.Element => {
       }
 
       try {
+        setSelectedTrackIds({});
         if (mode === 'remote' && track.mediaType === 'remote') {
           setRemoteLoadingTrackId(track.id);
         }
@@ -1583,13 +1594,35 @@ export const FoldersPage = (): JSX.Element => {
     [activeTracks, folderSource, mode, playTrack, remoteSource, t],
   );
 
-  const handleOpenTrackMenu = useCallback((track: LibraryTrack, position: { x: number; y: number }): void => {
-    setTrackMenu({ track, position });
+  const handleToggleTrackSelected = useCallback((track: LibraryTrack): void => {
+    if (track.unavailable) {
+      return;
+    }
+
+    setSelectedTrackIds((current) => {
+      const next = { ...current };
+      if (next[track.id]) {
+        delete next[track.id];
+      } else {
+        next[track.id] = true;
+      }
+
+      return next;
+    });
   }, []);
+
+  const handleOpenTrackMenu = useCallback((track: LibraryTrack, position: { x: number; y: number }): void => {
+    const menuTracks = selectedTrackIds[track.id] && selectedTracks.length > 1 ? selectedTracks : [track];
+    if (menuTracks.length === 1) {
+      setSelectedTrackIds(track.unavailable ? {} : { [track.id]: true });
+    }
+    setTrackMenu({ track, tracks: menuTracks, position });
+  }, [selectedTrackIds, selectedTracks]);
 
   const handleTrackMenuAction = useCallback(
     async (action: TrackMenuAction, track: LibraryTrack, playlistTarget?: LibraryPlaylist): Promise<void> => {
       const library = window.echo?.library;
+      const actionTracks = trackMenu?.track.id === track.id ? trackMenu.tracks.filter((item) => !item.unavailable) : [track];
       setTrackMenu(null);
 
       if (action === 'clear-lyrics-cache') {
@@ -1602,7 +1635,7 @@ export const FoldersPage = (): JSX.Element => {
         try {
           setError(null);
           setMessage(null);
-          await lyricsApi.clearCache(track.id);
+          await Promise.all(actionTracks.map((item) => lyricsApi.clearCache(item.id)));
           window.dispatchEvent(new CustomEvent('lyrics:rematch-requested', { detail: { trackId: track.id } }));
           setMessage(`已清理歌词缓存：${track.title}`);
         } catch (actionError) {
@@ -1639,7 +1672,7 @@ export const FoldersPage = (): JSX.Element => {
             {
               const queueSource = mode === 'remote' ? remoteSource : folderSource;
               if (queueSource) {
-                playTrackNext(track, queueSource);
+                actionTracks.forEach((item) => playTrackNext(item, queueSource));
               }
             }
             return;
@@ -1647,18 +1680,22 @@ export const FoldersPage = (): JSX.Element => {
             {
               const queueSource = mode === 'remote' ? remoteSource : folderSource;
               if (queueSource) {
-                appendToQueue(track, queueSource);
+                if (actionTracks.length > 1) {
+                  appendTracksToQueue(actionTracks, queueSource);
+                } else {
+                  appendToQueue(track, queueSource);
+                }
               }
             }
             return;
           case 'toggle-liked':
-            await library?.toggleTrackLiked(track.id);
+            await Promise.all(actionTracks.map((item) => library?.toggleTrackLiked(item.id)));
             window.dispatchEvent(new Event('liked:tracks-changed'));
             window.dispatchEvent(new Event('liked:changed'));
             return;
           case 'remove-from-queue':
             {
-              const removedCount = removeTrackFromQueue(track.id);
+              const removedCount = actionTracks.reduce((total, item) => total + removeTrackFromQueue(item.id), 0);
               setMessage(
                 removedCount > 0
                   ? `已从播放队列移除：${track.title}`
@@ -1729,12 +1766,22 @@ export const FoldersPage = (): JSX.Element => {
             return;
           case 'add-to-playlist':
             {
+              const playlistTracks = actionTracks.filter((item) => item.mediaType !== 'streaming');
+              if (playlistTracks.length === 0) {
+                setError('流媒体歌曲不能加入本地歌单，请在流媒体歌单中单独管理。');
+                return;
+              }
+
               const playlist = playlistTarget ?? (await resolvePlaylistForTrackAdd(library!));
               if (!playlist) {
                 return;
               }
 
-              await library!.addTrackToPlaylist(playlist.id, track.id);
+              if (playlistTracks.length > 1) {
+                await library!.addTracksToPlaylist(playlist.id, playlistTracks.map((item) => item.id));
+              } else {
+                await Promise.all(playlistTracks.map((item) => library!.addTrackToPlaylist(playlist.id, item.id)));
+              }
               window.dispatchEvent(new Event('library:playlists-changed'));
               setMessage(t('folders.message.addedToPlaylist', { name: playlist.name }));
             }
@@ -1746,7 +1793,7 @@ export const FoldersPage = (): JSX.Element => {
         setError(formatFolderError(actionError, t));
       }
     },
-    [appendToQueue, editingTrack, folderSource, mode, playTrackNext, refreshOverviews, remoteSource, removeTrackFromQueue, t],
+    [appendToQueue, appendTracksToQueue, editingTrack, folderSource, mode, playTrackNext, refreshOverviews, remoteSource, removeTrackFromQueue, t, trackMenu],
   );
 
   const closeTagEditor = useCallback((): void => {
@@ -2200,6 +2247,8 @@ export const FoldersPage = (): JSX.Element => {
               appendToQueue(track, queueSource);
             }
           }}
+          selectedTrackIds={selectedTrackIds}
+          onToggleSelected={handleToggleTrackSelected}
           onEndReached={handleLoadMore}
           onOpenTrackMenu={handleOpenTrackMenu}
           onPlay={(track) => void handlePlayTrack(track)}
@@ -2353,6 +2402,7 @@ export const FoldersPage = (): JSX.Element => {
         <TrackContextMenu
           track={trackMenu.track}
           position={trackMenu.position}
+          selectionCount={trackMenu.tracks.length}
           onAction={(action, track, playlist) => void handleTrackMenuAction(action, track, playlist)}
           onClose={() => setTrackMenu(null)}
         />

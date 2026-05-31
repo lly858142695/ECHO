@@ -21,6 +21,7 @@ const appSettingsMock = vi.hoisted(() => {
     mvImmersiveBackgroundScalePercent: 115,
     mvImmersiveBackgroundOffsetXPercent: 50,
     mvImmersiveBackgroundOffsetYPercent: 50,
+    mvHideLyrics: false,
     mvMaxQuality: 'max',
     mvAllow60fps: true,
   };
@@ -891,6 +892,14 @@ describe('MvService', () => {
 
     await expect(service.searchNetworkCandidates(track.id)).resolves.toEqual([]);
     expect(provider.search).not.toHaveBeenCalled();
+  });
+
+  it('persists the MV lyrics visibility setting', () => {
+    const { service } = createHarness();
+
+    expect(service.getSettings().hideLyrics).toBe(false);
+    expect(service.setSettings({ hideLyrics: true }).hideLyrics).toBe(true);
+    expect(appSettingsMock.current.mvHideLyrics).toBe(true);
   });
 
   it('does not reset MV rows when network candidate persistence hits a database error', async () => {

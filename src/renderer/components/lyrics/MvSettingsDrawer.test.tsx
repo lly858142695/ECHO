@@ -245,6 +245,16 @@ describe('MvSettingsDrawer', () => {
     expect(engineMeter.queryByText('Network')).toBeNull();
   });
 
+  it('can hide lyrics only while the MV view is open', async () => {
+    renderDrawer({ ...defaultMvSettings, hideLyrics: false });
+
+    const hideLyricsToggle = (await screen.findByText('Hide lyrics in MV view')).closest('button');
+    expect(hideLyricsToggle).toBeTruthy();
+    fireEvent.click(hideLyricsToggle!);
+
+    await waitFor(() => expect(window.echo.mv.setSettings).toHaveBeenCalledWith({ hideLyrics: true }));
+  });
+
   it('prefers the resolved video dimensions over a stale resolution quality label', async () => {
     renderDrawer(defaultMvSettings, {
       ...makeVideo(),

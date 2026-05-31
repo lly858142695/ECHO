@@ -5,6 +5,7 @@ export const IpcChannels = {
   AppWindowIsMaximized: 'app:window-is-maximized',
   AppWindowMaximizedChanged: 'app:window-maximized-changed',
   AppWindowToggleFullscreen: 'app:window-toggle-fullscreen',
+  AppWindowTriggerFullscreenShortcut: 'app:window-trigger-fullscreen-shortcut',
   AppWindowIsFullscreen: 'app:window-is-fullscreen',
   AppWindowFullscreenChanged: 'app:window-fullscreen-changed',
   AppWindowClose: 'app:window-close',

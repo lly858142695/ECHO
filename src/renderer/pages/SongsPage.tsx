@@ -70,6 +70,7 @@ const songsHideDuplicatesStorageKey = 'echo-next.songs.hide-duplicates';
 const validSortValues = new Set<LibrarySort>(sortOptions.map((option) => option.value));
 const scanPollIntervalMs = 500;
 const finishedScanStatuses = new Set<LibraryScanStatus['status']>(['completed', 'cancelled', 'failed']);
+const streamingPlaylistSeparationMessage = '流媒体歌曲不能加入本地歌单，请在流媒体歌单中单独管理。';
 const scanPhaseLabels: Record<LibraryScanStatus['phase'], string> = {
   queued: '排队中',
   discovering: '发现音乐文件',
@@ -1083,6 +1084,13 @@ export const SongsPage = (): JSX.Element => {
       return;
     }
 
+    const localTracks = uniqueTracks.filter((item) => item.mediaType !== 'streaming');
+    const skippedStreamingCount = uniqueTracks.length - localTracks.length;
+    if (localTracks.length === 0) {
+      setError(streamingPlaylistSeparationMessage);
+      return;
+    }
+
     try {
       setError(null);
       const playlist = playlistTarget ?? (await resolveTargetLocalPlaylist());
@@ -1090,15 +1098,7 @@ export const SongsPage = (): JSX.Element => {
         return;
       }
 
-      const localTrackIds: string[] = [];
-      const streamingTracks: LibraryTrack[] = [];
-      for (const item of uniqueTracks) {
-        if (item.mediaType === 'streaming' && item.provider && item.providerTrackId) {
-          streamingTracks.push(item);
-        } else {
-          localTrackIds.push(item.id);
-        }
-      }
+      const localTrackIds = localTracks.map((item) => item.id);
 
       if (localTrackIds.length > 0) {
         if (library.addTracksToPlaylist) {
@@ -1107,9 +1107,11 @@ export const SongsPage = (): JSX.Element => {
           await Promise.all(localTrackIds.map((trackId) => library.addTrackToPlaylist(playlist.id, trackId)));
         }
       }
-      await Promise.all(streamingTracks.map((item) => library.addStreamingTrackToPlaylist(playlist.id, item)));
       window.dispatchEvent(new Event('library:playlists-changed'));
       setStatusMessage(`已加入歌单：${playlist.name}（${uniqueTracks.length} 首）`);
+      if (skippedStreamingCount > 0) {
+        setStatusMessage(`已加入歌单：${playlist.name}（${localTrackIds.length} 首；已跳过 ${skippedStreamingCount} 首流媒体）`);
+      }
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : String(actionError));
     }

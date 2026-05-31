@@ -1405,6 +1405,7 @@ const echoApi: EchoApi = {
       return () => ipcRenderer.off(IpcChannels.AppWindowMaximizedChanged, listener);
     },
     toggleFullscreen: () => ipcRenderer.invoke(IpcChannels.AppWindowToggleFullscreen),
+    triggerFullscreenShortcut: () => ipcRenderer.invoke(IpcChannels.AppWindowTriggerFullscreenShortcut),
     isFullscreen: () => ipcRenderer.invoke(IpcChannels.AppWindowIsFullscreen),
     onFullscreenChange: (handler) => {
       const listener = (_event: Electron.IpcRendererEvent, isFullscreen: unknown): void => {

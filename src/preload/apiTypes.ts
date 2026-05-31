@@ -278,6 +278,7 @@ export type EchoApi = {
     isMaximized: () => Promise<boolean>;
     onMaximizedChange: (handler: (isMaximized: boolean) => void) => () => void;
     toggleFullscreen: () => Promise<void>;
+    triggerFullscreenShortcut: () => Promise<void>;
     isFullscreen: () => Promise<boolean>;
     onFullscreenChange: (handler: (isFullscreen: boolean) => void) => () => void;
     close: () => Promise<void>;

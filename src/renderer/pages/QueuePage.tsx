@@ -742,6 +742,11 @@ export const QueuePage = (): JSX.Element => {
             return;
           case 'add-to-playlist':
             {
+              if (track.mediaType === 'streaming') {
+                setActionError('流媒体歌曲不能加入本地歌单，请在流媒体歌单中单独管理。');
+                return;
+              }
+
               const playlist = playlistTarget ?? (await resolvePlaylistForTrackAdd(library!));
               if (!playlist) {
                 return;

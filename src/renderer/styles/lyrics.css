@@ -1790,6 +1790,7 @@ html[data-theme="dark"] .mv-offset-buttons button:hover {
 }
 
 .lyrics-scroll {
+  position: relative;
   display: flex;
   width: min(100%, 1040px);
   box-sizing: border-box;

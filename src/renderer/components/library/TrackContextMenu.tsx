@@ -164,6 +164,7 @@ export const TrackContextMenu = ({ track, position, liked = false, selectionCoun
 
   const isBatch = selectionCount > 1;
   const isLocalFileTrack = !track.mediaType || track.mediaType === 'local';
+  const isStreamingTrack = track.mediaType === 'streaming';
   const enabledActionSet = enabledActions ? new Set(enabledActions) : null;
   const allItems: MenuItem[] = [
     { action: 'add-to-playlist', labelKey: 'trackMenu.action.addToPlaylist', icon: Plus },
@@ -188,6 +189,10 @@ export const TrackContextMenu = ({ track, position, liked = false, selectionCoun
   const items = allItems.filter((item) => {
     if (enabledActionSet && !enabledActionSet.has(item.action)) {
       return false;
+    }
+
+    if (item.action === 'add-to-playlist') {
+      return !isStreamingTrack;
     }
 
     if (item.action === 'remove-from-playlist') {

@@ -244,6 +244,7 @@ const installEcho = (tracks: LibraryTrack[] = []) => {
       createPlaylist: vi.fn(),
       addTrackToPlaylist: vi.fn().mockResolvedValue({ id: 'playlist-item-1' }),
       addTracksToPlaylist: vi.fn().mockResolvedValue([{ id: 'playlist-item-1' }]),
+      addStreamingTrackToPlaylist: vi.fn().mockResolvedValue({ id: 'playlist-item-streaming' }),
       pruneInvalidTracks: vi.fn().mockResolvedValue({
         scannedCount: tracks.length,
         removedCount: 0,
@@ -508,6 +509,31 @@ describe('SongsPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /添加到歌单\s*Song One/ }));
 
     await waitFor(() => expect(window.echo.library.addTracksToPlaylist).toHaveBeenCalledWith('playlist-1', ['track-1']));
+  });
+
+  it('keeps streaming tracks out of local playlist add flows', async () => {
+    const streamingTrack = makeTrack({
+      id: 'streaming:netease:200',
+      mediaType: 'streaming',
+      path: 'streaming:netease:200',
+      provider: 'netease',
+      providerTrackId: '200',
+      stableKey: 'streaming:netease:200',
+      title: 'Cloud Song',
+    });
+    installEcho([streamingTrack]);
+
+    await renderSongsPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /添加到歌单\s*Cloud Song/ }));
+
+    await waitFor(() => expect(screen.getByText('流媒体歌曲不能加入本地歌单，请在流媒体歌单中单独管理。')).toBeTruthy());
+    expect(window.echo.library.addTracksToPlaylist).not.toHaveBeenCalled();
+    expect(window.echo.library.addStreamingTrackToPlaylist).not.toHaveBeenCalled();
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Cloud Song' }), { clientX: 240, clientY: 180 });
+
+    expect(screen.queryByRole('menuitem', { name: /加入歌单|Add to playlist|加入播放清單|プレイリストに追加/u })).toBeNull();
   });
 
   it('uses the app playlist picker instead of window.prompt when multiple playlists exist', async () => {

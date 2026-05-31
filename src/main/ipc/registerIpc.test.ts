@@ -494,6 +494,18 @@ describe('app IPC cover cache directory', () => {
     expect(window.setFullScreen).toHaveBeenCalledWith(true);
   });
 
+  it('toggles fullscreen through the fullscreen shortcut trigger', () => {
+    const window = {
+      isFullScreen: vi.fn(() => false),
+      setFullScreen: vi.fn(),
+    };
+    fromWebContentsMock.mockReturnValue(window);
+
+    handlers[IpcChannels.AppWindowTriggerFullscreenShortcut]!({ sender: {} });
+
+    expect(window.setFullScreen).toHaveBeenCalledWith(true);
+  });
+
   it('reports the current fullscreen state for custom window controls', () => {
     const window = {
       isFullScreen: vi.fn(() => true),

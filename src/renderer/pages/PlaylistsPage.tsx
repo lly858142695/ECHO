@@ -2241,16 +2241,17 @@ export const PlaylistsPage = (): JSX.Element => {
                 return;
               }
 
+              if (track.mediaType === 'streaming') {
+                setError('流媒体歌曲不能加入本地歌单，请在流媒体歌单中单独管理。');
+                return;
+              }
+
               const playlist = playlistTarget ?? (await resolvePlaylistForTrackAdd(library));
               if (!playlist) {
                 return;
               }
 
-              if (track.mediaType === 'streaming' && track.provider && track.providerTrackId) {
-                await library.addStreamingTrackToPlaylist(playlist.id, track);
-              } else {
-                await library.addTrackToPlaylist(playlist.id, track.id);
-              }
+              await library.addTrackToPlaylist(playlist.id, track.id);
               window.dispatchEvent(new Event('library:playlists-changed'));
               setStatusMessage(`已加入歌单：${playlist.name}`);
             }

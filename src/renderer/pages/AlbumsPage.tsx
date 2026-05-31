@@ -454,14 +454,10 @@ export const AlbumsPage = (): JSX.Element => {
               }
 
               const tracks = await getAllAlbumTracks(album.id);
-              const localTrackIds: string[] = [];
-              const streamingTracks: LibraryTrack[] = [];
-              for (const track of tracks) {
-                if (track.mediaType === 'streaming' && track.provider && track.providerTrackId) {
-                  streamingTracks.push(track);
-                } else {
-                  localTrackIds.push(track.id);
-                }
+              const localTrackIds = tracks.filter((track) => track.mediaType !== 'streaming').map((track) => track.id);
+              if (localTrackIds.length === 0) {
+                setError('流媒体歌曲不能加入本地歌单，请在流媒体歌单中单独管理。');
+                return;
               }
 
               if (localTrackIds.length > 0) {
@@ -471,7 +467,6 @@ export const AlbumsPage = (): JSX.Element => {
                   await Promise.all(localTrackIds.map((trackId) => library.addTrackToPlaylist(playlist.id, trackId)));
                 }
               }
-              await Promise.all(streamingTracks.map((track) => library.addStreamingTrackToPlaylist(playlist.id, track)));
               window.dispatchEvent(new Event('library:playlists-changed'));
             }
             return;

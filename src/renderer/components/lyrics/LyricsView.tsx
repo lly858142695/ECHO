@@ -275,6 +275,19 @@ const calculateActiveIndex = (
       ? getEstimatedPlainLyricIndex(lines, positionMs, durationMs)
       : -1;
 
+const getActiveLineLayoutCenter = (
+  scrollContainer: HTMLElement,
+  activeLine: HTMLButtonElement,
+): number => {
+  if (activeLine.offsetHeight > 0) {
+    return activeLine.offsetTop + activeLine.offsetHeight / 2;
+  }
+
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const activeRect = activeLine.getBoundingClientRect();
+  return activeRect.top - containerRect.top + scrollContainer.scrollTop + activeRect.height / 2;
+};
+
 type ActiveWordElementCache = {
   activeLine: HTMLButtonElement;
   lineKey: string;
@@ -300,6 +313,7 @@ export const LyricsView = ({
   const t = useOptionalI18n()?.t ?? translateFallback;
   const scrollRef = useRef<HTMLElement | null>(null);
   const scrollAnimationFrameRef = useRef<number | null>(null);
+  const scrollAnimationVersionRef = useRef(0);
   const activeCenterFrameRef = useRef<number | null>(null);
   const layoutPreserveFrameRef = useRef<number | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
@@ -321,9 +335,13 @@ export const LyricsView = ({
     ),
   );
   const lastCenteredActiveIndexRef = useRef(activeIndex);
+  const hasCenteredActiveLyricRef = useRef(false);
+  const lastLyricsLinesRef = useRef(lyrics.lines);
+  const [centerRevision, setCenterRevision] = useState(0);
   activeIndexRef.current = activeIndex;
 
   const stopScrollAnimation = useCallback((): void => {
+    scrollAnimationVersionRef.current += 1;
     if (scrollAnimationFrameRef.current !== null) {
       cancelLyricAnimationFrame(scrollAnimationFrameRef.current);
       scrollAnimationFrameRef.current = null;
@@ -471,6 +489,7 @@ export const LyricsView = ({
   const animateScrollTop = useCallback(
     (scrollContainer: HTMLElement, targetTop: number, durationMs: number): void => {
       stopScrollAnimation();
+      const animationVersion = scrollAnimationVersionRef.current;
 
       const startTop = scrollContainer.scrollTop;
       const distance = targetTop - startTop;
@@ -481,6 +500,10 @@ export const LyricsView = ({
 
       const startedAt = getAnimationNow();
       const tick = (now: number): void => {
+        if (animationVersion !== scrollAnimationVersionRef.current || scrollRef.current !== scrollContainer) {
+          return;
+        }
+
         const elapsed = now - startedAt;
         const progress = Math.min(1, elapsed / durationMs);
         scrollContainer.scrollTop = startTop + distance * easeInOutCubic(progress);
@@ -499,20 +522,18 @@ export const LyricsView = ({
     [stopScrollAnimation],
   );
 
-  const centerActiveLyric = useCallback((mode: LyricScrollMode = 'animated'): void => {
+  const centerActiveLyric = useCallback((mode: LyricScrollMode = 'animated'): boolean => {
     if (activeIndex < 0) {
-      return;
+      return false;
     }
 
     const scrollContainer = scrollRef.current;
     const activeLine = scrollContainer?.querySelector<HTMLButtonElement>('.lyrics-line[data-active="true"]');
     if (!scrollContainer || !activeLine) {
-      return;
+      return false;
     }
 
-    const containerRect = scrollContainer.getBoundingClientRect();
-    const activeRect = activeLine.getBoundingClientRect();
-    const activeCenter = activeRect.top - containerRect.top + scrollContainer.scrollTop + activeRect.height / 2;
+    const activeCenter = getActiveLineLayoutCenter(scrollContainer, activeLine);
     const targetCenter = scrollContainer.clientHeight * 0.52;
     const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
     const nextScrollTop = Math.max(0, Math.min(maxScrollTop, activeCenter - targetCenter));
@@ -520,10 +541,11 @@ export const LyricsView = ({
     if (mode === 'instant') {
       stopScrollAnimation();
       scrollContainer.scrollTop = nextScrollTop;
-      return;
+      return true;
     }
 
     animateScrollTop(scrollContainer, nextScrollTop, mode === 'recenter' ? 260 : 880);
+    return true;
   }, [activeIndex, animateScrollTop, stopScrollAnimation]);
 
   const preserveActiveLyricPosition = useCallback((event: Event): void => {
@@ -605,20 +627,44 @@ export const LyricsView = ({
   ]);
 
   useEffect(() => {
+    if (lastLyricsLinesRef.current === lyrics.lines) {
+      return;
+    }
+
+    lastLyricsLinesRef.current = lyrics.lines;
+    hasCenteredActiveLyricRef.current = false;
+    stopScrollAnimation();
+    resetWordHighlightCache();
+    setCenterRevision((revision) => revision + 1);
+  }, [lyrics.lines, resetWordHighlightCache, stopScrollAnimation]);
+
+  useEffect(() => {
     if (activeCenterFrameRef.current !== null) {
       cancelLyricAnimationFrame(activeCenterFrameRef.current);
+      activeCenterFrameRef.current = null;
+    }
+
+    if (activeIndex < 0) {
+      hasCenteredActiveLyricRef.current = false;
+      lastCenteredActiveIndexRef.current = activeIndex;
+      return undefined;
     }
 
     const previousCenteredActiveIndex = lastCenteredActiveIndexRef.current;
     const shouldJumpToSeekTarget =
+      hasCenteredActiveLyricRef.current &&
       previousCenteredActiveIndex >= 0 &&
       activeIndex >= 0 &&
       (activeIndex < previousCenteredActiveIndex || Math.abs(activeIndex - previousCenteredActiveIndex) > 1);
-    lastCenteredActiveIndexRef.current = activeIndex;
+    const scrollMode: LyricScrollMode =
+      !hasCenteredActiveLyricRef.current || shouldJumpToSeekTarget ? 'instant' : 'animated';
 
     activeCenterFrameRef.current = requestLyricAnimationFrame(() => {
       activeCenterFrameRef.current = null;
-      centerActiveLyric(shouldJumpToSeekTarget ? 'instant' : 'animated');
+      if (centerActiveLyric(scrollMode)) {
+        hasCenteredActiveLyricRef.current = true;
+        lastCenteredActiveIndexRef.current = activeIndex;
+      }
     });
 
     return () => {
@@ -627,7 +673,7 @@ export const LyricsView = ({
         activeCenterFrameRef.current = null;
       }
     };
-  }, [centerActiveLyric]);
+  }, [activeIndex, centerActiveLyric, centerRevision]);
 
   useEffect(() => {
     window.addEventListener('settings:changed', preserveActiveLyricPosition);

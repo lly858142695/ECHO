@@ -87,6 +87,7 @@ const fallbackSettings: MvSettings = {
   preferHighestViewCount: false,
   immersiveBackground: true,
   ...immersiveBackgroundDefaults,
+  hideLyrics: false,
   restartAudioOnLoad: false,
   syncMode: 'balanced',
   replayAudioOnChange: true,
@@ -344,6 +345,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   const followMusicProgress = settings.restartAudioOnLoad;
   const replayAudioOnChange = settings.replayAudioOnChange !== false;
   const immersiveBackground = settings.immersiveBackground !== false;
+  const hideLyricsInMv = settings.hideLyrics === true;
   const selectedMvOffsetMs = clampOffset(Number(selectedVideo?.offsetMs ?? 0));
 
   const findTrackForId = useCallback(
@@ -1300,6 +1302,15 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
                 <span className="mv-toggle-copy">
                   <strong>{t('mvSettings.immersive.title')}</strong>
                   <em>{t('mvSettings.immersive.description')}</em>
+                </span>
+              </button>
+              <button type="button" className="mv-source-toggle mv-auto-apply-toggle" aria-pressed={hideLyricsInMv} onClick={() => void patchSettings({ hideLyrics: !hideLyricsInMv })}>
+                <span className="mv-switch-track" aria-hidden="true">
+                  <span />
+                </span>
+                <span className="mv-toggle-copy">
+                  <strong>{t('mvSettings.immersive.hideLyrics')}</strong>
+                  <em>{t('mvSettings.immersive.hideLyricsDescription')}</em>
                 </span>
               </button>
               {immersiveBackground ? (

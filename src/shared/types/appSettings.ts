@@ -339,6 +339,7 @@ export type AppSettings = {
   mvImmersiveBackgroundBrightnessPercent?: number;
   mvImmersiveBackgroundOverlayOpacityPercent?: number;
   mvLyricsReadabilityEnhanced?: boolean;
+  mvHideLyrics?: boolean;
   mvRestartAudioOnLoad?: boolean;
   mvSyncMode?: MvSyncMode;
   mvReplayAudioOnChange?: boolean;

@@ -45,12 +45,26 @@ const normalizeFontPath = (value: unknown): string | null => {
   return normalized || null;
 };
 
+const normalizeDefaultFontName = (value: unknown, fallback: string): string => {
+  const normalized = normalizeFontName(value, fallback);
+  if (normalized === 'Monocraft' && fallback === defaultAppearancePreferences.mainFontFamily) {
+    return defaultAppearancePreferences.mainFontFamily;
+  }
+  if (normalized === 'ZCOOL Happy' && fallback === defaultAppearancePreferences.chineseFontFamily) {
+    return defaultAppearancePreferences.chineseFontFamily;
+  }
+  if (normalized === 'ZCOOL Happy' && fallback === defaultAppearancePreferences.fallbackFontFamily) {
+    return defaultAppearancePreferences.fallbackFontFamily;
+  }
+  return normalized;
+};
+
 const normalizePreferences = (value: Partial<AppearancePreferences>): AppearancePreferences => ({
-  mainFontFamily: normalizeFontName(value.mainFontFamily, defaultAppearancePreferences.mainFontFamily),
+  mainFontFamily: normalizeDefaultFontName(value.mainFontFamily, defaultAppearancePreferences.mainFontFamily),
   mainFontFilePath: normalizeFontPath(value.mainFontFilePath),
-  chineseFontFamily: normalizeFontName(value.chineseFontFamily, defaultAppearancePreferences.chineseFontFamily),
+  chineseFontFamily: normalizeDefaultFontName(value.chineseFontFamily, defaultAppearancePreferences.chineseFontFamily),
   chineseFontFilePath: normalizeFontPath(value.chineseFontFilePath),
-  fallbackFontFamily: normalizeFontName(value.fallbackFontFamily, defaultAppearancePreferences.fallbackFontFamily),
+  fallbackFontFamily: normalizeDefaultFontName(value.fallbackFontFamily, defaultAppearancePreferences.fallbackFontFamily),
   fallbackFontFilePath: normalizeFontPath(value.fallbackFontFilePath),
   baseFontSize: clamp(Number(value.baseFontSize) || defaultAppearancePreferences.baseFontSize, 12, 18),
   lineHeight: clamp(Number(value.lineHeight) || defaultAppearancePreferences.lineHeight, 1.1, 1.8),

@@ -200,6 +200,14 @@ const getAppCacheInventory = (): AppCacheInventory => collectAppCacheInventory(a
 const isWindowMaximizedForChrome = (window: BrowserWindow | null): boolean =>
   Boolean(window && (window.isMaximized() || window.isFullScreen()));
 
+const toggleWindowFullscreen = (window: BrowserWindow | null): void => {
+  if (!window) {
+    return;
+  }
+
+  window.setFullScreen(!window.isFullScreen());
+};
+
 const formatBackupTimestamp = (): string => new Date().toISOString().replace(/[:.]/g, '-');
 
 const createSettingsBackupPayload = (settings: AppSettings): SettingsBackupPayload => ({
@@ -368,13 +376,10 @@ export const registerIpc = (): void => {
       isWindowMaximizedForChrome(BrowserWindow.fromWebContents(event.sender)),
     );
     ipcMain.handle(IpcChannels.AppWindowToggleFullscreen, (event: IpcMainInvokeEvent): void => {
-      const window = BrowserWindow.fromWebContents(event.sender);
-
-      if (!window) {
-        return;
-      }
-
-      window.setFullScreen(!window.isFullScreen());
+      toggleWindowFullscreen(BrowserWindow.fromWebContents(event.sender));
+    });
+    ipcMain.handle(IpcChannels.AppWindowTriggerFullscreenShortcut, (event: IpcMainInvokeEvent): void => {
+      toggleWindowFullscreen(BrowserWindow.fromWebContents(event.sender));
     });
     ipcMain.handle(IpcChannels.AppWindowIsFullscreen, (event: IpcMainInvokeEvent): boolean =>
       Boolean(BrowserWindow.fromWebContents(event.sender)?.isFullScreen()),

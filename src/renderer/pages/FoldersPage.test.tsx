@@ -12,10 +12,14 @@ vi.mock('../components/library/TrackList', () => ({
   TrackList: ({
     tracks,
     currentTrackId,
+    selectedTrackIds = {},
+    onToggleSelected,
     onOpenTrackMenu,
   }: {
     tracks: LibraryTrack[];
     currentTrackId: string | null;
+    selectedTrackIds?: Record<string, boolean>;
+    onToggleSelected?: (track: LibraryTrack) => void;
     onOpenTrackMenu?: (track: LibraryTrack, position: { x: number; y: number }) => void;
   }) => (
     <div data-testid="folder-track-list">
@@ -25,6 +29,12 @@ vi.mock('../components/library/TrackList', () => ({
           key={item.id}
           type="button"
           className="track-row"
+          data-selected={selectedTrackIds[item.id] ? 'true' : undefined}
+          onClick={(event) => {
+            if (event.ctrlKey || event.metaKey) {
+              onToggleSelected?.(item);
+            }
+          }}
           onContextMenu={(event) => {
             event.preventDefault();
             onOpenTrackMenu?.(item, { x: event.clientX, y: event.clientY });
@@ -338,6 +348,32 @@ describe('FoldersPage', () => {
         }),
       ),
     );
+  });
+
+  it('supports Ctrl+click multi-select for folder tracks', async () => {
+    libraryMock.getFolderTracks.mockResolvedValue(
+      page([
+        track({ id: 'track-1', title: 'Root Song' }),
+        track({ id: 'track-2', title: 'Second Song', path: 'D:\\Music\\Second.flac' }),
+      ]),
+    );
+
+    renderFoldersPage();
+
+    await screen.findByText('Root Song');
+    const firstRow = screen.getByText('Root Song').closest('.track-row');
+    const secondRow = screen.getByText('Second Song').closest('.track-row');
+
+    fireEvent.click(firstRow!, { ctrlKey: true });
+    fireEvent.click(secondRow!, { ctrlKey: true });
+
+    expect(firstRow?.getAttribute('data-selected')).toBe('true');
+    expect(secondRow?.getAttribute('data-selected')).toBe('true');
+
+    fireEvent.click(firstRow!, { ctrlKey: true });
+
+    expect(firstRow?.getAttribute('data-selected')).toBeNull();
+    expect(secondRow?.getAttribute('data-selected')).toBe('true');
   });
 
   it('remembers local root folder order after dragging folders', async () => {

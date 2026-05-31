@@ -880,7 +880,7 @@ describe("LyricsPage", () => {
     ).toContain("Second line");
   });
 
-  it("holds lyrics on the reported audio clock when native playback telemetry is stale", async () => {
+  it("keeps lyrics advancing when native playback telemetry is stale", async () => {
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
     const track = makeTrack();
     const { emitAudioStatus } = mockEcho(track, 8.9);
@@ -906,12 +906,14 @@ describe("LyricsPage", () => {
       });
     });
 
-    expect(
-      container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
-    ).toContain("First line");
+    await waitFor(() =>
+      expect(
+        container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+      ).toContain("Second line"),
+    );
   });
 
-  it("holds lyrics when the reported playback position stalls without native telemetry", async () => {
+  it("keeps lyrics advancing when the reported playback position stalls without native telemetry", async () => {
     const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
     const track = makeTrack();
     const { emitAudioStatus } = mockEcho(track, 8.9);
@@ -934,9 +936,44 @@ describe("LyricsPage", () => {
       emitAudioStatus(makeAudioStatus(track, 8.95));
     });
 
-    expect(
-      container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
-    ).toContain("First line");
+    await waitFor(() =>
+      expect(
+        container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+      ).toContain("Second line"),
+    );
+  });
+
+  it("keeps lyrics advancing across a longer stale playback position gap", async () => {
+    const performanceNow = vi.spyOn(performance, "now").mockReturnValue(0);
+    const track = makeTrack();
+    const { emitAudioStatus } = mockEcho(track, 8.9);
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+      ).toContain("First line"),
+    );
+
+    performanceNow.mockReturnValue(4000);
+    act(() => {
+      emitAudioStatus({
+        ...makeAudioStatus(track, 8.95),
+        nativePositionStalenessMs: 3600,
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+      ).toContain("Second line"),
+    );
   });
 
   it("keeps high-speed active lyrics from jumping backward on a brief same-track stale audio status", async () => {
@@ -1304,6 +1341,34 @@ describe("LyricsPage", () => {
     expect(container.querySelector('.lyrics-mv-panel[data-mv-enabled="false"][data-view-mode="lyrics"]')).toBeTruthy();
     expect(container.querySelector("video")).toBeNull();
     expect(window.sessionStorage.getItem("echo:lyrics:view-mode")).toBe("lyrics");
+  });
+
+  it("hides lyrics text in MV mode when the MV setting is enabled", async () => {
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    window.sessionStorage.setItem("echo:lyrics:view-mode", "mv");
+    const track = makeTrack();
+    mockEcho(track, 9.2);
+    attachMvBridge(makeTrackVideo(), { ...defaultMvSettings, hideLyrics: true });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() =>
+      expect(container.querySelector('.lyrics-page[data-mv-lyrics-hidden="true"]')).toBeTruthy(),
+    );
+    expect(screen.queryByText("First line")).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("settings:changed", { detail: { hideLyrics: false } }));
+    });
+
+    await screen.findByText("First line");
+    expect(container.querySelector('.lyrics-page[data-mv-lyrics-hidden="true"]')).toBeNull();
   });
 
   it("keeps MV progress following on raw audio time when global lyrics offset shifts lyrics", async () => {

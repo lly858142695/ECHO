@@ -276,6 +276,8 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [isMvDrawerOpen, setIsMvDrawerOpen] = useState(false);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
+  const [isWindowFullscreenTransitioning, setIsWindowFullscreenTransitioning] = useState(false);
+  const [windowFullscreenTransitionTarget, setWindowFullscreenTransitionTarget] = useState<boolean | null>(null);
   const [isLyricsQueueDrawerOpen, setIsLyricsQueueDrawerOpen] = useState(false);
   const [desktopLyricsVisible, setDesktopLyricsVisible] = useState(false);
   const [desktopLyricsLocked, setDesktopLyricsLocked] = useState(false);
@@ -292,6 +294,8 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [isAppWallpaperBlurPaused, setIsAppWallpaperBlurPaused] = useState(false);
   const appWallpaperVideoRef = useRef<HTMLVideoElement | null>(null);
   const appWallpaperBlurTimerRef = useRef<number | null>(null);
+  const fullscreenTransitionTimerRef = useRef<number | null>(null);
+  const fullscreenTransitionStartedAtRef = useRef(0);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lyricsMiniPlayerHostRef = useRef<HTMLDivElement | null>(null);
@@ -311,6 +315,33 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       ),
     [downloadsFeatureUnlocked, routes, sidebarLayoutSettings],
   );
+
+  const startWindowFullscreenTransition = useCallback((nextFullscreen: boolean): void => {
+    fullscreenTransitionStartedAtRef.current = Date.now();
+
+    if (fullscreenTransitionTimerRef.current !== null) {
+      window.clearTimeout(fullscreenTransitionTimerRef.current);
+    }
+
+    setIsWindowFullscreenTransitioning(false);
+    setWindowFullscreenTransitionTarget(nextFullscreen);
+    window.requestAnimationFrame(() => {
+      setIsWindowFullscreenTransitioning(true);
+      fullscreenTransitionTimerRef.current = window.setTimeout(() => {
+        fullscreenTransitionTimerRef.current = null;
+        setWindowFullscreenTransitionTarget(null);
+        setIsWindowFullscreenTransitioning(false);
+      }, 380);
+    });
+  }, []);
+
+  useEffect(() => () => {
+    if (fullscreenTransitionTimerRef.current !== null) {
+      window.clearTimeout(fullscreenTransitionTimerRef.current);
+      fullscreenTransitionTimerRef.current = null;
+    }
+    setWindowFullscreenTransitionTarget(null);
+  }, []);
   const navigableRoutes = useMemo(
     () => routes.filter((route) => route.id !== 'downloads' || downloadsFeatureUnlocked),
     [downloadsFeatureUnlocked, routes],
@@ -488,6 +519,9 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       setIsWindowMaximized(maximized);
     });
     const unsubscribeFullscreen = appApi?.onFullscreenChange?.((fullscreen) => {
+      if (Date.now() - fullscreenTransitionStartedAtRef.current > 420) {
+        startWindowFullscreenTransition(fullscreen);
+      }
       setIsWindowFullscreen(fullscreen);
     });
 
@@ -496,7 +530,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       unsubscribe?.();
       unsubscribeFullscreen?.();
     };
-  }, []);
+  }, [startWindowFullscreenTransition]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1687,7 +1721,12 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         return;
       }
 
-      await appApi[action]();
+      if (action === 'toggleFullscreen') {
+        startWindowFullscreenTransition(!isWindowFullscreen);
+        await (appApi.triggerFullscreenShortcut?.() ?? appApi.toggleFullscreen());
+      } else {
+        await appApi[action]();
+      }
       if (action === 'toggleMaximize' || action === 'toggleFullscreen') {
         void appApi.isMaximized?.()
           .then(setIsWindowMaximized)
@@ -1697,7 +1736,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
           .catch(() => undefined);
       }
     },
-    [t],
+    [isWindowFullscreen, startWindowFullscreenTransition, t],
   );
 
   const handleOpenCrashReportNotice = useCallback(async (): Promise<void> => {
@@ -1798,6 +1837,11 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       }
       data-wallpaper-ui-transparent={shouldShowAppWallpaperVisual && isAppWallpaperUiTransparent ? 'true' : undefined}
       data-wallpaper-ui-zero={shouldShowAppWallpaperVisual && isAppWallpaperUiZero ? 'true' : undefined}
+      data-window-fullscreen={isWindowFullscreen ? 'true' : 'false'}
+      data-window-fullscreen-target={
+        (windowFullscreenTransitionTarget ?? isWindowFullscreen) ? 'true' : 'false'
+      }
+      data-window-fullscreen-transition={isWindowFullscreenTransitioning ? 'true' : undefined}
       style={appShellStyle}
     >
       {appWallpaperUrl ? (

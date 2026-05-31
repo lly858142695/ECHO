@@ -508,6 +508,7 @@ export const defaultSettings: AppSettings = {
   mvImmersiveBackgroundBrightnessPercent: 100,
   mvImmersiveBackgroundOverlayOpacityPercent: 0,
   mvLyricsReadabilityEnhanced: false,
+  mvHideLyrics: false,
   mvRestartAudioOnLoad: false,
   mvSyncMode: 'balanced',
   mvReplayAudioOnChange: true,
@@ -997,6 +998,20 @@ const normalizeAudioTransportFadeDurationMs = (value: unknown): number => {
 const normalizeAudioExportFormat = (value: unknown): AudioExportFormat =>
   value === 'wav' || value === 'flac' || value === 'ogg' || value === 'mp3' ? value : defaultSettings.audioExportFormat ?? 'mp3';
 
+const normalizeAppearanceFontFamily = (value: unknown, fallback: string): string => {
+  const normalized = normalizeRequiredText(value, fallback);
+  if (normalized === 'Monocraft' && fallback === defaultAppearancePreferences.mainFontFamily) {
+    return defaultAppearancePreferences.mainFontFamily;
+  }
+  if (normalized === 'ZCOOL Happy' && fallback === defaultAppearancePreferences.chineseFontFamily) {
+    return defaultAppearancePreferences.chineseFontFamily;
+  }
+  if (normalized === 'ZCOOL Happy' && fallback === defaultAppearancePreferences.fallbackFontFamily) {
+    return defaultAppearancePreferences.fallbackFontFamily;
+  }
+  return normalized;
+};
+
 const normalizeAppearancePreferences = (value: unknown): AppearancePreferences => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { ...defaultAppearancePreferences };
@@ -1008,11 +1023,11 @@ const normalizeAppearancePreferences = (value: unknown): AppearancePreferences =
   const textDepth = Number(input.textDepth);
 
   return {
-    mainFontFamily: normalizeRequiredText(input.mainFontFamily, defaultAppearancePreferences.mainFontFamily),
+    mainFontFamily: normalizeAppearanceFontFamily(input.mainFontFamily, defaultAppearancePreferences.mainFontFamily),
     mainFontFilePath: normalizeFontPath(input.mainFontFilePath),
-    chineseFontFamily: normalizeRequiredText(input.chineseFontFamily, defaultAppearancePreferences.chineseFontFamily),
+    chineseFontFamily: normalizeAppearanceFontFamily(input.chineseFontFamily, defaultAppearancePreferences.chineseFontFamily),
     chineseFontFilePath: normalizeFontPath(input.chineseFontFilePath),
-    fallbackFontFamily: normalizeRequiredText(input.fallbackFontFamily, defaultAppearancePreferences.fallbackFontFamily),
+    fallbackFontFamily: normalizeAppearanceFontFamily(input.fallbackFontFamily, defaultAppearancePreferences.fallbackFontFamily),
     fallbackFontFilePath: normalizeFontPath(input.fallbackFontFilePath),
     baseFontSize: Number.isFinite(baseFontSize)
       ? clamp(baseFontSize, 12, 18)
@@ -1738,6 +1753,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       ? Math.round(clamp(mvImmersiveBackgroundOverlayOpacityPercent, 0, 100))
       : defaultSettings.mvImmersiveBackgroundOverlayOpacityPercent,
     mvLyricsReadabilityEnhanced: settings.mvLyricsReadabilityEnhanced === true,
+    mvHideLyrics: settings.mvHideLyrics === true,
     mvRestartAudioOnLoad: settings.mvRestartAudioOnLoad === true,
     mvSyncMode: normalizeMvSyncMode(settings.mvSyncMode),
     mvReplayAudioOnChange: settings.mvReplayAudioOnChange !== false,

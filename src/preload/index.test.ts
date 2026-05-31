@@ -1347,6 +1347,7 @@ describe('preload SMTC API', () => {
     const handler = vi.fn();
 
     await exposedApi!.app.toggleFullscreen();
+    await exposedApi!.app.triggerFullscreenShortcut();
     await exposedApi!.app.isFullscreen();
     const unsubscribe = exposedApi!.app.onFullscreenChange(handler);
     const listener = listeners.get(IpcChannels.AppWindowFullscreenChanged);
@@ -1355,6 +1356,7 @@ describe('preload SMTC API', () => {
     unsubscribe();
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppWindowToggleFullscreen);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppWindowTriggerFullscreenShortcut);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppWindowIsFullscreen);
     expect(handler).toHaveBeenNthCalledWith(1, true);
     expect(handler).toHaveBeenNthCalledWith(2, false);
