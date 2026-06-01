@@ -19,9 +19,10 @@ import {
   setSpotifyVolume,
 } from '../../integrations/spotify/spotifyPlayback';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
-import { getVisualPlaybackState, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../../stores/playbackStatusStore';
+import { beginPlaybackSeekSnapshot, getVisualPlaybackState, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../../stores/playbackStatusStore';
 import { isActiveConnectPlaybackStatus, playbackStatusFromConnectStatus } from '../../utils/connectPlayback';
 import { openArtistDetailByName } from '../../utils/artistNavigation';
+import { logLyricsConsole } from '../../diagnostics/lyricsConsole';
 import { PlayerProgress } from './PlayerProgress';
 import { PlayerSpeedControl } from './PlayerSpeedControl';
 import { PlayerStatusChips } from './PlayerStatusChips';
@@ -788,6 +789,10 @@ export const PlayerBar = ({
   const receiverPlaybackState = activeReceiverStatus ? receiverStateToPlaybackState(activeReceiverStatus) : 'idle';
   const state = activeReceiverStatus ? receiverPlaybackState : baseState;
   const visualState = activeReceiverStatus ? receiverPlaybackState : baseVisualState;
+  const isNativePausedVisualState =
+    !activeReceiverStatus &&
+    visualState === 'paused' &&
+    (playbackAudioStatus?.state === 'paused' || currentPlaybackStatus?.state === 'paused');
   const isPlaying = visualState === 'playing';
   const isRemotePlaybackLoading =
     currentTrack?.mediaType === 'remote' &&
@@ -2001,9 +2006,17 @@ export const PlayerBar = ({
         return playback.play();
       }
 
+      if (isNativePausedVisualState) {
+        return playback.play();
+      }
+
       const latestStatus = await playback.getStatus();
       if (latestStatus.state === 'playing' || latestStatus.state === 'loading') {
         return playback.pause();
+      }
+
+      if (latestStatus.state === 'paused') {
+        return playback.play();
       }
 
       if ((latestStatus.state === 'idle' || latestStatus.state === 'stopped' || latestStatus.state === 'ended') && queue.currentItem) {
@@ -2016,7 +2029,7 @@ export const PlayerBar = ({
 
       return playback.play();
     });
-  }, [activeReceiverStatus, applyConnectPlaybackStatus, currentTrack, isSpotifyCurrentTrack, queue, runPlaybackAction, visualState]);
+  }, [activeReceiverStatus, applyConnectPlaybackStatus, currentTrack, isNativePausedVisualState, isSpotifyCurrentTrack, queue, runPlaybackAction, visualState]);
 
   const handlePrevious = useCallback((): void => {
     void runPlaybackAction(queue.playPrevious);
@@ -2172,6 +2185,14 @@ export const PlayerBar = ({
 
       const safePositionSeconds = Math.min(durationSeconds, Math.max(0, nextPositionSeconds));
 
+      logLyricsConsole('player.seek-request', {
+        trackId,
+        identity: trackId ?? filePath ?? null,
+        targetPositionMs: Math.round(safePositionSeconds * 1000),
+        durationMs: Math.round(durationSeconds * 1000),
+        source: isSpotifyCurrentTrack ? 'spotify' : 'player-bar',
+      });
+
       try {
         setSeekPreviewSeconds(safePositionSeconds);
         seekAnchorRef.current = {
@@ -2182,8 +2203,16 @@ export const PlayerBar = ({
         if (isSpotifyCurrentTrack && currentTrack) {
           const status = await seekSpotifyPlayback(currentTrack, safePositionSeconds);
           setPlaybackStatus(status);
-          setPlaybackStatusSnapshot({ playbackStatus: status, playbackVisualIntent: null, error: null });
+          beginPlaybackSeekSnapshot(status);
           dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? trackId ?? null);
+          logLyricsConsole('player.seek-committed', {
+            source: 'spotify',
+            trackId: status.currentTrackId ?? trackId ?? null,
+            state: status.state,
+            targetPositionMs: Math.round(safePositionSeconds * 1000),
+            statusPositionMs: status.positionMs,
+            durationMs: status.durationMs,
+          });
           return;
         }
 
@@ -2197,6 +2226,14 @@ export const PlayerBar = ({
           const connectStatus = await connect.seek(safePositionSeconds);
           const nextStatus = applyConnectPlaybackStatus(connectStatus, safePositionSeconds);
           dispatchPlaybackSeeked(safePositionSeconds, nextStatus.currentTrackId ?? trackId ?? null);
+          logLyricsConsole('player.seek-committed', {
+            source: 'connect',
+            trackId: nextStatus.currentTrackId ?? trackId ?? null,
+            state: nextStatus.state,
+            targetPositionMs: Math.round(safePositionSeconds * 1000),
+            statusPositionMs: nextStatus.positionMs,
+            durationMs: nextStatus.durationMs,
+          });
           return;
         }
 
@@ -2222,11 +2259,25 @@ export const PlayerBar = ({
               }
             : current,
         );
-        setPlaybackStatusSnapshot({ playbackStatus: nextStatus, playbackVisualIntent: null, error: null });
+        beginPlaybackSeekSnapshot(nextStatus);
         dispatchPlaybackSeeked(safePositionSeconds, status.currentTrackId ?? trackId ?? null);
+        logLyricsConsole('player.seek-committed', {
+          source: 'local',
+          trackId: status.currentTrackId ?? trackId ?? null,
+          state: status.state,
+          targetPositionMs: Math.round(safePositionSeconds * 1000),
+          statusPositionMs: nextStatus.positionMs,
+          durationMs: nextStatus.durationMs,
+        });
         await refreshStatus();
       } catch (seekError) {
         const message = seekError instanceof Error ? seekError.message : String(seekError);
+        logLyricsConsole('player.seek-failed', {
+          trackId,
+          identity: trackId ?? filePath ?? null,
+          targetPositionMs: Math.round(safePositionSeconds * 1000),
+          error: message,
+        }, { level: 'warn', dedupeKey: `player-seek-failed:${trackId ?? filePath ?? 'unknown'}`, dedupeMs: 1000 });
         setError(formatAudioHostError(message));
         setPlaybackStatusSnapshot({ error: shouldSuppressAudioHostError(message) ? null : message });
       } finally {

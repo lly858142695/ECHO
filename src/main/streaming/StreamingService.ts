@@ -27,7 +27,7 @@ import type {
   StreamingTrack,
   StreamingTrackSourceInfo,
 } from '../../shared/types/streaming';
-import { streamingStableKey } from '../../shared/types/streaming';
+import { defaultStreamingAudioQuality, streamingStableKey } from '../../shared/types/streaming';
 import { BpmAnalyzer } from '../library/audioAnalysis/BpmAnalyzer';
 import { backupPlaylistIfEnabled } from '../library/PlaylistBackup';
 import { StreamingCacheStore } from './StreamingCacheStore';
@@ -139,8 +139,13 @@ const albumCacheKey = (provider: StreamingProviderName, providerAlbumId: string)
 const artistCacheKey = (provider: StreamingProviderName, providerArtistId: string): string =>
   `artist:${searchCacheVersion}:${provider}:${providerArtistId}`;
 
+const normalizePlaybackRequest = (request: StreamingPlaybackRequest): StreamingPlaybackRequest => ({
+  ...request,
+  quality: request.quality ?? defaultStreamingAudioQuality,
+});
+
 const playbackCacheKey = (request: StreamingPlaybackRequest): string =>
-  `playback:${playbackCacheVersion}:${request.provider}:${request.providerTrackId}:${request.quality ?? 'auto'}`;
+  `playback:${playbackCacheVersion}:${request.provider}:${request.providerTrackId}:${request.quality ?? defaultStreamingAudioQuality}`;
 
 const lyricsCacheKey = (provider: StreamingProviderName, providerTrackId: string): string =>
   `lyrics:${lyricsCacheVersion}:streaming:${provider}:${providerTrackId}`;
@@ -683,21 +688,22 @@ export class StreamingService {
   }
 
   async resolvePlayback(request: StreamingPlaybackRequest): Promise<StreamingPlaybackSource> {
-    const key = playbackCacheKey(request);
+    const normalizedRequest = normalizePlaybackRequest(request);
+    const key = playbackCacheKey(normalizedRequest);
     const memoryHit = this.memoryCache.get<StreamingPlaybackSource>(key);
     if (memoryHit) {
       return memoryHit;
     }
 
     return this.memoryCache.getOrCreateInflight(key, async () => {
-      const provider = this.registry.get(request.provider);
+      const provider = this.registry.get(normalizedRequest.provider);
       const source = await this.callProviderWithTimeout(
         provider,
-        () => this.playbackResolver.resolve(request),
+        () => this.playbackResolver.resolve(normalizedRequest),
         'Streaming playback',
         playbackProviderTimeoutMs,
       );
-      const authorizedSource = this.attachDownloadAuthorization(request, source);
+      const authorizedSource = this.attachDownloadAuthorization(normalizedRequest, source);
       const ttlMs = playableTtlMs(source);
       if (ttlMs > 0) {
         this.memoryCache.set(key, authorizedSource, ttlMs);
@@ -744,7 +750,7 @@ export class StreamingService {
   }
 
   invalidatePlayback(request: StreamingPlaybackRequest): void {
-    this.memoryCache.delete(playbackCacheKey(request));
+    this.memoryCache.delete(playbackCacheKey(normalizePlaybackRequest(request)));
   }
 
   async getLyrics(request: StreamingTrackRequest): Promise<StreamingLyricsResult> {

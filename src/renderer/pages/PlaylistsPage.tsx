@@ -9,6 +9,7 @@ import { TrackList } from '../components/library/TrackList';
 import { TrackContextMenu, type TrackMenuAction } from '../components/library/TrackContextMenu';
 import { likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../hooks/useLikedMedia';
 import { useI18n } from '../i18n/I18nProvider';
+import { readStreamingQualityPreference, writeStreamingQualityPreference } from '../preferences/streamingQualityPreference';
 import { isPlaybackCancellationError, usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { resolvePlaylistForTrackAdd } from '../utils/appPrompt';
 import { getDownloadsBridge, getStreamingBridge } from '../utils/echoBridge';
@@ -28,10 +29,10 @@ const playlistExportOptions: Array<{ value: PlaylistExportFormat; label: string 
   { value: 'csv', label: 'CSV' },
 ];
 const streamingQualityOptions: Array<{ value: StreamingAudioQuality; label: string }> = [
-  { value: 'hires', label: 'Hi-Res' },
   { value: 'lossless', label: 'Lossless' },
   { value: 'high', label: 'High' },
   { value: 'standard', label: 'Standard' },
+  { value: 'hires', label: 'Hi-Res' },
 ];
 const streamingFavoriteProviders: Array<{ value: StreamingFavoriteProviderName; label: string }> = [
   { value: 'bilibili', label: 'Bilibili' },
@@ -575,7 +576,7 @@ export const PlaylistsPage = (): JSX.Element => {
   const [downloadJobs, setDownloadJobs] = useState<DownloadJob[]>([]);
   const [downloadJobIdsByTrackId, setDownloadJobIdsByTrackId] = useState<Record<string, string>>(() => readPlaylistDownloadMemory().downloadJobIdsByTrackId);
   const [playlistDownloadSession, setPlaylistDownloadSession] = useState<PlaylistDownloadSession | null>(() => readPlaylistDownloadMemory().session);
-  const [streamingQuality, setStreamingQuality] = useState<StreamingAudioQuality>('hires');
+  const [streamingQuality, setStreamingQuality] = useState<StreamingAudioQuality>(() => readStreamingQualityPreference());
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   const [playlistMenuOpen, setPlaylistMenuOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -734,6 +735,7 @@ export const PlaylistsPage = (): JSX.Element => {
 
   const handleStreamingQualityChange = useCallback(
     (nextQuality: StreamingAudioQuality): void => {
+      writeStreamingQualityPreference(nextQuality);
       setStreamingQuality(nextQuality);
       setQualityMenuOpen(false);
 

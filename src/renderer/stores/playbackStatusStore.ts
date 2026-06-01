@@ -7,9 +7,10 @@ import {
   isActiveConnectPlaybackStatus,
   playbackStatusFromConnectStatus,
 } from '../utils/connectPlayback';
+import { logLyricsConsole } from '../diagnostics/lyricsConsole';
 
 type PlaybackVisualIntent = {
-  type: 'track-switch';
+  type: 'track-switch' | 'seek';
   state: 'playing';
   currentTrackId: string | null;
   filePath: string | null;
@@ -80,8 +81,29 @@ const isSpotifyPlaybackStatus = (status: PlaybackStatus | null | undefined): boo
 const statusPositionMs = (status: AudioStatus | PlaybackStatus): number =>
   'positionSeconds' in status ? Math.round(Math.max(0, status.positionSeconds) * 1000) : Math.max(0, status.positionMs);
 
+const statusIdentity = (status: AudioStatus | PlaybackStatus): string | null =>
+  status.currentTrackId ?? ('currentFilePath' in status ? status.currentFilePath : status.filePath) ?? null;
+
+const summarizeStatusForLyricsLog = (status: AudioStatus | PlaybackStatus): Record<string, unknown> => ({
+  state: status.state,
+  trackId: status.currentTrackId,
+  identity: statusIdentity(status),
+  positionMs: statusPositionMs(status),
+});
+
+const summarizeIntentForLyricsLog = (intent: PlaybackVisualIntent | null): Record<string, unknown> | null =>
+  intent
+    ? {
+        type: intent.type,
+        trackId: intent.currentTrackId,
+        identity: intent.currentTrackId ?? intent.filePath,
+        expectedPositionMs: intent.expectedPositionMs,
+        ageMs: Date.now() - intent.startedAtMs,
+      }
+    : null;
+
 const playbackExpectedPositionMs = (status: AudioStatus | PlaybackStatus, intent: PlaybackVisualIntent, now = Date.now()): number => {
-  if (status.state !== 'playing' && status.state !== 'paused') {
+  if (status.state !== 'playing' && !(intent.type === 'track-switch' && status.state === 'paused')) {
     return intent.expectedPositionMs;
   }
 
@@ -94,7 +116,9 @@ const playbackExpectedPositionMs = (status: AudioStatus | PlaybackStatus, intent
 };
 
 const playbackPositionMatchesIntent = (status: AudioStatus | PlaybackStatus, intent: PlaybackVisualIntent, now = Date.now()): boolean =>
-  statusPositionMs(status) <= playbackExpectedPositionMs(status, intent, now) + trackSwitchVisualIntentPositionToleranceMs;
+  intent.type === 'seek'
+    ? Math.abs(statusPositionMs(status) - playbackExpectedPositionMs(status, intent, now)) <= trackSwitchVisualIntentPositionToleranceMs
+    : statusPositionMs(status) <= playbackExpectedPositionMs(status, intent, now) + trackSwitchVisualIntentPositionToleranceMs;
 
 const isStaleStatusForVisualIntent = (status: AudioStatus | PlaybackStatus, intent: PlaybackVisualIntent | null): boolean => {
   if (!intent || !playbackHasIdentity(status)) {
@@ -153,6 +177,26 @@ const shouldClearVisualIntentForPatch = (
   if (
     shouldApplyAudioStatus &&
     patch.audioStatus &&
+    intent.type === 'seek' &&
+    playbackMatchesIntent(patch.audioStatus, intent) &&
+    playbackPositionMatchesIntent(patch.audioStatus, intent)
+  ) {
+    return true;
+  }
+
+  if (
+    shouldApplyPlaybackStatus &&
+    patch.playbackStatus &&
+    intent.type === 'seek' &&
+    playbackMatchesIntent(patch.playbackStatus, intent) &&
+    playbackPositionMatchesIntent(patch.playbackStatus, intent)
+  ) {
+    return true;
+  }
+
+  if (
+    shouldApplyAudioStatus &&
+    patch.audioStatus &&
     Date.now() - intent.startedAtMs > trackSwitchPositionGuardMs &&
     playbackMatchesIntent(patch.audioStatus, intent) &&
     playbackPositionMatchesIntent(patch.audioStatus, intent)
@@ -189,7 +233,46 @@ export const setPlaybackStatusSnapshot = (patch: Partial<Omit<PlaybackStatusSnap
     refreshRequestId += 1;
   }
 
-  if (shouldClearVisualIntentForPatch(patch, shouldApplyPlaybackStatus, shouldApplyAudioStatus)) {
+  const shouldClearVisualIntent = shouldClearVisualIntentForPatch(patch, shouldApplyPlaybackStatus, shouldApplyAudioStatus);
+  if (hasAudioStatusPatch && !shouldApplyAudioStatus && patch.audioStatus) {
+    logLyricsConsole(
+      'clock.reject-stale-audio',
+      {
+        status: summarizeStatusForLyricsLog(patch.audioStatus),
+        intent: summarizeIntentForLyricsLog(snapshot.playbackVisualIntent),
+      },
+      {
+        level: 'warn',
+        dedupeKey: `reject-audio:${statusIdentity(patch.audioStatus) ?? 'unknown'}`,
+        dedupeMs: 500,
+      },
+    );
+  }
+  if (hasPlaybackStatusPatch && !shouldApplyPlaybackStatus && patch.playbackStatus) {
+    logLyricsConsole(
+      'clock.reject-stale-playback',
+      {
+        status: summarizeStatusForLyricsLog(patch.playbackStatus),
+        intent: summarizeIntentForLyricsLog(snapshot.playbackVisualIntent),
+      },
+      {
+        level: 'warn',
+        dedupeKey: `reject-playback:${statusIdentity(patch.playbackStatus) ?? 'unknown'}`,
+        dedupeMs: 500,
+      },
+    );
+  }
+
+  if (shouldClearVisualIntent) {
+    logLyricsConsole(
+      'clock.intent-cleared',
+      {
+        intent: summarizeIntentForLyricsLog(snapshot.playbackVisualIntent),
+        playbackAccepted: shouldApplyPlaybackStatus && Boolean(patch.playbackStatus),
+        audioAccepted: shouldApplyAudioStatus && Boolean(patch.audioStatus),
+      },
+      { dedupeKey: `intent-cleared:${snapshot.playbackVisualIntent?.type ?? 'none'}`, dedupeMs: 300 },
+    );
     snapshot.playbackVisualIntent = null;
   }
 
@@ -228,6 +311,37 @@ export const beginPlaybackSwitchSnapshot = (playbackStatus: PlaybackStatus): Pla
     playbackVisualIntent: shouldTrackSwitchIntent
       ? {
           type: 'track-switch',
+          state: 'playing',
+          currentTrackId: playbackStatus.currentTrackId,
+          filePath: playbackStatus.filePath,
+          expectedPositionMs: Math.max(0, playbackStatus.positionMs),
+          startedAtMs: Date.now(),
+        }
+      : null,
+    error: null,
+  });
+};
+
+export const beginPlaybackSeekSnapshot = (playbackStatus: PlaybackStatus): PlaybackStatusSnapshot => {
+  const shouldTrackSeekIntent =
+    (playbackStatus.state === 'loading' || playbackStatus.state === 'playing' || playbackStatus.state === 'paused') &&
+    Boolean(playbackStatus.currentTrackId || playbackStatus.filePath);
+
+  logLyricsConsole('clock.seek-intent', {
+    trackId: playbackStatus.currentTrackId,
+    identity: playbackStatus.currentTrackId ?? playbackStatus.filePath,
+    state: playbackStatus.state,
+    positionMs: Math.max(0, playbackStatus.positionMs),
+    durationMs: playbackStatus.durationMs,
+    tracked: shouldTrackSeekIntent,
+  });
+
+  return setPlaybackStatusSnapshot({
+    audioStatus: null,
+    playbackStatus,
+    playbackVisualIntent: shouldTrackSeekIntent
+      ? {
+          type: 'seek',
           state: 'playing',
           currentTrackId: playbackStatus.currentTrackId,
           filePath: playbackStatus.filePath,

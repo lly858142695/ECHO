@@ -19,7 +19,7 @@ import type {
 import type { LibraryTrack } from '../../shared/types/library';
 import type { AirPlayReceiverState, AirPlayReceiverStatus } from '../../shared/types/connect';
 import type { PlayableTrack, RemoteLibraryTrack } from '../../shared/types/remoteSources';
-import { streamingProviderNames, type StreamingAudioQuality, type StreamingProviderName } from '../../shared/types/streaming';
+import { defaultStreamingAudioQuality, streamingProviderNames, type StreamingAudioQuality, type StreamingProviderName } from '../../shared/types/streaming';
 import type { HqPlayerPlaybackHandoffRequest } from '../../shared/types/hqplayer';
 import type { ReplayGainTrackData } from '../../shared/utils/replayGain';
 import type { AudioSessionAutomixRequest, AudioSessionGaplessRequest } from '../audio/audioTypes';
@@ -611,7 +611,7 @@ const normalizeMediaItem = (value: unknown): PlayableTrack => {
       mediaType,
       provider,
       providerTrackId: requireText(input.providerTrackId, 'providerTrackId'),
-      quality: optionalStreamingQuality(input.quality),
+      quality: optionalStreamingQuality(input.quality) ?? defaultStreamingAudioQuality,
       stableKey: requireText(input.stableKey, 'stableKey'),
       playable: input.playable !== false,
       unavailableReason: optionalText(input.unavailableReason) ?? null,

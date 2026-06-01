@@ -746,6 +746,39 @@ describe('StreamingService playlist imports', () => {
     ).toBe(true);
   });
 
+  it('normalizes omitted playback quality to lossless before resolving sources', async () => {
+    const resolvePlayback = vi.fn(async (): Promise<StreamingPlaybackSource> => ({
+      provider: 'qqmusic',
+      providerTrackId: 'song-mid',
+      url: 'https://isure.stream.qqmusic.qq.com/song.flac',
+      expiresAt: new Date(Date.now() + 120_000).toISOString(),
+      mimeType: 'audio/flac',
+      bitrate: 999000,
+      sampleRate: null,
+      bitDepth: 16,
+      codec: 'flac',
+      headers: {},
+      requiresProxy: false,
+      supportsRange: true,
+    }));
+    const registry = new StreamingProviderRegistry();
+    registry.register({
+      name: 'qqmusic',
+      search: vi.fn(),
+      getTrack: vi.fn(),
+      resolvePlayback,
+    });
+    const service = new StreamingService(registry, fakeCacheStore());
+
+    await service.resolvePlayback({ provider: 'qqmusic', providerTrackId: 'song-mid' });
+
+    expect(resolvePlayback).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'qqmusic',
+      providerTrackId: 'song-mid',
+      quality: 'lossless',
+    }));
+  });
+
   it('attaches protected download authorization to KuGou playback sources', async () => {
     const registry = new StreamingProviderRegistry();
     registry.register({

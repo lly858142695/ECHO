@@ -413,6 +413,7 @@ describe('ArtistDetailView', () => {
     const pageSurface = container.querySelector('.page-surface') as HTMLElement;
     pageSurface.scrollTop = 480;
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Albums' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Open mock album' }));
     expect(screen.getByText('Album detail: Mock Album')).toBeTruthy();
 

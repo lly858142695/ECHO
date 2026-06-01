@@ -50,7 +50,7 @@ const mapRecord = (value: unknown): LrclibRecord | null => {
   };
 };
 
-const buildUrl = (pathName: string, query: LyricsQuery, includeDuration: boolean): string => {
+const buildStructuredUrl = (pathName: string, query: LyricsQuery, includeDuration: boolean): string => {
   const url = new URL(`${apiRoot}${pathName}`);
   url.searchParams.set('track_name', query.title);
   url.searchParams.set('artist_name', query.artist);
@@ -62,6 +62,13 @@ const buildUrl = (pathName: string, query: LyricsQuery, includeDuration: boolean
     url.searchParams.set('duration', String(Math.round(query.durationSeconds)));
   }
 
+  return url.toString();
+};
+
+const buildSearchUrl = (query: LyricsQuery): string => {
+  const url = new URL(`${apiRoot}/search`);
+  const text = [query.title, query.artist].map((value) => value.trim()).filter(Boolean).join(' ');
+  url.searchParams.set('q', text || query.title);
   return url.toString();
 };
 
@@ -91,6 +98,24 @@ const fetchJson = async (url: string, timeoutMs = defaultTimeoutMs, signal?: Abo
     signal?.removeEventListener('abort', abort);
     clearTimeout(timer);
   }
+};
+
+const fetchSearchJson = async (
+  query: LyricsQuery,
+  timeoutMs?: number,
+  signal?: AbortSignal,
+): Promise<unknown | null> => {
+  const querySearchJson = await fetchJson(buildSearchUrl(query), timeoutMs, signal);
+  if (Array.isArray(querySearchJson) && querySearchJson.length > 0) {
+    return querySearchJson;
+  }
+
+  if (signal?.aborted) {
+    return querySearchJson;
+  }
+
+  const structuredSearchJson = await fetchJson(buildStructuredUrl('/search', query, false), timeoutMs, signal);
+  return Array.isArray(structuredSearchJson) && structuredSearchJson.length > 0 ? structuredSearchJson : querySearchJson;
 };
 
 export const mapLrclibRecordToTrackLyrics = (
@@ -180,7 +205,7 @@ export class LrclibProvider implements LyricsProvider {
         album: variant.album,
         filePath: null,
       };
-      const json = await fetchJson(buildUrl('/search', variantQuery, false), request.timeoutMs, request.signal);
+      const json = await fetchSearchJson(variantQuery, request.timeoutMs, request.signal);
       if (!Array.isArray(json)) {
         continue;
       }
@@ -207,7 +232,7 @@ export class LrclibProvider implements LyricsProvider {
   }
 
   async getLyrics(query: LyricsQuery): Promise<TrackLyrics | null> {
-    const json = await fetchJson(buildUrl('/get', query, true));
+    const json = await fetchJson(buildStructuredUrl('/get', query, true));
     const record = mapRecord(json);
     if (!record) {
       return null;
@@ -218,7 +243,7 @@ export class LrclibProvider implements LyricsProvider {
   }
 
   async searchCandidates(query: LyricsQuery): Promise<Array<LyricsSearchCandidate & { raw: LrclibRecord }>> {
-    const json = await fetchJson(buildUrl('/search', query, false));
+    const json = await fetchSearchJson(query);
     if (!Array.isArray(json)) {
       return [];
     }

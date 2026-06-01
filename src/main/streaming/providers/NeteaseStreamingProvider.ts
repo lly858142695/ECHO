@@ -91,6 +91,7 @@ const neteaseQualityLevels: Record<NeteaseRequestedQuality, Array<{ level: strin
   ],
   standard: [{ level: 'standard', bitrate: 128000, quality: 'mp3' }],
   fallback: [
+    { level: 'lossless', bitrate: 999000, quality: 'flac' },
     { level: 'exhigh', bitrate: 320000, quality: 'mp3' },
     { level: 'higher', bitrate: 192000, quality: 'mp3' },
     { level: 'standard', bitrate: 128000, quality: 'mp3' },

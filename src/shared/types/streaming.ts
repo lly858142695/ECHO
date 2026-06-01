@@ -15,6 +15,7 @@ export type StreamingFavoriteProviderName = Extract<StreamingProviderName, 'bili
 export type StreamingMediaType = 'track' | 'album' | 'artist' | 'playlist' | 'mv';
 
 export type StreamingAudioQuality = 'standard' | 'high' | 'lossless' | 'hires';
+export const defaultStreamingAudioQuality: StreamingAudioQuality = 'lossless';
 
 export type StreamingLyricsStatus = 'unknown' | 'available' | 'missing';
 export type StreamingMvStatus = 'unknown' | 'available' | 'missing';

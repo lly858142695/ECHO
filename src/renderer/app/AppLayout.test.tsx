@@ -6,8 +6,10 @@ import { Captions, ListMusic, Music2 } from 'lucide-react';
 import { AppProviders } from './AppProviders';
 import { AppLayout } from './AppLayout';
 import type { AppRoute } from './routes';
+import type { AudioStatus } from '../../shared/types/audio';
 import type { LibraryTrack } from '../../shared/types/library';
-import { useSharedPlaybackStatus } from '../stores/playbackStatusStore';
+import type { PlaybackStatus } from '../../shared/types/playback';
+import { setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
@@ -88,6 +90,12 @@ const SharedStatusProbe = (): JSX.Element => {
 
 afterEach(() => {
   cleanup();
+  setPlaybackStatusSnapshot({
+    audioStatus: null,
+    playbackStatus: null,
+    playbackVisualIntent: null,
+    error: null,
+  });
   window.sessionStorage.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -95,6 +103,81 @@ afterEach(() => {
 });
 
 describe('AppLayout standalone routes', () => {
+  it('forwards one shared playback clock to desktop lyrics', async () => {
+    const publishPlaybackStatus = vi.fn();
+    const publishAudioStatus = vi.fn();
+    const playbackStatus: PlaybackStatus = {
+      state: 'playing',
+      currentTrackId: 'track-1',
+      filePath: 'D:\\Music\\track.flac',
+      positionMs: 42000,
+      durationMs: 180000,
+    };
+    const audioStatus = {
+      state: 'playing',
+      currentTrackId: 'track-1',
+      currentFilePath: 'D:\\Music\\track.flac',
+      positionSeconds: 42.4,
+      durationSeconds: 180,
+      playbackRate: 1,
+      error: null,
+    } as AudioStatus;
+
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({}),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(audioStatus),
+        onStatus: vi.fn(() => () => undefined),
+      },
+      connect: {
+        getStatus: vi.fn().mockResolvedValue(null),
+        onStatus: vi.fn(() => () => undefined),
+      },
+      desktopLyrics: {
+        getState: vi.fn().mockResolvedValue({ visible: true, locked: false }),
+        onStateChanged: vi.fn(() => () => undefined),
+        publishAudioStatus,
+        publishPlaybackStatus,
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue(playbackStatus),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    act(() => {
+      setPlaybackStatusSnapshot({
+        playbackStatus,
+        audioStatus,
+        error: null,
+      });
+    });
+
+    await waitFor(() => {
+      expect(publishAudioStatus).toHaveBeenCalledWith(audioStatus);
+    });
+    expect(publishPlaybackStatus).not.toHaveBeenCalledWith(playbackStatus);
+
+    act(() => {
+      setPlaybackStatusSnapshot({
+        playbackStatus,
+        audioStatus: null,
+        error: null,
+      });
+    });
+
+    await waitFor(() =>
+      expect(publishPlaybackStatus).toHaveBeenCalledWith(playbackStatus),
+    );
+  });
+
   it('starts on Home when a home route is available without mounting Songs', async () => {
     window.localStorage.clear();
 
@@ -800,6 +883,9 @@ describe('AppLayout standalone routes', () => {
     expect(miniHost.querySelector('.player-bar')).toBeTruthy();
     expect(miniHost.dataset.miniPlayerColorMode).toBe('custom');
     expect(miniHost.style.getPropertyValue('--lyrics-mini-player-background')).toBe('rgba(255, 51, 102, 0.64)');
+    expect(miniHost.style.getPropertyValue('--lyrics-mini-player-readable-text')).toBe('rgb(17, 24, 39)');
+    expect(miniHost.style.getPropertyValue('--lyrics-mini-player-readable-muted')).toBe('rgb(17, 24, 39)');
+    expect(miniHost.style.getPropertyValue('--lyrics-mini-player-readable-shadow')).toBe('0 1px 0 rgba(255, 255, 255, 0.54)');
     expect(screen.getByRole('contentinfo')).toBeTruthy();
   });
 

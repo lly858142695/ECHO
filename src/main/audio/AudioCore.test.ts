@@ -4922,9 +4922,11 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(decoder.decodeRequests.at(-1)).toMatchObject({ startSeconds: 18.25 });
   });
 
-  it('soft pauses HTTP streams so resume does not reopen the network decoder', async () => {
+  it('prewarms HTTP stream decoders from the paused position without soft-pausing native output', async () => {
     const streamUrl = 'https://cdn.example.test/song.flac';
     const decoder = new class extends FakeDecoder {
+      private resumeReady: (() => void) | null = null;
+
       override decodeLocalFile(request: PcmDecodeRequest): DecoderRun {
         this.decodeRequests.push(request);
         const stream = new PassThrough();
@@ -4932,12 +4934,38 @@ describe('Audio Core sample-rate regression guard', () => {
           stream.destroy();
         });
 
-        queueMicrotask(() => {
-          if (!stream.destroyed) {
-            stream.write(pcmBuffer([0, 0]));
-          }
-        });
-        return { stream, stop, ready: Promise.resolve(), done: new Promise(() => undefined) };
+        if (this.decodeRequests.length === 1) {
+          queueMicrotask(() => {
+            if (!stream.destroyed) {
+              stream.write(pcmBuffer([0, 0]));
+            }
+          });
+          return { stream, stop, ready: Promise.resolve(), done: new Promise(() => undefined) };
+        }
+
+        return {
+          stream,
+          stop,
+          ready: new Promise<void>((resolve) => {
+            this.resumeReady = () => {
+              stream.write(pcmBuffer([0, 0]));
+              resolve();
+              this.resumeReady = null;
+            };
+          }),
+          done: new Promise(() => undefined),
+        };
+      }
+
+      releaseResumeReady(): void {
+        if (!this.resumeReady) {
+          throw new Error('resume decoder ready was not pending');
+        }
+        this.resumeReady();
+      }
+
+      hasResumeReady(): boolean {
+        return this.resumeReady !== null;
       }
     }(new Map([[streamUrl, probe(streamUrl, 44100)]]));
     const bridges: FakeBridge[] = [];
@@ -4964,25 +4992,33 @@ describe('Audio Core sample-rate regression guard', () => {
     bridges[0].positionSeconds = 18.25;
     const paused = await session.pause();
     expect(paused).toMatchObject({ state: 'paused', positionSeconds: 18.25 });
-    expect(bridges[0].setPaused).toHaveBeenCalledWith(true);
-    expect(bridges[0].setVolume).toHaveBeenCalledWith(0);
-    expect(bridges[0].sessionEnds).toBe(0);
-    expect(bridges[0].stop).not.toHaveBeenCalled();
+    expect(bridges[0].setPaused).not.toHaveBeenCalled();
+    expect(bridges[0].stop).toHaveBeenCalledTimes(1);
     expect(decoder.decodeRequests).toHaveLength(1);
+    await expect.poll(() => bridges.length).toBe(2);
+    await expect.poll(() => decoder.decodeRequests.length).toBe(2);
+    expect(decoder.hasResumeReady()).toBe(true);
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({ filePath: streamUrl, startSeconds: 18.25 });
 
     const resumeStates: string[] = [];
     session.on('status', (status) => {
       resumeStates.push(status.state);
     });
 
-    await expect(session.play()).resolves.toMatchObject({ state: 'playing', currentTrackId: 'streaming:netease:track' });
-    expect(resumeStates).not.toContain('loading');
+    const resumedPromise = session.play();
+    await Promise.resolve();
+    expect(decoder.hasResumeReady()).toBe(true);
+    const resumed = await resumedPromise;
+    decoder.releaseResumeReady();
+    expect(resumed).toMatchObject({ state: 'playing', currentTrackId: 'streaming:netease:track' });
+    expect(resumeStates).toContain('loading');
     expect(resumeStates.at(-1)).toBe('playing');
-    expect(bridges).toHaveLength(1);
-    expect(decoder.decodeRequests).toHaveLength(1);
-    expect(bridges[0].positionSeconds).toBe(18.25);
-    expect(bridges[0].setPaused).toHaveBeenLastCalledWith(false);
-    expect(bridges[0].setVolume).toHaveBeenLastCalledWith(1);
+    expect(bridges).toHaveLength(2);
+    expect(decoder.decodeRequests).toHaveLength(2);
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({ filePath: streamUrl, startSeconds: 18.25 });
+    expect(bridges[1].positionSeconds).toBe(18.25);
+    expect(bridges[0].setPaused).not.toHaveBeenCalled();
+    expect(bridges[1].setPaused).not.toHaveBeenCalled();
   });
 
   it('fades native output back in when resuming from a prewarmed pause', async () => {
@@ -5033,6 +5069,90 @@ describe('Audio Core sample-rate regression guard', () => {
     expect(bridges[0].sessionBegins).toBe(2);
     expect(bridges[0].sessionEnds).toBeGreaterThanOrEqual(1);
     expect(decoder.decodeRequests.at(-1)).toMatchObject({ startSeconds: 14.5 });
+  });
+
+  it('prewarms HTTP stream decoders from the paused position while resident exclusive output stays open paused', async () => {
+    const streamUrl = 'https://cdn.example.test/exclusive-song.flac';
+    const decoder = new class extends FakeDecoder {
+      private resumeReady: (() => void) | null = null;
+
+      override decodeLocalFile(request: PcmDecodeRequest): DecoderRun {
+        this.decodeRequests.push(request);
+        const stream = new PassThrough();
+        const stop = vi.fn(() => {
+          stream.destroy();
+        });
+
+        if (this.decodeRequests.length === 1) {
+          queueMicrotask(() => {
+            if (!stream.destroyed) {
+              stream.write(pcmBuffer([0, 0]));
+            }
+          });
+          return { stream, stop, ready: Promise.resolve(), done: new Promise(() => undefined) };
+        }
+
+        return {
+          stream,
+          stop,
+          ready: new Promise<void>((resolve) => {
+            this.resumeReady = () => {
+              stream.write(pcmBuffer([0, 0]));
+              resolve();
+              this.resumeReady = null;
+            };
+          }),
+          done: new Promise(() => undefined),
+        };
+      }
+
+      releaseResumeReady(): void {
+        if (!this.resumeReady) {
+          throw new Error('exclusive resume decoder ready was not pending');
+        }
+        this.resumeReady();
+      }
+
+      hasResumeReady(): boolean {
+        return this.resumeReady !== null;
+      }
+    }(new Map([[streamUrl, probe(streamUrl, 44100)]]));
+    const bridges: FakeBridge[] = [];
+    const session = createAudioSessionForTest({
+      decoder,
+      deviceService: { listDevices: () => [] },
+      createBridge: () => {
+        const bridge = new FakeBridge(44100);
+        bridges.push(bridge);
+        return bridge;
+      },
+      logger: noopLogger,
+    });
+
+    await session.playLocalFile({
+      filePath: streamUrl,
+      trackId: 'streaming:netease:exclusive-track',
+      output: { outputMode: 'exclusive', useJuceOutput: false },
+      probe: probe(streamUrl, 44100),
+    });
+    bridges[0].positionSeconds = 9.75;
+    const pausedStatus = await session.pause();
+
+    expect(pausedStatus).toMatchObject({ state: 'paused', host: 'ready', positionSeconds: 9.75 });
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].stop).not.toHaveBeenCalled();
+    await expect.poll(() => decoder.decodeRequests.length).toBe(2);
+    expect(decoder.hasResumeReady()).toBe(true);
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({ filePath: streamUrl, startSeconds: 9.75 });
+
+    const resumedPromise = session.play();
+    await Promise.resolve();
+    expect(decoder.hasResumeReady()).toBe(true);
+    await expect(resumedPromise).resolves.toMatchObject({ state: 'playing', currentTrackId: 'streaming:netease:exclusive-track' });
+    decoder.releaseResumeReady();
+    expect(bridges).toHaveLength(1);
+    expect(bridges[0].sessionBegins).toBe(2);
+    expect(decoder.decodeRequests).toHaveLength(2);
   });
 
   it('release-exclusive-on-pause stops resident exclusive output and reopens it on resume', async () => {

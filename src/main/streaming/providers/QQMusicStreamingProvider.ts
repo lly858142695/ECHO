@@ -606,7 +606,7 @@ const qqPlaybackQualityFallbacks: Record<QqPlaybackQuality | 'fallback', QqPlayb
   lossless: ['lossless', 'high', 'standard'],
   high: ['high', 'standard'],
   standard: ['standard'],
-  fallback: ['high', 'standard'],
+  fallback: ['lossless', 'high', 'standard'],
 };
 
 const qqPlaybackPlatforms = ['20', 'yqq'] as const;

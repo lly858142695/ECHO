@@ -320,6 +320,7 @@ export type EchoApi = {
     setStyle: (patch: DesktopLyricsStylePatch) => Promise<DesktopLyricsState>;
     resetBounds: () => Promise<DesktopLyricsState>;
     setMousePassthrough: (passthrough: boolean) => void;
+    publishAudioStatus: (status: AudioStatus) => void;
     publishPlaybackStatus: (status: PlaybackStatus) => void;
     getLastAudioStatus: () => Promise<AudioStatus | null>;
     getLastPlaybackStatus: () => Promise<PlaybackStatus | null>;

@@ -525,7 +525,7 @@ describe('China streaming providers', () => {
     });
   });
 
-  it('uses the NetEase enhanced song_url_v1 resolver before the public URL fallback', async () => {
+  it('defaults NetEase playback to lossless through the enhanced song_url_v1 resolver', async () => {
     const songUrlV1 = vi.fn().mockResolvedValue({
       body: {
         data: [
@@ -542,7 +542,7 @@ describe('China streaming providers', () => {
     setNeteaseApiForTests({ song_url_v1: songUrlV1 });
     vi.stubGlobal('fetch', fetchRunner);
 
-    const source = await new NeteaseStreamingProvider().resolvePlayback({ provider: 'netease', providerTrackId: '123', quality: 'lossless' });
+    const source = await new NeteaseStreamingProvider().resolvePlayback({ provider: 'netease', providerTrackId: '123' });
 
     expect(songUrlV1).toHaveBeenCalledWith({
       id: 123,
@@ -2084,7 +2084,7 @@ describe('China streaming providers', () => {
     });
   });
 
-  it('falls back to playable QQ Music quality when lossless returns no URL', async () => {
+  it('defaults QQ Music playback to lossless and falls back to a playable quality', async () => {
     const fetchRunner = vi
       .fn()
       .mockResolvedValueOnce(
@@ -2142,7 +2142,7 @@ describe('China streaming providers', () => {
       );
     vi.stubGlobal('fetch', fetchRunner);
 
-    const source = await new QQMusicStreamingProvider().resolvePlayback({ provider: 'qqmusic', providerTrackId: 'song-mid', quality: 'lossless' });
+    const source = await new QQMusicStreamingProvider().resolvePlayback({ provider: 'qqmusic', providerTrackId: 'song-mid' });
 
     const losslessBody = JSON.parse(String(fetchRunner.mock.calls[1][1]?.body));
     const highBody = JSON.parse(String(fetchRunner.mock.calls[4][1]?.body));

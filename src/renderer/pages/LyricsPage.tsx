@@ -56,7 +56,8 @@ import type { LyricLine, LyricsState } from "../components/lyrics/lyricsTypes";
 import { PlayerStatusChips } from "../components/player/PlayerStatusChips";
 import { titleFromPath } from "../components/player/playerFormat";
 import { usePlaybackQueue } from "../stores/PlaybackQueueProvider";
-import { refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from "../stores/playbackStatusStore";
+import { beginPlaybackSeekSnapshot, refreshPlaybackStatus, setPlaybackStatusSnapshot, useSharedPlaybackStatus } from "../stores/playbackStatusStore";
+import { logLyricsConsole } from "../diagnostics/lyricsConsole";
 import { openAlbumDetailForTrack } from "../utils/albumNavigation";
 import { serializeFontList } from "../preferences/appearancePreferences";
 
@@ -1257,7 +1258,6 @@ const useLyricsDisplayPosition = (
           nativeBufferedMs <= lyricsClockUnderrunBufferThresholdMs
         )
       );
-    const sourceClockNeedsBridge = nativeClockLooksStale || sourceClockLooksStalled;
     const seekAnchor = seekAnchorRef.current;
     if (seekAnchor) {
       if (seekAnchor.trackId && currentTrackId && seekAnchor.trackId !== currentTrackId) {
@@ -1294,6 +1294,8 @@ const useLyricsDisplayPosition = (
       const canIgnoreStaleRegression =
         canBridgeSourceLag && staleRegressionSeconds > 0.35 && staleRegressionSeconds <= maxStaleStatusRegressionSeconds;
       const canIgnoreStaleForwardJump = canBridgeSourceLag && sourceJumpedForward && Math.abs(previous.playbackRate - 1) > 0.001;
+      const sourceClockNeedsBridge =
+        nativeClockLooksStale || (sourceClockLooksStalled && canBridgeSourceLag);
 
       if (rateChangeSourceDiscontinuity) {
         nextPositionSeconds = estimatedPositionSeconds;
@@ -1520,21 +1522,37 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
     },
     [],
   );
-  const activeAudioStatus = shouldUseAudioStatusForCurrentPlayback(
-    audioStatus,
-    playbackStatus,
-  )
+  const resolvedPlaybackStatus = playbackStatus ?? sharedPlaybackStatus.playbackStatus;
+  const sharedSnapshotAudioStatus = sharedPlaybackStatus.audioStatus;
+  const sharedAudioStatus =
+    sharedSnapshotAudioStatus &&
+    (
+      isAudioStatusForPlayback(sharedSnapshotAudioStatus, resolvedPlaybackStatus) ||
+      (
+        !resolvedPlaybackStatus &&
+        Boolean(sharedSnapshotAudioStatus.currentTrackId || sharedSnapshotAudioStatus.currentFilePath)
+      )
+    )
+      ? sharedSnapshotAudioStatus
+      : null;
+  const resolvedAudioStatus = shouldUseAudioStatusForCurrentPlayback(audioStatus, resolvedPlaybackStatus)
     ? audioStatus
+    : sharedAudioStatus;
+  const activeAudioStatus = shouldUseAudioStatusForCurrentPlayback(
+    resolvedAudioStatus,
+    resolvedPlaybackStatus,
+  )
+    ? resolvedAudioStatus
     : null;
   const airPlaySourceId = airPlayReceiverSourceId(airPlayReceiverStatus);
   const airPlayPlaybackState = airPlayReceiverPlaybackState(airPlayReceiverStatus);
-  const state = airPlayPlaybackState ?? activeAudioStatus?.state ?? playbackStatus?.state ?? "idle";
+  const state = airPlayPlaybackState ?? activeAudioStatus?.state ?? resolvedPlaybackStatus?.state ?? "idle";
   const statusTrackId =
-    activeAudioStatus?.currentTrackId ?? playbackStatus?.currentTrackId ?? null;
+    activeAudioStatus?.currentTrackId ?? resolvedPlaybackStatus?.currentTrackId ?? null;
   const shouldPreferAudioTrackId =
     Boolean(activeAudioStatus?.currentTrackId) &&
     (!queue.currentTrackId ||
-      queue.currentTrackId === playbackStatus?.currentTrackId ||
+      queue.currentTrackId === resolvedPlaybackStatus?.currentTrackId ||
       queue.currentTrackId === activeAudioStatus?.currentTrackId);
   const trackId =
     shouldPreferAudioTrackId
@@ -1632,8 +1650,8 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
   }, [currentStreamingTargetKey, hasCurrentNeteaseDjRadioMarker, neteaseDjRadioLookup, streamingTarget]);
   const filePath =
     currentTrack?.path ??
-    audioStatus?.currentFilePath ??
-    playbackStatus?.filePath ??
+    activeAudioStatus?.currentFilePath ??
+    resolvedPlaybackStatus?.filePath ??
     airPlaySourceId ??
     null;
   const airPlayMetadata = airPlayReceiverStatus?.metadata ?? null;
@@ -2126,12 +2144,12 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
   );
 
   const { audioClock: baseMvAudioClock } = useLyricsDisplayPosition(
-    audioStatus,
-    playbackStatus,
+    activeAudioStatus,
+    resolvedPlaybackStatus,
   );
   const displayDurationSeconds =
     airPlayDurationSeconds ??
-    audioStatus?.durationSeconds ??
+    activeAudioStatus?.durationSeconds ??
     currentTrack?.duration ??
     0;
   const mvAudioClock = useMemo<MvAudioClock>(() => {
@@ -3372,6 +3390,12 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
       }
 
       const nextSeconds = Math.max(0, timeMs / 1000);
+      logLyricsConsole("page.seek-request", {
+        trackId,
+        targetPositionMs: Math.round(nextSeconds * 1000),
+        currentPlaybackMs: Math.round(Math.max(0, lyricsPositionSeconds * 1000)),
+        source: "lyrics-line",
+      });
       try {
         setSeekPreviewSeconds(nextSeconds);
         const status = await playback.seek(nextSeconds);
@@ -3392,10 +3416,22 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
               }
             : current,
         );
-        setPlaybackStatusSnapshot({ playbackStatus: nextStatus, error: null });
+        beginPlaybackSeekSnapshot(nextStatus);
         dispatchPlaybackSeeked(nextSeconds, status.currentTrackId ?? trackId ?? null);
+        logLyricsConsole("page.seek-committed", {
+          trackId: status.currentTrackId ?? trackId ?? null,
+          state: status.state,
+          targetPositionMs: Math.round(nextSeconds * 1000),
+          statusPositionMs: nextStatus.positionMs,
+          durationMs: nextStatus.durationMs,
+        });
         await refreshStatus();
       } catch (seekError) {
+        logLyricsConsole("page.seek-failed", {
+          trackId,
+          targetPositionMs: Math.round(nextSeconds * 1000),
+          error: seekError instanceof Error ? seekError.message : String(seekError),
+        }, { level: "warn", dedupeKey: `lyrics-page-seek-failed:${trackId ?? "unknown"}`, dedupeMs: 1000 });
         setError(
           seekError instanceof Error ? seekError.message : String(seekError),
         );
@@ -3403,7 +3439,7 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
         setSeekPreviewSeconds(null);
       }
     },
-    [refreshStatus, trackId],
+    [lyricsPositionSeconds, refreshStatus, trackId],
   );
 
   const handleLyricsOffsetChange = useCallback(

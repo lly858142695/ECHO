@@ -13,6 +13,7 @@ import { streamingProviderNames } from '../../shared/types/streaming';
 import { shouldShowRomanizationForLyrics } from '../../shared/utils/lyricsLanguage';
 import { getActiveLyricIndex } from '../components/lyrics/LyricsView';
 import { titleFromPath } from '../components/player/playerFormat';
+import { logLyricsConsole } from '../diagnostics/lyricsConsole';
 import { translateFallback, useOptionalI18n } from '../i18n/I18nProvider';
 import { registerAppearanceFontFile, serializeFontList } from '../preferences/appearancePreferences';
 
@@ -484,6 +485,26 @@ const getActiveIndex = (lyrics: DesktopLyricsStateSnapshot, clock: PlaybackClock
 
 const lineText = (line: LyricLine | null | undefined): string => line?.text.trim() ?? '';
 
+const clockIdentity = (clock: PlaybackClock | null): string | null =>
+  clock?.currentTrackId ?? clock?.filePath ?? null;
+
+const summarizeClockForLyricsLog = (clock: PlaybackClock | null): Record<string, unknown> | null =>
+  clock
+    ? {
+        source: clock.source,
+        state: clock.state,
+        trackId: clock.currentTrackId,
+        identity: clockIdentity(clock),
+        positionMs: Math.round(clock.positionMs),
+        durationMs: clock.durationMs,
+        playbackRate: clock.playbackRate,
+        ageMs: Math.round(performance.now() - clock.updatedAtMs),
+        nativePositionStalenessMs: clock.nativePositionStalenessMs ?? null,
+        nativeBufferedMs: clock.nativeBufferedMs ?? null,
+        nativeUnderrunCallbacks: clock.nativeUnderrunCallbacks ?? null,
+      }
+    : null;
+
 const secondaryLineTexts = (
   line: LyricLine | null | undefined,
   showRomanization: boolean,
@@ -509,6 +530,7 @@ export const DesktopLyricsApp = (): JSX.Element => {
   const [menuVisible, setMenuVisible] = useState(false);
   const lyricsRequestRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
+  const lastActiveClockLogRef = useRef<{ key: string; positionMs: number } | null>(null);
 
   const activeClock = useMemo(() => {
     const forwardedClockFresh =
@@ -556,6 +578,38 @@ export const DesktopLyricsApp = (): JSX.Element => {
     forwardedLyricsMetadata?.title,
     forwardedLyricsMetadata?.trackId,
   ]);
+
+  useEffect(() => {
+    if (!activeClock) {
+      lastActiveClockLogRef.current = null;
+      logLyricsConsole('desktop.active-clock', { clock: null }, { dedupeKey: 'desktop-active-clock:none', dedupeMs: 2000 });
+      return;
+    }
+
+    const identity = clockIdentity(activeClock) ?? 'unknown';
+    const key = `${activeClock.source}:${identity}:${activeClock.state}`;
+    const lastLog = lastActiveClockLogRef.current;
+    const positionJumpMs = lastLog && lastLog.key === key ? activeClock.positionMs - lastLog.positionMs : 0;
+    const shouldLog =
+      !lastLog ||
+      lastLog.key !== key ||
+      positionJumpMs < -1500 ||
+      positionJumpMs > 7000;
+    if (!shouldLog) {
+      return;
+    }
+
+    lastActiveClockLogRef.current = { key, positionMs: activeClock.positionMs };
+    logLyricsConsole(
+      'desktop.active-clock',
+      {
+        clock: summarizeClockForLyricsLog(activeClock),
+        previousKey: lastLog?.key ?? null,
+        positionJumpMs,
+      },
+      { dedupeKey: `desktop-active-clock:${key}`, dedupeMs: 700 },
+    );
+  }, [activeClock]);
 
   const refreshPlaybackClock = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
@@ -732,16 +786,28 @@ export const DesktopLyricsApp = (): JSX.Element => {
     const desktopLyrics = window.echo?.desktopLyrics;
     void desktopLyrics?.getLastAudioStatus?.().then((status) => {
       if (status) {
-        setForwardedClock(audioStatusToClock(status, performance.now()));
+        const updatedAtMs = performance.now();
+        const clock = audioStatusToClock(status, updatedAtMs);
+        logLyricsConsole('desktop.receive-clock', { source: 'audio', clock: summarizeClockForLyricsLog(clock) }, {
+          dedupeKey: `desktop-receive-audio:${clockIdentity(clock) ?? 'unknown'}:${Math.floor(clock.positionMs / 5000)}`,
+          dedupeMs: 500,
+        });
+        setForwardedClock(clock);
         setForwardedLyricsMetadata(audioStatusToLyricsMetadata(status));
-        setForwardedUpdatedAtMs(performance.now());
+        setForwardedUpdatedAtMs(updatedAtMs);
       }
     }).catch(() => undefined);
 
     const unsubscribe = desktopLyrics?.onAudioStatus?.((status) => {
-      setForwardedClock(audioStatusToClock(status, performance.now()));
+      const updatedAtMs = performance.now();
+      const clock = audioStatusToClock(status, updatedAtMs);
+      logLyricsConsole('desktop.receive-clock', { source: 'audio', clock: summarizeClockForLyricsLog(clock) }, {
+        dedupeKey: `desktop-receive-audio:${clockIdentity(clock) ?? 'unknown'}:${Math.floor(clock.positionMs / 5000)}`,
+        dedupeMs: 500,
+      });
+      setForwardedClock(clock);
       setForwardedLyricsMetadata(audioStatusToLyricsMetadata(status));
-      setForwardedUpdatedAtMs(performance.now());
+      setForwardedUpdatedAtMs(updatedAtMs);
     });
 
     return () => unsubscribe?.();
@@ -751,14 +817,26 @@ export const DesktopLyricsApp = (): JSX.Element => {
     const desktopLyrics = window.echo?.desktopLyrics;
     void desktopLyrics?.getLastPlaybackStatus?.().then((status) => {
       if (status) {
-        setForwardedClock(playbackStatusToClock(status, performance.now()));
-        setForwardedUpdatedAtMs(performance.now());
+        const updatedAtMs = performance.now();
+        const clock = playbackStatusToClock(status, updatedAtMs);
+        logLyricsConsole('desktop.receive-clock', { source: 'playback', clock: summarizeClockForLyricsLog(clock) }, {
+          dedupeKey: `desktop-receive-playback:${clockIdentity(clock) ?? 'unknown'}:${Math.floor(clock.positionMs / 5000)}`,
+          dedupeMs: 500,
+        });
+        setForwardedClock(clock);
+        setForwardedUpdatedAtMs(updatedAtMs);
       }
     }).catch(() => undefined);
 
     const unsubscribe = desktopLyrics?.onPlaybackStatus?.((status) => {
-      setForwardedClock(playbackStatusToClock(status, performance.now()));
-      setForwardedUpdatedAtMs(performance.now());
+      const updatedAtMs = performance.now();
+      const clock = playbackStatusToClock(status, updatedAtMs);
+      logLyricsConsole('desktop.receive-clock', { source: 'playback', clock: summarizeClockForLyricsLog(clock) }, {
+        dedupeKey: `desktop-receive-playback:${clockIdentity(clock) ?? 'unknown'}:${Math.floor(clock.positionMs / 5000)}`,
+        dedupeMs: 500,
+      });
+      setForwardedClock(clock);
+      setForwardedUpdatedAtMs(updatedAtMs);
     });
 
     return () => unsubscribe?.();
@@ -834,7 +912,15 @@ export const DesktopLyricsApp = (): JSX.Element => {
         if (streamingTarget && streamingApi?.getLyrics) {
           const streamingLyrics = await streamingApi.getLyrics(streamingTarget);
           if (lyricsRequestRef.current === requestId) {
-            setLyrics(streamingLyricsToState(streamingLyrics));
+            const nextLyrics = streamingLyricsToState(streamingLyrics);
+            logLyricsConsole('desktop.lyrics-loaded', {
+              source: 'streaming',
+              trackId: activeTrackId,
+              kind: nextLyrics.kind,
+              lineCount: nextLyrics.lines.length,
+              offsetMs: nextLyrics.offsetMs,
+            });
+            setLyrics(nextLyrics);
           }
           return;
         }
@@ -847,7 +933,15 @@ export const DesktopLyricsApp = (): JSX.Element => {
           if (snapshotRequest) {
             const snapshotLyrics = await lyricsApi.getForSnapshot(snapshotRequest);
             if (lyricsRequestRef.current === requestId) {
-              setLyrics(trackLyricsToState(snapshotLyrics ?? null));
+              const nextLyrics = trackLyricsToState(snapshotLyrics ?? null);
+              logLyricsConsole('desktop.lyrics-loaded', {
+                source: 'snapshot',
+                trackId: activeTrackId,
+                kind: nextLyrics.kind,
+                lineCount: nextLyrics.lines.length,
+                offsetMs: nextLyrics.offsetMs,
+              });
+              setLyrics(nextLyrics);
             }
             return;
           }
@@ -855,10 +949,22 @@ export const DesktopLyricsApp = (): JSX.Element => {
 
         const trackLyrics = await lyricsApi?.getForTrack?.(activeTrackId);
         if (lyricsRequestRef.current === requestId) {
-          setLyrics(trackLyricsToState(trackLyrics ?? null));
+          const nextLyrics = trackLyricsToState(trackLyrics ?? null);
+          logLyricsConsole('desktop.lyrics-loaded', {
+            source: 'library',
+            trackId: activeTrackId,
+            kind: nextLyrics.kind,
+            lineCount: nextLyrics.lines.length,
+            offsetMs: nextLyrics.offsetMs,
+          });
+          setLyrics(nextLyrics);
         }
       } catch {
         if (lyricsRequestRef.current === requestId) {
+          logLyricsConsole('desktop.lyrics-load-failed', {
+            trackId: activeTrackId,
+            clock: summarizeClockForLyricsLog(activeClock),
+          }, { level: 'warn', dedupeKey: `desktop-lyrics-load-failed:${activeTrackId}`, dedupeMs: 2000 });
           setLyrics(emptyLyrics());
         }
       }
@@ -881,7 +987,30 @@ export const DesktopLyricsApp = (): JSX.Element => {
 
     const sync = (): void => {
       const nextIndex = getActiveIndex(lyrics, activeClock);
-      setActiveIndex((current) => (current === nextIndex ? current : nextIndex));
+      setActiveIndex((current) => {
+        if (current === nextIndex) {
+          return current;
+        }
+
+        const indexJump = current >= 0 && nextIndex >= 0 ? nextIndex - current : 0;
+        if (current >= 0 && nextIndex >= 0 && (indexJump < 0 || Math.abs(indexJump) > 1)) {
+          logLyricsConsole(
+            'desktop.line-jump',
+            {
+              from: current,
+              to: nextIndex,
+              indexJump,
+              kind: lyrics.kind,
+              lineCount: lyrics.lines.length,
+              clock: summarizeClockForLyricsLog(activeClock),
+              interpolatedPositionMs: Math.round(getInterpolatedPositionMs(activeClock)),
+            },
+            { level: 'warn', dedupeKey: `desktop-line-jump:${clockIdentity(activeClock) ?? 'unknown'}`, dedupeMs: 700 },
+          );
+        }
+
+        return nextIndex;
+      });
     };
 
     sync();

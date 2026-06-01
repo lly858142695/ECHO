@@ -110,6 +110,15 @@ type BridgeStartResult = {
   hostRestartReason: string | null;
 };
 
+type PausedDecoderPrewarm = {
+  kind: 'held' | 'fresh';
+  token: number;
+  filePath: string;
+  startSeconds: number;
+  timelineStartSeconds: number;
+  run: DecoderRun;
+};
+
 type PreparedLocalPlaybackItem = {
   filePath: string;
   trackId?: string;
@@ -252,6 +261,8 @@ const defaultTransportFadeDurationMs = 80;
 const defaultTransportFadeStepMs = 10;
 const defaultTransportFadeCurve: AudioTransportFadeCurve = 'smooth';
 const transportFadeCurves = new Set<AudioTransportFadeCurve>(['linear', 'smooth', 'equalPower']);
+const pausedOutputPrewarmResumeWaitMs = 75;
+const heldHttpDecoderTimelineLeadCapSeconds = 1.5;
 const nativeUnderrunCallbackThreshold = 3;
 const nativeUnderrunFramesThresholdMs = 100;
 const exclusiveNativeUnderrunStartupGraceMs = 8_000;
@@ -593,8 +604,6 @@ const isResidentOutputMode = (value: unknown): boolean => {
   const mode = normalizeOutputMode(value);
   return mode === 'exclusive' || mode === 'asio';
 };
-
-const canSoftPauseOutputMode = (value: unknown): boolean => normalizeOutputMode(value) !== 'asio';
 
 const canReuseResidentOutputBridge = (outputMode: AudioOutputMode): boolean => {
   // ASIO drivers are more fragile across long-lived multi-session hosts, so rotate them per track.
@@ -1375,6 +1384,8 @@ export class AudioSession extends EventEmitter {
   private nativeHostNotificationQueue: Promise<void> = Promise.resolve();
   private decoderRun: DecoderRun | null = null;
   private decoderStopInProgress: Promise<void> | null = null;
+  private pausedOutputPrewarmPromise: Promise<void> | null = null;
+  private pausedDecoderPrewarm: PausedDecoderPrewarm | null = null;
   private gainTransform: PcmVolumeTransform | null = null;
   private speedTransform: PcmPlaybackRateTransform | null = null;
   private levelMeterTransform: PcmLevelMeterTransform | null = null;
@@ -2510,6 +2521,13 @@ export class AudioSession extends EventEmitter {
     await this.waitForExclusiveReleaseOnPause('play');
 
     if (this.state === 'paused' && this.currentFilePath && this.currentOutputSettings) {
+      if (this.hostStatus === 'starting' && this.pausedOutputPrewarmPromise) {
+        await this.waitBrieflyForPausedOutputPrewarm();
+        if (this.state !== 'paused' || !this.currentFilePath || !this.currentOutputSettings) {
+          return this.getStatus();
+        }
+      }
+
       if (this.isCurrentLivePcmStream()) {
         this.addOutputWarning('live_pcm_resume_skipped');
         this.logger(
@@ -2517,24 +2535,6 @@ export class AudioSession extends EventEmitter {
             this.currentFilePath,
           )}"`,
         );
-        this.emitStatus();
-        return this.getStatus();
-      }
-
-      if (this.canSoftResumeHttpStream()) {
-        const bridge = this.bridge!;
-        const startSeconds = this.pausedPositionSeconds ?? this.clock.getPositionSeconds();
-        const sampleRate = this.currentPlan?.actualDeviceSampleRate ?? this.currentPlan?.requestedOutputSampleRate ?? null;
-        this.pausedPositionSeconds = null;
-        bridge.resetOutputClock?.(startSeconds, this.currentOutputSettings.playbackRate ?? 1);
-        this.clock.reset(startSeconds, sampleRate);
-        bridge.setVolume?.(this.getTransportFadeTargetVolume());
-        bridge.setPaused?.(false);
-        this.decoderRun?.stream.resume();
-        this.state = 'playing';
-        this.hostStatus = 'ready';
-        this.nativeUnderrunWindow = null;
-        this.resetWatchdogProgress();
         this.emitStatus();
         return this.getStatus();
       }
@@ -2561,15 +2561,17 @@ export class AudioSession extends EventEmitter {
         this.attachBridgeEvents(bridge, token);
         await this.syncEqStateForPlayback();
         this.assertCurrentRun(token);
+        const prewarmedRun = this.consumePausedDecoderPrewarm(this.currentFilePath, startSeconds);
+        const timelineStartSeconds = prewarmedRun?.timelineStartSeconds ?? startSeconds;
         const sessionId = bridge.beginSession?.({
-          startSeconds,
+          startSeconds: timelineStartSeconds,
           playbackRate: this.currentOutputSettings.playbackRate ?? 1,
           durationSeconds: currentProbe.durationSeconds,
         });
-        bridge.resetOutputClock?.(startSeconds, this.currentOutputSettings.playbackRate ?? 1);
-        this.clock.reset(startSeconds, currentPlan.actualDeviceSampleRate ?? currentPlan.requestedOutputSampleRate);
+        bridge.resetOutputClock?.(timelineStartSeconds, this.currentOutputSettings.playbackRate ?? 1);
+        this.clock.reset(timelineStartSeconds, currentPlan.actualDeviceSampleRate ?? currentPlan.requestedOutputSampleRate);
 
-        const run = await this.createDecoderRunForPlayback(
+        const run = prewarmedRun?.run ?? await this.createDecoderRunForPlayback(
           this.currentFilePath,
           this.currentInputHeaders,
           startSeconds,
@@ -2583,11 +2585,24 @@ export class AudioSession extends EventEmitter {
         }
         this.startDecoderRun(run, writable, token);
         if (isHttpPlaybackUrl(this.currentFilePath)) {
-          await this.waitForDecoderReadyBeforePlaying(run, token, {
-            positionSeconds: startSeconds,
-            playbackRate: this.currentOutputSettings.playbackRate ?? 1,
-            sampleRate: currentPlan.actualDeviceSampleRate ?? currentPlan.requestedOutputSampleRate,
-          });
+          this.pausedPositionSeconds = timelineStartSeconds;
+          this.state = 'loading';
+          this.hostStatus = 'ready';
+          this.emitStatus();
+          try {
+            await this.waitForDecoderReadyBeforePlaying(run, token, {
+              positionSeconds: timelineStartSeconds,
+              playbackRate: this.currentOutputSettings.playbackRate ?? 1,
+              sampleRate: currentPlan.actualDeviceSampleRate ?? currentPlan.requestedOutputSampleRate,
+            });
+          } catch (error) {
+            if (isAudioSessionRunCancelledError(error)) {
+              return this.getStatus();
+            }
+
+            throw error;
+          }
+          this.pausedPositionSeconds = null;
         }
         this.state = 'playing';
         this.hostStatus = this.hostStatus === 'starting' ? 'starting' : 'ready';
@@ -2615,42 +2630,6 @@ export class AudioSession extends EventEmitter {
     }
 
     return this.getStatus();
-  }
-
-  private canSoftPauseHttpStream(): boolean {
-    return Boolean(
-      this.state === 'playing' &&
-      this.currentFilePath &&
-      isHttpPlaybackUrl(this.currentFilePath) &&
-      this.decoderRun &&
-      this.bridge &&
-      typeof this.bridge.setVolume === 'function' &&
-      typeof this.bridge.setPaused === 'function' &&
-      this.currentReadyResult &&
-      this.currentPlan &&
-      canSoftPauseOutputMode(this.currentPlan.outputMode) &&
-      this.currentActiveDsdOutputMode === null &&
-      !this.activeAutomix,
-    );
-  }
-
-  private canSoftResumeHttpStream(): boolean {
-    return Boolean(
-      this.state === 'paused' &&
-      this.currentFilePath &&
-      isHttpPlaybackUrl(this.currentFilePath) &&
-      this.decoderRun &&
-      !this.decoderRun.stream.destroyed &&
-      !this.decoderRun.stream.readableEnded &&
-      this.bridge &&
-      typeof this.bridge.setVolume === 'function' &&
-      typeof this.bridge.setPaused === 'function' &&
-      this.currentReadyResult &&
-      this.currentPlan &&
-      canSoftPauseOutputMode(this.currentPlan.outputMode) &&
-      this.currentActiveDsdOutputMode === null &&
-      !this.activeAutomix,
-    );
   }
 
   private shouldReleaseExclusiveOnPause(): boolean {
@@ -2875,20 +2854,6 @@ export class AudioSession extends EventEmitter {
         },
       });
       try {
-        if (this.canSoftPauseHttpStream()) {
-          this.bridge?.setPaused?.(true);
-          this.bridge?.setVolume?.(0);
-          this.decoderRun?.stream.pause();
-          this.pausedPositionSeconds = positionSeconds;
-          this.clock.reset(positionSeconds, sampleRate);
-          this.state = 'paused';
-          this.hostStatus = 'ready';
-          this.nativeUnderrunWindow = null;
-          this.resetWatchdogProgress();
-          this.emitStatus();
-          return this.getStatus();
-        }
-
         const fadeOutSettings = this.getTransportFadeSettings('out');
         if (this.state === 'playing' && this.bridge?.setVolume && fadeOutSettings.enabled) {
           const fadeBridge = this.bridge;
@@ -2908,6 +2873,7 @@ export class AudioSession extends EventEmitter {
           this.bridge &&
           this.currentReadyResult,
         );
+        const canHoldPausedDecoder = this.canHoldCurrentDecoderForPausedResume();
         this.runToken += 1;
         this.activeAutomix = null;
         const token = this.runToken;
@@ -2915,8 +2881,11 @@ export class AudioSession extends EventEmitter {
           await this.releaseExclusiveOutputOnPause(this.bridge, token, positionSeconds, sampleRate);
           return this.getStatus();
         }
+        const heldPausedDecoder = canHoldPausedDecoder
+          ? this.holdCurrentDecoderForPausedResume(token, positionSeconds)
+          : false;
         if (keepResidentBridge) {
-          const decoderStop = this.stopDecoderRun();
+          const decoderStop = heldPausedDecoder ? null : this.stopDecoderRun();
           if (decoderStop) {
             await decoderStop;
           }
@@ -2926,7 +2895,7 @@ export class AudioSession extends EventEmitter {
             // Best-effort idle transition for resident native output.
           }
         } else {
-          this.stopResources();
+          this.stopResources({ preservePausedDecoderPrewarm: heldPausedDecoder });
         }
         this.pausedPositionSeconds = positionSeconds;
         this.clock.reset(positionSeconds, sampleRate);
@@ -2940,7 +2909,9 @@ export class AudioSession extends EventEmitter {
         }
         this.emitStatus();
         if (canPrewarm) {
-          void this.preparePausedOutputBridge(token, positionSeconds);
+          this.startPausedOutputPrewarm(token, positionSeconds);
+        } else if (keepResidentBridge && this.currentProbe && this.currentPlan && this.currentOutputSettings) {
+          void this.preparePausedDecoderRun(token, positionSeconds, this.currentProbe, this.currentPlan, this.currentOutputSettings);
         }
       } catch (error) {
         this.addOutputWarning('pause_cleanup_failed');
@@ -3142,7 +3113,7 @@ export class AudioSession extends EventEmitter {
       this.hostStatus = canPrewarm ? 'starting' : this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
       this.emitStatus();
       if (canPrewarm) {
-        void this.preparePausedOutputBridge(token, safePositionSeconds);
+        this.startPausedOutputPrewarm(token, safePositionSeconds);
       }
       return this.getStatus();
     }
@@ -5871,6 +5842,290 @@ export class AudioSession extends EventEmitter {
     }
   }
 
+  private holdCurrentDecoderForPausedResume(token: number, startSeconds: number): boolean {
+    const filePath = this.currentFilePath;
+    const run = this.decoderRun;
+    if (
+      !this.canHoldCurrentDecoderForPausedResume() ||
+      !filePath ||
+      !run ||
+      run.stream.destroyed ||
+      run.stream.readableEnded
+    ) {
+      return false;
+    }
+
+    this.decoderPipelineCleanup?.();
+    this.decoderPipelineCleanup = null;
+    this.decoderRun = null;
+    try {
+      run.stream.unpipe();
+    } catch {
+      // Best-effort paused decoder detach.
+    }
+    try {
+      run.stream.pause();
+    } catch {
+      // Best-effort paused decoder detach.
+    }
+
+    for (const transform of [this.gainTransform, this.speedTransform, this.levelMeterTransform]) {
+      try {
+        transform?.destroy();
+      } catch {
+        // Best-effort paused decoder detach.
+      }
+    }
+    this.gainTransform = null;
+    this.speedTransform = null;
+    this.levelMeterTransform = null;
+
+    this.stopPausedDecoderPrewarm();
+    const prewarm: PausedDecoderPrewarm = {
+      kind: 'held',
+      token,
+      filePath,
+      startSeconds,
+      timelineStartSeconds: this.estimateHeldDecoderTimelineStartSeconds(startSeconds),
+      run,
+    };
+    this.pausedDecoderPrewarm = prewarm;
+    run.done.catch((error) => {
+      if (this.pausedDecoderPrewarm !== prewarm) {
+        return;
+      }
+
+      this.pausedDecoderPrewarm = null;
+      this.logger(`[AudioSession] paused HTTP decoder exited before resume: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    return true;
+  }
+
+  private canHoldCurrentDecoderForPausedResume(): boolean {
+    return Boolean(
+      this.currentFilePath &&
+      isHttpPlaybackUrl(this.currentFilePath) &&
+      this.decoderRun &&
+      this.currentActiveDsdOutputMode === null &&
+      !this.activeAutomix,
+    );
+  }
+
+  private estimateHeldDecoderTimelineStartSeconds(startSeconds: number): number {
+    const sampleRate = this.currentPlan?.actualDeviceSampleRate ?? this.currentPlan?.requestedOutputSampleRate ?? null;
+    const bufferedFrames = this.nativeTelemetry.bufferedFrames;
+    const bufferedSeconds =
+      sampleRate && bufferedFrames !== null
+        ? Math.max(0, Math.min(heldHttpDecoderTimelineLeadCapSeconds, bufferedFrames / sampleRate))
+        : 0;
+    const durationSeconds =
+      this.currentProbe?.durationSeconds && this.currentProbe.durationSeconds > 0
+        ? this.currentProbe.durationSeconds
+        : Number.POSITIVE_INFINITY;
+
+    return Math.min(durationSeconds, Math.max(0, startSeconds + bufferedSeconds));
+  }
+
+  private startPausedOutputPrewarm(token: number, startSeconds: number): void {
+    const promise = this.preparePausedOutputBridge(token, startSeconds);
+    this.pausedOutputPrewarmPromise = promise;
+    void promise.finally(() => {
+      if (this.pausedOutputPrewarmPromise === promise) {
+        this.pausedOutputPrewarmPromise = null;
+      }
+    });
+  }
+
+  private async waitBrieflyForPausedOutputPrewarm(): Promise<void> {
+    const prewarm = this.pausedOutputPrewarmPromise;
+    if (!prewarm) {
+      return;
+    }
+
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await Promise.race([
+        prewarm.then(
+          () => {
+            settled = true;
+          },
+          () => {
+            settled = true;
+          },
+        ),
+        new Promise<void>((resolve) => {
+          timeout = setTimeout(resolve, pausedOutputPrewarmResumeWaitMs);
+          timeout.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
+
+    if (
+      settled ||
+      this.pausedOutputPrewarmPromise !== prewarm ||
+      this.state !== 'paused' ||
+      this.hostStatus !== 'starting'
+    ) {
+      return;
+    }
+
+    await this.stopResourcesGracefully('paused-output-prewarm-superseded');
+    this.hostStatus = this.isNativeHostAvailable() ? 'not-initialized' : 'unavailable';
+    this.emitStatus();
+  }
+
+  private stopPausedDecoderPrewarm(): void {
+    const prewarm = this.pausedDecoderPrewarm;
+    this.pausedDecoderPrewarm = null;
+    if (!prewarm) {
+      return;
+    }
+
+    try {
+      prewarm.run.stream.destroy();
+    } catch {
+      // Best-effort paused decoder cleanup.
+    }
+    try {
+      prewarm.run.stop();
+    } catch {
+      // Best-effort paused decoder cleanup.
+    }
+  }
+
+  private consumePausedDecoderPrewarm(filePath: string, startSeconds: number): PausedDecoderPrewarm | null {
+    const prewarm = this.pausedDecoderPrewarm;
+    if (
+      !prewarm ||
+      prewarm.filePath !== filePath ||
+      Math.abs(prewarm.startSeconds - startSeconds) > 0.01 ||
+      prewarm.run.stream.destroyed ||
+      prewarm.run.stream.readableEnded
+    ) {
+      if (prewarm) {
+        this.stopPausedDecoderPrewarm();
+      }
+      return null;
+    }
+
+    this.pausedDecoderPrewarm = null;
+    return prewarm;
+  }
+
+  private async preparePausedDecoderRun(
+    token: number,
+    startSeconds: number,
+    probe: AudioProbeResult,
+    plan: SampleRatePlan,
+    outputSettings: AudioOutputSettings,
+  ): Promise<void> {
+    const filePath = this.currentFilePath;
+    if (
+      !filePath ||
+      !isHttpPlaybackUrl(filePath) ||
+      this.currentActiveDsdOutputMode !== null ||
+      this.activeAutomix
+    ) {
+      return;
+    }
+
+    let run: DecoderRun | null = null;
+    try {
+      run = await this.createDecoderRunForPlayback(
+        filePath,
+        this.currentInputHeaders,
+        startSeconds,
+        probe,
+        plan,
+        outputSettings,
+      );
+
+      if (this.runToken !== token || this.state !== 'paused' || this.currentFilePath !== filePath) {
+        run.stop();
+        return;
+      }
+
+      const ready = run.ready ?? Promise.resolve();
+      const prewarm: PausedDecoderPrewarm = {
+        kind: 'fresh',
+        token,
+        filePath,
+        startSeconds,
+        timelineStartSeconds: startSeconds,
+        run,
+      };
+      const existingPrewarm = this.pausedDecoderPrewarm;
+
+      if (existingPrewarm?.kind === 'held') {
+        ready.then(() => {
+          if (this.runToken !== token || this.state !== 'paused' || this.currentFilePath !== filePath) {
+            try {
+              run?.stop();
+            } catch {
+              // Best-effort paused decoder cleanup.
+            }
+            return;
+          }
+
+          this.stopPausedDecoderPrewarm();
+          this.pausedDecoderPrewarm = prewarm;
+        }).catch((error) => {
+          try {
+            run?.stop();
+          } catch {
+            // Best-effort paused decoder cleanup.
+          }
+          this.logger(`[AudioSession] paused HTTP decoder prewarm failed: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        run.done.catch((error) => {
+          if (this.pausedDecoderPrewarm !== prewarm) {
+            return;
+          }
+
+          this.pausedDecoderPrewarm = null;
+          this.logger(`[AudioSession] paused HTTP decoder exited before resume: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        return;
+      }
+
+      this.stopPausedDecoderPrewarm();
+      this.pausedDecoderPrewarm = prewarm;
+      ready.catch((error) => {
+        if (this.pausedDecoderPrewarm !== prewarm) {
+          return;
+        }
+
+        this.pausedDecoderPrewarm = null;
+        try {
+          run?.stop();
+        } catch {
+          // Best-effort paused decoder cleanup.
+        }
+        this.logger(`[AudioSession] paused HTTP decoder prewarm failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+      run.done.catch((error) => {
+        if (this.pausedDecoderPrewarm !== prewarm) {
+          return;
+        }
+
+        this.pausedDecoderPrewarm = null;
+        this.logger(`[AudioSession] paused HTTP decoder exited before resume: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    } catch (error) {
+      if (this.runToken !== token) {
+        run?.stop();
+        return;
+      }
+
+      this.logger(`[AudioSession] paused HTTP decoder prewarm skipped: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   private async preparePausedOutputBridge(token: number, startSeconds: number): Promise<void> {
     const probe = this.currentProbe;
 
@@ -5888,6 +6143,11 @@ export class AudioSession extends EventEmitter {
       this.applyReadyResult(ready);
       this.hostStatus = 'ready';
       this.emitStatus();
+      const plan = this.currentPlan;
+      const outputSettings = this.currentOutputSettings;
+      if (plan && outputSettings) {
+        void this.preparePausedDecoderRun(token, startSeconds, probe, plan, outputSettings);
+      }
     } catch (error) {
       if (this.runToken !== token) {
         return;
@@ -7028,8 +7288,12 @@ export class AudioSession extends EventEmitter {
     };
   }
 
-  private stopResources(): void {
+  private stopResources(options: { preservePausedDecoderPrewarm?: boolean } = {}): void {
     this.cancelTransportFade();
+    this.pausedOutputPrewarmPromise = null;
+    if (options.preservePausedDecoderPrewarm !== true) {
+      this.stopPausedDecoderPrewarm();
+    }
     void this.stopDecoderRun();
 
     if (this.bridge) {
@@ -7048,6 +7312,8 @@ export class AudioSession extends EventEmitter {
   }
 
   private async stopResourcesGracefully(reason: string, waitForExitOverride?: boolean): Promise<void> {
+    this.pausedOutputPrewarmPromise = null;
+    this.stopPausedDecoderPrewarm();
     const decoderStop = this.stopDecoderRun();
     if (decoderStop) {
       await decoderStop;

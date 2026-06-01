@@ -218,6 +218,24 @@ describe('KugouStreamingProvider', () => {
     });
   });
 
+  it('defaults KuGou playback to lossless quality', async () => {
+    const fetchRunner = vi.fn().mockResolvedValueOnce(jsonResponse({ status: 1, data: { url: 'https://fs.open.kugou.com/audio.flac' } }));
+    vi.stubGlobal('fetch', fetchRunner);
+
+    const source = await resolveKugouPlaybackUrl({
+      provider: 'kugou',
+      providerTrackId: 'dddddd1234567890dddddd1234567890.55.66',
+    });
+
+    const url = new URL(String(fetchRunner.mock.calls[0][0]));
+    expect(url.searchParams.get('quality')).toBe('flac');
+    expect(source).toMatchObject({
+      url: 'https://fs.open.kugou.com/audio.flac',
+      bitrate: 999000,
+      codec: 'flac',
+    });
+  });
+
   it('throws a clear playback error when KuGou returns no URL', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ status: 2, errcode: 20028, error: 'need verification' })));
 

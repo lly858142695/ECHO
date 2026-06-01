@@ -777,6 +777,12 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
   text-shadow: none;
 }
 
+.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-row,
+.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .output-status > span {
+  color: var(--lyrics-mini-player-readable-muted);
+  text-shadow: var(--lyrics-mini-player-readable-shadow);
+}
+
 .player-bar .icon-button {
   color: var(--theme-button-text);
   border-color: var(--echo-polish-border);
@@ -799,17 +805,17 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
 }
 
 .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .icon-button {
-  color: rgba(255, 255, 255, 0.84);
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--lyrics-mini-player-readable-text);
+  border-color: var(--lyrics-mini-player-readable-button-border);
+  background: var(--lyrics-mini-player-readable-button-bg);
   box-shadow: none;
 }
 
 .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .icon-button:hover,
 .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .icon-button.is-soft-active {
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.16);
+  color: var(--lyrics-mini-player-readable-text);
+  border-color: var(--lyrics-mini-player-readable-button-border);
+  background: var(--lyrics-mini-player-readable-button-bg-hover);
 }
 
 .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .play-button {
@@ -844,7 +850,8 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
 }
 
 .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track {
-  background: rgba(255, 255, 255, 0.24);
+  border-color: var(--lyrics-mini-player-readable-track-border);
+  background: var(--lyrics-mini-player-readable-track-bg);
 }
 
 .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-fill,

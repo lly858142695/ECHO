@@ -7,7 +7,7 @@ import { AudioSettingsDrawer } from '../components/player/AudioSettingsDrawer';
 import { AudioIssueDiagnosticsWindow } from '../components/player/AudioIssueDiagnosticsWindow';
 import { LyricsSettingsDrawer } from '../components/lyrics/LyricsSettingsDrawer';
 import { MvSettingsDrawer } from '../components/lyrics/MvSettingsDrawer';
-import { parseHexColor, sampleImageUrl, type ReadableColorSample, type Rgb } from '../components/lyrics/lyricsReadableColor';
+import { contrastRatio, parseHexColor, sampleImageUrl, type ReadableColorSample, type Rgb } from '../components/lyrics/lyricsReadableColor';
 import { DragDropImportOverlay } from '../components/import/DragDropImportOverlay';
 import { FirstRunWizard } from '../components/onboarding/FirstRunWizard';
 import { loadPersistedRememberedAudioOutput } from '../components/player/audioOutputMemory';
@@ -24,6 +24,7 @@ import type { UpdateStatus } from '../../shared/types/updates';
 import { useI18n } from '../i18n/I18nProvider';
 import { likedChangedEvent, likedTracksChangedEvent } from '../hooks/useLikedMedia';
 import type { TranslationKey } from '../i18n/locales';
+import { logLyricsConsole } from '../diagnostics/lyricsConsole';
 import { rememberLibraryScanStatus } from '../stores/libraryScanSession';
 import { clearSongsFirstPageSnapshot } from '../stores/songsFirstPageSnapshot';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
@@ -32,6 +33,7 @@ import { albumDetailNavigationEvent } from '../utils/albumNavigation';
 import { artistDetailNavigationEvent } from '../utils/artistNavigation';
 import { applySidebarPreferences } from './sidebarPreferences';
 import { defaultSidebarRouteOrder, normalizeSidebarHiddenRouteIds, normalizeSidebarRouteOrder } from '../../shared/types/sidebar';
+import type { PlaybackStatus } from '../../shared/types/playback';
 
 type AppLayoutProps = {
   routes: AppRoute[];
@@ -224,11 +226,50 @@ const mixRgb = (from: Rgb, to: Rgb, amount: number): Rgb => {
 const formatRgbChannels = (rgb: Rgb): string =>
   [rgb.r, rgb.g, rgb.b].map((channel) => Math.round(Math.max(0, Math.min(255, channel)))).join(', ');
 
+const formatCssRgb = (rgb: Rgb): string => `rgb(${formatRgbChannels(rgb)})`;
+
 const tintedMiniPlayerRgb = (sample: ReadableColorSample): Rgb => {
   const darkAnchor = { r: 21, g: 22, b: 25 };
   const darkenAmount = sample.luminance > 0.42 ? 0.58 : sample.luminance > 0.22 ? 0.46 : 0.28;
   return mixRgb(sample.averageRgb, darkAnchor, darkenAmount);
 };
+
+const miniPlayerReadableLight = { r: 255, g: 255, b: 255 };
+const miniPlayerReadableLightMuted = { r: 248, g: 250, b: 252 };
+const miniPlayerReadableDark = { r: 17, g: 24, b: 39 };
+
+const getMiniPlayerReadablePalette = (backgroundRgb: Rgb): Record<string, string> => {
+  const useLightText =
+    contrastRatio(miniPlayerReadableLight, backgroundRgb) >= contrastRatio(miniPlayerReadableDark, backgroundRgb);
+
+  return useLightText
+    ? {
+        '--lyrics-mini-player-readable-text': formatCssRgb(miniPlayerReadableLight),
+        '--lyrics-mini-player-readable-muted': formatCssRgb(miniPlayerReadableLightMuted),
+        '--lyrics-mini-player-readable-shadow': '0 1px 2px rgba(0, 0, 0, 0.48)',
+        '--lyrics-mini-player-readable-button-bg': 'rgba(255, 255, 255, 0.10)',
+        '--lyrics-mini-player-readable-button-bg-hover': 'rgba(255, 255, 255, 0.18)',
+        '--lyrics-mini-player-readable-button-border': 'rgba(255, 255, 255, 0.16)',
+        '--lyrics-mini-player-readable-track-bg': 'rgba(255, 255, 255, 0.24)',
+        '--lyrics-mini-player-readable-track-border': 'rgba(255, 255, 255, 0.16)',
+      }
+    : {
+        '--lyrics-mini-player-readable-text': formatCssRgb(miniPlayerReadableDark),
+        '--lyrics-mini-player-readable-muted': formatCssRgb(miniPlayerReadableDark),
+        '--lyrics-mini-player-readable-shadow': '0 1px 0 rgba(255, 255, 255, 0.54)',
+        '--lyrics-mini-player-readable-button-bg': 'rgba(17, 24, 39, 0.08)',
+        '--lyrics-mini-player-readable-button-bg-hover': 'rgba(17, 24, 39, 0.14)',
+        '--lyrics-mini-player-readable-button-border': 'rgba(17, 24, 39, 0.14)',
+        '--lyrics-mini-player-readable-track-bg': 'rgba(17, 24, 39, 0.18)',
+        '--lyrics-mini-player-readable-track-border': 'rgba(17, 24, 39, 0.14)',
+      };
+};
+
+const getDesktopLyricsForwardPositionMs = (status: AudioStatus | PlaybackStatus): number =>
+  'positionSeconds' in status ? Math.round(status.positionSeconds * 1000) : status.positionMs;
+
+const getDesktopLyricsForwardIdentity = (status: AudioStatus | PlaybackStatus): string | null =>
+  status.currentTrackId ?? ('currentFilePath' in status ? status.currentFilePath : status.filePath) ?? null;
 
 const openAudioSettingsEvent = 'app:open-audio-settings';
 const openMvSettingsEvent = 'app:open-mv-settings';
@@ -288,6 +329,55 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [lyricsMiniPlayerCoverSample, setLyricsMiniPlayerCoverSample] = useState<ReadableColorSample | null>(null);
   const [isLyricsMiniPlayerAutoHidden, setIsLyricsMiniPlayerAutoHidden] = useState(false);
   const [activeLyricsViewMode, setActiveLyricsViewMode] = useState<LyricsViewMode>(() => readRememberedLyricsViewMode());
+  const lastDesktopLyricsForwardRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics) {
+      return;
+    }
+
+    if (playbackStatusSnapshot.audioStatus) {
+      const status = playbackStatusSnapshot.audioStatus;
+      const positionBucket = Math.floor(getDesktopLyricsForwardPositionMs(status) / 5000);
+      const logKey = `audio:${getDesktopLyricsForwardIdentity(status) ?? 'unknown'}:${status.state}:${positionBucket}`;
+      if (lastDesktopLyricsForwardRef.current !== logKey) {
+        lastDesktopLyricsForwardRef.current = logKey;
+        logLyricsConsole('desktop.forward-clock', {
+          source: 'audio',
+          state: status.state,
+          trackId: status.currentTrackId,
+          identity: getDesktopLyricsForwardIdentity(status),
+          positionMs: getDesktopLyricsForwardPositionMs(status),
+          durationMs: Math.round(status.durationSeconds * 1000),
+          playbackRate: status.playbackRate ?? 1,
+        });
+      }
+      desktopLyrics.publishAudioStatus?.(playbackStatusSnapshot.audioStatus);
+      return;
+    }
+    if (playbackStatusSnapshot.playbackStatus) {
+      const status = playbackStatusSnapshot.playbackStatus;
+      const positionBucket = Math.floor(getDesktopLyricsForwardPositionMs(status) / 5000);
+      const logKey = `playback:${getDesktopLyricsForwardIdentity(status) ?? 'unknown'}:${status.state}:${positionBucket}`;
+      if (lastDesktopLyricsForwardRef.current !== logKey) {
+        lastDesktopLyricsForwardRef.current = logKey;
+        logLyricsConsole('desktop.forward-clock', {
+          source: 'playback',
+          state: status.state,
+          trackId: status.currentTrackId,
+          identity: getDesktopLyricsForwardIdentity(status),
+          positionMs: getDesktopLyricsForwardPositionMs(status),
+          durationMs: status.durationMs,
+          playbackRate: 1,
+        });
+      }
+      desktopLyrics.publishPlaybackStatus?.(status);
+    }
+  }, [
+    playbackStatusSnapshot.audioStatus,
+    playbackStatusSnapshot.playbackStatus,
+  ]);
   const [appWallpaperSettings, setAppWallpaperSettings] = useState<AppWallpaperSettings>(defaultAppWallpaperSettings);
   const [loadedAppWallpaperKey, setLoadedAppWallpaperKey] = useState<string | null>(null);
   const [isAppWallpaperDocumentHidden, setIsAppWallpaperDocumentHidden] = useState(() => document.visibilityState === 'hidden');
@@ -406,6 +496,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       '--lyrics-mini-player-opacity': opacity.toFixed(2),
       '--lyrics-mini-player-background': `rgba(${channels}, ${opacity.toFixed(2)})`,
       '--lyrics-mini-player-border': `rgba(255, 255, 255, ${Math.max(0.08, opacity * 0.2).toFixed(2)})`,
+      ...getMiniPlayerReadablePalette(rgb),
     } as CSSProperties;
   }, [
     lyricsMiniPlayerCoverSample,

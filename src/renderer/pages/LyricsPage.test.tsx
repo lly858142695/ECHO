@@ -18,10 +18,12 @@ import type {
   TrackLyrics,
 } from "../../shared/types/lyrics";
 import type { MvSettings, TrackVideo } from "../../shared/types/mv";
+import type { PlaybackStatus } from "../../shared/types/playback";
 import {
   PlaybackQueueProvider,
   usePlaybackQueue,
 } from "../stores/PlaybackQueueProvider";
+import { setPlaybackStatusSnapshot } from "../stores/playbackStatusStore";
 import { LyricsPage } from "./LyricsPage";
 import type { LyricLine } from "../components/lyrics/lyricsTypes";
 import { albumDetailNavigationEvent } from "../utils/albumNavigation";
@@ -366,7 +368,7 @@ const mockEcho = (
   positionSeconds = 0,
   settingsOverrides: Partial<AppSettings> = {},
 ): { emitAudioStatus: (status: AudioStatus) => void; seek: ReturnType<typeof vi.fn> } => {
-  let audioStatusHandler: ((status: AudioStatus) => void) | null = null;
+  const audioStatusHandlers = new Set<(status: AudioStatus) => void>();
   const seek = vi.fn().mockResolvedValue({
     state: "playing",
     currentTrackId: track?.id ?? null,
@@ -407,11 +409,9 @@ const mockEcho = (
         .fn()
         .mockResolvedValue(makeAudioStatus(track, positionSeconds)),
       onStatus: vi.fn((handler: (status: AudioStatus) => void) => {
-        audioStatusHandler = handler;
+        audioStatusHandlers.add(handler);
         return () => {
-          if (audioStatusHandler === handler) {
-            audioStatusHandler = null;
-          }
+          audioStatusHandlers.delete(handler);
         };
       }),
     },
@@ -423,7 +423,7 @@ const mockEcho = (
 
   return {
     emitAudioStatus: (status: AudioStatus): void => {
-      audioStatusHandler?.(status);
+      audioStatusHandlers.forEach((handler) => handler(status));
     },
     seek,
   };
@@ -547,9 +547,10 @@ describe("LyricsPage", () => {
     expect(css).toMatch(/@media \(max-width: 720px\) \{[\s\S]*?\.app-shell--lyrics-player-drawer \.lyrics-page:has\(\.lyrics-mv-panel\[data-mv-enabled="false"\]\) \.lyrics-left-panel \{\s*grid-template-rows: 58px minmax\(0, 1fr\);/);
     expect(css).toMatch(/@media \(max-width: 720px\) \{[\s\S]*?\.app-shell--lyrics-player-drawer \.lyrics-page:has\(\.lyrics-mv-panel\[data-mv-enabled="false"\]\) \.lyrics-track-header \{[\s\S]*?top: 66px;[\s\S]*?grid-template-columns: 64px minmax\(0, 1fr\);/);
     expect(polishCss).toMatch(/\.app-shell--lyrics-player-drawer \.lyrics-player-drawer-host \.player-bar \{[\s\S]*?background: var\(--lyrics-mini-player-background, rgba\(35, 33, 32, 0\.78\)\);[\s\S]*?backdrop-filter: blur\(22px\) saturate\(1\.18\);/);
+    expect(polishCss).toContain('color: var(--lyrics-mini-player-readable-muted);');
     expect(themePresetsCss).toContain('.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar');
-    expect(themePresetsCss).toContain('--lyrics-mini-readable-text: var(--theme-heading-text);');
-    expect(themePresetsCss).toContain('--lyrics-mini-readable-muted: color-mix');
+    expect(themePresetsCss).toContain('--lyrics-mini-readable-text: var(--lyrics-mini-player-readable-text, rgb(255 255 255));');
+    expect(themePresetsCss).toContain('--lyrics-mini-readable-muted: var(--lyrics-mini-player-readable-muted, rgb(248 250 252));');
     expect(themePresetsCss).toContain('var(--lyrics-mini-player-background, rgb(var(--preset-panel-rgb) / 0.9))');
     expect(themePresetsCss).toContain('.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar .icon-button');
     expect(themePresetsCss).toContain('.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-fill');
@@ -841,6 +842,7 @@ describe("LyricsPage", () => {
     );
 
     await screen.findByText("First line");
+    await waitFor(() => expect(window.echo.audio.onStatus).toHaveBeenCalled());
     act(() => {
       emitAudioStatus(makeAudioStatus(track, 12));
     });
@@ -911,6 +913,36 @@ describe("LyricsPage", () => {
         container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
       ).toContain("Second line"),
     );
+  });
+
+  it("opens on the current lyric line from the shared playback clock before a fresh status refresh", () => {
+    const track = makeTrack();
+    mockEcho(track, 0);
+    window.echo.playback.getStatus = vi.fn(() => new Promise<PlaybackStatus>(() => undefined));
+    window.echo.audio.getStatus = vi.fn(() => new Promise<AudioStatus>(() => undefined));
+    setPlaybackStatusSnapshot({
+      audioStatus: makeAudioStatus(track, 21),
+      playbackStatus: {
+        state: "playing",
+        currentTrackId: track.id,
+        positionMs: 21000,
+        durationMs: track.duration * 1000,
+        filePath: track.path,
+      },
+      error: null,
+    });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    expect(
+      container.querySelector('.lyrics-line[data-active="true"]')?.textContent,
+    ).toContain("Third line");
   });
 
   it("keeps lyrics advancing when the reported playback position stalls without native telemetry", async () => {

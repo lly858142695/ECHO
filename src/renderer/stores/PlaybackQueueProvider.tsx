@@ -27,7 +27,7 @@ import { beginPlaybackSwitchSnapshot, setPlaybackStatusSnapshot } from './playba
 
 const playbackCancellationErrorMessage = 'audio_session_run_cancelled';
 const playbackHistoryChangedEvent = 'playback-history:changed';
-const libraryShuffleCandidatePageSize = 64;
+const libraryShuffleCandidatePageSize = 128;
 const libraryRandomQueueRefreshPageSize = 96;
 const libraryShuffleExcludeHistoryLimit = 200;
 const activePlaybackStates = new Set<AudioStatus['state']>(['loading', 'playing', 'paused']);
@@ -147,6 +147,10 @@ type PlaylistPlaybackState = {
   label: string | null;
   playlistId: string | null;
   snapshot: PlaylistPlaybackSnapshot | null;
+};
+
+type LibraryShuffleDeck = {
+  items: QueueItem[];
 };
 
 type PlaylistPlaybackInfo = Pick<PlaylistPlaybackState, 'active' | 'label' | 'playlistId'>;
@@ -1308,6 +1312,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
   const isShuffleEnabledRef = useRef(isShuffleEnabled);
   const playlistPlaybackStateRef = useRef(playlistPlaybackState);
   const playbackHistorySessionRef = useRef<PlaybackHistorySession | null>(null);
+  const libraryShuffleDeckRef = useRef<LibraryShuffleDeck>({ items: [] });
   const pausedSessionTimerRef = useRef<number | null>(null);
   const playRequestTokenRef = useRef(0);
   const playbackStatusTokensRef = useRef<WeakMap<PlaybackStatus, number>>(new WeakMap());
@@ -1384,8 +1389,13 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     }
   }, []);
 
+  const clearLibraryShuffleDeck = useCallback((): void => {
+    libraryShuffleDeckRef.current = { items: [] };
+  }, []);
+
   const toggleShuffle = useCallback((): void => {
     const next = !isShuffleEnabledRef.current;
+    clearLibraryShuffleDeck();
     isShuffleEnabledRef.current = next;
     setIsShuffleEnabled(next);
     if (next && repeatModeRef.current === 'all') {
@@ -1397,7 +1407,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         autoFillQueueEnabled: autoFillQueueEnabledRef.current,
       });
     }
-  }, [setRepeatModeInternal]);
+  }, [clearLibraryShuffleDeck, setRepeatModeInternal]);
 
   const setAutoFillQueueEnabled = useCallback((enabled: boolean): void => {
     autoFillQueueEnabledRef.current = enabled;
@@ -2882,6 +2892,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
   const replaceQueue = useCallback(
     (tracks: LibraryTrack[], options: ReplaceQueueOptions = {}): void => {
       restorePlaylistPlaybackSnapshotOnly();
+      clearLibraryShuffleDeck();
       const nextItems = tracks.map((track) => createQueueItem(track, options.source ?? manualSource));
       const startItem = options.startTrackId ? nextItems.find((item) => item.track.id === options.startTrackId) ?? null : null;
 
@@ -2892,7 +2903,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         setCurrentTrackIdInternal(startItem.track.id);
       }
     },
-    [restorePlaylistPlaybackSnapshotOnly, setCurrentQueueId, setCurrentTrackIdInternal, setHistory, setItems],
+    [clearLibraryShuffleDeck, restorePlaylistPlaybackSnapshotOnly, setCurrentQueueId, setCurrentTrackIdInternal, setHistory, setItems],
   );
 
   const appendToQueue = useCallback(
@@ -2964,10 +2975,11 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
 
   const clearQueue = useCallback((): void => {
     restorePlaylistPlaybackSnapshotOnly();
+    clearLibraryShuffleDeck();
     setItems([]);
     setHistory([]);
     setCurrentQueueId(null);
-  }, [restorePlaylistPlaybackSnapshotOnly, setCurrentQueueId, setHistory, setItems]);
+  }, [clearLibraryShuffleDeck, restorePlaylistPlaybackSnapshotOnly, setCurrentQueueId, setHistory, setItems]);
 
   const moveQueueItem = useCallback(
     (fromIndex: number, toIndex: number): void => {
@@ -3002,47 +3014,66 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
   );
 
   const fetchLibraryShuffleTarget = useCallback(
-    async (source: Extract<QueueSource, { type: 'songs' }>, activeItem: QueueItem | null): Promise<QueueItem | null> => {
+    async (activeItem: QueueItem | null): Promise<QueueItem | null> => {
       const library = window.echo?.library;
 
       if (!library?.getTracks) {
         return null;
       }
 
+      const dequeueFreshDeckItem = (): QueueItem | null => {
+        const excludedTrackIds = new Set(getLibraryShuffleExcludedTrackIds(activeItem, historyRef.current));
+        const remainingItems: QueueItem[] = [];
+        let target: QueueItem | null = null;
+
+        for (const item of libraryShuffleDeckRef.current.items) {
+          if (excludedTrackIds.has(item.track.id)) {
+            continue;
+          }
+          if (!target) {
+            target = itemsRef.current.find((candidate) => candidate.track.id === item.track.id) ?? item;
+            excludedTrackIds.add(item.track.id);
+            continue;
+          }
+          remainingItems.push(item);
+        }
+
+        libraryShuffleDeckRef.current = { items: remainingItems };
+        return target;
+      };
+
+      const deckTarget = dequeueFreshDeckItem();
+      if (deckTarget) {
+        return deckTarget;
+      }
+
       try {
-        const excludedTrackIds = new Set<string>();
-        if (activeItem) {
-          excludedTrackIds.add(activeItem.track.id);
-        }
-
-        for (const item of historyRef.current) {
-          excludedTrackIds.add(item.track.id);
-        }
-
         const libraryExcludeTrackIds = getLibraryShuffleExcludedTrackIds(activeItem, historyRef.current);
         const result = await library.getTracks({
           page: 1,
           pageSize: libraryShuffleCandidatePageSize,
-          search: source.search,
+          search: undefined,
           sort: 'random',
-          hideDuplicates: source.hideDuplicates,
-          showDuplicatesOnly: source.showDuplicatesOnly,
+          hideDuplicates: undefined,
+          showDuplicatesOnly: undefined,
           duplicateMode: 'strict',
           excludeTrackIds: libraryExcludeTrackIds,
           randomWindow: true,
         });
-        const freshTrack = pickRandom(result.items.filter((track) => !excludedTrackIds.has(track.id))) ?? null;
+        const excludedTrackIds = new Set(libraryExcludeTrackIds);
+        libraryShuffleDeckRef.current = {
+          items: result.items
+            .filter((track) => track.unavailable !== true && !excludedTrackIds.has(track.id))
+            .map((track) => createQueueItem(track, libraryShuffleSource)),
+        };
 
-        if (!freshTrack) {
-          return null;
-        }
-
-        return itemsRef.current.find((item) => item.track.id === freshTrack.id) ?? createQueueItem(freshTrack, source);
+        return dequeueFreshDeckItem();
       } catch {
+        clearLibraryShuffleDeck();
         return null;
       }
     },
-    [],
+    [clearLibraryShuffleDeck],
   );
 
   const fetchLibraryRandomQueueRefresh = useCallback(
@@ -3058,10 +3089,10 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         const result = await library.getTracks({
           page: 1,
           pageSize: Math.max(2, Math.min(pageSize, libraryRandomQueueRefreshPageSize)),
-          search: source.search,
+          search: undefined,
           sort: 'random',
-          hideDuplicates: source.hideDuplicates,
-          showDuplicatesOnly: source.showDuplicatesOnly,
+          hideDuplicates: undefined,
+          showDuplicatesOnly: undefined,
           duplicateMode: 'strict',
           excludeTrackIds,
           randomWindow: true,
@@ -3088,6 +3119,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       const previousItem = findItemByQueueId(itemsRef.current, currentQueueIdRef.current);
 
       if (replacementTracks) {
+        clearLibraryShuffleDeck();
         const contextTracks = replacementTracks.some((item) => item.id === track.id)
           ? replacementTracks
           : [track, ...replacementTracks];
@@ -3127,7 +3159,7 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       commitPlayedItem(itemToPlay, status, { previousItem });
       return status;
     },
-    [commitPlayedItem, playLocalTrack, restorePlaylistPlaybackSnapshotOnly, setHistory, setItems],
+    [clearLibraryShuffleDeck, commitPlayedItem, playLocalTrack, restorePlaylistPlaybackSnapshotOnly, setHistory, setItems],
   );
 
   const openTemporaryLocalFiles = useCallback(
@@ -3233,8 +3265,9 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       const librarySource = isLibraryRandomSource(source) ? source : libraryShuffleSource;
       let candidates: QueueItem[] = [];
 
-      target = await fetchLibraryShuffleTarget(librarySource, activeItem ?? null);
-      if (!target && isSongsRandomSortSource(librarySource)) {
+      const libraryShuffleAvailable = Boolean(window.echo?.library?.getTracks);
+      target = await fetchLibraryShuffleTarget(activeItem ?? null);
+      if (!target && !libraryShuffleAvailable && isSongsRandomSortSource(librarySource)) {
         const refreshedItems = await fetchLibraryRandomQueueRefresh(librarySource, activeItem ?? null, current.length || 100);
         if (refreshedItems.length > 0) {
           refreshedRandomQueue = refreshedItems;
@@ -3242,17 +3275,17 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
         }
       }
 
-      if (!target) {
+      if (!target && !libraryShuffleAvailable) {
         candidates = getShuffleCandidates(current, activeItem ?? null, historyRef.current);
         target = pickRandom(candidates);
       }
 
-      if (!target && navigationRepeatMode === 'all') {
+      if (!target && !libraryShuffleAvailable && navigationRepeatMode === 'all') {
         candidates = activeItem ? current.filter((item) => item.queueId !== activeItem.queueId) : current;
         target = pickRandom(candidates);
       }
 
-      if (!target && navigationRepeatMode === 'all') {
+      if (!target && !libraryShuffleAvailable && navigationRepeatMode === 'all') {
         target = activeItem ?? current[0] ?? null;
       }
     } else if (currentIndex >= 0 && currentIndex < current.length - 1) {

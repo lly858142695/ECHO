@@ -1468,6 +1468,9 @@ const echoApi: EchoApi = {
     setMousePassthrough: (passthrough) => {
       ipcRenderer.send(IpcChannels.DesktopLyricsSetMousePassthrough, passthrough);
     },
+    publishAudioStatus: (status) => {
+      ipcRenderer.send(IpcChannels.DesktopLyricsRendererAudioStatus, status);
+    },
     publishPlaybackStatus: (status) => {
       ipcRenderer.send(IpcChannels.DesktopLyricsRendererPlaybackStatus, status);
     },

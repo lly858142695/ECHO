@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AudioStatus } from '../../shared/types/audio';
 import { hqPlayerConnectDeviceId, type ConnectSessionStatus } from '../../shared/types/connect';
-import { beginPlaybackSwitchSnapshot, refreshPlaybackStatus, setPlaybackStatusSnapshot } from './playbackStatusStore';
+import { beginPlaybackSeekSnapshot, beginPlaybackSwitchSnapshot, refreshPlaybackStatus, setPlaybackStatusSnapshot } from './playbackStatusStore';
 
 const audioStatus = (overrides: Partial<AudioStatus> = {}): AudioStatus => ({
   host: 'ready',
@@ -173,6 +173,87 @@ describe('playbackStatusStore', () => {
     });
     expect(snapshot.audioStatus?.state).toBe('playing');
     expect(snapshot.audioStatus?.positionSeconds).toBe(2);
+  });
+
+  it('rejects stale local audio positions while a seek target is settling', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-25T00:00:00.000Z'));
+
+    beginPlaybackSeekSnapshot({
+      state: 'playing',
+      currentTrackId: 'track-b',
+      filePath: 'D:\\Music\\song-b.flac',
+      positionMs: 240_000,
+      durationMs: 300_000,
+    });
+
+    vi.advanceTimersByTime(1000);
+
+    const staleBeforeSeekSnapshot = setPlaybackStatusSnapshot({
+      audioStatus: audioStatus({ positionSeconds: 181 }),
+      error: null,
+    });
+    expect(staleBeforeSeekSnapshot.audioStatus).toBeNull();
+    expect(staleBeforeSeekSnapshot.playbackStatus?.positionMs).toBe(240_000);
+    expect(staleBeforeSeekSnapshot.playbackVisualIntent).not.toBeNull();
+
+    const settledSnapshot = setPlaybackStatusSnapshot({
+      audioStatus: audioStatus({ positionSeconds: 241.2 }),
+      error: null,
+    });
+    expect(settledSnapshot.audioStatus?.positionSeconds).toBe(241.2);
+    expect(settledSnapshot.playbackVisualIntent).toBeNull();
+  });
+
+  it('rejects stale ahead positions after seeking backward', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-25T00:00:00.000Z'));
+
+    beginPlaybackSeekSnapshot({
+      state: 'playing',
+      currentTrackId: 'track-b',
+      filePath: 'D:\\Music\\song-b.flac',
+      positionMs: 60_000,
+      durationMs: 300_000,
+    });
+
+    vi.advanceTimersByTime(500);
+
+    const snapshot = setPlaybackStatusSnapshot({
+      audioStatus: audioStatus({ positionSeconds: 182 }),
+      error: null,
+    });
+    expect(snapshot.audioStatus).toBeNull();
+    expect(snapshot.playbackStatus?.positionMs).toBe(60_000);
+  });
+
+  it('keeps paused seek targets stable while waiting for audio status', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-25T00:00:00.000Z'));
+
+    beginPlaybackSeekSnapshot({
+      state: 'paused',
+      currentTrackId: 'track-b',
+      filePath: 'D:\\Music\\song-b.flac',
+      positionMs: 90_000,
+      durationMs: 300_000,
+    });
+
+    vi.advanceTimersByTime(2500);
+
+    const staleSnapshot = setPlaybackStatusSnapshot({
+      audioStatus: audioStatus({ state: 'paused', positionSeconds: 181 }),
+      error: null,
+    });
+    expect(staleSnapshot.audioStatus).toBeNull();
+    expect(staleSnapshot.playbackStatus?.positionMs).toBe(90_000);
+
+    const settledSnapshot = setPlaybackStatusSnapshot({
+      audioStatus: audioStatus({ state: 'paused', positionSeconds: 90 }),
+      error: null,
+    });
+    expect(settledSnapshot.audioStatus?.positionSeconds).toBe(90);
+    expect(settledSnapshot.playbackVisualIntent).toBeNull();
   });
 
   it('treats an HQPlayer stopped status at the track tail as ended for auto-advance', async () => {

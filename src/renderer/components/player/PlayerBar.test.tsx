@@ -1232,6 +1232,75 @@ describe('PlayerBar', () => {
     expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
   });
 
+  it('resumes a visibly paused streaming track instead of reopening the media item', async () => {
+    const track = makeTrack(41, {
+      id: 'streaming:netease:resume-visible',
+      path: 'https://cdn.example.test/resume-visible.flac',
+      mediaType: 'streaming',
+      provider: 'netease',
+      providerTrackId: 'resume-visible',
+      stableKey: 'streaming:netease:resume-visible',
+      title: 'Paused Stream',
+    });
+    const play = vi.fn().mockResolvedValue({
+      state: 'playing',
+      currentTrackId: track.id,
+      positionMs: 12000,
+      durationMs: track.duration * 1000,
+      filePath: track.path,
+    });
+    const playMediaItem = vi.fn();
+    const playLocalFile = vi.fn();
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'idle',
+          currentTrackId: null,
+          positionMs: 0,
+          durationMs: 0,
+          filePath: null,
+        }),
+        playLocalFile,
+        playMediaItem,
+        play,
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue({
+          ...audioStatus(track),
+          state: 'paused',
+          positionSeconds: 12,
+        }),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(track),
+        getLikedTrackIds: vi.fn().mockResolvedValue({ [track.id]: false }),
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ smtcEnabled: true }),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <PlaybackQueueProvider>
+        <QueueSeed tracks={[track]} />
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findByRole('button', { name: 'Play' });
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }));
+
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+    expect(playMediaItem).not.toHaveBeenCalled();
+    expect(playLocalFile).not.toHaveBeenCalled();
+  });
+
   it('keeps polling local BPM analysis after playback is paused', async () => {
     const track = makeTrack(1, {
       bpm: null,

@@ -3635,7 +3635,7 @@ describe('PlaybackQueueProvider playback modes', () => {
         queue.toggleShuffle();
         void queue.playTrack(tracks[0], {
           replaceQueueWith: [tracks[0]],
-          source: { type: 'songs', label: 'Songs', sort: 'default' },
+          source: { type: 'songs', label: 'Songs', search: 'visible-only', sort: 'default', hideDuplicates: true },
         });
       }, [queue]);
 
@@ -3663,7 +3663,7 @@ describe('PlaybackQueueProvider playback modes', () => {
     await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-2'));
     expect(getTracks).toHaveBeenCalledWith({
       page: 1,
-      pageSize: 64,
+      pageSize: 128,
       search: undefined,
       sort: 'random',
       hideDuplicates: undefined,
@@ -3679,7 +3679,7 @@ describe('PlaybackQueueProvider playback modes', () => {
     const getTracks = vi.fn().mockResolvedValue({
       items: [tracks[1]],
       page: 1,
-      pageSize: 64,
+      pageSize: 128,
       total: 2,
       hasMore: false,
     });
@@ -3739,7 +3739,7 @@ describe('PlaybackQueueProvider playback modes', () => {
     await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-2'));
     expect(getTracks).toHaveBeenCalledWith({
       page: 1,
-      pageSize: 64,
+      pageSize: 128,
       search: undefined,
       sort: 'random',
       hideDuplicates: undefined,
@@ -3748,6 +3748,75 @@ describe('PlaybackQueueProvider playback modes', () => {
       excludeTrackIds: ['track-1'],
       randomWindow: true,
     });
+  });
+
+  it('reuses full-library shuffle batches instead of querying on every next track', async () => {
+    const tracks = [makeTrack(1), makeTrack(2), makeTrack(3)];
+    const playLocalFile = vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: request.trackId,
+        positionMs: 0,
+        durationMs: 120000,
+        filePath: request.filePath,
+      }),
+    );
+    const getTracks = vi.fn().mockResolvedValue({
+      items: [tracks[1], tracks[2]],
+      page: 1,
+      pageSize: 128,
+      total: 3,
+      hasMore: false,
+    });
+
+    window.echo = {
+      playback: {
+        playLocalFile,
+      },
+      library: {
+        getTracks,
+      },
+    } as unknown as Window['echo'];
+
+    const BatchedShuffleProbe = (): JSX.Element => {
+      const queue = usePlaybackQueue();
+      const didStartRef = useRef(false);
+
+      useEffect(() => {
+        if (didStartRef.current) {
+          return;
+        }
+
+        didStartRef.current = true;
+        queue.toggleShuffle();
+        void queue.playTrack(tracks[0], { replaceQueueWith: [tracks[0]] });
+      }, [queue]);
+
+      return (
+        <div>
+          <output aria-label="current-track">{queue.currentTrackId ?? ''}</output>
+          <button type="button" onClick={() => void queue.playNext()}>
+            next
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <PlaybackQueueProvider>
+        <BatchedShuffleProbe />
+      </PlaybackQueueProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-1'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'next' }));
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-2'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'next' }));
+    await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-3'));
+
+    expect(getTracks).toHaveBeenCalledTimes(1);
   });
 
   it('uses full-library candidates before queued songs while shuffle is enabled', async () => {
@@ -3818,7 +3887,7 @@ describe('PlaybackQueueProvider playback modes', () => {
     await waitFor(() => expect(screen.getByLabelText('current-track').textContent).toBe('track-3'));
     expect(getTracks).toHaveBeenCalledWith({
       page: 1,
-      pageSize: 64,
+      pageSize: 128,
       search: undefined,
       sort: 'random',
       hideDuplicates: undefined,
@@ -3912,8 +3981,9 @@ describe('PlaybackQueueProvider playback modes', () => {
     });
   });
 
-  it('does not fall back to a recently played song when library shuffle returns no fresh candidates', async () => {
+  it('does not fall back to the loaded queue when library shuffle returns no fresh candidates', async () => {
     const first = makeTrack(1);
+    const second = makeTrack(2);
     const playLocalFile = vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
       Promise.resolve({
         state: 'playing',
@@ -3952,7 +4022,7 @@ describe('PlaybackQueueProvider playback modes', () => {
         didStartRef.current = true;
         queue.toggleShuffle();
         void queue.playTrack(first, {
-          replaceQueueWith: [first],
+          replaceQueueWith: [first, second],
           source: { type: 'songs', label: 'Songs', sort: 'default' },
         });
       }, [queue]);

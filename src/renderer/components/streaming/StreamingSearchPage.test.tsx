@@ -135,7 +135,7 @@ const trackSearchResult: StreamingSearchResult = {
 const resetStreamingMemory = (): void => {
   updateStreamingSearchMemory({
     provider: 'netease',
-    quality: 'max',
+    quality: 'lossless',
     activeTab: 'track',
     input: '',
     query: '',
@@ -175,7 +175,7 @@ describe('StreamingSearchPage artist detail', () => {
 
     updateStreamingSearchMemory({
       provider: 'netease',
-      quality: 'max',
+      quality: 'lossless',
       activeTab: 'artist',
       input: '周杰伦',
       query: '周杰伦',
@@ -227,7 +227,7 @@ describe('StreamingSearchPage artist detail', () => {
 
     updateStreamingSearchMemory({
       provider: 'qqmusic',
-      quality: 'max',
+      quality: 'lossless',
       activeTab: 'artist',
       input: 'Justin Bieber',
       query: 'Justin Bieber',
@@ -262,7 +262,7 @@ describe('StreamingSearchPage artist detail', () => {
 
     updateStreamingSearchMemory({
       provider: 'netease',
-      quality: 'max',
+      quality: 'lossless',
       activeTab: 'artist',
       input: artist.name,
       query: artist.name,
@@ -312,7 +312,7 @@ describe('StreamingSearchPage download visibility', () => {
   const primeTrackSearch = (): void => {
     updateStreamingSearchMemory({
       provider: 'netease',
-      quality: 'max',
+      quality: 'lossless',
       activeTab: 'track',
       input: '晴天',
       query: '晴天',
@@ -326,7 +326,7 @@ describe('StreamingSearchPage download visibility', () => {
     const resultKey = 'netease:track:鏅村ぉ';
     updateStreamingSearchMemory({
       provider: 'netease',
-      quality: 'max',
+      quality: 'lossless',
       activeTab: 'track',
       input: trackSearchResult.query,
       query: trackSearchResult.query,

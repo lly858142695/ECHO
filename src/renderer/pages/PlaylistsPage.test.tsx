@@ -432,7 +432,7 @@ describe('PlaylistsPage actions menu', () => {
     renderPlaylistsPage();
 
     const qualityButton = await screen.findByRole('button', { name: 'Streaming quality' });
-    expect(qualityButton.textContent).toContain('Hi-Res');
+    expect(qualityButton.textContent).toContain('Lossless');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Remote Song' }));
     await waitFor(() =>
@@ -441,7 +441,7 @@ describe('PlaylistsPage actions menu', () => {
           mediaType: 'streaming',
           provider: 'qqmusic',
           providerTrackId: 'song-mid',
-          quality: 'hires',
+          quality: 'lossless',
         }),
       })),
     );
@@ -449,11 +449,60 @@ describe('PlaylistsPage actions menu', () => {
     fireEvent.click(qualityButton);
     fireEvent.click(screen.getByRole('option', { name: 'Standard' }));
     expect(qualityButton.textContent).toContain('Standard');
+    expect(window.localStorage.getItem('echo-next.streaming.quality')).toBe('standard');
     fireEvent.click(screen.getByRole('button', { name: 'Remote Song' }));
     await waitFor(() =>
       expect(playMediaItem).toHaveBeenLastCalledWith(expect.objectContaining({
         item: expect.objectContaining({
           quality: 'standard',
+        }),
+      })),
+    );
+  });
+
+  it('restores the remembered streaming quality for remote playlists', async () => {
+    window.localStorage.setItem('echo-next.streaming.quality', 'high');
+    const remoteTrackItem = item({
+      mediaType: 'stream_track',
+      mediaId: 'streaming:qqmusic:song-mid',
+      sourceProvider: 'qqmusic',
+      sourceItemId: 'song-mid',
+      titleSnapshot: 'Remote Song',
+      track: null,
+    });
+    const playMediaItem = vi.fn().mockResolvedValue({
+      state: 'playing',
+      currentTrackId: 'streaming:qqmusic:song-mid',
+      positionMs: 0,
+      durationMs: 180000,
+      filePath: null,
+    });
+    window.echo = {
+      library: {
+        getPlaylists: vi.fn().mockResolvedValue([playlist({ sourceProvider: 'qqmusic', sourcePlaylistId: '123' })]),
+        getPlaylistItems: vi.fn().mockResolvedValue(page([remoteTrackItem])),
+        getLikedTrackIds: vi.fn().mockResolvedValue({}),
+        startPlaybackHistory: vi.fn().mockResolvedValue({ historyId: 'history-1' }),
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({ state: 'idle', currentTrackId: null, positionMs: 0, durationMs: 0, filePath: null }),
+        playMediaItem,
+      },
+    } as unknown as Window['echo'];
+
+    renderPlaylistsPage();
+
+    const qualityButton = await screen.findByRole('button', { name: 'Streaming quality' });
+    expect(qualityButton.textContent).toContain('High');
+    fireEvent.click(await screen.findByRole('button', { name: 'Remote Song' }));
+
+    await waitFor(() =>
+      expect(playMediaItem).toHaveBeenCalledWith(expect.objectContaining({
+        item: expect.objectContaining({
+          mediaType: 'streaming',
+          provider: 'qqmusic',
+          providerTrackId: 'song-mid',
+          quality: 'high',
         }),
       })),
     );
@@ -509,7 +558,7 @@ describe('PlaylistsPage actions menu', () => {
           mediaType: 'streaming',
           provider: 'netease',
           providerTrackId: '123',
-          quality: 'hires',
+          quality: 'lossless',
         }),
       })),
     );

@@ -45,10 +45,9 @@ const tabs: Array<{ key: StreamingMediaType; labelKey: Parameters<typeof transla
 type QualityPreference = StreamingQualityPreference;
 
 const qualities: Array<{ key: QualityPreference; labelKey: Parameters<typeof translateCurrentLocale>[0]; descriptionKey: Parameters<typeof translateCurrentLocale>[0] }> = [
-  { key: 'max', labelKey: 'streaming.quality.max', descriptionKey: 'streaming.quality.maxDescription' },
+  { key: 'lossless', labelKey: 'streaming.quality.lossless', descriptionKey: 'streaming.quality.losslessDescription' },
   { key: 'high', labelKey: 'streaming.quality.high', descriptionKey: 'streaming.quality.highDescription' },
   { key: 'standard', labelKey: 'streaming.quality.standard', descriptionKey: 'streaming.quality.standardDescription' },
-  { key: 'lossless', labelKey: 'streaming.quality.lossless', descriptionKey: 'streaming.quality.losslessDescription' },
   { key: 'hires', labelKey: 'streaming.quality.hires', descriptionKey: 'streaming.quality.hiresDescription' },
 ];
 
@@ -133,8 +132,7 @@ const statusText = (provider: StreamingProviderDescriptor): string => {
     : translateCurrentLocale('streaming.provider.available');
 };
 
-const qualityToPlaybackQuality = (quality: QualityPreference): StreamingAudioQuality =>
-  quality === 'max' ? 'hires' : quality;
+const qualityToPlaybackQuality = (quality: QualityPreference): StreamingAudioQuality => quality;
 
 const downloadStatusLabels: Record<DownloadJobStatus, string> = {
   queued: '排队中',
@@ -798,7 +796,7 @@ export const StreamingSearchPage = (): JSX.Element => {
           },
         );
         setActionError(null);
-        setActionMessage(t('streaming.quality.switched', { quality: t(qualities.find((item) => item.key === nextQuality)?.labelKey ?? 'streaming.quality.max') }));
+        setActionMessage(t('streaming.quality.switched', { quality: t(qualities.find((item) => item.key === nextQuality)?.labelKey ?? 'streaming.quality.lossless') }));
       })().catch((qualityError) => {
         if (isPlaybackCancellationError(qualityError)) {
           return;

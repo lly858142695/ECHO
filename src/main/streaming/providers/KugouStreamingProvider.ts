@@ -53,7 +53,7 @@ const playbackFallbacks: Record<StreamingAudioQuality | 'fallback', KugouPlaybac
   lossless: ['flac', '320', '128'],
   high: ['320', '128'],
   standard: ['128'],
-  fallback: ['320', '128'],
+  fallback: ['flac', '320', '128'],
 };
 
 const kugouHeaders = (cookie?: string): Record<string, string> => ({

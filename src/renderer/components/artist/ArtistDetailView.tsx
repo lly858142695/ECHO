@@ -6,6 +6,7 @@ import type { StreamingAlbum, StreamingAlbumDetail, StreamingProviderDescriptor,
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
 import { useProgressiveRenderLimit } from '../../hooks/useProgressiveRenderLimit';
 import { useI18n } from '../../i18n/I18nProvider';
+import { readStreamingQualityPreference } from '../../preferences/streamingQualityPreference';
 import { isPlaybackCancellationError, usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { AlbumDetailView } from '../album/AlbumDetailView';
 import { readPageScrollTop, writePageScrollTop } from '../ui/InfiniteScrollSentinel';
@@ -474,7 +475,7 @@ const streamingTrackToLibraryTrack = (track: StreamingTrack): LibraryTrack => ({
   path: track.stableKey,
   provider: track.provider,
   providerTrackId: track.providerTrackId,
-  streamingQuality: 'hires',
+  streamingQuality: readStreamingQualityPreference(),
   stableKey: track.stableKey,
   title: track.title,
   artist: track.artist,
