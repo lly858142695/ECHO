@@ -35,7 +35,7 @@ plugin-settings.json
 
 ## AI 写插件的流程
 
-1. 先判断插件类型：命令工具、播放状态面板、曲库脚本、metadata provider、lyrics provider、cover provider、source provider。
+1. 先判断插件类型：命令工具、播放状态面板、曲库脚本、metadata provider、lyrics provider、cover provider、source provider、theme preset。
 2. 选择 `apiVersion: 2`，除非用户明确维护旧插件。
 3. 只申请当前功能必须的权限。
 4. 写 `echo.plugin.json`，声明入口、权限和贡献点。
@@ -45,6 +45,51 @@ plugin-settings.json
 8. 验收 manifest 路径、权限、返回值大小、超时和日志。
 
 如果用户只是要“写一个插件”，不要直接改 ECHO 主程序源码。插件应放在真实插件目录或作为示例文件交付。只有当用户要求修改插件系统本身时，才改 `src/main/plugins`、`src/main/ipc`、`src/renderer/pages/PluginsPage.tsx` 等宿主代码。
+
+## 面向新手用户时必须说清楚
+
+用户不一定知道插件目录、manifest、入口脚本是什么意思。AI 生成插件时不要只给一段 `plugin.js`，而是按下面格式交付：
+
+1. 先给文件树。
+2. 再分别给 `echo.plugin.json`、`plugin.js`、可选 `panel.html`、`README.md`。
+3. 明确告诉用户把整个插件文件夹放进 ECHO 插件页“打开目录”显示的 `plugins/` 目录。
+4. 明确告诉用户回到插件页点击“刷新”。
+5. 明确告诉用户启用插件时确认权限。
+6. 明确告诉用户改完文件后点“重载”。
+7. 明确告诉用户报错先看插件详情里的日志。
+
+推荐输出模板：
+
+```text
+你会得到这个插件文件夹：
+
+echo.my-plugin/
+  echo.plugin.json
+  plugin.js
+  README.md
+
+使用方法：
+1. 打开 ECHO NEXT > Plugins > 打开目录。
+2. 把 echo.my-plugin 整个文件夹放进去。
+3. 回到 Plugins 页面点刷新。
+4. 点开插件，确认权限，然后启用。
+5. 如果修改了文件，保存后点重载。
+6. 如果失败，打开插件日志，把错误复制出来。
+```
+
+给新手解释时使用普通话术：
+
+| 概念 | 新手解释 |
+| --- | --- |
+| manifest | 插件说明书，告诉 ECHO 这个插件叫什么、要什么权限、入口文件是谁 |
+| entry | 插件启动时运行的 JS 文件 |
+| permission | 插件想做某件事前必须得到用户同意 |
+| command | 用户手动点击运行的一段插件功能 |
+| provider | 插件返回候选结果，ECHO 和用户决定是否采用 |
+| panel | 插件自己的小界面，但它不能直接访问 `echo` |
+| storage | 插件自己的小型 JSON 存储，不是任意文件读写 |
+
+如果用户说“我不会写代码”，优先给最小命令插件或最小主题插件，不要直接生成 provider + panel + network 的复杂组合。
 
 ## 插件类型速查
 
@@ -58,6 +103,7 @@ plugin-settings.json
 | 返回歌词候选 | `lyricsProviders` | `echo.lyrics.registerProvider` | `library:read` |
 | 返回封面候选 | `coverProviders` | `echo.covers.registerProvider` | `library:read` |
 | 做插件音源搜索 | `sourceProviders` | `echo.sources.registerProvider` | `sources:provide` |
+| 提供可导入主题 | `themePresets` | 不需要运行时注册 | 不需要权限 |
 | 调第三方 HTTP API | 按功能声明 | `echo.net.fetchJson/fetchText` | `network` |
 | 保存插件配置 | `settings` | `echo.settings.get/getAll/set` | v2 插件设置不需要 `settings:write` |
 | 保存小型状态 | 无 | `echo.storage.get/set` | 不需要任意文件权限 |
@@ -129,6 +175,59 @@ Manifest 注意事项：
 - 导入导出只处理插件根目录单文件，不递归子目录。
 - 可导出的扩展名：`.js`、`.mjs`、`.cjs`、`.html`、`.css`、`.json`、`.md`、`.txt`。
 - 贡献点里的 id 和 `plugin.js` 注册的 id 要一致。
+
+主题预设插件是一个例外：它主要写 `contributes.themePresets`，不需要权限，也不需要 `plugin.js` 注册主题逻辑。启用插件后，主题会出现在“设置 > 外观”的插件主题区域，用户点击后会导入到“我的主题”再继续微调。
+
+```json
+{
+  "id": "echo.aurora-theme",
+  "name": "Aurora Theme",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "entry": "plugin.js",
+  "permissions": [],
+  "contributes": {
+    "themePresets": [
+      {
+        "id": "aurora-glass",
+        "title": "Aurora Glass",
+        "description": "Glass panels with cool backgrounds and a warm accent.",
+        "basePreset": "classic",
+        "preview": "linear-gradient(135deg, #08111f 0%, #183b56 48%, #f0b35b 100%)",
+        "swatches": ["#08111f", "#183b56", "#f0b35b", "#e8f8ff"],
+        "light": {
+          "appBg": "#eef8ff",
+          "panel": "#ffffff",
+          "accent": "#257f96",
+          "text": "#234150",
+          "panelOpacityPercent": 78,
+          "glassPercent": 26,
+          "cornerRadiusPx": 10,
+          "panelBlurPx": 18,
+          "saturationPercent": 108
+        },
+        "dark": {
+          "appBg": "#08111f",
+          "panel": "#142234",
+          "accent": "#5cc8dc",
+          "text": "#c8dce8",
+          "panelOpacityPercent": 72,
+          "glassPercent": 34,
+          "cornerRadiusPx": 10,
+          "panelBlurPx": 22,
+          "motionIntensityPercent": 90
+        }
+      }
+    ]
+  }
+}
+```
+
+主题字段只接受结构化参数，不允许任意 CSS。颜色必须是 `#RRGGBB`，预览只能是纯色或 `linear-gradient(...)`，每个主题至少要有 `light` 或 `dark` 一组覆盖。
+
+每个插件最多写 12 个主题。`light` / `dark` 可覆盖的颜色字段：`appBg`、`appBg2`、`appBg3`、`panel`、`panelSoft`、`accent`、`accentStrong`、`secondary`、`heading`、`text`、`muted`、`border`、`onAccent`、`buttonText`、`titlebar`、`sidebar`、`player`、`field`、`row`、`rowHover`、`rowActive`、`chip`、`focus`、`danger`、`success`、`warning`。
+
+数值字段范围：`panelOpacityPercent` 40-100，`glassPercent` 0-80，`shadowPercent` 0-100，`cornerRadiusPx` 0-28，`panelBlurPx` 0-32，`saturationPercent` 60-140，`motionEnabled` 布尔值，`motionSpeedSeconds` 0.12-8，`motionIntensityPercent` 0-160。不要把数字写成布尔值或 CSS 字符串。
 
 ## `plugin.js` 运行边界
 
@@ -358,6 +457,7 @@ AI 生成代码时要主动遵守这些限制：
 - provider 约 2.5 秒超时。
 - 网络请求默认约 5 秒超时。
 - 单插件最多 8 个 metadata provider、4 个 source provider、4 个 lyrics provider、4 个 cover provider。
+- 单插件最多 12 个 theme preset。
 - 单次 source 搜索最多返回 25 首。
 - 单次 metadata 最多 5 个候选，lyrics 最多 5 个候选，cover 最多 8 个候选。
 - 曲库 `pageSize` 最大 100。
@@ -372,6 +472,7 @@ AI 生成代码时要主动遵守这些限制：
 - 是否用了 `apiVersion: 2`。
 - manifest `permissions` 是否最小。
 - manifest 贡献点和 `plugin.js` 注册 id 是否一致。
+- 如果是 `themePresets`，是否没有申请无关权限、没有尝试注入 CSS，且至少提供了 `light` 或 `dark`。
 - 是否在 `plugin.js` 中误用了 `require`、`import`、`process`、`fetch`、`window`、`document`。
 - 是否在 `plugin.js` 顶层做了网络、全库扫描或重 CPU 工作。
 - 是否把 `panel.html` 当成可以直接调用 `echo`。

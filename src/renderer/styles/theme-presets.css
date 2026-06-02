@@ -5862,6 +5862,39 @@ html[data-theme-preset="darkSideMoon"] .app-shell--lyrics-player-drawer .lyrics-
   margin: 0;
 }
 
+.settings-theme-plugin-presets {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--theme-panel-border);
+}
+
+.settings-theme-plugin-card {
+  align-items: stretch;
+}
+
+.settings-theme-plugin-preview {
+  display: flex !important;
+  flex: 0 0 84px;
+  min-width: 84px !important;
+  min-height: 40px;
+  align-items: end;
+  justify-content: end;
+  gap: 3px !important;
+  padding: 5px;
+  border: 1px solid var(--theme-panel-border);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 var(--theme-glass-bg-hover);
+}
+
+.settings-theme-plugin-preview i {
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--theme-panel-bg-strong);
+  border-radius: 999px;
+  box-shadow: var(--theme-shadow-panel);
+}
+
 .settings-theme-custom-mock-preview {
   display: grid;
   overflow: hidden;

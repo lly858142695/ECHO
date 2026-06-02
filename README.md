@@ -27,6 +27,8 @@
   <span>&nbsp;|&nbsp;</span>
   <a href="./docs/USER_GUIDE.md#plugins-插件">插件教程</a>
   <span>&nbsp;|&nbsp;</span>
+  <a href="./docs/ECHO_NEXT_PLUGINS.md">插件制作</a>
+  <span>&nbsp;|&nbsp;</span>
   <a href="./docs/ECHO_NEXT_LINUX_BUILD.md">Linux 构建指南</a>
   <span>&nbsp;|&nbsp;</span>
   <a href="#开发与构建">开发与构建</a>
@@ -273,7 +275,8 @@ ECHO NEXT 不是算法竞赛项目，但很多体验都离不开 ACM / ICPC 那�
 | [ECHO_NEXT_LIBRARY_CORE.md](./docs/ECHO_NEXT_LIBRARY_CORE.md) | 曲库核心 |
 | [ECHO_NEXT_AUDIO_CORE.md](./docs/ECHO_NEXT_AUDIO_CORE.md) | 音频核心 |
 | [ECHO_NEXT_EQ.md](./docs/ECHO_NEXT_EQ.md) | EQ 与 DSP 边界 |
-| [ECHO_NEXT_PLUGINS.md](./docs/ECHO_NEXT_PLUGINS.md) | 插件系统 |
+| [ECHO_NEXT_PLUGINS.md](./docs/ECHO_NEXT_PLUGINS.md) | 插件制作指南，从零创建、启用、调试和发布插件 |
+| [plugin-sdk/ForAIReadme.md](./docs/plugin-sdk/ForAIReadme.md) | 给 AI 读取的插件编写规则和检查清单 |
 | [ECHO_NEXT_NETWORK_METADATA.md](./docs/ECHO_NEXT_NETWORK_METADATA.md) | 网络元数据补全 |
 | [ECHO_NEXT_LINUX_BUILD.md](./docs/ECHO_NEXT_LINUX_BUILD.md) | Linux 构建 |
 | [ECHO_NEXT_UI_GUIDE.md](./docs/ECHO_NEXT_UI_GUIDE.md) | UI 指南 |

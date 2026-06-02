@@ -93,6 +93,7 @@ import type { DownloadSettings } from '../../shared/types/downloads';
 import type { DataBackupProgress, DataBackupStatus } from '../../shared/types/settingsBackup';
 import type { LastFmStatus } from '../../shared/types/lastfm';
 import type { PlaybackStatus } from '../../shared/types/playback';
+import type { PluginSummary, PluginThemePresetContribution } from '../../shared/types/plugins';
 import type { SmtcDiagnostics } from '../../shared/types/smtc';
 import type { TaskbarPlaybackStatus } from '../../shared/types/taskbarPlayback';
 import type {
@@ -1736,6 +1737,42 @@ const themePresetOptions: Array<{
   },
 ];
 
+type PluginThemeOption = PluginThemePresetContribution & {
+  pluginId: string;
+  pluginName: string;
+  pluginVersion: string;
+  customThemeId: string;
+};
+
+const pluginThemeStableHash = (value: string): string => {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(7, '0').slice(0, 8);
+};
+
+const pluginThemeCustomId = (pluginId: string, themeId: string): string => {
+  const readableThemeId = themeId.replace(/[^a-zA-Z0-9_.:-]/g, '-').slice(0, 40) || 'theme';
+  return `plugin:${pluginThemeStableHash(`${pluginId}:${themeId}`)}:${readableThemeId}`;
+};
+
+const collectPluginThemeOptions = (plugins: PluginSummary[]): PluginThemeOption[] =>
+  plugins.flatMap((plugin) => {
+    if (!plugin.enabled || plugin.disabledByHost || plugin.error) {
+      return [];
+    }
+
+    return (plugin.contributes.themePresets ?? []).map((theme) => ({
+      ...theme,
+      pluginId: plugin.id,
+      pluginName: plugin.name,
+      pluginVersion: plugin.version,
+      customThemeId: pluginThemeCustomId(plugin.id, theme.id),
+    }));
+  });
+
 type ThemeTone = 'light' | 'dark';
 type ThemeColorField = keyof Pick<
   AppThemeToneOverride,
@@ -3254,6 +3291,26 @@ const buildThemeCustomTheme = (
   return theme;
 };
 
+const buildPluginThemeCustomTheme = (pluginTheme: PluginThemeOption, existing?: AppThemeCustomTheme): AppThemeCustomTheme => {
+  const timestamp = new Date().toISOString();
+  const theme: AppThemeCustomTheme = {
+    id: pluginTheme.customThemeId,
+    name: `${pluginTheme.title} · ${pluginTheme.pluginName}`.slice(0, 48),
+    basePreset: pluginTheme.basePreset,
+    createdAt: existing?.createdAt ?? timestamp,
+    updatedAt: timestamp,
+  };
+
+  if (pluginTheme.light) {
+    theme.light = { ...pluginTheme.light };
+  }
+  if (pluginTheme.dark) {
+    theme.dark = { ...pluginTheme.dark };
+  }
+
+  return theme;
+};
+
 const updateThemeCustomThemeTone = (
   themes: AppThemeCustomTheme[],
   themeId: string,
@@ -3957,6 +4014,7 @@ export const SettingsPage = (): JSX.Element => {
   const [selectedThemePreset, setSelectedThemePreset] = useState<AppThemePreset>(() => readThemePreset());
   const [themeCustomThemes, setThemeCustomThemes] = useState<AppThemeCustomTheme[]>(() => readThemeCustomThemes());
   const [activeThemeCustomId, setActiveThemeCustomId] = useState<string | null>(() => readThemeCustomId());
+  const [pluginThemeOptions, setPluginThemeOptions] = useState<PluginThemeOption[]>([]);
   const [themeCustomTone, setThemeCustomTone] = useState<ThemeTone>('light');
   const [themeCustomDraft, setThemeCustomDraft] = useState<AppThemeToneOverride>({});
   const [themeCustomAdvancedOpen, setThemeCustomAdvancedOpen] = useState(false);
@@ -5207,6 +5265,36 @@ export const SettingsPage = (): JSX.Element => {
   }, []);
 
   useEffect(() => {
+    if (activeSection !== 'appearance') {
+      return undefined;
+    }
+
+    let disposed = false;
+    const plugins = getPluginsBridge();
+    if (!plugins) {
+      setPluginThemeOptions([]);
+      return undefined;
+    }
+
+    void plugins
+      .list()
+      .then((result) => {
+        if (!disposed) {
+          setPluginThemeOptions(collectPluginThemeOptions(result.plugins));
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setPluginThemeOptions([]);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [activeSection]);
+
+  useEffect(() => {
     if (activeSection !== 'playback' && activeSection !== 'eq') {
       return undefined;
     }
@@ -6382,6 +6470,39 @@ export const SettingsPage = (): JSX.Element => {
         .catch(() => setThemeCustomMessage(t('settings.appearance.themeCustom.message.importFailed')));
     };
     input.click();
+  };
+
+  const handlePluginThemeApply = (pluginTheme: PluginThemeOption): void => {
+    const existingTheme = savedThemeCustomThemes.find((theme) => theme.id === pluginTheme.customThemeId);
+    const importedTheme = buildPluginThemeCustomTheme(pluginTheme, existingTheme);
+    const nextThemes = normalizeThemeCustomThemes([...savedThemeCustomThemes.filter((theme) => theme.id !== importedTheme.id), importedTheme]);
+
+    skipNextThemePreviewRef.current = true;
+    updateThemePreferences(appSettings?.appearanceTheme ?? defaultThemeMode, importedTheme.basePreset, savedThemePresetOverrides, {
+      animate: true,
+      customThemeId: importedTheme.id,
+      customThemes: nextThemes,
+    });
+    setThemeCustomThemes(nextThemes);
+    setActiveThemeCustomId(importedTheme.id);
+    setSelectedThemePreset(importedTheme.basePreset);
+    setThemeCustomDraft(importedTheme[themeCustomTone] ?? {});
+    setAppSettings((current) =>
+      current
+        ? {
+            ...current,
+            appearanceThemePreset: importedTheme.basePreset,
+            appearanceCustomThemes: nextThemes,
+            appearanceThemeCustomId: importedTheme.id,
+          }
+        : current,
+    );
+    patchAppSettings({
+      appearanceThemePreset: importedTheme.basePreset,
+      appearanceCustomThemes: nextThemes,
+      appearanceThemeCustomId: importedTheme.id,
+    });
+    setThemeCustomMessage(`已应用插件主题：${pluginTheme.title}`);
   };
 
   const handleThemeCustomCreate = (): void => {
@@ -11895,6 +12016,40 @@ export const SettingsPage = (): JSX.Element => {
                         <p className="settings-theme-custom-empty">{t('settings.appearance.themeCustom.myThemes.empty')}</p>
                       )}
                     </div>
+                    {pluginThemeOptions.length > 0 ? (
+                      <div className="settings-theme-plugin-presets">
+                        <div className="settings-theme-custom-section-title">
+                          <strong>插件主题</strong>
+                          <span>已启用插件贡献的主题会导入到“我的主题”，之后仍可继续微调。</span>
+                        </div>
+                        <div className="settings-theme-custom-theme-list">
+                          {pluginThemeOptions.map((theme) => {
+                            const installed = savedThemeCustomThemes.some((item) => item.id === theme.customThemeId);
+                            const active = savedThemeCustomId === theme.customThemeId;
+                            const preview = theme.preview ?? `linear-gradient(135deg, ${theme.swatches?.[0] ?? '#f6f6f7'} 0%, ${theme.swatches?.[1] ?? '#4b55e8'} 52%, ${theme.swatches?.[2] ?? '#727987'} 100%)`;
+
+                            return (
+                              <button
+                                className={`settings-theme-custom-theme-card settings-theme-plugin-card${active ? ' active' : ''}`}
+                                key={`${theme.pluginId}:${theme.id}`}
+                                type="button"
+                                onClick={() => handlePluginThemeApply(theme)}
+                              >
+                                <span>
+                                  <strong>{theme.title}</strong>
+                                  <em>{theme.pluginName} v{theme.pluginVersion} · {installed ? '更新并应用' : '导入并应用'}</em>
+                                </span>
+                                <span className="settings-theme-plugin-preview" aria-hidden="true" style={{ background: preview } as CSSProperties}>
+                                  {(theme.swatches ?? []).slice(0, 4).map((swatch) => (
+                                    <i key={swatch} style={{ background: swatch } as CSSProperties} />
+                                  ))}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="settings-theme-custom-copy-actions">
                       <button className="settings-action-button" type="button" onClick={() => handleThemeCustomCopyTone('light', 'dark')}>
                         {t('settings.appearance.themeCustom.action.copyLightToDark')}

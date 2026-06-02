@@ -21,6 +21,8 @@
   <span>&nbsp;|&nbsp;</span>
   <a href="./docs/USER_GUIDE.md">User Guide</a>
   <span>&nbsp;|&nbsp;</span>
+  <a href="./docs/ECHO_NEXT_PLUGINS.md">Plugin Authoring</a>
+  <span>&nbsp;|&nbsp;</span>
   <a href="./docs/ECHO_NEXT_LINUX_BUILD.md">Linux Build Guide</a>
   <span>&nbsp;|&nbsp;</span>
   <a href="#development-and-builds">Development</a>
@@ -226,7 +228,8 @@ Requests to bypass memberships, copyright, platform restrictions, or DRM will no
 | [ECHO_NEXT_LIBRARY_CORE.md](./docs/ECHO_NEXT_LIBRARY_CORE.md) | Library core |
 | [ECHO_NEXT_AUDIO_CORE.md](./docs/ECHO_NEXT_AUDIO_CORE.md) | Audio core |
 | [ECHO_NEXT_EQ.md](./docs/ECHO_NEXT_EQ.md) | EQ and DSP boundaries |
-| [ECHO_NEXT_PLUGINS.md](./docs/ECHO_NEXT_PLUGINS.md) | Plugin system |
+| [ECHO_NEXT_PLUGINS.md](./docs/ECHO_NEXT_PLUGINS.md) | Plugin authoring guide, from first plugin to debugging and packaging |
+| [plugin-sdk/ForAIReadme.md](./docs/plugin-sdk/ForAIReadme.md) | Plugin-writing rules and checklist for AI assistants |
 | [ECHO_NEXT_NETWORK_METADATA.md](./docs/ECHO_NEXT_NETWORK_METADATA.md) | Network metadata enrichment |
 | [ECHO_NEXT_LINUX_BUILD.md](./docs/ECHO_NEXT_LINUX_BUILD.md) | Linux builds |
 | [ECHO_NEXT_UI_GUIDE.md](./docs/ECHO_NEXT_UI_GUIDE.md) | UI guide |
