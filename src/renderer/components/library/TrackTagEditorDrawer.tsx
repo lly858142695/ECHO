@@ -96,6 +96,22 @@ const lyricRiskLabels: Record<NonNullable<LyricsSearchCandidate['risk']>, string
   high: '高风险',
 };
 
+type LyricsCandidateDisplayKind = 'instrumental' | 'synced' | 'plain' | 'lyrics';
+
+const lyricsCandidateDisplayKind = (candidate: LyricsSearchCandidate): LyricsCandidateDisplayKind => {
+  if (candidate.instrumental) return 'instrumental';
+  if (candidate.hasSynced) return 'synced';
+  if (candidate.hasPlain) return 'plain';
+  return 'lyrics';
+};
+
+const lyricCandidateDisplayLabels: Record<LyricsCandidateDisplayKind, string> = {
+  instrumental: '纯音乐',
+  synced: '同步歌词',
+  plain: '纯文本',
+  lyrics: '无文本',
+};
+
 const emptyNetworkSelection = (): NetworkFieldSelection => ({
   title: false,
   artist: false,
@@ -1228,9 +1244,14 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
                   {visibleLyricsCandidates.length ? (
                     <div className="tag-editor-lyrics-candidates">
                       {visibleLyricsCandidates.map((candidate) => {
+                        const candidateKind = lyricsCandidateDisplayKind(candidate);
                         const canEmbedCandidate = canEmbedLyrics && !candidate.instrumental && (candidate.hasSynced || candidate.hasPlain);
                         return (
-                          <article key={candidate.id} className="tag-editor-lyrics-candidate">
+                          <article
+                            key={candidate.id}
+                            className={`tag-editor-lyrics-candidate tag-editor-lyrics-candidate--${candidateKind}`}
+                            data-lyrics-kind={candidateKind}
+                          >
                             <div className="tag-editor-lyrics-candidate__main">
                               <span className="tag-editor-kicker">{candidate.sourceLabel || lyricProviderLabels[candidate.provider]}</span>
                               <strong>{candidate.title || '未知标题'}</strong>
@@ -1240,7 +1261,7 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
                             <div className="tag-editor-lyrics-badges">
                               <span>{formatLyricsScore(candidate.score)}</span>
                               <span>{candidate.risk ? lyricRiskLabels[candidate.risk] : '普通匹配'}</span>
-                              <span>{candidate.hasSynced ? '同步歌词' : candidate.hasPlain ? '纯文本' : candidate.instrumental ? '纯音乐' : '无文本'}</span>
+                              <span>{lyricCandidateDisplayLabels[candidateKind]}</span>
                             </div>
                             <div className="tag-editor-lyrics-actions">
                               <button type="button" onClick={() => void handleApplyLyricsCandidate(candidate)} disabled={isLyricsBusy}>

@@ -1547,6 +1547,31 @@ describe('SettingsPage', () => {
     expect(document.documentElement.dataset.themePreset).toBe('darkSideMoon');
   });
 
+  it('locks the FINAL theme preset until finalaudio is entered in settings search', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.appearance\\.label');
+
+    expect(screen.queryByText('settings.appearance.themePreset.FINAL')).toBeNull();
+
+    fireEvent.change(screen.getByPlaceholderText('settings.header.searchPlaceholder'), { target: { value: 'finalaudio' } });
+
+    const presetButton = (await screen.findByText('settings.appearance.themePreset.FINAL')).closest('button') as HTMLButtonElement;
+    expect(window.localStorage.getItem('echo-next:settings:final-theme-unlocked')).toBe('true');
+
+    fireEvent.click(presetButton);
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ appearanceThemePreset: 'FINAL' }));
+    expect(document.documentElement.dataset.themePreset).toBe('FINAL');
+  });
+
   it('creates a custom theme, saves a color, and clears it when a built-in preset is selected', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     let currentSettings: AppSettings = { ...settings, appearanceThemePreset: 'classic', appearanceCustomThemes: [], appearanceThemeCustomId: null };

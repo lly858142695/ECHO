@@ -1474,6 +1474,7 @@ const echoApi: EchoApi = {
       return () => ipcRenderer.off(IpcChannels.AppWindowFullscreenChanged, listener);
     },
     close: () => ipcRenderer.invoke(IpcChannels.AppWindowClose),
+    quit: () => ipcRenderer.invoke(IpcChannels.AppQuit),
     getSystemUserName: () => ipcRenderer.invoke(IpcChannels.AppGetSystemUserName),
     getSettings: () => ipcRenderer.invoke(IpcChannels.AppGetSettings),
     setSettings: (patch) => ipcRenderer.invoke(IpcChannels.AppSetSettings, patch),

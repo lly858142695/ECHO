@@ -6867,6 +6867,27 @@
   line-height: 1.45;
 }
 
+.audio-current-output-warning {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin: 10px 2px 0;
+  padding: 10px 11px;
+  color: var(--theme-warning-text);
+  border: 1px solid var(--theme-warning-border);
+  border-radius: 8px;
+  background: var(--theme-warning-panel-bg);
+  font-size: 12px;
+  font-weight: 780;
+  line-height: 1.45;
+}
+
+.audio-current-output-warning svg {
+  margin-top: 2px;
+  color: var(--theme-warning-text);
+}
+
 .audio-section-note {
   margin: -4px 0 2px;
   color: var(--audio-drawer-muted-text);
@@ -8086,45 +8107,59 @@
 
 .mv-drawer-offset {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid rgba(220, 231, 255, 0.1);
   border-radius: 9px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.025));
 }
 
-.mv-drawer-offset__header {
+.mv-drawer-offset .mv-offset-collapse-toggle {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-}
-
-.mv-drawer-offset__header > span {
-  display: grid;
+  gap: 8px;
+  width: 100%;
   min-width: 0;
-  gap: 3px;
+  height: 30px;
+  padding: 0 8px;
+  color: rgba(220, 231, 255, 0.82);
+  border-color: transparent;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.mv-drawer-offset__header strong {
+.mv-drawer-offset .mv-offset-collapse-toggle > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
   color: var(--audio-drawer-text);
   font-size: 12px;
   font-weight: 840;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.mv-drawer-offset__header em {
+.mv-drawer-offset .mv-offset-collapse-toggle strong {
+  color: rgba(244, 248, 255, 0.82);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.mv-drawer-offset .mv-offset-advanced {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.mv-drawer-offset .mv-offset-advanced p {
+  margin: 0;
   color: rgba(220, 231, 255, 0.62);
   font-size: 11px;
-  font-style: normal;
   font-weight: 720;
   line-height: 1.35;
-}
-
-.mv-drawer-offset .mv-offset-value {
-  min-width: 58px;
-  border-color: var(--theme-glass-bg);
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(244, 248, 255, 0.86);
 }
 
 .mv-drawer-offset .mv-offset-slider-row {
@@ -8199,14 +8234,16 @@
   padding: 0 7px;
   color: rgba(220, 231, 255, 0.75);
   border-color: transparent;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.055);
   font-size: 11px;
 }
 
 .mv-drawer-offset .mv-offset-step-row button[aria-pressed="true"] {
   color: var(--theme-overlay-text);
-  border-color: color-mix(in srgb, var(--theme-accent) 64%, transparent);
-  background: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-glass-bg-muted));
+  border-color: color-mix(in srgb, var(--theme-accent) 48%, transparent);
+  background: color-mix(in srgb, var(--theme-accent) 30%, rgba(255, 255, 255, 0.07));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
 }
 
 .mv-drawer-offset .mv-offset-actions {
@@ -8227,6 +8264,7 @@
   padding: 0 6px;
   color: rgba(220, 231, 255, 0.82);
   border-color: transparent;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.055);
   font-size: 10.5px;
   font-weight: 800;
@@ -8251,10 +8289,10 @@
 
 .mv-drawer-offset .mv-offset-start-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 116px;
+  grid-template-columns: minmax(0, 1fr) 88px 64px;
   align-items: center;
-  gap: 12px;
-  padding: 11px;
+  gap: 8px;
+  padding: 8px;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--theme-accent) 10%, rgba(255, 255, 255, 0.045));
@@ -8268,13 +8306,13 @@
 
 .mv-drawer-offset .mv-offset-start-card strong {
   color: var(--audio-drawer-text);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 840;
 }
 
 .mv-drawer-offset .mv-offset-start-card > span em {
   color: rgba(220, 231, 255, 0.6);
-  font-size: 11px;
+  font-size: 10.5px;
   font-style: normal;
   font-weight: 720;
   line-height: 1.35;
@@ -8289,14 +8327,14 @@
 
 .mv-drawer-offset .mv-offset-start-card input {
   min-width: 0;
-  height: 34px;
-  padding: 0 10px;
+  height: 30px;
+  padding: 0 8px;
   border: 1px solid color-mix(in srgb, var(--theme-accent) 34%, transparent);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.08);
   color: rgba(244, 248, 255, 0.94);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 850;
 }
 
@@ -8305,6 +8343,32 @@
   font-size: 11px;
   font-style: normal;
   font-weight: 760;
+}
+
+.mv-drawer-offset .mv-offset-replay-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 7px;
+  color: rgba(244, 248, 255, 0.9);
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent) 18%, rgba(255, 255, 255, 0.07));
+  font-size: 10.5px;
+  font-weight: 850;
+}
+
+.mv-drawer-offset .mv-offset-replay-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mv-drawer-offset .mv-offset-replay-button svg {
+  flex: 0 0 auto;
 }
 
 .mv-settings-candidates {

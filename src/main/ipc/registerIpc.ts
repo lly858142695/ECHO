@@ -31,7 +31,7 @@ import {
 } from '../app/dataBackup';
 import { exportEchoDataPackage } from '../app/dataPackage';
 import { getTaskbarPlaybackStatus, refreshTaskbarPlaybackIntegration } from '../app/taskbarPlaybackIntegration';
-import { ensureTray } from '../app/tray';
+import { ensureTray, requestAppQuit } from '../app/tray';
 import { ensureCoverCacheDirectory } from '../library/CoverCacheManager';
 import { getLibraryService } from '../library/LibraryService';
 import { setDiscordPresenceEnabled } from '../integrations/discord/getDiscordPresenceService';
@@ -387,6 +387,10 @@ export const registerIpc = (): void => {
     );
     ipcMain.handle(IpcChannels.AppWindowClose, (event: IpcMainInvokeEvent): void => {
       BrowserWindow.fromWebContents(event.sender)?.close();
+    });
+    ipcMain.handle(IpcChannels.AppQuit, (): void => {
+      requestAppQuit();
+      app.quit();
     });
     ipcMain.handle(IpcChannels.AppGetSystemUserName, (): string | null => getSystemUserName());
     ipcMain.handle(IpcChannels.AppGetSettings, (): AppSettings => getAppSettings());

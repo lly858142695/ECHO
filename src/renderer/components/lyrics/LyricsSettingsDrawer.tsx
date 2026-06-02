@@ -448,6 +448,22 @@ const riskLabel = (
   return t('lyricsSettings.candidate.risk.high');
 };
 
+type LyricsCandidateDisplayKind = 'instrumental' | 'synced' | 'plain' | 'lyrics';
+
+const lyricsCandidateDisplayKind = (candidate: LyricsSearchCandidate): LyricsCandidateDisplayKind => {
+  if (candidate.instrumental) return 'instrumental';
+  if (candidate.hasSynced) return 'synced';
+  if (candidate.hasPlain) return 'plain';
+  return 'lyrics';
+};
+
+const lyricsCandidateDisplayLabelKeys: Record<LyricsCandidateDisplayKind, TranslationKey> = {
+  instrumental: 'lyricsSettings.candidate.type.instrumental',
+  synced: 'lyricsSettings.candidate.type.synced',
+  plain: 'lyricsSettings.candidate.type.plain',
+  lyrics: 'lyricsSettings.candidate.type.lyrics',
+};
+
 const lyricsCandidateReasonLabelKeys: Partial<Record<string, TranslationKey>> = {
   title_exact: 'lyricsSettings.candidate.reason.titleExact',
   title_similar: 'lyricsSettings.candidate.reason.titleSimilar',
@@ -1617,45 +1633,43 @@ export const LyricsSettingsPanel = ({ className, variant = 'drawer' }: LyricsSet
                     ))}
                   </div>
                   <div className="lyrics-candidate-list">
-                    {visibleLyricsCandidates.map((candidate) => (
-                      <button
-                        className="lyrics-candidate"
-                        type="button"
-                        key={candidate.id}
-                        disabled={Boolean(applyingLyricsCandidateId)}
-                        onClick={() => void applyLyricsCandidate(candidate.id)}
-                      >
-                        <span>
-                          <strong>{candidate.title}</strong>
-                          <em>
-                            {candidate.artist}
-                            {candidate.album ? ` / ${candidate.album}` : ''} / {formatDuration(candidate.durationSeconds)}
-                          </em>
-                        </span>
-                        <span className="lyrics-candidate-badges">
-                          <small className={`lyrics-risk-badge lyrics-risk-badge--${candidate.risk ?? 'high'}`}>
-                            {riskLabel(candidate.risk, t)}
-                          </small>
-                          <small>
-                            {candidate.hasSynced
-                              ? t('lyricsSettings.candidate.type.synced')
-                              : candidate.hasPlain
-                                ? t('lyricsSettings.candidate.type.plain')
-                                : candidate.instrumental
-                                  ? t('lyricsSettings.candidate.type.instrumental')
-                                  : t('lyricsSettings.candidate.type.lyrics')}
-                          </small>
-                          <small>{candidate.sourceLabel}</small>
-                          <small>{formatScore(candidate.score)}</small>
-                          {visibleCandidateReasonLabels(candidate, t).map((reason) => (
-                            <small className="lyrics-reason-badge" key={reason}>
-                              {reason}
+                    {visibleLyricsCandidates.map((candidate) => {
+                      const candidateKind = lyricsCandidateDisplayKind(candidate);
+                      return (
+                        <button
+                          className={`lyrics-candidate lyrics-candidate--${candidateKind}`}
+                          type="button"
+                          key={candidate.id}
+                          data-lyrics-kind={candidateKind}
+                          disabled={Boolean(applyingLyricsCandidateId)}
+                          onClick={() => void applyLyricsCandidate(candidate.id)}
+                        >
+                          <span>
+                            <strong>{candidate.title}</strong>
+                            <em>
+                              {candidate.artist}
+                              {candidate.album ? ` / ${candidate.album}` : ''} / {formatDuration(candidate.durationSeconds)}
+                            </em>
+                          </span>
+                          <span className="lyrics-candidate-badges">
+                            <small className={`lyrics-risk-badge lyrics-risk-badge--${candidate.risk ?? 'high'}`}>
+                              {riskLabel(candidate.risk, t)}
                             </small>
-                          ))}
-                          {applyingLyricsCandidateId === candidate.id ? <small>{t('lyricsSettings.status.applying')}</small> : null}
-                        </span>
-                      </button>
-                    ))}
+                            <small className={`lyrics-kind-badge lyrics-kind-badge--${candidateKind}`}>
+                              {t(lyricsCandidateDisplayLabelKeys[candidateKind])}
+                            </small>
+                            <small>{candidate.sourceLabel}</small>
+                            <small>{formatScore(candidate.score)}</small>
+                            {visibleCandidateReasonLabels(candidate, t).map((reason) => (
+                              <small className="lyrics-reason-badge" key={reason}>
+                                {reason}
+                              </small>
+                            ))}
+                            {applyingLyricsCandidateId === candidate.id ? <small>{t('lyricsSettings.status.applying')}</small> : null}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               ) : null}

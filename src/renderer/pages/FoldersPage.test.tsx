@@ -376,6 +376,39 @@ describe('FoldersPage', () => {
     expect(secondRow?.getAttribute('data-selected')).toBe('true');
   });
 
+  it('selects all available folder tracks with Ctrl+A', async () => {
+    libraryMock.getFolderTracks.mockResolvedValue(
+      page([
+        track({ id: 'track-1', title: 'Root Song' }),
+        track({ id: 'track-2', title: 'Second Song', path: 'D:\\Music\\Second.flac' }),
+        track({ id: 'track-3', title: 'Missing Song', path: 'D:\\Music\\Missing.flac', unavailable: true }),
+      ]),
+    );
+
+    renderFoldersPage();
+
+    await screen.findByText('Root Song');
+
+    fireEvent.keyDown(window, { key: 'a', ctrlKey: true });
+
+    await waitFor(() => expect(screen.getByText('Root Song').closest('.track-row')?.getAttribute('data-selected')).toBe('true'));
+    expect(screen.getByText('Second Song').closest('.track-row')?.getAttribute('data-selected')).toBe('true');
+    expect(screen.getByText('Missing Song').closest('.track-row')?.getAttribute('data-selected')).toBeNull();
+    expect(libraryMock.getFolderTracks).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        folderId: 'folder-1',
+        path: 'D:\\Music',
+        recursive: true,
+        pageSize: 500,
+      }),
+    );
+
+    fireEvent.keyDown(window, { key: 'a', ctrlKey: true });
+
+    await waitFor(() => expect(screen.getByText('Root Song').closest('.track-row')?.getAttribute('data-selected')).toBeNull());
+    expect(screen.getByText('Second Song').closest('.track-row')?.getAttribute('data-selected')).toBeNull();
+  });
+
   it('remembers local root folder order after dragging folders', async () => {
     libraryMock.getFolderOverviews.mockResolvedValue([
       overview({ id: 'folder-1', name: 'Music A', path: 'D:\\Music A' }),

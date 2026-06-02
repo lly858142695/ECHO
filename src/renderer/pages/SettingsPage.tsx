@@ -51,7 +51,7 @@ import type {
   PlaybackSpeedMode,
 } from '../../shared/types/audio';
 import { QUIET_REPLAY_GAIN_TARGET_LUFS, SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS } from '../../shared/constants/replayGain';
-import { isDownloadFeatureUnlockCode } from '../../shared/constants/featureUnlocks';
+import { isDownloadFeatureUnlockCode, isFinalThemeUnlockCode } from '../../shared/constants/featureUnlocks';
 import { defaultArtistOnlineInfoSources, defaultArtistStreamingAlbumsProvider } from '../../shared/types/appSettings';
 import {
   defaultSidebarRouteOrder,
@@ -384,6 +384,7 @@ const discogsDeveloperSettingsUrl = 'https://www.discogs.com/settings/developers
 const playbackAdvancedPanelExpandedStorageKey = 'echo:settings:playback:advanced-panel-expanded';
 const integrationsAccountPanelExpandedStorageKey = 'echo:settings:integrations:account-panel-expanded';
 const integrationsCredentialPanelExpandedStorageKey = 'echo:settings:integrations:credential-panel-expanded';
+const finalThemeUnlockedStorageKey = 'echo-next:settings:final-theme-unlocked';
 const integrationCredentialSettingIds = new Set([
   'settings-row-spotify-auth-config',
   'settings-row-tidal-auth-config',
@@ -3375,6 +3376,21 @@ const getUpdateStateLabel = (state: UpdateStatus['state']): TranslationKey => {
   }
 };
 
+const readFinalThemeUnlocked = (): boolean =>
+  readBooleanStoragePreference(finalThemeUnlockedStorageKey, false);
+
+const writeFinalThemeUnlocked = (): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(finalThemeUnlockedStorageKey, 'true');
+  } catch {
+    // Ignore storage failures; the unlock can still work for this session.
+  }
+};
+
 const formatUpdateBytes = (bytes: number | null | undefined): string => {
   if (!Number.isFinite(bytes) || !bytes || bytes <= 0) {
     return 'n/a';
@@ -3905,6 +3921,8 @@ export const SettingsPage = (): JSX.Element => {
   const [highlightedSettingId, setHighlightedSettingId] = useState<string | null>(null);
   const [mysteriousKeyVisible, setMysteriousKeyVisible] = useState(false);
   const mysteriousKeyUnlockNoticeShownRef = useRef(false);
+  const [finalThemeUnlocked, setFinalThemeUnlocked] = useState(() => readFinalThemeUnlocked());
+  const finalThemeUnlockNoticeShownRef = useRef(false);
   const [status, setStatus] = useState<AudioStatus | null>(null);
   const [audioDiagnosticsCopied, setAudioDiagnosticsCopied] = useState(false);
   const [devices, setDevices] = useState<AudioDeviceInfo[]>([]);
@@ -4746,6 +4764,7 @@ export const SettingsPage = (): JSX.Element => {
   }, [appSettings?.downloadsFeatureUnlocked, mysteriousKeyVisible, t, windowsIntegrationAvailable]);
 
   const mysteriousKeySearchUnlocked = activeSection === 'general' && normalizeSettingsSearchText(settingsQuery) === 'zimin';
+  const finalThemeSearchUnlocked = isFinalThemeUnlockCode(settingsQuery);
 
   useEffect(() => {
     if (!mysteriousKeySearchUnlocked) {
@@ -4760,6 +4779,28 @@ export const SettingsPage = (): JSX.Element => {
     mysteriousKeyUnlockNoticeShownRef.current = true;
     window.dispatchEvent(new CustomEvent('app:show-chrome-notice', { detail: 'Mysterious key 已解锁。' }));
   }, [mysteriousKeySearchUnlocked]);
+
+  useEffect(() => {
+    if (!finalThemeSearchUnlocked) {
+      return;
+    }
+
+    if (!finalThemeUnlocked) {
+      writeFinalThemeUnlocked();
+      setFinalThemeUnlocked(true);
+    }
+
+    setSettingsQuery('');
+    setActiveSection('appearance');
+    setAppSettings((current) => (current ? { ...current, appearanceThemePresetsExpanded: true } : current));
+
+    if (finalThemeUnlockNoticeShownRef.current) {
+      return;
+    }
+
+    finalThemeUnlockNoticeShownRef.current = true;
+    window.dispatchEvent(new CustomEvent('app:show-chrome-notice', { detail: 'FINAL theme unlocked.' }));
+  }, [finalThemeSearchUnlocked, finalThemeUnlocked]);
 
   const settingsSearchResults = useMemo<SettingsSearchResult[]>(() => {
     const query = normalizeSettingsSearchText(settingsQuery);
@@ -6109,6 +6150,10 @@ export const SettingsPage = (): JSX.Element => {
   };
 
   const handleThemePresetChange = (appearanceThemePreset: AppThemePreset): void => {
+    if (appearanceThemePreset === 'FINAL' && !finalThemeUnlocked) {
+      return;
+    }
+
     const nextCustomId = activeThemeCustom ? null : savedThemeCustomId;
     skipNextThemePreviewRef.current = true;
     updateThemePreferences(appSettings?.appearanceTheme ?? defaultThemeMode, appearanceThemePreset, savedThemePresetOverrides, {
@@ -6133,6 +6178,10 @@ export const SettingsPage = (): JSX.Element => {
   const themeCustomValues = mergeThemeToneValues(selectedThemePreset, themeCustomTone, themeCustomDraft);
   const themeCustomWarnings = getThemeContrastWarnings(themeCustomValues);
   const selectedThemePresetOption = themePresetOptions.find((option) => option.preset === selectedThemePreset) ?? themePresetOptions[0];
+  const visibleThemePresetOptions = useMemo(
+    () => finalThemeUnlocked ? themePresetOptions : themePresetOptions.filter((option) => option.preset !== 'FINAL'),
+    [finalThemeUnlocked],
+  );
   const themePresetsExpanded = appSettings?.appearanceThemePresetsExpanded === true;
   const themeCustomGradientPreview = `linear-gradient(135deg, ${themeCustomValues.appBg} 0%, ${themeCustomValues.appBg2} 52%, ${themeCustomValues.appBg3} 100%)`;
 
@@ -11736,7 +11785,7 @@ export const SettingsPage = (): JSX.Element => {
                   </button>
                   {themePresetsExpanded ? (
                     <div className="settings-theme-preset-grid">
-                      {themePresetOptions.map((option) => {
+                      {visibleThemePresetOptions.map((option) => {
                         const activePreset = selectedThemePreset;
                         const isActive = activePreset === option.preset;
 

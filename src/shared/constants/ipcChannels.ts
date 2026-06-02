@@ -9,6 +9,7 @@ export const IpcChannels = {
   AppWindowIsFullscreen: 'app:window-is-fullscreen',
   AppWindowFullscreenChanged: 'app:window-fullscreen-changed',
   AppWindowClose: 'app:window-close',
+  AppQuit: 'app:quit',
   AppGetSystemUserName: 'app:get-system-user-name',
   AppGetSettings: 'app:get-settings',
   AppSetSettings: 'app:set-settings',

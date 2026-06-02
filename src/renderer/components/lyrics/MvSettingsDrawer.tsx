@@ -3,6 +3,7 @@ import type { ChangeEvent, DragEvent, MouseEvent as ReactMouseEvent } from 'reac
 import {
   Check,
   ChevronDown,
+  ChevronRight,
   Clapperboard,
   Database,
   ExternalLink,
@@ -305,6 +306,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
   const [dragOverProvider, setDragOverProvider] = useState<NetworkMvProviderId | null>(null);
   const [isNetworkSectionOpen, setIsNetworkSectionOpen] = useState(true);
   const [isImmersiveControlsOpen, setIsImmersiveControlsOpen] = useState(readImmersiveControlsOpen);
+  const [isMvOffsetSectionOpen, setIsMvOffsetSectionOpen] = useState(false);
   const [isMvOffsetSaving, setIsMvOffsetSaving] = useState(false);
   const [mvOffsetAdjustmentStepMs, setMvOffsetAdjustmentStepMs] = useState<(typeof mvOffsetStepOptionsMs)[number]>(500);
   const [isDiagnosticsReportEnabled, setDiagnosticsReportEnabled] = useState(readMvDiagnosticsEnabled);
@@ -392,6 +394,22 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       // MV switching should still succeed even if the current track cannot be replayed.
     }
   }, [activeTrack, queue, replayAudioOnChange]);
+
+  const replayCurrentTrackWithMv = useCallback(async (): Promise<void> => {
+    const targetTrackId = activeMvTrackId;
+    if (!targetTrackId || !activeTrack || !window.echo?.playback) {
+      setError(t('mvSettings.error.noActiveTrackBinding'));
+      return;
+    }
+
+    setError(null);
+    notifyMvChanged(targetTrackId);
+    try {
+      await queue.playTrack(activeTrack);
+    } catch (replayError) {
+      setError(replayError instanceof Error ? replayError.message : String(replayError));
+    }
+  }, [activeMvTrackId, activeTrack, notifyMvChanged, queue, t]);
 
   const resolveSelectedStreams = useCallback(async (video: TrackVideo | null): Promise<TrackVideo | null> => {
     if (!video || video.temporary || video.provider === 'local' || !window.echo?.mv?.resolveStreams) {
@@ -874,45 +892,64 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
             />
             <em>s</em>
           </label>
+          <button
+            className="mv-offset-replay-button"
+            type="button"
+            aria-label={t('mvSettings.offset.replayTitle')}
+            title={t('mvSettings.offset.replayTitle')}
+            disabled={isBusy || mvDatabaseUnavailable || !activeTrack}
+            onClick={() => void replayCurrentTrackWithMv()}
+          >
+            <Play size={14} />
+            <span>{t('mvSettings.offset.replay')}</span>
+          </button>
         </div>
-        <div className="mv-drawer-offset__header">
+        <button
+          className="mv-offset-collapse-toggle"
+          type="button"
+          aria-expanded={isMvOffsetSectionOpen}
+          onClick={() => setIsMvOffsetSectionOpen((current) => !current)}
+        >
           <span>
-            <strong>{t('mvSettings.offset.title')}</strong>
-            <em>{t('mvSettings.offset.description')}</em>
+            {isMvOffsetSectionOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            {t('mvSettings.offset.title')}
           </span>
-          <strong className="mv-offset-value">{formatOffset(selectedMvOffsetMs)}</strong>
-        </div>
-        <div className="mv-offset-slider-row">
-          <span>{formatOffset(mvOffsetMinMs)}</span>
-          <input
-            type="range"
-            min={mvOffsetMinMs}
-            max={mvOffsetMaxMs}
-            step={mvOffsetStepMs}
-            value={selectedMvOffsetMs}
-            aria-label={t('mvSettings.offset.slider')}
-            disabled={mvDatabaseUnavailable}
-            onChange={handleOffsetSliderChange}
-          />
-          <span>{formatOffset(mvOffsetMaxMs)}</span>
-        </div>
-        <label className="mv-offset-number">
-          <span>{t('mvSettings.offset.input')}</span>
-          <input
-            type="number"
-            min={mvOffsetMinMs / 1000}
-            max={mvOffsetMaxMs / 1000}
-            step={0.1}
-            value={selectedMvOffsetMs / 1000}
-            aria-label={t('mvSettings.offset.input')}
-            disabled={mvDatabaseUnavailable}
-            onChange={handleOffsetSecondsChange}
-          />
-          <em>s</em>
-        </label>
-        <div className="mv-offset-step-row" role="group" aria-label={t('mvSettings.offset.step')}>
-          <span>{t('mvSettings.offset.step')}</span>
-          {mvOffsetStepOptionsMs.map((step) => (
+          <strong>{formatOffset(selectedMvOffsetMs)}</strong>
+        </button>
+        {isMvOffsetSectionOpen ? (
+          <div className="mv-offset-advanced">
+            <p>{t('mvSettings.offset.description')}</p>
+            <div className="mv-offset-slider-row">
+              <span>{formatOffset(mvOffsetMinMs)}</span>
+              <input
+                type="range"
+                min={mvOffsetMinMs}
+                max={mvOffsetMaxMs}
+                step={mvOffsetStepMs}
+                value={selectedMvOffsetMs}
+                aria-label={t('mvSettings.offset.slider')}
+                disabled={mvDatabaseUnavailable}
+                onChange={handleOffsetSliderChange}
+              />
+              <span>{formatOffset(mvOffsetMaxMs)}</span>
+            </div>
+            <label className="mv-offset-number">
+              <span>{t('mvSettings.offset.input')}</span>
+              <input
+                type="number"
+                min={mvOffsetMinMs / 1000}
+                max={mvOffsetMaxMs / 1000}
+                step={0.1}
+                value={selectedMvOffsetMs / 1000}
+                aria-label={t('mvSettings.offset.input')}
+                disabled={mvDatabaseUnavailable}
+                onChange={handleOffsetSecondsChange}
+              />
+              <em>s</em>
+            </label>
+            <div className="mv-offset-step-row" role="group" aria-label={t('mvSettings.offset.step')}>
+              <span>{t('mvSettings.offset.step')}</span>
+              {mvOffsetStepOptionsMs.map((step) => (
             <button
               type="button"
               key={step}
@@ -921,40 +958,42 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
             >
               {formatOffsetMagnitude(step)}
             </button>
-          ))}
-        </div>
-        <div className="mv-offset-actions">
-          <button
-            type="button"
-            disabled={isMvOffsetSaving || mvDatabaseUnavailable || delayOffsetMs === selectedMvOffsetMs}
-            title={t('mvSettings.offset.later', { value: stepLabel })}
-            onClick={() => void handleMvOffsetChange(delayOffsetMs)}
-          >
-            <Rewind size={15} />
-            <span>{t('mvSettings.offset.laterShort', { value: stepLabel })}</span>
-          </button>
-          <button
-            type="button"
-            disabled={isMvOffsetSaving || mvDatabaseUnavailable || advanceOffsetMs === selectedMvOffsetMs}
-            title={t('mvSettings.offset.earlier', { value: stepLabel })}
-            onClick={() => void handleMvOffsetChange(advanceOffsetMs)}
-          >
-            <FastForward size={15} />
-            <span>{t('mvSettings.offset.earlierShort', { value: stepLabel })}</span>
-          </button>
-          <button
-            type="button"
-            disabled={isMvOffsetSaving || mvDatabaseUnavailable || selectedMvOffsetMs === 0}
-            title={t('mvSettings.offset.reset')}
-            onClick={() => void handleMvOffsetChange(0)}
-          >
-            <RotateCcw size={14} />
-            <span>{t('mvSettings.offset.resetShort')}</span>
-          </button>
-        </div>
+              ))}
+            </div>
+            <div className="mv-offset-actions">
+              <button
+                type="button"
+                disabled={isMvOffsetSaving || mvDatabaseUnavailable || delayOffsetMs === selectedMvOffsetMs}
+                title={t('mvSettings.offset.later', { value: stepLabel })}
+                onClick={() => void handleMvOffsetChange(delayOffsetMs)}
+              >
+                <Rewind size={15} />
+                <span>{t('mvSettings.offset.laterShort', { value: stepLabel })}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isMvOffsetSaving || mvDatabaseUnavailable || advanceOffsetMs === selectedMvOffsetMs}
+                title={t('mvSettings.offset.earlier', { value: stepLabel })}
+                onClick={() => void handleMvOffsetChange(advanceOffsetMs)}
+              >
+                <FastForward size={15} />
+                <span>{t('mvSettings.offset.earlierShort', { value: stepLabel })}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isMvOffsetSaving || mvDatabaseUnavailable || selectedMvOffsetMs === 0}
+                title={t('mvSettings.offset.reset')}
+                onClick={() => void handleMvOffsetChange(0)}
+              >
+                <RotateCcw size={14} />
+                <span>{t('mvSettings.offset.resetShort')}</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
     );
-  }, [activeMvTrackId, handleMvOffsetChange, isMvOffsetSaving, mvDatabaseUnavailable, mvOffsetAdjustmentStepMs, selectedMvOffsetMs, selectedVideo, t]);
+  }, [activeMvTrackId, activeTrack, handleMvOffsetChange, isBusy, isMvOffsetSaving, isMvOffsetSectionOpen, mvDatabaseUnavailable, mvOffsetAdjustmentStepMs, replayCurrentTrackWithMv, selectedMvOffsetMs, selectedVideo, t]);
 
   const openSelectedProviderUrl = useCallback(
     (event: ReactMouseEvent<HTMLAnchorElement>): void => {

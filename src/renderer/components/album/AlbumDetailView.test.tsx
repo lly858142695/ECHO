@@ -25,6 +25,10 @@ vi.mock('../../i18n/I18nProvider', () => {
     'albumDetail.action.showInFolder': 'Show in folder',
     'albumDetail.tracks.status.addedToPlaylist': 'Added to {playlist}.',
     'albumMenu.action.addToPlaylist': 'Add to playlist...',
+    'albumMenu.playlistSubmenu.aria': 'Choose playlist',
+    'albumMenu.playlistSubmenu.empty': 'No local playlists',
+    'albumMenu.playlistSubmenu.itemCount': '{count} tracks',
+    'albumMenu.playlistSubmenu.loading': 'Loading playlists...',
     'albumDetail.action.openSource': 'Open source',
     'albumDetail.aria.openArtist': 'Open artist {artist}',
     'albumDetail.online.match': 'MusicBrainz match',
@@ -560,6 +564,7 @@ describe('AlbumDetailView', () => {
     await screen.findByText('Mock album tracks');
     fireEvent.click(screen.getByRole('button', { name: 'More album actions' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Add to playlist...' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Road Mix/ }));
 
     await waitFor(() => expect(addTracksToPlaylist).toHaveBeenCalledWith('playlist-1', ['track-1', 'track-2']));
     expect(screen.getByText('Added to Road Mix.')).toBeTruthy();

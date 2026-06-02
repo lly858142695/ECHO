@@ -100,6 +100,21 @@ describe('theme presets stylesheet', () => {
     expect(css).toContain('grid-auto-columns: minmax(120px, 148px);');
   });
 
+  it('keeps FINAL artist detail artwork full-bleed without the milky wash', () => {
+    const css = readFileSync('src/renderer/styles/theme-presets.css', 'utf8');
+
+    expect(css).toContain('/* FINAL artist detail repair: keep the artist image full-bleed, only remove the milky wash. */');
+    expect(css).toContain('html[data-theme-preset="FINAL"] .artist-hero-backdrop {');
+    expect(css).toContain('display: block !important;');
+    expect(css).toContain('filter: saturate(1) contrast(0.98) brightness(0.92) !important;');
+    expect(css).toContain('object-position: center;');
+    expect(css).toContain('html[data-theme-preset="FINAL"] .artist-hero-art {');
+    expect(css).toContain('position: absolute !important;');
+    expect(css).toContain('inset: 0 !important;');
+    expect(css).toContain('object-fit: cover;');
+    expect(css).toContain('opacity: 1 !important;');
+  });
+
   it('extends FINAL precision console styling into queue and folders pages', () => {
     const css = readFileSync('src/renderer/styles/theme-presets.css', 'utf8');
 
@@ -178,5 +193,47 @@ describe('theme presets stylesheet', () => {
       /html\[data-theme-preset="FINAL"\] \.app-shell:not\(\.app-shell--lyrics-player-drawer\):has\(\.lyrics-page \.lyrics-mv-panel\[data-mv-enabled="false"\]\) \.player-now \{\r?\n  display: flex !important;/,
     );
     expect(css).toContain('grid-template-columns: minmax(260px, 430px) minmax(360px, 620px) minmax(220px, 1fr);');
+  });
+
+  it('rebuilds the FINAL mini lyrics player as a readable dark transport', () => {
+    const css = readFileSync('src/renderer/styles/theme-presets.css', 'utf8');
+
+    expect(css).toContain('/* FINAL mini player: readable MV drawer controls on dark or bright video. */');
+    expect(css).toContain('html[data-theme-preset="FINAL"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar {');
+    expect(css).toContain('background:\n    linear-gradient(90deg, rgb(255 245 218 / 0.08), transparent 24%, rgb(255 245 218 / 0.06)),');
+    expect(css).toContain('rgb(18 17 15 / 0.9) !important;');
+    expect(css).toContain('html[data-theme-preset="FINAL"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .player-bar::before,');
+    expect(css).toContain('display: none !important;');
+    expect(css).toContain('grid-template-columns: auto minmax(240px, 1fr);');
+    expect(css).toContain('color: rgb(244 230 202 / 0.94) !important;');
+    expect(css).toContain('html[data-theme-preset="FINAL"] .app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track[data-waveform="true"] {');
+    expect(css).toContain('/* FINAL mini player containment: keep the progress rail and right-side controls inside the capsule. */');
+    expect(css).toContain('grid-template-columns: minmax(0, 1fr) auto;');
+    expect(css).toContain('width: min(34vw, 340px);');
+    expect(css).toContain('max-width: 152px;');
+    expect(css).toContain('flex: 0 0 30px;');
+  });
+
+  it('keeps FINAL queue and media walls on stable inner scroll containers', () => {
+    const css = readFileSync('src/renderer/styles/theme-presets.css', 'utf8');
+
+    expect(css).toContain('/* FINAL scroll repair: keep virtual queues and media walls on their own scroll layers. */');
+    expect(css).toContain('html[data-theme-preset="FINAL"] .page-surface:has(:is(.queue-page, .albums-page, .artists-page)) {');
+    expect(css).toContain('overflow: hidden !important;');
+    expect(css).toContain('html[data-theme-preset="FINAL"] .queue-list {');
+    expect(css).toContain('overflow-y: auto !important;');
+    expect(css).toContain('overscroll-behavior: contain;');
+    expect(css).toContain('html[data-theme-preset="FINAL"] :is(.albums-page, .artists-page) .media-wall-scroll-shell {');
+    expect(css).toContain('scrollbar-gutter: stable;');
+  });
+
+  it('keeps the FINAL hero character from being hard-cropped', () => {
+    const css = readFileSync('src/renderer/styles/theme-presets.css', 'utf8');
+
+    expect(css).toContain('/* FINAL hero character repair: remove the hard rectangular crop and let the edge fade naturally. */');
+    expect(css).toContain('html[data-theme-preset="FINAL"] .home-hero::after {');
+    expect(css).toContain('clip-path: none !important;');
+    expect(css).toContain('-webkit-mask-image: linear-gradient(180deg, #000 0 84%, rgb(0 0 0 / 0.96) 91%, transparent 100%);');
+    expect(css).toContain('mask-image: linear-gradient(180deg, #000 0 84%, rgb(0 0 0 / 0.96) 91%, transparent 100%);');
   });
 });

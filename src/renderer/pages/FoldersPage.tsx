@@ -1205,6 +1205,67 @@ export const FoldersPage = (): JSX.Element => {
     [mode, recursive, remoteApi, remoteTracks, search, selected, selectedRemote],
   );
 
+  const handleSelectAllTracks = useCallback(async (): Promise<void> => {
+    if ((mode === 'local' && !selected) || (mode === 'remote' && !selectedRemote)) {
+      return;
+    }
+
+    const activeSelectableTracks = activeTracks.filter((track) => !track.unavailable);
+    if (activeSelectableTracks.length > 0 && activeSelectableTracks.every((track) => selectedTrackIds[track.id] === true)) {
+      setSelectedTrackIds({});
+      return;
+    }
+
+    setIsBulkLoading(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const result = await fetchBulkTracks(sort);
+      const selectableTracks = result.items.filter((track) => !track.unavailable);
+
+      if (mode === 'remote') {
+        setRemoteCachedTracks(result.items);
+        setRemotePage(Math.max(1, Math.ceil(result.items.length / pageSize)));
+        setRemoteHasMore(result.total > result.items.length);
+      } else {
+        setTracks(result.items);
+        setPage(Math.max(1, Math.ceil(result.items.length / pageSize)));
+        setHasMore(result.total > result.items.length);
+      }
+
+      setSelectedTrackIds(Object.fromEntries(selectableTracks.map((track) => [track.id, true])));
+    } catch (selectError) {
+      setError(formatFolderError(selectError, t));
+    } finally {
+      setIsBulkLoading(false);
+    }
+  }, [activeTracks, fetchBulkTracks, mode, selected, selectedRemote, selectedTrackIds, sort, t]);
+
+  useEffect(() => {
+    const handleSelectAllKeyDown = (event: KeyboardEvent): void => {
+      const isSelectAllShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLocaleLowerCase() === 'a';
+      if (!isSelectAllShortcut || event.defaultPrevented || shouldIgnoreEscapeTarget(event.target)) {
+        return;
+      }
+
+      if (trackMenu || osuTimingTrack || editingTrack || isTagEditorOpen || isBulkLoading) {
+        return;
+      }
+
+      const hasFolderSelection = mode === 'remote' ? Boolean(selectedRemote) : Boolean(selected);
+      if (!hasFolderSelection || activeTracks.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      void handleSelectAllTracks();
+    };
+
+    window.addEventListener('keydown', handleSelectAllKeyDown);
+    return () => window.removeEventListener('keydown', handleSelectAllKeyDown);
+  }, [activeTracks.length, editingTrack, handleSelectAllTracks, isBulkLoading, isTagEditorOpen, mode, osuTimingTrack, selected, selectedRemote, trackMenu]);
+
   const runBulkAction = useCallback(
     async (action: 'play' | 'shuffle' | 'append'): Promise<void> => {
       const queueSource = mode === 'remote' ? remoteSource : folderSource;

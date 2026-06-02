@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Disc3, ExternalLink, FolderOpen, Heart, Info, ListEnd, Loader2, MoreHorizontal, Play, Plus, RefreshCw, Star } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Disc3, ExternalLink, FolderOpen, Heart, Info, ListEnd, Loader2, MoreHorizontal, Play, Plus, RefreshCw, Star } from 'lucide-react';
 import type { AlbumOnlineInfo, AlbumOnlineInfoRequestOptions, EditableTrackTags, LibraryAlbum, LibraryArtist, LibraryPlaylist, LibraryTrack } from '../../../shared/types/library';
 import { likedAlbumsChangedEvent, likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../../hooks/useLikedMedia';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
@@ -136,6 +136,9 @@ const albumOnlineInfoProviders: OnlineInfoProvider[] = ['wikipedia', 'musicbrain
 const albumMenuWidth = 218;
 const albumMenuViewportPadding = 8;
 const albumMenuOffset = 6;
+const albumMenuSubmenuGap = 8;
+const albumMenuSubmenuWidth = 224;
+const albumMenuSubmenuMaxHeight = 360;
 
 const hasOnlineInfoPayload = (info: AlbumOnlineInfo | null): boolean =>
   Boolean(
@@ -485,7 +488,8 @@ const formatReleaseVersionMeta = (version: NonNullable<AlbumOnlineInfo['releaseV
 export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.Element => {
   const { locale, t } = useI18n();
   const { appendToQueue, appendTracksToQueue, currentTrackId, playTrack, playTrackNext, removeTrackFromQueue, replaceQueue, updateTrackSnapshot } = usePlaybackQueue();
-  const { isReturning, returnBack } = useAnimatedBackNavigation(onBack);
+  const detailRootRef = useRef<HTMLDivElement | null>(null);
+  const { isReturning, returnBack } = useAnimatedBackNavigation(onBack, true, { rootRef: detailRootRef });
   const [firstTrack, setFirstTrack] = useState<LibraryTrack | null>(null);
   const [loadedTracks, setLoadedTracks] = useState<LibraryTrack[]>([]);
   const [loadedTotal, setLoadedTotal] = useState(0);
@@ -497,6 +501,10 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   const [failedThumbCover, setFailedThumbCover] = useState(false);
   const [isAlbumLiked, setIsAlbumLiked] = useState(false);
   const [albumMenuPosition, setAlbumMenuPosition] = useState<AlbumMenuPosition | null>(null);
+  const [albumPlaylistSubmenuOpen, setAlbumPlaylistSubmenuOpen] = useState(false);
+  const [albumPlaylistSubmenuPosition, setAlbumPlaylistSubmenuPosition] = useState<AlbumMenuPosition>(() => ({ x: 0, y: 0 }));
+  const [albumPlaylists, setAlbumPlaylists] = useState<LibraryPlaylist[]>([]);
+  const [albumPlaylistsLoading, setAlbumPlaylistsLoading] = useState(false);
   const [trackMenu, setTrackMenu] = useState<TrackMenuState | null>(null);
   const [trackActionMessage, setTrackActionMessage] = useState<string | null>(null);
   const [osuTimingTrack, setOsuTimingTrack] = useState<LibraryTrack | null>(null);
@@ -511,6 +519,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   const tagEditorCloseTimerRef = useRef<number | null>(null);
   const onlineInfoRequestRef = useRef(0);
   const relatedAlbumsRequestRef = useRef(0);
+  const albumPlaylistLoadStartedRef = useRef(false);
   const likedTrackIds = useLikedTrackIds(loadedTracks.map((track) => track.id));
   const duration = formatDuration(album.duration, t);
   const formatSummary = formatTechnicalSummary(firstTrack);
@@ -586,6 +595,48 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   );
   const displayAlbumArtist = albumArtistDisplay.label;
   const albumArtistLookupName = albumArtistDisplay.lookupName;
+
+  const closeAlbumMenu = useCallback((): void => {
+    setAlbumMenuPosition(null);
+    setAlbumPlaylistSubmenuOpen(false);
+  }, []);
+
+  const loadAlbumPlaylists = useCallback((): void => {
+    if (albumPlaylistLoadStartedRef.current) {
+      return;
+    }
+
+    albumPlaylistLoadStartedRef.current = true;
+    const library = window.echo?.library;
+    if (!library?.getPlaylists) {
+      return;
+    }
+
+    setAlbumPlaylistsLoading(true);
+    void library
+      .getPlaylists()
+      .then((items) => {
+        setAlbumPlaylists(items.filter((item) => item.sourceProvider === 'local' && item.kind !== 'system'));
+      })
+      .catch(() => setAlbumPlaylists([]))
+      .finally(() => setAlbumPlaylistsLoading(false));
+  }, []);
+
+  const openAlbumPlaylistSubmenu = useCallback(
+    (target: HTMLElement): void => {
+      const rect = target.getBoundingClientRect();
+      const opensLeft = rect.right + albumMenuSubmenuGap + albumMenuSubmenuWidth + albumMenuViewportPadding > window.innerWidth;
+      const maxTop = Math.max(albumMenuViewportPadding, window.innerHeight - Math.min(albumMenuSubmenuMaxHeight, window.innerHeight - albumMenuViewportPadding * 2));
+
+      setAlbumPlaylistSubmenuPosition({
+        x: opensLeft ? Math.max(albumMenuViewportPadding, rect.left - albumMenuSubmenuWidth - albumMenuSubmenuGap) : rect.right + albumMenuSubmenuGap,
+        y: Math.max(albumMenuViewportPadding, Math.min(rect.top - 8, maxTop)),
+      });
+      setAlbumPlaylistSubmenuOpen(true);
+      loadAlbumPlaylists();
+    },
+    [loadAlbumPlaylists],
+  );
 
   const loadOnlineInfo = useCallback(
     async (force = false): Promise<void> => {
@@ -776,7 +827,6 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
       return undefined;
     }
 
-    const closeAlbumMenu = (): void => setAlbumMenuPosition(null);
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         closeAlbumMenu();
@@ -791,7 +841,14 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
       window.removeEventListener('resize', closeAlbumMenu);
       window.removeEventListener('scroll', closeAlbumMenu, true);
     };
-  }, [albumMenuPosition]);
+  }, [albumMenuPosition, closeAlbumMenu]);
+
+  useEffect(() => {
+    albumPlaylistLoadStartedRef.current = false;
+    setAlbumPlaylistSubmenuOpen(false);
+    setAlbumPlaylists([]);
+    setAlbumPlaylistsLoading(false);
+  }, [album.id]);
 
   const handleFirstTrackChange = useCallback((track: LibraryTrack | null, isLoading: boolean): void => {
     setFirstTrack(track);
@@ -837,6 +894,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
+    setAlbumPlaylistSubmenuOpen(false);
     setAlbumMenuPosition({
       x: Math.max(albumMenuViewportPadding, Math.min(rect.left, window.innerWidth - albumMenuWidth - albumMenuViewportPadding)),
       y: Math.max(albumMenuViewportPadding, rect.bottom + albumMenuOffset),
@@ -844,7 +902,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   }, []);
 
   const handleAddAlbumToQueue = useCallback(async (): Promise<void> => {
-    setAlbumMenuPosition(null);
+    closeAlbumMenu();
     try {
       setPlayError(null);
       setTrackActionMessage(null);
@@ -858,10 +916,10 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     } catch (error) {
       setPlayError(error instanceof Error ? error.message : String(error));
     }
-  }, [albumSource, appendTracksToQueue, getAllAlbumTracks, t]);
+  }, [albumSource, appendTracksToQueue, closeAlbumMenu, getAllAlbumTracks, t]);
 
-  const handleAddAlbumToPlaylist = useCallback(async (): Promise<void> => {
-    setAlbumMenuPosition(null);
+  const handleAddAlbumToPlaylist = useCallback(async (playlistTarget?: LibraryPlaylist): Promise<void> => {
+    closeAlbumMenu();
     try {
       setPlayError(null);
       setTrackActionMessage(null);
@@ -870,7 +928,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
         throw new Error(t('albumDetail.tracks.error.desktopBridgeActions'));
       }
 
-      const playlist = await resolvePlaylistForTrackAdd(library);
+      const playlist = playlistTarget ?? (await resolvePlaylistForTrackAdd(library));
       if (!playlist) {
         return;
       }
@@ -892,10 +950,10 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     } catch (error) {
       setPlayError(error instanceof Error ? error.message : String(error));
     }
-  }, [getAllAlbumTracks, t]);
+  }, [closeAlbumMenu, getAllAlbumTracks, t]);
 
   const handleShowAlbumInFolder = useCallback(async (): Promise<void> => {
-    setAlbumMenuPosition(null);
+    closeAlbumMenu();
     try {
       setPlayError(null);
       setTrackActionMessage(null);
@@ -929,7 +987,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     } catch (error) {
       setPlayError(error instanceof Error ? error.message : String(error));
     }
-  }, [album.mediaType, firstTrack, getAllAlbumTracks, loadedTracks, t]);
+  }, [album.mediaType, closeAlbumMenu, firstTrack, getAllAlbumTracks, loadedTracks, t]);
 
   const handlePlayTrack = useCallback(
     async (track: LibraryTrack): Promise<void> => {
@@ -1674,16 +1732,23 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     }
 
     return createPortal(
-      <div className="album-menu-layer" role="presentation" onMouseDown={() => setAlbumMenuPosition(null)}>
+      <div className="album-menu-layer" role="presentation" onMouseDown={closeAlbumMenu}>
         <div
           className="album-context-menu"
           role="menu"
           style={{ left: albumMenuPosition.x, top: albumMenuPosition.y }}
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <button className="album-menu-item" role="menuitem" type="button" onClick={() => void handleAddAlbumToPlaylist()}>
+          <button
+            className="album-menu-item album-menu-item--branch"
+            role="menuitem"
+            type="button"
+            onClick={(event) => openAlbumPlaylistSubmenu(event.currentTarget)}
+            onMouseEnter={(event) => openAlbumPlaylistSubmenu(event.currentTarget)}
+          >
             <Plus size={16} />
             <span>{t('albumMenu.action.addToPlaylist')}</span>
+            <ChevronRight className="album-menu-branch-icon" size={15} />
           </button>
           <button className="album-menu-item" role="menuitem" type="button" onClick={() => void handleAddAlbumToQueue()}>
             <ListEnd size={16} />
@@ -1696,13 +1761,42 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
             </button>
           ) : null}
         </div>
+        {albumPlaylistSubmenuOpen ? (
+          <div
+            className="album-playlist-submenu"
+            role="menu"
+            aria-label={t('albumMenu.playlistSubmenu.aria')}
+            style={{ left: albumPlaylistSubmenuPosition.x, top: albumPlaylistSubmenuPosition.y }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            {albumPlaylistsLoading ? <div className="album-playlist-submenu-empty">{t('albumMenu.playlistSubmenu.loading')}</div> : null}
+            {!albumPlaylistsLoading && albumPlaylists.length === 0 ? <div className="album-playlist-submenu-empty">{t('albumMenu.playlistSubmenu.empty')}</div> : null}
+            {!albumPlaylistsLoading
+              ? albumPlaylists.map((playlist) => (
+                  <button
+                    className="album-playlist-submenu-item"
+                    key={playlist.id}
+                    role="menuitem"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleAddAlbumToPlaylist(playlist);
+                    }}
+                  >
+                    <span>{playlist.name}</span>
+                    <small>{t('albumMenu.playlistSubmenu.itemCount', { count: playlist.itemCount })}</small>
+                  </button>
+                ))
+              : null}
+          </div>
+        ) : null}
       </div>,
       document.body,
     );
   };
 
   return (
-    <div className={`album-detail-page ${isReturning ? 'is-returning' : ''}`}>
+    <div className={`album-detail-page ${isReturning ? 'is-returning' : ''}`} ref={detailRootRef}>
       <button className="album-back-button" type="button" onClick={returnBack}>
         <ArrowLeft size={17} />
         {t('albumDetail.action.back')}

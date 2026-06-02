@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Captions, ListMusic, Music2 } from 'lucide-react';
@@ -9,6 +9,7 @@ import type { AppRoute } from './routes';
 import type { AudioStatus } from '../../shared/types/audio';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { PlaybackStatus } from '../../shared/types/playback';
+import { useAnimatedBackNavigation } from '../hooks/useAnimatedBackNavigation';
 import { setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -90,6 +91,21 @@ const setViewportSize = (width: number, height: number): void => {
 
 const SharedStatusProbe = (): JSX.Element => {
   useSharedPlaybackStatus();
+  return <div>Standalone lyrics page</div>;
+};
+
+const LyricsBackProbe = (): JSX.Element => {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        window.dispatchEvent(new Event('app:navigate:lyrics-back'));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   return <div>Standalone lyrics page</div>;
 };
 
@@ -601,6 +617,144 @@ describe('AppLayout standalone routes', () => {
     await waitFor(() => expect(container.querySelector('[data-route-id="songs"]')?.hasAttribute('hidden')).toBe(false));
     expect(onSongsMount).toHaveBeenCalledTimes(1);
     expect(onSongsUnmount).not.toHaveBeenCalled();
+  });
+
+  it('keeps artist detail mounted when opening lyrics and returning', async () => {
+    const onArtistsMount = vi.fn();
+    const onArtistsUnmount = vi.fn();
+    const ArtistsProbe = (): JSX.Element => {
+      const [isDetailOpen, setIsDetailOpen] = useState(false);
+      const detailRef = useRef<HTMLDivElement | null>(null);
+      const { returnBack } = useAnimatedBackNavigation(() => setIsDetailOpen(false), isDetailOpen, { rootRef: detailRef });
+
+      useEffect(() => {
+        onArtistsMount();
+        return () => onArtistsUnmount();
+      }, []);
+
+      useEffect(() => {
+        const handleOpenDetail = (): void => setIsDetailOpen(true);
+        window.addEventListener('test:open-artist-detail', handleOpenDetail);
+        return () => window.removeEventListener('test:open-artist-detail', handleOpenDetail);
+      }, []);
+
+      return (
+        <div ref={detailRef}>
+          {isDetailOpen ? (
+            <>
+              <span>Artist detail probe</span>
+              <button type="button" onClick={returnBack}>Back to artist wall</button>
+            </>
+          ) : (
+            'Artist wall probe'
+          )}
+        </div>
+      );
+    };
+    const localRoutes: AppRoute[] = [
+      {
+        id: 'artists',
+        label: 'Artists',
+        labelKey: 'route.artists.label',
+        description: 'Artists',
+        icon: Music2,
+        placement: 'main',
+        element: <ArtistsProbe />,
+      },
+      { ...routes[1], element: <LyricsBackProbe /> },
+    ];
+
+    const { container } = render(
+      <AppProviders>
+        <AppLayout routes={localRoutes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(onArtistsMount).toHaveBeenCalledTimes(1));
+    window.dispatchEvent(new Event('test:open-artist-detail'));
+
+    await waitFor(() => expect(screen.getByText('Artist detail probe')).toBeTruthy());
+    window.dispatchEvent(new CustomEvent('app:navigate:lyrics', { detail: { mode: 'lyrics' } }));
+
+    await waitFor(() => expect(screen.getByText('Standalone lyrics page')).toBeTruthy());
+    expect(container.querySelector('[data-route-id="artists"]')?.hasAttribute('hidden')).toBe(true);
+    expect(onArtistsUnmount).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    await waitFor(() => expect(container.querySelector('[data-route-id="artists"]')?.hasAttribute('hidden')).toBe(false));
+    expect(screen.getByText('Artist detail probe')).toBeTruthy();
+    expect(onArtistsMount).toHaveBeenCalledTimes(1);
+    expect(onArtistsUnmount).not.toHaveBeenCalled();
+  });
+
+  it('keeps album detail mounted when opening lyrics and returning', async () => {
+    const onAlbumsMount = vi.fn();
+    const onAlbumsUnmount = vi.fn();
+    const AlbumsProbe = (): JSX.Element => {
+      const [isDetailOpen, setIsDetailOpen] = useState(false);
+      const detailRef = useRef<HTMLDivElement | null>(null);
+      const { returnBack } = useAnimatedBackNavigation(() => setIsDetailOpen(false), isDetailOpen, { rootRef: detailRef });
+
+      useEffect(() => {
+        onAlbumsMount();
+        return () => onAlbumsUnmount();
+      }, []);
+
+      useEffect(() => {
+        const handleOpenDetail = (): void => setIsDetailOpen(true);
+        window.addEventListener('test:open-album-detail', handleOpenDetail);
+        return () => window.removeEventListener('test:open-album-detail', handleOpenDetail);
+      }, []);
+
+      return (
+        <div ref={detailRef}>
+          {isDetailOpen ? (
+            <>
+              <span>Album detail probe</span>
+              <button type="button" onClick={returnBack}>Back to album wall</button>
+            </>
+          ) : (
+            'Album wall probe'
+          )}
+        </div>
+      );
+    };
+    const localRoutes: AppRoute[] = [
+      {
+        id: 'albums',
+        label: 'Albums',
+        labelKey: 'route.albums.label',
+        description: 'Albums',
+        icon: Music2,
+        placement: 'main',
+        element: <AlbumsProbe />,
+      },
+      { ...routes[1], element: <LyricsBackProbe /> },
+    ];
+
+    const { container } = render(
+      <AppProviders>
+        <AppLayout routes={localRoutes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(onAlbumsMount).toHaveBeenCalledTimes(1));
+    window.dispatchEvent(new Event('test:open-album-detail'));
+
+    await waitFor(() => expect(screen.getByText('Album detail probe')).toBeTruthy());
+    window.dispatchEvent(new CustomEvent('app:navigate:lyrics', { detail: { mode: 'lyrics' } }));
+
+    await waitFor(() => expect(screen.getByText('Standalone lyrics page')).toBeTruthy());
+    expect(container.querySelector('[data-route-id="albums"]')?.hasAttribute('hidden')).toBe(true);
+    expect(onAlbumsUnmount).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    await waitFor(() => expect(container.querySelector('[data-route-id="albums"]')?.hasAttribute('hidden')).toBe(false));
+    expect(screen.getByText('Album detail probe')).toBeTruthy();
+    expect(onAlbumsMount).toHaveBeenCalledTimes(1);
+    expect(onAlbumsUnmount).not.toHaveBeenCalled();
   });
 
   it('navigates to the plugin manager from a settings shortcut event', async () => {

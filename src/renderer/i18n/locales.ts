@@ -228,6 +228,7 @@ type ArtistDetailTranslationKey =
   | 'artistDetail.tracks.error.desktopBridgeActions'
   | 'artistDetail.tracks.error.desktopBridgeEdit'
   | 'artistDetail.tracks.error.desktopBridgeRead'
+  | 'artistDetail.tracks.expandAll'
   | 'artistDetail.tracks.error.noCoverSaved'
   | 'artistDetail.tracks.error.noCoverToCopy'
   | 'artistDetail.tracks.error.remoteFileAction'
@@ -808,6 +809,7 @@ export type TranslationKey =
   | 'audioDrawer.status.ratePending'
   | 'audioDrawer.status.sampleRatePending'
   | 'audioDrawer.title'
+  | 'audioDrawer.warning.highOutputSampleRate'
   | 'audioProfessional.action.hideDetails'
   | 'audioProfessional.action.refresh'
   | 'audioProfessional.action.showDetails'
@@ -1647,6 +1649,8 @@ export type TranslationKey =
   | 'mvSettings.offset.input'
   | 'mvSettings.offset.later'
   | 'mvSettings.offset.laterShort'
+  | 'mvSettings.offset.replay'
+  | 'mvSettings.offset.replayTitle'
   | 'mvSettings.offset.reset'
   | 'mvSettings.offset.resetShort'
   | 'mvSettings.offset.slider'
@@ -3513,6 +3517,7 @@ const zhCN: TranslationMap = {
   'audioDrawer.status.ratePending': '采样率待定',
   'audioDrawer.status.sampleRatePending': '采样率待定',
   'audioDrawer.title': '音频设置',
+  'audioDrawer.warning.highOutputSampleRate': '当前音频设备采样率过高，可能导致播放速度异常，建议改为 48 kHz。',
   'audioProfessional.action.hideDetails': '收起专业详情',
   'audioProfessional.action.refresh': '刷新状态',
   'audioProfessional.action.showDetails': '展开专业详情',
@@ -3718,6 +3723,7 @@ const zhCN: TranslationMap = {
   'artistDetail.tracks.error.desktopBridgeActions': '桌面桥接不可用。请在 ECHO Next 桌面版中使用文件操作。',
   'artistDetail.tracks.error.desktopBridgeEdit': '桌面桥接不可用。请在 ECHO Next 桌面版中编辑内嵌标签。',
   'artistDetail.tracks.error.desktopBridgeRead': '桌面桥接不可用。请在 ECHO Next 桌面版中读取艺术家歌曲。',
+  'artistDetail.tracks.expandAll': '全部展开',
   'artistDetail.tracks.error.noCoverSaved': '没有保存任何封面图。',
   'artistDetail.tracks.error.noCoverToCopy': '这首歌没有可复制的封面图。',
   'artistDetail.tracks.error.remoteFileAction': '远程歌曲暂不支持本地文件操作。',
@@ -4537,6 +4543,8 @@ const zhCN: TranslationMap = {
   'mvSettings.offset.input': '偏移秒数',
   'mvSettings.offset.later': 'MV 延后 {value}',
   'mvSettings.offset.laterShort': '延后 {value}',
+  'mvSettings.offset.replay': '重播',
+  'mvSettings.offset.replayTitle': '重新播放当前歌曲，并按 MV 起播点同步视频',
   'mvSettings.offset.reset': '重置 MV 延迟',
   'mvSettings.offset.resetShort': '重置',
   'mvSettings.offset.slider': 'MV 同步延迟滑杆',
@@ -6390,6 +6398,7 @@ const zhTW: TranslationMap = {
   'artistDetail.tracks.error.desktopBridgeActions': '桌面橋接不可用。請在 ECHO Next 桌面版中使用檔案操作。',
   'artistDetail.tracks.error.desktopBridgeEdit': '桌面橋接不可用。請在 ECHO Next 桌面版中編輯內嵌標籤。',
   'artistDetail.tracks.error.desktopBridgeRead': '桌面橋接不可用。請在 ECHO Next 桌面版中讀取藝術家歌曲。',
+  'artistDetail.tracks.expandAll': '全部展開',
   'artistDetail.tracks.error.noCoverSaved': '沒有儲存任何封面圖。',
   'artistDetail.tracks.error.noCoverToCopy': '這首歌沒有可複製的封面圖。',
   'artistDetail.tracks.error.remoteFileAction': '遠端歌曲暫不支援本地檔案操作。',
@@ -6576,6 +6585,7 @@ const zhTW: TranslationMap = {
   'audioDrawer.status.ratePending': '取樣率待定',
   'audioDrawer.status.sampleRatePending': '取樣率待定',
   'audioDrawer.title': '音訊設定',
+  'audioDrawer.warning.highOutputSampleRate': '目前音訊裝置取樣率過高，可能導致播放速度異常，建議改為 48 kHz。',
   'audioProfessional.action.hideDetails': '收起專業詳情',
   'audioProfessional.action.refresh': '重新整理狀態',
   'audioProfessional.action.showDetails': '展開專業詳情',
@@ -7345,6 +7355,8 @@ const zhTW: TranslationMap = {
   'mvSettings.offset.input': '偏移秒數',
   'mvSettings.offset.later': 'MV 延後 {value}',
   'mvSettings.offset.laterShort': '延後 {value}',
+  'mvSettings.offset.replay': '重播',
+  'mvSettings.offset.replayTitle': '重新播放目前歌曲，並按 MV 起播點同步影片',
   'mvSettings.offset.reset': '重置 MV 延遲',
   'mvSettings.offset.resetShort': '重置',
   'mvSettings.offset.slider': 'MV 同步延遲滑桿',
@@ -8895,6 +8907,7 @@ const jaJP: TranslationMap = {
   'artistDetail.tracks.error.desktopBridgeActions': 'デスクトップブリッジを利用できません。ECHO Next デスクトップ版でファイル操作を使ってください。',
   'artistDetail.tracks.error.desktopBridgeEdit': 'デスクトップブリッジを利用できません。ECHO Next デスクトップ版で埋め込みタグを編集してください。',
   'artistDetail.tracks.error.desktopBridgeRead': 'デスクトップブリッジを利用できません。ECHO Next デスクトップ版でアーティストの曲を読み込んでください。',
+  'artistDetail.tracks.expandAll': 'すべて展開',
   'artistDetail.tracks.error.noCoverSaved': 'この曲のカバーアートは保存されませんでした。',
   'artistDetail.tracks.error.noCoverToCopy': 'この曲にはコピーできるカバーアートがありません。',
   'artistDetail.tracks.error.remoteFileAction': 'リモート曲はまだローカルファイル操作に対応していません。',
@@ -9220,6 +9233,7 @@ const jaJP: TranslationMap = {
   'audioDrawer.status.ratePending': 'レート未確定',
   'audioDrawer.status.sampleRatePending': 'サンプルレート未確定',
   'audioDrawer.title': '音声設定',
+  'audioDrawer.warning.highOutputSampleRate': '現在のオーディオデバイスのサンプルレートが高すぎるため、再生速度が異常になる可能性があります。48 kHz への変更をおすすめします。',
   'audioProfessional.action.hideDetails': '詳細を閉じる',
   'audioProfessional.action.refresh': '状態を更新',
   'audioProfessional.action.showDetails': '詳細を表示',
@@ -9994,6 +10008,8 @@ const jaJP: TranslationMap = {
   'mvSettings.offset.input': 'オフセット秒数',
   'mvSettings.offset.later': 'MV を {value} 遅らせる',
   'mvSettings.offset.laterShort': '遅らせる {value}',
+  'mvSettings.offset.replay': '再生',
+  'mvSettings.offset.replayTitle': '現在の曲を再生し直し、MV 開始位置に同期します',
   'mvSettings.offset.reset': 'MV 遅延をリセット',
   'mvSettings.offset.resetShort': 'リセット',
   'mvSettings.offset.slider': 'MV 同期遅延スライダー',
@@ -11609,6 +11625,7 @@ const enUS: TranslationMap = {
   'artistDetail.tracks.error.desktopBridgeActions': 'Desktop bridge unavailable. Open ECHO Next in Electron to use file actions.',
   'artistDetail.tracks.error.desktopBridgeEdit': 'Desktop bridge unavailable. Open ECHO Next in Electron to edit embedded tags.',
   'artistDetail.tracks.error.desktopBridgeRead': 'Desktop bridge unavailable. Open ECHO Next in Electron to read artist tracks.',
+  'artistDetail.tracks.expandAll': 'Expand all',
   'artistDetail.tracks.error.noCoverSaved': 'No cover art was saved for this track.',
   'artistDetail.tracks.error.noCoverToCopy': 'This track does not have cover art to copy.',
   'artistDetail.tracks.error.remoteFileAction': 'Remote tracks do not support local file actions yet.',
@@ -11934,6 +11951,7 @@ const enUS: TranslationMap = {
   'audioDrawer.status.ratePending': 'Rate pending',
   'audioDrawer.status.sampleRatePending': 'Sample rate pending',
   'audioDrawer.title': 'Audio Settings',
+  'audioDrawer.warning.highOutputSampleRate': 'The current audio device sample rate is too high and may cause playback speed problems. 48 kHz is recommended.',
   'audioProfessional.action.hideDetails': 'Hide professional details',
   'audioProfessional.action.refresh': 'Refresh status',
   'audioProfessional.action.showDetails': 'Show professional details',
@@ -12708,6 +12726,8 @@ const enUS: TranslationMap = {
   'mvSettings.offset.input': 'Offset seconds',
   'mvSettings.offset.later': 'MV later {value}',
   'mvSettings.offset.laterShort': 'Later {value}',
+  'mvSettings.offset.replay': 'Replay',
+  'mvSettings.offset.replayTitle': 'Replay the current song and sync the video from the MV start point',
   'mvSettings.offset.reset': 'Reset MV offset',
   'mvSettings.offset.resetShort': 'Reset',
   'mvSettings.offset.slider': 'MV sync offset slider',

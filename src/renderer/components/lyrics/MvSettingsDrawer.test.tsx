@@ -445,24 +445,27 @@ describe('MvSettingsDrawer', () => {
     const { container } = renderDrawer(defaultMvSettings, makeVideo());
 
     await waitFor(() => expect(screen.getByLabelText('MV sync offset')).toBeTruthy());
+    expect(screen.queryByRole('slider', { name: /MV sync offset slider/ })).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: /MV sync calibration/ }));
     fireEvent.click(screen.getByTitle('MV earlier 500ms'));
 
     await waitFor(() => expect(window.echo.mv.setOffset).toHaveBeenCalledWith('track-1', 500));
-    expect(container.querySelector('.mv-offset-value')?.textContent).toBe('+500ms');
+    expect(container.querySelector('.mv-offset-collapse-toggle strong')?.textContent).toBe('+500ms');
   });
 
   it('saves a larger MV offset from the range and number controls', async () => {
     const { container } = renderDrawer(defaultMvSettings, makeVideo());
 
+    fireEvent.click(await screen.findByRole('button', { name: /MV sync calibration/ }));
     fireEvent.change(await screen.findByRole('slider', { name: /MV sync offset slider/ }), { target: { value: '45000' } });
 
     await waitFor(() => expect(window.echo.mv.setOffset).toHaveBeenCalledWith('track-1', 45000));
-    expect(container.querySelector('.mv-offset-value')?.textContent).toBe('+45s');
+    expect(container.querySelector('.mv-offset-collapse-toggle strong')?.textContent).toBe('+45s');
 
     fireEvent.change(screen.getByRole('spinbutton', { name: /Offset seconds/ }), { target: { value: '-600' } });
 
     await waitFor(() => expect(window.echo.mv.setOffset).toHaveBeenLastCalledWith('track-1', -600000));
-    expect(container.querySelector('.mv-offset-value')?.textContent).toBe('-600s');
+    expect(container.querySelector('.mv-offset-collapse-toggle strong')?.textContent).toBe('-600s');
   });
 
   it('sets the MV start second for the current song', async () => {
@@ -471,12 +474,28 @@ describe('MvSettingsDrawer', () => {
     fireEvent.change(await screen.findByRole('spinbutton', { name: /MV start second/ }), { target: { value: '12.5' } });
 
     await waitFor(() => expect(window.echo.mv.setOffset).toHaveBeenCalledWith('track-1', 12500));
-    expect(container.querySelector('.mv-offset-value')?.textContent).toBe('+12.5s');
+    expect(container.querySelector('.mv-offset-collapse-toggle strong')?.textContent).toBe('+12.5s');
 
     fireEvent.change(screen.getByRole('spinbutton', { name: /MV start second/ }), { target: { value: '600' } });
 
     await waitFor(() => expect(window.echo.mv.setOffset).toHaveBeenLastCalledWith('track-1', 600000));
-    expect(container.querySelector('.mv-offset-value')?.textContent).toBe('+600s');
+    expect(container.querySelector('.mv-offset-collapse-toggle strong')?.textContent).toBe('+600s');
+  });
+
+  it('replays the current song from the MV start point button', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    renderDrawer(defaultMvSettings, makeVideo({ offsetMs: 40000 }));
+
+    const replayButton = await screen.findByRole('button', { name: /Replay the current song/ });
+    await waitFor(() => expect((replayButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(replayButton);
+
+    expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'mv:changed' }));
+    await waitFor(() =>
+      expect(window.echo.playback.playLocalFile).toHaveBeenCalledWith(
+        expect.objectContaining({ filePath: 'D:\\Music\\song.flac', trackId: 'track-1' }),
+      ),
+    );
   });
 
   it('resets immersive MV background tuning', async () => {

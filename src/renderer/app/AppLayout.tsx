@@ -156,7 +156,7 @@ const defaultSidebarLayoutSettings: SidebarLayoutSettings = {
   sidebarAutoHideEnabled: false,
 };
 
-const persistentRouteIds = new Set<AppRouteId>(['songs', 'streaming', 'playlists']);
+const persistentRouteIds = new Set<AppRouteId>(['songs', 'albums', 'artists', 'streaming', 'playlists']);
 const readSongsNavigationRemoteSourceId = (event: Event): string | null => {
   if (!(event instanceof CustomEvent) || typeof event.detail !== 'object' || event.detail === null) {
     return null;

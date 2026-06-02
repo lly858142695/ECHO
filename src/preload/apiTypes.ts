@@ -284,6 +284,7 @@ export type EchoApi = {
     isFullscreen: () => Promise<boolean>;
     onFullscreenChange: (handler: (isFullscreen: boolean) => void) => () => void;
     close: () => Promise<void>;
+    quit: () => Promise<void>;
     getSystemUserName: () => Promise<string | null>;
     getSettings: () => Promise<AppSettings>;
     setSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>;
