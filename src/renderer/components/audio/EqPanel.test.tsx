@@ -259,6 +259,10 @@ describe('EqPanel', () => {
     expect(screen.getByRole('button', { name: 'Quick Auto Gain' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Quick -6 dB headroom' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Quick native direct' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Hold original' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Bass lift/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Vocal focus/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Air/i })).toBeTruthy();
     expect(screen.getAllByText('Headroom').length).toBeGreaterThan(0);
     expect(screen.getByText('Bit-perfect')).toBeTruthy();
   });
@@ -269,6 +273,93 @@ describe('EqPanel', () => {
     fireEvent.change(await screen.findByLabelText('Quick EQ preamp'), { target: { value: '-5.5' } });
 
     await waitFor(() => expect(window.echo.eq.setPreamp).toHaveBeenCalledWith(-5.5));
+  });
+
+  it('temporarily compares the current Simple EQ against the original sound', async () => {
+    window.echo.eq.getState = vi.fn().mockResolvedValue(eqState({ enabled: true }));
+    renderEqPanel();
+
+    const compare = await screen.findByRole('button', { name: 'Hold original' });
+    fireEvent.pointerDown(compare);
+    await waitFor(() => expect(window.echo.eq.setEnabled).toHaveBeenCalledWith(false));
+
+    fireEvent.pointerUp(compare);
+    await waitFor(() => expect(window.echo.eq.setEnabled).toHaveBeenCalledWith(true));
+  });
+
+  it('shows readable DSP comfort guidance in Simple mode', async () => {
+    renderEqPanel();
+
+    expect(await screen.findByText('Sound is being shaped')).toBeTruthy();
+    expect(screen.getByText('Only enabled DSP modules are processed. Turn them off to return to the native playback path.')).toBeTruthy();
+
+    cleanup();
+    vi.mocked(window.echo.eq.getState).mockResolvedValue(eqState({ enabled: false }));
+    renderEqPanel(null);
+
+    expect(await screen.findByText('Native direct')).toBeTruthy();
+    expect(screen.getByText('When DSP is off, volume is not reduced and samples are not changed. Good for hearing the original path.')).toBeTruthy();
+  });
+
+  it('applies a beginner-friendly Simple tone curve with safe preamp', async () => {
+    renderEqPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Bass lift/i }));
+
+    await waitFor(() => expect(window.echo.eq.setPreamp).toHaveBeenCalledWith(-2.5));
+    await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 0, gainDb: 2.5 }));
+    await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 10, gainDb: 0.7 }));
+    await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 17, gainDb: 0 }));
+    await waitFor(() => expect(window.echo.eq.setBandFilterType).toHaveBeenCalledWith({ band: 0, filterType: 'peaking' }));
+    await waitFor(() => expect(window.echo.eq.setEnabled).toHaveBeenCalledWith(true));
+  });
+
+  it('adjusts the active Simple tone amount without exposing advanced EQ parameters', async () => {
+    renderEqPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Bass lift/i }));
+    fireEvent.input(await screen.findByLabelText('Simple tone amount'), { target: { value: '1.5' } });
+
+    await waitFor(() => expect(window.echo.eq.setPreamp).toHaveBeenCalledWith(-3.8));
+    await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 0, gainDb: 3.8 }));
+    await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 7, gainDb: 2.4 }));
+    expect(screen.queryByLabelText('Q')).toBeNull();
+    expect((screen.getByLabelText('Simple tone amount') as HTMLInputElement).value).toBe('1.5');
+  });
+
+  it('shows beginner-friendly Simple listening zones that react to tone changes', async () => {
+    renderEqPanel();
+
+    expect(await screen.findByLabelText('Simple listening zone changes')).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Low end Neutral' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Vocal Neutral' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Air Neutral' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Bass lift/i }));
+
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Low end +2.2 dB' })).toBeTruthy());
+    expect(screen.getByText('Kick and weight')).toBeTruthy();
+    expect(screen.queryByText('Fc')).toBeNull();
+
+    fireEvent.input(await screen.findByLabelText('Simple tone amount'), { target: { value: '1.5' } });
+
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Low end +3.4 dB' })).toBeTruthy());
+  });
+
+  it('shows the active Simple tone name instead of a generic modified label', async () => {
+    window.echo.eq.getState = vi.fn().mockResolvedValue(eqState({
+      enabled: true,
+      presetId: 'custom',
+      presetName: 'Bass lift',
+      preampDb: -2.5,
+      bands: bands.map((band, index) => (index <= 6 ? { ...band, gainDb: index <= 3 ? 2.5 : 1.6 } : band)),
+    }));
+
+    const { container } = renderEqPanel();
+
+    const bassTone = await screen.findByRole('button', { name: /Bass lift/i });
+    expect(container.querySelector('.eq-quick-metric strong')?.textContent).toBe('Bass lift');
+    expect(bassTone.getAttribute('data-active')).toBe('true');
   });
 
   it('keeps the full professional tools behind Pro mode', async () => {
@@ -288,6 +379,8 @@ describe('EqPanel', () => {
     expect(screen.getByLabelText('Q')).toBeTruthy();
     expect(screen.getByLabelText('EQ profile name')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Store A' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Bass lift/i })).toBeNull();
+    expect(screen.queryByLabelText('Simple listening zone changes')).toBeNull();
   });
 
   it('shows Room Correction controls in Pro mode and calls the FIR bridge APIs', async () => {
@@ -819,6 +912,39 @@ describe('EqPanel', () => {
     await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 2, gainDb: 3.5 }));
   });
 
+  it('keeps APO-style filter stack controls inside Pro mode', async () => {
+    renderEqPanel();
+
+    await screen.findByRole('button', { name: 'EQ preset' });
+    expect(screen.queryByRole('button', { name: 'Add filter' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete filter' })).toBeNull();
+
+    await showAdvancedEqTools();
+    expect(await screen.findByRole('button', { name: 'Add filter' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Delete filter' })).toBeTruthy();
+  });
+
+  it('adds and removes an APO-style filter slot through the advanced stack', async () => {
+    renderEqPanel();
+    await showAdvancedEqTools();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add filter' }));
+
+    await waitFor(() => expect(window.echo.eq.setBandFrequency).toHaveBeenCalledWith({ band: 2, frequencyHz: 31.5 }));
+    await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 2, gainDb: 0 }));
+    await waitFor(() => expect(window.echo.eq.setBandQ).toHaveBeenCalledWith({ band: 2, q: 1 }));
+    await waitFor(() => expect(window.echo.eq.setBandFilterType).toHaveBeenCalledWith({ band: 2, filterType: 'peaking' }));
+    await waitFor(() => expect(window.echo.eq.setBandEnabled).toHaveBeenCalledWith({ band: 2, enabled: true }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete filter' }));
+
+    await waitFor(() => expect(window.echo.eq.setBandFrequency).toHaveBeenCalledWith({ band: 2, frequencyHz: 31.5 }));
+    await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 2, gainDb: 0 }));
+    await waitFor(() => expect(window.echo.eq.setBandQ).toHaveBeenCalledWith({ band: 2, q: 1 }));
+    await waitFor(() => expect(window.echo.eq.setBandFilterType).toHaveBeenCalledWith({ band: 2, filterType: 'peaking' }));
+    await waitFor(() => expect(window.echo.eq.setBandEnabled).toHaveBeenCalledWith({ band: 2, enabled: false }));
+  });
+
   it('temporarily disables EQ while holding the bypass button', async () => {
     renderEqPanel();
     await showAdvancedEqTools();
@@ -905,6 +1031,173 @@ describe('EqPanel', () => {
     await waitFor(() => expect(window.echo.eq.savePreset).toHaveBeenCalledWith(expect.objectContaining({ name: 'User Bright' })));
     await waitFor(() => expect(window.echo.eq.listPresets).toHaveBeenCalled());
     await waitFor(() => expect(window.echo.eq.setPreset).toHaveBeenCalledWith('user-bright'));
+  });
+
+  it('previews pasted Equalizer APO text and applies it as a preset', async () => {
+    renderEqPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Paste APO' }));
+    fireEvent.change(await screen.findByLabelText('APO text'), {
+      target: {
+        value: [
+          'Preamp: -6 dB',
+          'Filter 1: ON PK Fc 1000 Hz Gain -3 dB Q 1.4',
+        ].join('\n'),
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview APO' }));
+
+    expect(await screen.findByText('Pasted APO')).toBeTruthy();
+    expect(screen.getByText('Equalizer APO')).toBeTruthy();
+    expect((screen.getByLabelText('Imported preset preamp') as HTMLInputElement).value).toBe('-6');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply import' }));
+
+    await waitFor(() =>
+      expect(window.echo.eq.savePreset).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'pasted-apo',
+        name: 'Pasted APO',
+        preampDb: -6,
+        bands: expect.arrayContaining([
+          expect.objectContaining({
+            frequencyHz: 1000,
+            gainDb: -3,
+            q: 1.4,
+            filterType: 'peaking',
+          }),
+        ]),
+      })),
+    );
+    await waitFor(() => expect(window.echo.eq.setPreset).toHaveBeenCalledWith('pasted-apo'));
+  });
+
+  it('summarizes pasted APO headroom and applies the safe preamp before saving', async () => {
+    renderEqPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Paste APO' }));
+    fireEvent.change(await screen.findByLabelText('APO text'), {
+      target: {
+        value: [
+          'Preamp: 0 dB',
+          'Filter 1: ON PK Fc 80 Hz Gain 6 dB Q 1',
+          'Filter 2: ON PK Fc 1000 Hz Gain -4 dB Q 1.2',
+        ].join('\n'),
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview APO' }));
+
+    expect(await screen.findByText('Import safety')).toBeTruthy();
+    expect(screen.getByText('Needs headroom')).toBeTruthy();
+    expect(screen.getAllByText('+6.0 dB').length).toBeGreaterThan(0);
+    expect(screen.getByText('+6.0 dB @ 80')).toBeTruthy();
+    expect(screen.getByText('-4.0 dB @ 1k')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use safe preamp' }));
+    expect((screen.getByLabelText('Imported preset preamp') as HTMLInputElement).value).toBe('-6');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply import' }));
+
+    await waitFor(() =>
+      expect(window.echo.eq.savePreset).toHaveBeenCalledWith(expect.objectContaining({
+        preampDb: -6,
+      })),
+    );
+  });
+
+  it('auditions pasted APO without saving and restores the previous EQ on cancel', async () => {
+    renderEqPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Paste APO' }));
+    fireEvent.change(await screen.findByLabelText('APO text'), {
+      target: {
+        value: [
+          'Preamp: -6 dB',
+          'Filter 1: ON PK Fc 1000 Hz Gain -3 dB Q 1.4',
+        ].join('\n'),
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview APO' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Audition import' }));
+
+    await waitFor(() => expect(window.echo.eq.setEnabled).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(window.echo.eq.setPreamp).toHaveBeenCalledWith(-6));
+    await waitFor(() => expect(window.echo.eq.setBandFrequency).toHaveBeenCalledWith({ band: 0, frequencyHz: 1000 }));
+    await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 0, gainDb: -3 }));
+    expect(window.echo.eq.savePreset).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Update audition' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel import' }));
+
+    await waitFor(() => expect(window.echo.eq.setEnabled).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(window.echo.eq.setPreamp).toHaveBeenCalledWith(0));
+    await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 1, gainDb: 6 }));
+    expect(screen.queryByText('Pasted APO')).toBeNull();
+    expect(window.echo.eq.savePreset).not.toHaveBeenCalled();
+  });
+
+  it('edits pasted APO filters before applying the imported preset', async () => {
+    renderEqPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Paste APO' }));
+    fireEvent.change(await screen.findByLabelText('APO text'), {
+      target: {
+        value: [
+          'Preamp: -4 dB',
+          'Filter 1: ON PK Fc 1000 Hz Gain -3 dB Q 1',
+          'Filter 2: ON PK Fc 2500 Hz Gain 2 dB Q 1.2',
+        ].join('\n'),
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview APO' }));
+
+    fireEvent.click(await screen.findByLabelText('Imported filter 1 enabled'));
+    fireEvent.change(screen.getByLabelText('Imported preset preamp'), { target: { value: '-7.5' } });
+    fireEvent.change(screen.getByLabelText('Imported filter 2 frequency'), { target: { value: '3200' } });
+    fireEvent.change(screen.getByLabelText('Imported filter 2 gain'), { target: { value: '-1.5' } });
+    fireEvent.change(screen.getByLabelText('Imported filter 2 Q'), { target: { value: '2.4' } });
+    fireEvent.change(screen.getByLabelText('Imported filter 2 type'), { target: { value: 'lowShelf' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply import' }));
+
+    await waitFor(() =>
+      expect(window.echo.eq.savePreset).toHaveBeenCalledWith(expect.objectContaining({
+        preampDb: -7.5,
+        bands: expect.arrayContaining([
+          expect.objectContaining({
+            frequencyHz: 1000,
+            enabled: false,
+          }),
+          expect.objectContaining({
+            frequencyHz: 3200,
+            gainDb: -1.5,
+            q: 2.4,
+            filterType: 'lowShelf',
+            enabled: true,
+          }),
+        ]),
+      })),
+    );
+  });
+
+  it('shows a scannable pasted APO filter list before applying', async () => {
+    renderEqPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Paste APO' }));
+    fireEvent.change(await screen.findByLabelText('APO text'), {
+      target: {
+        value: [
+          'Preamp: -4 dB',
+          ...Array.from({ length: 18 }, (_, index) =>
+            `Filter ${index + 1}: ${index === 1 ? 'OFF' : 'ON'} PK Fc ${100 + index * 100} Hz Gain ${index % 4 - 2} dB Q 1`,
+          ),
+        ].join('\n'),
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview APO' }));
+
+    expect(await screen.findByText('Filter details')).toBeTruthy();
+    expect(screen.getAllByText('enabled').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Bypassed').length).toBeGreaterThan(0);
+    expect(screen.queryByText('2 more filters hidden')).toBeNull();
+    expect((screen.getByLabelText('Imported filter 18 frequency') as HTMLInputElement).value).toBe('1800');
   });
 
   it('filters presets by search and target curve category', async () => {

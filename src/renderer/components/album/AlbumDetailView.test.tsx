@@ -49,6 +49,7 @@ vi.mock('../../i18n/I18nProvider', () => {
     'albumDetail.related.heading': 'My Library',
     'albumDetail.related.thisAlbum': 'This album',
     'albumDetail.status.addedToQueue': 'Added {count} tracks to queue.',
+    'albumDetail.status.copiedCover': 'Original cover copied',
     'albumDetail.tab.credits': 'Credits',
     'albumDetail.tab.information': 'Information',
     'albumDetail.tab.releases': 'Versions',
@@ -327,6 +328,7 @@ const installLibrary = (): {
   getArtists: ReturnType<typeof vi.fn>;
   getArtistAlbums: ReturnType<typeof vi.fn>;
   addTracksToPlaylist: ReturnType<typeof vi.fn>;
+  copyAlbumCover: ReturnType<typeof vi.fn>;
 } => {
   const getAlbumOnlineInfo = vi.fn((_albumId: string, options?: { provider?: 'all' | 'musicbrainz' | 'wikipedia' }) =>
     Promise.resolve(onlineInfoForProvider(options?.provider)),
@@ -346,6 +348,7 @@ const installLibrary = (): {
     hasMore: false,
   });
   const addTracksToPlaylist = vi.fn().mockResolvedValue([]);
+  const copyAlbumCover = vi.fn().mockResolvedValue(true);
   window.echo = {
     app: {
       openExternalUrl: vi.fn().mockResolvedValue(undefined),
@@ -366,11 +369,12 @@ const installLibrary = (): {
       createPlaylist: vi.fn().mockResolvedValue(playlist()),
       addTrackToPlaylist: vi.fn().mockResolvedValue({ id: 'playlist-item-1' }),
       addTracksToPlaylist,
+      copyAlbumCover,
       getLikedAlbumIds: vi.fn().mockResolvedValue({}),
       openTrackInFolder: vi.fn().mockResolvedValue(undefined),
     },
   } as unknown as Window['echo'];
-  return { getAlbumOnlineInfo, getArtists, getArtistAlbums, addTracksToPlaylist };
+  return { getAlbumOnlineInfo, getArtists, getArtistAlbums, addTracksToPlaylist, copyAlbumCover };
 };
 
 afterEach(() => {
@@ -528,6 +532,20 @@ describe('AlbumDetailView', () => {
     })} onBack={vi.fn()} />);
 
     expect((container.querySelector('.album-detail-cover img') as HTMLImageElement | null)?.getAttribute('src')).toBe('echo-cover://original/cover%201');
+  });
+
+  it('copies the original album artwork from the detail cover context menu', async () => {
+    const { copyAlbumCover } = installLibrary();
+
+    const { container } = render(<AlbumDetailView album={album({
+      coverId: 'cover 1',
+      coverThumb: 'echo-cover://album/cover%201',
+    })} onBack={vi.fn()} />);
+
+    fireEvent.contextMenu(container.querySelector('.album-detail-cover')!);
+
+    await waitFor(() => expect(copyAlbumCover).toHaveBeenCalledWith('album-1'));
+    expect(screen.getByText('Original cover copied')).toBeTruthy();
   });
 
   it('opens information links through the system browser bridge', async () => {

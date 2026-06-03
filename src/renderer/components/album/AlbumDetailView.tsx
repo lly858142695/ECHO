@@ -989,6 +989,31 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     }
   }, [album.mediaType, closeAlbumMenu, firstTrack, getAllAlbumTracks, loadedTracks, t]);
 
+  const handleDetailCoverContextMenu = useCallback((event: MouseEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeAlbumMenu();
+    void (async () => {
+      try {
+        setPlayError(null);
+        setTrackActionMessage(null);
+        const library = window.echo?.library;
+        if (!library?.copyAlbumCover) {
+          throw new Error(t('albumDetail.tracks.error.desktopBridgeActions'));
+        }
+
+        if (!(await library.copyAlbumCover(album.id))) {
+          setPlayError(t('library.albums.error.noCopyableCover'));
+          return;
+        }
+
+        setTrackActionMessage(t('albumDetail.status.copiedCover'));
+      } catch (error) {
+        setPlayError(error instanceof Error ? error.message : String(error));
+      }
+    })();
+  }, [album.id, closeAlbumMenu, t]);
+
   const handlePlayTrack = useCallback(
     async (track: LibraryTrack): Promise<void> => {
       try {
@@ -1803,7 +1828,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
       </button>
 
       <section className="album-detail-hero album-detail-switch-surface" key={`album-hero-${album.id}`} aria-label={t('albumDetail.aria.details', { album: album.title })}>
-        <div className="album-detail-cover" data-empty={!detailCoverSrc}>
+        <div className="album-detail-cover" data-empty={!detailCoverSrc} onContextMenu={handleDetailCoverContextMenu}>
           {detailCoverSrc ? (
             <img alt="" decoding="async" draggable={false} height={320} src={detailCoverSrc} width={320} onError={() => handleDetailCoverError(detailCoverSrc)} />
           ) : (

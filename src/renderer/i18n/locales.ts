@@ -101,6 +101,7 @@ type AlbumDetailTranslationKey =
   | 'albumDetail.sources.releaseDetails'
   | 'albumDetail.status.libraryReady'
   | 'albumDetail.status.addedToQueue'
+  | 'albumDetail.status.copiedCover'
   | 'albumDetail.status.readingSignal'
   | 'albumDetail.status.unknownGenre'
   | 'albumDetail.status.unknownLength'
@@ -2355,8 +2356,10 @@ export type TranslationKey =
   | 'settings.library.networkPanel.unknownArtist'
   | 'settings.library.networkPanel.untitled'
   | 'settings.eq.action.autoPreamp'
+  | 'settings.eq.action.addFilter'
   | 'settings.eq.action.bypass'
   | 'settings.eq.action.delete'
+  | 'settings.eq.action.deleteFilter'
   | 'settings.eq.action.duplicatePreset'
   | 'settings.eq.action.exportApoGraphicEqPreset'
   | 'settings.eq.action.exportApoPreset'
@@ -2365,8 +2368,10 @@ export type TranslationKey =
   | 'settings.eq.action.freqFineUp'
   | 'settings.eq.action.freqUp'
   | 'settings.eq.action.holdBypass'
+  | 'settings.eq.action.holdOriginal'
   | 'settings.eq.action.hideAdvanced'
   | 'settings.eq.action.importPreset'
+  | 'settings.eq.action.pasteApoPreset'
   | 'settings.eq.action.applyA'
   | 'settings.eq.action.applyB'
   | 'settings.eq.action.applySafePreamp'
@@ -2448,6 +2453,8 @@ export type TranslationKey =
   | 'settings.eq.band.console'
   | 'settings.eq.band.enabled'
   | 'settings.eq.band.enabledShort'
+  | 'settings.eq.band.filters'
+  | 'settings.eq.band.filterStack'
   | 'settings.eq.band.filterType'
   | 'settings.eq.band.inspector'
   | 'settings.eq.band.matrix'
@@ -2499,6 +2506,12 @@ export type TranslationKey =
   | 'settings.eq.channel.rightTotal'
   | 'settings.eq.channel.swap'
   | 'settings.eq.channel.title'
+  | 'settings.eq.comfort.direct'
+  | 'settings.eq.comfort.directDetail'
+  | 'settings.eq.comfort.risk'
+  | 'settings.eq.comfort.riskDetail'
+  | 'settings.eq.comfort.tuned'
+  | 'settings.eq.comfort.tunedDetail'
   | 'settings.eq.curve.aria'
   | 'settings.eq.curve.dragBand'
   | 'settings.eq.curve.fineEdit'
@@ -2514,9 +2527,17 @@ export type TranslationKey =
   | 'settings.eq.import.filters'
   | 'settings.eq.import.filtersValue'
   | 'settings.eq.import.filterPreview'
+  | 'settings.eq.import.filterEnabledAria'
+  | 'settings.eq.import.filterFrequencyAria'
+  | 'settings.eq.import.filterGainAria'
+  | 'settings.eq.import.filterQAria'
+  | 'settings.eq.import.filterTypeAria'
   | 'settings.eq.import.graphicEq'
+  | 'settings.eq.import.estimatedPeak'
   | 'settings.eq.import.includes'
   | 'settings.eq.import.includesValue'
+  | 'settings.eq.import.maxBoost'
+  | 'settings.eq.import.maxCut'
   | 'settings.eq.import.apoDirectives'
   | 'settings.eq.import.apoDirectiveDetails'
   | 'settings.eq.import.apoDirectivesValue'
@@ -2529,13 +2550,31 @@ export type TranslationKey =
   | 'settings.eq.import.moreFilters'
   | 'settings.eq.import.noFilters'
   | 'settings.eq.import.preamp'
+  | 'settings.eq.import.preampAria'
+  | 'settings.eq.import.safePreamp'
+  | 'settings.eq.import.safetyDetail'
+  | 'settings.eq.import.safetyNeedsHeadroom'
+  | 'settings.eq.import.safetyOk'
+  | 'settings.eq.import.safetyTitle'
+  | 'settings.eq.import.audition'
+  | 'settings.eq.import.auditionPresetName'
+  | 'settings.eq.import.restoreAudition'
+  | 'settings.eq.import.clearPaste'
   | 'settings.eq.import.applyPreview'
   | 'settings.eq.import.cancelPreview'
+  | 'settings.eq.import.pasteDefaultName'
+  | 'settings.eq.import.pasteEmpty'
+  | 'settings.eq.import.pasteFileName'
+  | 'settings.eq.import.pasteIncludeWarning'
+  | 'settings.eq.import.pasteTitle'
+  | 'settings.eq.import.previewPaste'
   | 'settings.eq.import.previewTitle'
   | 'settings.eq.import.reportTitle'
   | 'settings.eq.import.source'
   | 'settings.eq.import.sourceApo'
   | 'settings.eq.import.sourceEcho'
+  | 'settings.eq.import.updateAudition'
+  | 'settings.eq.import.useSafePreamp'
   | 'settings.eq.filter.highShelf'
   | 'settings.eq.filter.highPass'
   | 'settings.eq.filter.lowShelf'
@@ -2565,6 +2604,27 @@ export type TranslationKey =
   | 'settings.eq.signal.preamp'
   | 'settings.eq.signal.protecting'
   | 'settings.eq.signal.title'
+  | 'settings.eq.simpleTone.air'
+  | 'settings.eq.simpleTone.airDetail'
+  | 'settings.eq.simpleTone.amount'
+  | 'settings.eq.simpleTone.amountAria'
+  | 'settings.eq.simpleTone.aria'
+  | 'settings.eq.simpleTone.bass'
+  | 'settings.eq.simpleTone.bassDetail'
+  | 'settings.eq.simpleTone.flat'
+  | 'settings.eq.simpleTone.flatDetail'
+  | 'settings.eq.simpleTone.vocal'
+  | 'settings.eq.simpleTone.vocalDetail'
+  | 'settings.eq.simpleTone.warm'
+  | 'settings.eq.simpleTone.warmDetail'
+  | 'settings.eq.simpleZone.air'
+  | 'settings.eq.simpleZone.airDetail'
+  | 'settings.eq.simpleZone.aria'
+  | 'settings.eq.simpleZone.low'
+  | 'settings.eq.simpleZone.lowDetail'
+  | 'settings.eq.simpleZone.neutral'
+  | 'settings.eq.simpleZone.vocal'
+  | 'settings.eq.simpleZone.vocalDetail'
   | 'settings.eq.routing.action.armHeadroom6'
   | 'settings.eq.routing.action.nativeDirect'
   | 'settings.eq.routing.armed'
@@ -2577,6 +2637,7 @@ export type TranslationKey =
   | 'settings.eq.routing.modulesActiveDetail'
   | 'settings.eq.routing.modulesBypassed'
   | 'settings.eq.routing.modulesBypassedDetail'
+  | 'settings.eq.routing.nativeBypassComfort'
   | 'settings.eq.routing.nativeDirect'
   | 'settings.eq.routing.nativeDirectDetail'
   | 'settings.eq.routing.nativeNoGainDetail'
@@ -3405,6 +3466,7 @@ const zhCN: TranslationMap = {
   'albumDetail.sources.releaseAria': '当前匹配发行信息',
   'albumDetail.sources.releaseDetails': '当前发行',
   'albumDetail.status.addedToQueue': '已加入队列 {count} 首。',
+  'albumDetail.status.copiedCover': '已复制封面原图',
   'albumDetail.status.libraryReady': '{value} 就绪',
   'albumDetail.status.readingSignal': '正在读取信号',
   'albumDetail.status.unknownGenre': '未知流派',
@@ -5312,9 +5374,11 @@ const zhCN: TranslationMap = {
   'settings.library.networkPanel.trackNotFound': '找不到该曲目。请先播放一首歌，或输入曲目 ID。',
   'settings.library.networkPanel.unknownArtist': '未知歌手',
   'settings.library.networkPanel.untitled': '未命名',
+  'settings.eq.action.addFilter': '新增滤波器',
   'settings.eq.action.autoPreamp': '自动 {value}',
   'settings.eq.action.bypass': '旁路',
   'settings.eq.action.delete': '删除',
+  'settings.eq.action.deleteFilter': '移除滤波器',
   'settings.eq.action.duplicatePreset': '复制当前',
   'settings.eq.action.exportApoGraphicEqPreset': '导出 GraphicEQ',
   'settings.eq.action.exportApoPreset': '导出 APO',
@@ -5323,8 +5387,10 @@ const zhCN: TranslationMap = {
   'settings.eq.action.freqFineUp': '细 +',
   'settings.eq.action.freqUp': '频率 +',
   'settings.eq.action.holdBypass': '按住旁路 EQ',
+  'settings.eq.action.holdOriginal': '按住听原声',
   'settings.eq.action.hideAdvanced': '隐藏 PEQ 控制台',
   'settings.eq.action.importPreset': '导入预设 / APO',
+  'settings.eq.action.pasteApoPreset': '粘贴 APO',
   'settings.eq.action.applyA': '应用 A',
   'settings.eq.action.applyB': '应用 B',
   'settings.eq.action.applySafePreamp': '应用安全前级',
@@ -5410,6 +5476,8 @@ const zhCN: TranslationMap = {
   'settings.eq.band.console': '选中频段控制台',
   'settings.eq.band.enabled': '启用此段',
   'settings.eq.band.enabledShort': '启用',
+  'settings.eq.band.filters': '滤波器',
+  'settings.eq.band.filterStack': 'APO 滤波器链',
   'settings.eq.band.filterType': '类型',
   'settings.eq.band.inspector': '选中频段',
   'settings.eq.band.matrix': 'PEQ 频段矩阵',
@@ -5457,6 +5525,12 @@ const zhCN: TranslationMap = {
   'settings.eq.channel.rightTotal': '右总增益',
   'settings.eq.channel.swap': '交换 L/R',
   'settings.eq.channel.title': '声道平衡',
+  'settings.eq.comfort.direct': '原声直通',
+  'settings.eq.comfort.directDetail': 'DSP 关闭时不压低音量、不改动采样，适合放心听原声。',
+  'settings.eq.comfort.risk': '需要留意电平',
+  'settings.eq.comfort.riskDetail': '检测到潜在削波或保护动作，建议先预留 -6 dB Headroom。',
+  'settings.eq.comfort.tuned': '正在修饰声音',
+  'settings.eq.comfort.tunedDetail': '只处理已开启的 DSP 模块；关闭后会回到原生播放路径。',
   'settings.eq.curve.aria': '可拖动 31 段 EQ 频响曲线',
   'settings.eq.curve.dragBand': '拖动 {frequency} EQ 频段',
   'settings.eq.curve.fineEdit': 'Shift 细调',
@@ -5472,9 +5546,17 @@ const zhCN: TranslationMap = {
   'settings.eq.import.filters': 'Filter',
   'settings.eq.import.filtersValue': '{count} 导入 / {skipped} 跳过',
   'settings.eq.import.filterPreview': 'Filter 明细',
+  'settings.eq.import.filterEnabledAria': '导入 Filter {index} 启用状态',
+  'settings.eq.import.filterFrequencyAria': '导入 Filter {index} 频率',
+  'settings.eq.import.filterGainAria': '导入 Filter {index} 增益',
+  'settings.eq.import.filterQAria': '导入 Filter {index} Q',
+  'settings.eq.import.filterTypeAria': '导入 Filter {index} 类型',
+  'settings.eq.import.estimatedPeak': '预计峰值',
   'settings.eq.import.graphicEq': 'GraphicEQ 点',
   'settings.eq.import.includes': 'Include 文件',
   'settings.eq.import.includesValue': '{count} 展开 / {skipped} 跳过',
+  'settings.eq.import.maxBoost': '最大提升',
+  'settings.eq.import.maxCut': '最大削减',
   'settings.eq.import.apoDirectives': 'APO 指令',
   'settings.eq.import.apoDirectiveDetails': '指令明细',
   'settings.eq.import.apoDirectivesValue': '{count} 识别 / {skipped} 声道 Filter 跳过',
@@ -5487,13 +5569,31 @@ const zhCN: TranslationMap = {
   'settings.eq.import.moreFilters': '还有 {count} 条 Filter 未显示',
   'settings.eq.import.noFilters': '没有需要显示的有效滤波器。',
   'settings.eq.import.preamp': 'Preamp',
+  'settings.eq.import.preampAria': '导入预设 Preamp',
+  'settings.eq.import.safePreamp': '建议余量',
+  'settings.eq.import.safetyDetail': '按当前 Filter 粗略估算，应用前可先留出安全余量。',
+  'settings.eq.import.safetyNeedsHeadroom': '需要安全余量',
+  'settings.eq.import.safetyOk': '余量看起来安全',
+  'settings.eq.import.safetyTitle': '导入听感安全',
+  'settings.eq.import.audition': '试听导入',
+  'settings.eq.import.auditionPresetName': '试听 {name}',
+  'settings.eq.import.restoreAudition': '恢复原设置',
+  'settings.eq.import.clearPaste': '清空',
   'settings.eq.import.applyPreview': '应用导入',
   'settings.eq.import.cancelPreview': '取消导入',
+  'settings.eq.import.pasteDefaultName': '粘贴的 APO',
+  'settings.eq.import.pasteEmpty': '请先粘贴 Equalizer APO 配置。',
+  'settings.eq.import.pasteFileName': '粘贴内容',
+  'settings.eq.import.pasteIncludeWarning': '粘贴导入不会读取 Include 文件；如需展开 Include，请使用文件导入。',
+  'settings.eq.import.pasteTitle': 'APO 文本',
+  'settings.eq.import.previewPaste': '预览 APO',
   'settings.eq.import.previewTitle': '导入预览',
   'settings.eq.import.reportTitle': '导入完成',
   'settings.eq.import.source': '来源',
   'settings.eq.import.sourceApo': 'Equalizer APO',
   'settings.eq.import.sourceEcho': 'ECHO JSON',
+  'settings.eq.import.updateAudition': '更新试听',
+  'settings.eq.import.useSafePreamp': '使用建议余量',
   'settings.eq.filter.highShelf': '高架',
   'settings.eq.filter.highPass': '高通',
   'settings.eq.filter.lowShelf': '低架',
@@ -5523,6 +5623,27 @@ const zhCN: TranslationMap = {
   'settings.eq.signal.preamp': '前级',
   'settings.eq.signal.protecting': '保护中',
   'settings.eq.signal.title': '信号链',
+  'settings.eq.simpleTone.air': '空气感',
+  'settings.eq.simpleTone.airDetail': '更亮更开阔',
+  'settings.eq.simpleTone.amount': '味道强度',
+  'settings.eq.simpleTone.amountAria': 'Simple 听感强度',
+  'settings.eq.simpleTone.aria': 'Simple 听感快捷调节',
+  'settings.eq.simpleTone.bass': '低频弹性',
+  'settings.eq.simpleTone.bassDetail': '鼓点更饱满',
+  'settings.eq.simpleTone.flat': '恢复平直',
+  'settings.eq.simpleTone.flatDetail': '回到原点',
+  'settings.eq.simpleTone.vocal': '人声靠前',
+  'settings.eq.simpleTone.vocalDetail': '歌词更清楚',
+  'settings.eq.simpleTone.warm': '暖一点',
+  'settings.eq.simpleTone.warmDetail': '柔和耐听',
+  'settings.eq.simpleZone.air': '空气感',
+  'settings.eq.simpleZone.airDetail': '亮度和空间',
+  'settings.eq.simpleZone.aria': 'Simple 听感区域变化',
+  'settings.eq.simpleZone.low': '低频',
+  'settings.eq.simpleZone.lowDetail': '鼓点和厚度',
+  'settings.eq.simpleZone.neutral': '平直',
+  'settings.eq.simpleZone.vocal': '人声',
+  'settings.eq.simpleZone.vocalDetail': '歌词和存在感',
   'settings.eq.routing.action.armHeadroom6': '预设 -6dB 余量',
   'settings.eq.routing.action.nativeDirect': '原生直通',
   'settings.eq.routing.armed': '已待命',
@@ -5535,6 +5656,7 @@ const zhCN: TranslationMap = {
   'settings.eq.routing.modulesActiveDetail': '下方会显示每个启用的处理阶段。',
   'settings.eq.routing.modulesBypassed': '已旁路',
   'settings.eq.routing.modulesBypassedDetail': 'EQ / FIR / Balance 均关闭。',
+  'settings.eq.routing.nativeBypassComfort': 'DSP 旁路时会保持原生直通，样本不会被效果链改动。',
   'settings.eq.routing.nativeDirect': '原生直通',
   'settings.eq.routing.nativeDirectDetail': 'DSP 旁路时不会改动原生播放。',
   'settings.eq.routing.nativeNoGainDetail': '原生直通下不做增益衰减。',
@@ -6371,6 +6493,7 @@ const zhTW: TranslationMap = {
   'albumDetail.sources.releaseAria': '目前匹配發行資訊',
   'albumDetail.sources.releaseDetails': '目前發行',
   'albumDetail.status.addedToQueue': '已加入佇列 {count} 首。',
+  'albumDetail.status.copiedCover': '已複製封面原圖',
   'albumDetail.status.libraryReady': '{value} 就緒',
   'albumDetail.status.readingSignal': '正在讀取訊號',
   'albumDetail.status.unknownGenre': '未知曲風',
@@ -7768,12 +7891,17 @@ const zhTW: TranslationMap = {
   'settings.plugins.note': '外掛頁負責啟用、停用、重新載入、命令和日誌；這裡保留入口與安全邊界說明，避免兩套管理 UI 分岔。',
   'settings.nav.about.label': '關於 / 進階',
   'settings.nav.danger.label': '危險操作',
+  'settings.eq.action.addFilter': '新增濾波器',
   'settings.eq.action.autoPreamp': '自動 {value}',
   'settings.eq.action.delete': '刪除',
+  'settings.eq.action.deleteFilter': '移除濾波器',
   'settings.eq.action.holdBypass': '按住旁路 EQ',
+  'settings.eq.action.holdOriginal': '按住聽原聲',
   'settings.eq.action.hideAdvanced': '隱藏 PEQ 控制台',
+  'settings.eq.action.importPreset': '匯入預設 / APO',
   'settings.eq.action.exportApoGraphicEqPreset': '匯出 GraphicEQ',
   'settings.eq.action.exportApoPreset': '匯出 APO',
+  'settings.eq.action.pasteApoPreset': '貼上 APO',
   'settings.eq.action.resetChannelBalance': '重置聲道平衡',
   'settings.eq.action.save': '儲存',
   'settings.eq.action.showAdvanced': 'PEQ 控制台',
@@ -7817,6 +7945,8 @@ const zhTW: TranslationMap = {
   'settings.eq.analyzer.toggle': '頻譜',
   'settings.eq.band.console': '選中頻段控制台',
   'settings.eq.band.enabledShort': '啟用',
+  'settings.eq.band.filters': '濾波器',
+  'settings.eq.band.filterStack': 'APO 濾波器鏈',
   'settings.eq.band.gainFixed': '此類型不使用增益',
   'settings.eq.band.qPresets': 'Q 快捷值',
   'settings.eq.band.qPresetWide': 'Wide',
@@ -7841,6 +7971,12 @@ const zhTW: TranslationMap = {
   'settings.eq.channel.mono.off': '關閉',
   'settings.eq.channel.mono.sum': '合併',
   'settings.eq.channel.title': '聲道平衡',
+  'settings.eq.comfort.direct': '原聲直通',
+  'settings.eq.comfort.directDetail': 'DSP 關閉時不壓低音量、不改動取樣，適合放心聽原聲。',
+  'settings.eq.comfort.risk': '需要留意電平',
+  'settings.eq.comfort.riskDetail': '偵測到潛在削波或保護動作，建議先預留 -6 dB Headroom。',
+  'settings.eq.comfort.tuned': '正在修飾聲音',
+  'settings.eq.comfort.tunedDetail': '只處理已啟用的 DSP 模組；關閉後會回到原生播放路徑。',
   'settings.eq.curve.aria': '可拖動 31 段 EQ 頻響曲線',
   'settings.eq.curve.dragBand': '拖動 {frequency} EQ 頻段',
   'settings.eq.filter.highShelf': '高架',
@@ -7857,9 +7993,17 @@ const zhTW: TranslationMap = {
   'settings.eq.import.filters': 'Filter',
   'settings.eq.import.filtersValue': '{count} 匯入 / {skipped} 跳過',
   'settings.eq.import.filterPreview': 'Filter 明細',
+  'settings.eq.import.filterEnabledAria': '匯入 Filter {index} 啟用狀態',
+  'settings.eq.import.filterFrequencyAria': '匯入 Filter {index} 頻率',
+  'settings.eq.import.filterGainAria': '匯入 Filter {index} 增益',
+  'settings.eq.import.filterQAria': '匯入 Filter {index} Q',
+  'settings.eq.import.filterTypeAria': '匯入 Filter {index} 類型',
+  'settings.eq.import.estimatedPeak': '預計峰值',
   'settings.eq.import.graphicEq': 'GraphicEQ 點',
   'settings.eq.import.includes': 'Include 檔案',
   'settings.eq.import.includesValue': '{count} 展開 / {skipped} 跳過',
+  'settings.eq.import.maxBoost': '最大提升',
+  'settings.eq.import.maxCut': '最大削減',
   'settings.eq.import.apoDirectives': 'APO 指令',
   'settings.eq.import.apoDirectiveDetails': '指令明細',
   'settings.eq.import.apoDirectivesValue': '{count} 識別 / {skipped} 聲道 Filter 跳過',
@@ -7872,13 +8016,31 @@ const zhTW: TranslationMap = {
   'settings.eq.import.moreFilters': '還有 {count} 條 Filter 未顯示',
   'settings.eq.import.noFilters': '沒有需要顯示的有效濾波器。',
   'settings.eq.import.preamp': 'Preamp',
+  'settings.eq.import.preampAria': '匯入預設 Preamp',
+  'settings.eq.import.safePreamp': '建議餘量',
+  'settings.eq.import.safetyDetail': '依目前 Filter 粗略估算，套用前可先留出安全餘量。',
+  'settings.eq.import.safetyNeedsHeadroom': '需要安全餘量',
+  'settings.eq.import.safetyOk': '餘量看起來安全',
+  'settings.eq.import.safetyTitle': '匯入聽感安全',
+  'settings.eq.import.audition': '試聽匯入',
+  'settings.eq.import.auditionPresetName': '試聽 {name}',
+  'settings.eq.import.restoreAudition': '恢復原設定',
+  'settings.eq.import.clearPaste': '清空',
   'settings.eq.import.applyPreview': '套用匯入',
   'settings.eq.import.cancelPreview': '取消匯入',
+  'settings.eq.import.pasteDefaultName': '貼上的 APO',
+  'settings.eq.import.pasteEmpty': '請先貼上 Equalizer APO 設定。',
+  'settings.eq.import.pasteFileName': '貼上內容',
+  'settings.eq.import.pasteIncludeWarning': '貼上匯入不會讀取 Include 檔案；如需展開 Include，請使用檔案匯入。',
+  'settings.eq.import.pasteTitle': 'APO 文字',
+  'settings.eq.import.previewPaste': '預覽 APO',
   'settings.eq.import.previewTitle': '匯入預覽',
   'settings.eq.import.reportTitle': '匯入完成',
   'settings.eq.import.source': '來源',
   'settings.eq.import.sourceApo': 'Equalizer APO',
   'settings.eq.import.sourceEcho': 'ECHO JSON',
+  'settings.eq.import.updateAudition': '更新試聽',
+  'settings.eq.import.useSafePreamp': '使用建議餘量',
   'settings.eq.preamp.inputSafety': 'Headroom 管理',
   'settings.eq.preamp.safeHeadroom': '安全餘量',
   'settings.eq.preset.readonly': '內建預設為唯讀。',
@@ -7899,6 +8061,27 @@ const zhTW: TranslationMap = {
   'settings.eq.signal.preamp': '前級',
   'settings.eq.signal.protecting': '保護中',
   'settings.eq.signal.title': '訊號鏈',
+  'settings.eq.simpleTone.air': '空氣感',
+  'settings.eq.simpleTone.airDetail': '更亮更開闊',
+  'settings.eq.simpleTone.amount': '味道強度',
+  'settings.eq.simpleTone.amountAria': 'Simple 聽感強度',
+  'settings.eq.simpleTone.aria': 'Simple 聽感快捷調整',
+  'settings.eq.simpleTone.bass': '低頻彈性',
+  'settings.eq.simpleTone.bassDetail': '鼓點更飽滿',
+  'settings.eq.simpleTone.flat': '恢復平直',
+  'settings.eq.simpleTone.flatDetail': '回到原點',
+  'settings.eq.simpleTone.vocal': '人聲靠前',
+  'settings.eq.simpleTone.vocalDetail': '歌詞更清楚',
+  'settings.eq.simpleTone.warm': '暖一點',
+  'settings.eq.simpleTone.warmDetail': '柔和耐聽',
+  'settings.eq.simpleZone.air': '空氣感',
+  'settings.eq.simpleZone.airDetail': '亮度和空間',
+  'settings.eq.simpleZone.aria': 'Simple 聽感區域變化',
+  'settings.eq.simpleZone.low': '低頻',
+  'settings.eq.simpleZone.lowDetail': '鼓點和厚度',
+  'settings.eq.simpleZone.neutral': '平直',
+  'settings.eq.simpleZone.vocal': '人聲',
+  'settings.eq.simpleZone.vocalDetail': '歌詞和存在感',
   'settings.eq.routing.action.armHeadroom6': '預設 -6dB 餘量',
   'settings.eq.routing.action.nativeDirect': '原生直通',
   'settings.eq.routing.armed': '已待命',
@@ -7911,6 +8094,7 @@ const zhTW: TranslationMap = {
   'settings.eq.routing.modulesActiveDetail': '下方會顯示每個啟用的處理階段。',
   'settings.eq.routing.modulesBypassed': '已旁路',
   'settings.eq.routing.modulesBypassedDetail': 'EQ / FIR / Balance 均關閉。',
+  'settings.eq.routing.nativeBypassComfort': 'DSP 旁路時會保持原生直通，樣本不會被效果鏈改動。',
   'settings.eq.routing.nativeDirect': '原生直通',
   'settings.eq.routing.nativeDirectDetail': 'DSP 旁路時不會改動原生播放。',
   'settings.eq.routing.nativeNoGainDetail': '原生直通下不做增益衰減。',
@@ -9247,6 +9431,7 @@ const jaJP: TranslationMap = {
   'albumDetail.sources.releaseAria': '現在一致したリリース情報',
   'albumDetail.sources.releaseDetails': '現在のリリース',
   'albumDetail.status.addedToQueue': '{count} 曲をキューに追加しました。',
+  'albumDetail.status.copiedCover': 'カバー原画をコピーしました',
   'albumDetail.status.libraryReady': '{value} 準備完了',
   'albumDetail.status.readingSignal': '信号を読み込み中',
   'albumDetail.status.unknownGenre': '不明なジャンル',
@@ -10422,10 +10607,13 @@ const jaJP: TranslationMap = {
   'settings.nav.remote.description': 'NAS、WebDAV、Subsonic',
   'settings.nav.eq.label': 'EQ',
   'settings.nav.eq.description': 'イコライザーと出力保護',
+  'settings.eq.action.addFilter': 'フィルターを追加',
   'settings.eq.action.autoPreamp': '自動 {value}',
   'settings.eq.action.bypass': 'バイパス',
   'settings.eq.action.delete': '削除',
+  'settings.eq.action.deleteFilter': 'フィルターを削除',
   'settings.eq.action.holdBypass': '押している間 EQ をバイパス',
+  'settings.eq.action.holdOriginal': '押して原音を聴く',
   'settings.eq.action.resetBand': '{frequency} をリセット',
   'settings.eq.action.resetChannelBalance': 'チャンネルバランスをリセット',
   'settings.eq.action.resetEq': 'EQ をリセット',
@@ -10475,9 +10663,17 @@ const jaJP: TranslationMap = {
   'settings.eq.import.filters': 'Filter',
   'settings.eq.import.filtersValue': '{count} インポート / {skipped} スキップ',
   'settings.eq.import.filterPreview': 'Filter 詳細',
+  'settings.eq.import.filterEnabledAria': 'インポート Filter {index} の有効状態',
+  'settings.eq.import.filterFrequencyAria': 'インポート Filter {index} の周波数',
+  'settings.eq.import.filterGainAria': 'インポート Filter {index} のゲイン',
+  'settings.eq.import.filterQAria': 'インポート Filter {index} の Q',
+  'settings.eq.import.filterTypeAria': 'インポート Filter {index} のタイプ',
+  'settings.eq.import.estimatedPeak': '推定ピーク',
   'settings.eq.import.graphicEq': 'GraphicEQ 点',
   'settings.eq.import.includes': 'Include ファイル',
   'settings.eq.import.includesValue': '{count} 展開 / {skipped} スキップ',
+  'settings.eq.import.maxBoost': '最大ブースト',
+  'settings.eq.import.maxCut': '最大カット',
   'settings.eq.import.apoDirectives': 'APO 指令',
   'settings.eq.import.apoDirectiveDetails': '指令詳細',
   'settings.eq.import.apoDirectivesValue': '{count} 認識 / {skipped} チャンネル Filter スキップ',
@@ -10490,14 +10686,34 @@ const jaJP: TranslationMap = {
   'settings.eq.import.moreFilters': 'ほか {count} 件の Filter は未表示',
   'settings.eq.import.noFilters': '表示する有効なフィルターはありません。',
   'settings.eq.import.preamp': 'Preamp',
+  'settings.eq.import.preampAria': 'インポートプリセット Preamp',
+  'settings.eq.import.safePreamp': '推奨ヘッドルーム',
+  'settings.eq.import.safetyDetail': '現在の Filter から概算します。適用前に安全な余裕を確保できます。',
+  'settings.eq.import.safetyNeedsHeadroom': 'ヘッドルームが必要',
+  'settings.eq.import.safetyOk': '余裕は安全そうです',
+  'settings.eq.import.safetyTitle': 'インポート安全性',
+  'settings.eq.import.audition': 'インポートを試聴',
+  'settings.eq.import.auditionPresetName': '試聴 {name}',
+  'settings.eq.import.restoreAudition': '元の設定に戻す',
+  'settings.eq.import.clearPaste': 'クリア',
   'settings.eq.import.applyPreview': 'インポートを適用',
   'settings.eq.import.cancelPreview': 'キャンセル',
+  'settings.eq.import.pasteDefaultName': '貼り付けた APO',
+  'settings.eq.import.pasteEmpty': 'Equalizer APO 設定を貼り付けてください。',
+  'settings.eq.import.pasteFileName': '貼り付け内容',
+  'settings.eq.import.pasteIncludeWarning': '貼り付けインポートでは Include ファイルを読み込みません。Include を展開するにはファイルインポートを使ってください。',
+  'settings.eq.import.pasteTitle': 'APO テキスト',
+  'settings.eq.import.previewPaste': 'APO をプレビュー',
   'settings.eq.import.previewTitle': 'インポートプレビュー',
   'settings.eq.import.reportTitle': 'インポート完了',
   'settings.eq.import.source': 'ソース',
   'settings.eq.import.sourceApo': 'Equalizer APO',
   'settings.eq.import.sourceEcho': 'ECHO JSON',
+  'settings.eq.import.updateAudition': '試聴を更新',
+  'settings.eq.import.useSafePreamp': '推奨値を使用',
   'settings.eq.action.hideAdvanced': 'PEQ コンソールを隠す',
+  'settings.eq.action.importPreset': 'プリセット / APO をインポート',
+  'settings.eq.action.pasteApoPreset': 'APO を貼り付け',
   'settings.eq.action.exportApoGraphicEqPreset': 'GraphicEQ へ書き出し',
   'settings.eq.action.exportApoPreset': 'APO へ書き出し',
   'settings.eq.action.showAdvanced': 'PEQ コンソール',
@@ -10542,6 +10758,8 @@ const jaJP: TranslationMap = {
   'settings.eq.analyzer.toggle': 'スペクトラム',
   'settings.eq.band.console': '選択バンドコンソール',
   'settings.eq.band.enabledShort': '有効',
+  'settings.eq.band.filters': 'フィルター',
+  'settings.eq.band.filterStack': 'APO フィルターチェーン',
   'settings.eq.band.gainFixed': 'このタイプではゲイン固定',
   'settings.eq.band.qPresets': 'Q クイック値',
   'settings.eq.band.qPresetWide': 'Wide',
@@ -10550,6 +10768,12 @@ const jaJP: TranslationMap = {
   'settings.eq.band.matrix': 'PEQ バンドマトリクス',
   'settings.eq.band.modeFree': '自由周波数',
   'settings.eq.band.modeStandard': '標準バンド',
+  'settings.eq.comfort.direct': '原音ダイレクト',
+  'settings.eq.comfort.directDetail': 'DSP オフ時は音量を下げず、サンプルも変更しません。原音を安心して聴けます。',
+  'settings.eq.comfort.risk': 'レベルに注意',
+  'settings.eq.comfort.riskDetail': 'クリップの可能性または保護動作を検出しました。まず -6 dB ヘッドルームを確保してください。',
+  'settings.eq.comfort.tuned': '音を調整中',
+  'settings.eq.comfort.tunedDetail': '有効な DSP モジュールだけを処理します。オフにするとネイティブ再生経路へ戻ります。',
   'settings.eq.level.clips': 'クリップ {count}',
   'settings.eq.level.estimatedOutputPeak': '推定出力ピーク',
   'settings.eq.level.headroom': 'ヘッドルーム',
@@ -10586,6 +10810,27 @@ const jaJP: TranslationMap = {
   'settings.eq.signal.preamp': 'プリアンプ',
   'settings.eq.signal.protecting': '保護中',
   'settings.eq.signal.title': '信号チェーン',
+  'settings.eq.simpleTone.air': '空気感',
+  'settings.eq.simpleTone.airDetail': '明るく広がる',
+  'settings.eq.simpleTone.amount': '味の強さ',
+  'settings.eq.simpleTone.amountAria': 'Simple 音作りの強さ',
+  'settings.eq.simpleTone.aria': 'Simple 音作りクイック調整',
+  'settings.eq.simpleTone.bass': '低音弾力',
+  'settings.eq.simpleTone.bassDetail': 'キックを豊かに',
+  'settings.eq.simpleTone.flat': 'フラット',
+  'settings.eq.simpleTone.flatDetail': '元に戻す',
+  'settings.eq.simpleTone.vocal': 'ボーカル前へ',
+  'settings.eq.simpleTone.vocalDetail': '歌詞を明瞭に',
+  'settings.eq.simpleTone.warm': '少し暖かく',
+  'settings.eq.simpleTone.warmDetail': '柔らかく聴く',
+  'settings.eq.simpleZone.air': '空気感',
+  'settings.eq.simpleZone.airDetail': '明るさと広がり',
+  'settings.eq.simpleZone.aria': 'Simple 音域変化',
+  'settings.eq.simpleZone.low': '低域',
+  'settings.eq.simpleZone.lowDetail': 'キックと厚み',
+  'settings.eq.simpleZone.neutral': 'フラット',
+  'settings.eq.simpleZone.vocal': 'ボーカル',
+  'settings.eq.simpleZone.vocalDetail': '歌詞と存在感',
   'settings.eq.routing.action.armHeadroom6': '-6dB ヘッドルームを待機',
   'settings.eq.routing.action.nativeDirect': 'ネイティブ直通',
   'settings.eq.routing.armed': '待機中',
@@ -10598,6 +10843,7 @@ const jaJP: TranslationMap = {
   'settings.eq.routing.modulesActiveDetail': '有効な処理段は下に表示されます。',
   'settings.eq.routing.modulesBypassed': 'バイパス済み',
   'settings.eq.routing.modulesBypassedDetail': 'EQ / FIR / Balance はオフです。',
+  'settings.eq.routing.nativeBypassComfort': 'DSP バイパス時はネイティブ直通を保ち、サンプルはエフェクトチェーンで変更されません。',
   'settings.eq.routing.nativeDirect': 'ネイティブ直通',
   'settings.eq.routing.nativeDirectDetail': 'DSP バイパス時はネイティブ再生を変更しません。',
   'settings.eq.routing.nativeNoGainDetail': 'ネイティブ直通ではゲインを下げません。',
@@ -12028,6 +12274,7 @@ const enUS: TranslationMap = {
   'albumDetail.sources.releaseAria': 'Current matched release info',
   'albumDetail.sources.releaseDetails': 'Current release',
   'albumDetail.status.addedToQueue': 'Added {count} tracks to queue.',
+  'albumDetail.status.copiedCover': 'Original cover copied',
   'albumDetail.status.libraryReady': '{value} ready',
   'albumDetail.status.readingSignal': 'Reading signal',
   'albumDetail.status.unknownGenre': 'Unknown genre',
@@ -13205,9 +13452,11 @@ const enUS: TranslationMap = {
   'settings.nav.eq.description': 'Equalizer and output safety',
   'settings.nav.shortcuts.label': 'Shortcuts',
   'settings.nav.shortcuts.description': 'Local shortcuts, global shortcuts, playback controls',
+  'settings.eq.action.addFilter': 'Add filter',
   'settings.eq.action.autoPreamp': 'Auto {value}',
   'settings.eq.action.bypass': 'Bypass',
   'settings.eq.action.delete': 'Delete',
+  'settings.eq.action.deleteFilter': 'Delete filter',
   'settings.eq.action.duplicatePreset': 'Duplicate current',
   'settings.eq.action.exportApoGraphicEqPreset': 'Export GraphicEQ',
   'settings.eq.action.exportApoPreset': 'Export APO',
@@ -13216,8 +13465,10 @@ const enUS: TranslationMap = {
   'settings.eq.action.freqFineUp': 'Fine +',
   'settings.eq.action.freqUp': 'Freq +',
   'settings.eq.action.holdBypass': 'Hold to Bypass EQ',
+  'settings.eq.action.holdOriginal': 'Hold original',
   'settings.eq.action.hideAdvanced': 'Hide PEQ console',
   'settings.eq.action.importPreset': 'Import preset / APO',
+  'settings.eq.action.pasteApoPreset': 'Paste APO',
   'settings.eq.action.applyA': 'Apply A',
   'settings.eq.action.applyB': 'Apply B',
   'settings.eq.action.applySafePreamp': 'Apply safe preamp',
@@ -13303,6 +13554,8 @@ const enUS: TranslationMap = {
   'settings.eq.band.console': 'Selected band console',
   'settings.eq.band.enabled': 'Band enabled',
   'settings.eq.band.enabledShort': 'enabled',
+  'settings.eq.band.filters': 'filters',
+  'settings.eq.band.filterStack': 'APO Filter Stack',
   'settings.eq.band.filterType': 'Type',
   'settings.eq.band.inspector': 'Selected band',
   'settings.eq.band.matrix': 'PEQ Band Matrix',
@@ -13365,9 +13618,17 @@ const enUS: TranslationMap = {
   'settings.eq.import.filters': 'Filter',
   'settings.eq.import.filtersValue': '{count} imported / {skipped} skipped',
   'settings.eq.import.filterPreview': 'Filter details',
+  'settings.eq.import.filterEnabledAria': 'Imported filter {index} enabled',
+  'settings.eq.import.filterFrequencyAria': 'Imported filter {index} frequency',
+  'settings.eq.import.filterGainAria': 'Imported filter {index} gain',
+  'settings.eq.import.filterQAria': 'Imported filter {index} Q',
+  'settings.eq.import.filterTypeAria': 'Imported filter {index} type',
+  'settings.eq.import.estimatedPeak': 'Estimated peak',
   'settings.eq.import.graphicEq': 'GraphicEQ points',
   'settings.eq.import.includes': 'Include files',
   'settings.eq.import.includesValue': '{count} expanded / {skipped} skipped',
+  'settings.eq.import.maxBoost': 'Max boost',
+  'settings.eq.import.maxCut': 'Max cut',
   'settings.eq.import.apoDirectives': 'APO directives',
   'settings.eq.import.apoDirectiveDetails': 'Directive details',
   'settings.eq.import.apoDirectivesValue': '{count} recognized / {skipped} channel filters skipped',
@@ -13380,13 +13641,31 @@ const enUS: TranslationMap = {
   'settings.eq.import.moreFilters': '{count} more filters hidden',
   'settings.eq.import.noFilters': 'No active filters to show.',
   'settings.eq.import.preamp': 'Preamp',
+  'settings.eq.import.preampAria': 'Imported preset preamp',
+  'settings.eq.import.safePreamp': 'Safe preamp',
+  'settings.eq.import.safetyDetail': 'Estimated from the imported filters. Reserve headroom before applying when needed.',
+  'settings.eq.import.safetyNeedsHeadroom': 'Needs headroom',
+  'settings.eq.import.safetyOk': 'Headroom looks safe',
+  'settings.eq.import.safetyTitle': 'Import safety',
+  'settings.eq.import.audition': 'Audition import',
+  'settings.eq.import.auditionPresetName': 'Audition {name}',
+  'settings.eq.import.restoreAudition': 'Restore current',
+  'settings.eq.import.clearPaste': 'Clear',
   'settings.eq.import.applyPreview': 'Apply import',
   'settings.eq.import.cancelPreview': 'Cancel import',
+  'settings.eq.import.pasteDefaultName': 'Pasted APO',
+  'settings.eq.import.pasteEmpty': 'Paste an Equalizer APO config first.',
+  'settings.eq.import.pasteFileName': 'Pasted text',
+  'settings.eq.import.pasteIncludeWarning': 'Pasted imports cannot read Include files. Use file import when Include expansion is needed.',
+  'settings.eq.import.pasteTitle': 'APO text',
+  'settings.eq.import.previewPaste': 'Preview APO',
   'settings.eq.import.previewTitle': 'Import preview',
   'settings.eq.import.reportTitle': 'Import complete',
   'settings.eq.import.source': 'Source',
   'settings.eq.import.sourceApo': 'Equalizer APO',
   'settings.eq.import.sourceEcho': 'ECHO JSON',
+  'settings.eq.import.updateAudition': 'Update audition',
+  'settings.eq.import.useSafePreamp': 'Use safe preamp',
   'settings.eq.filter.highShelf': 'High shelf',
   'settings.eq.filter.highPass': 'High pass',
   'settings.eq.filter.lowShelf': 'Low shelf',
@@ -13416,6 +13695,33 @@ const enUS: TranslationMap = {
   'settings.eq.signal.preamp': 'Preamp',
   'settings.eq.signal.protecting': 'Protecting',
   'settings.eq.signal.title': 'Signal Path',
+  'settings.eq.comfort.direct': 'Native direct',
+  'settings.eq.comfort.directDetail': 'When DSP is off, volume is not reduced and samples are not changed. Good for hearing the original path.',
+  'settings.eq.comfort.risk': 'Watch the level',
+  'settings.eq.comfort.riskDetail': 'Potential clipping or protection was detected. Start by reserving -6 dB headroom.',
+  'settings.eq.comfort.tuned': 'Sound is being shaped',
+  'settings.eq.comfort.tunedDetail': 'Only enabled DSP modules are processed. Turn them off to return to the native playback path.',
+  'settings.eq.simpleTone.air': 'Air',
+  'settings.eq.simpleTone.airDetail': 'Brighter space',
+  'settings.eq.simpleTone.amount': 'Tone amount',
+  'settings.eq.simpleTone.amountAria': 'Simple tone amount',
+  'settings.eq.simpleTone.aria': 'Simple tone quick tweaks',
+  'settings.eq.simpleTone.bass': 'Bass lift',
+  'settings.eq.simpleTone.bassDetail': 'Fuller kick',
+  'settings.eq.simpleTone.flat': 'Flat reset',
+  'settings.eq.simpleTone.flatDetail': 'Back to neutral',
+  'settings.eq.simpleTone.vocal': 'Vocal focus',
+  'settings.eq.simpleTone.vocalDetail': 'Clearer lyrics',
+  'settings.eq.simpleTone.warm': 'Warmth',
+  'settings.eq.simpleTone.warmDetail': 'Softer listen',
+  'settings.eq.simpleZone.air': 'Air',
+  'settings.eq.simpleZone.airDetail': 'Shine and space',
+  'settings.eq.simpleZone.aria': 'Simple listening zone changes',
+  'settings.eq.simpleZone.low': 'Low end',
+  'settings.eq.simpleZone.lowDetail': 'Kick and weight',
+  'settings.eq.simpleZone.neutral': 'Neutral',
+  'settings.eq.simpleZone.vocal': 'Vocal',
+  'settings.eq.simpleZone.vocalDetail': 'Lyrics and presence',
   'settings.eq.routing.action.armHeadroom6': 'Arm -6dB Headroom',
   'settings.eq.routing.action.nativeDirect': 'Native Direct',
   'settings.eq.routing.armed': 'Armed',
@@ -13428,6 +13734,7 @@ const enUS: TranslationMap = {
   'settings.eq.routing.modulesActiveDetail': 'Every active stage is shown below.',
   'settings.eq.routing.modulesBypassed': 'Bypassed',
   'settings.eq.routing.modulesBypassedDetail': 'EQ / FIR / Balance are off.',
+  'settings.eq.routing.nativeBypassComfort': 'DSP bypass keeps playback native-direct, and samples are not changed by the effect chain.',
   'settings.eq.routing.nativeDirect': 'Native Direct',
   'settings.eq.routing.nativeDirectDetail': 'DSP bypass keeps playback untouched.',
   'settings.eq.routing.nativeNoGainDetail': 'No gain reduction on native bypass.',

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, AudioWaveform, Copy, Gauge, Headphones, RadioTower, Redo2, RotateCcw, Save, ShieldCheck, Shuffle, SlidersHorizontal, Trash2, Undo2, Waves } from 'lucide-react';
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
+import { Activity, AudioWaveform, Copy, Gauge, Headphones, Plus, RadioTower, Redo2, RotateCcw, Save, ShieldCheck, Shuffle, SlidersHorizontal, Trash2, Undo2, Waves } from 'lucide-react';
 import type { AudioStatus, ChannelBalanceMonoMode, ChannelBalanceState } from '../../../shared/types/audio';
 import {
   channelBalanceMaxGainDb,
@@ -7,6 +7,7 @@ import {
 } from '../../../shared/types/audio';
 import type { EqBand, EqFilterType, EqPreset, EqPresetImportMetadata, EqPresetImportPreviewResult, EqProfile, EqProfileBindingInfo, EqProfileBindingTarget, EqState, RoomCorrectionState } from '../../../shared/types/eq';
 import { dspHeadroomMaxDb, dspHeadroomMinDb, eqFilterTypes, eqFrequenciesHz, eqMaxFrequencyHz, eqMaxPreampDb, eqMaxQ, eqMinFrequencyHz, eqMinPreampDb, eqMinQ, roomCorrectionMaxTrimDb, roomCorrectionMinTrimDb } from '../../../shared/types/eq';
+import { parseEqualizerApoPreset } from '../../../shared/utils/equalizerApoPreset';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { TranslationKey } from '../../i18n/locales';
 import { getEqBridge } from '../../utils/echoBridge';
@@ -39,6 +40,38 @@ type EqPanelProps = {
 };
 
 type EqUiMode = 'simple' | 'pro';
+type EqSimpleToneId = 'bass' | 'vocal' | 'air' | 'warm' | 'flat';
+type EqSimpleToneOption = {
+  id: EqSimpleToneId;
+  icon: 'waves' | 'headphones' | 'waveform' | 'gauge' | 'reset';
+  labelKey: TranslationKey;
+  detailKey: TranslationKey;
+};
+type EqSimpleZoneOption = {
+  id: 'low' | 'vocal' | 'air';
+  minFrequencyHz: number;
+  maxFrequencyHz: number;
+  labelKey: TranslationKey;
+  detailKey: TranslationKey;
+};
+type EqSimpleZoneSummary = EqSimpleZoneOption & {
+  averageGainDb: number;
+  levelPercent: number;
+};
+type EqImportPreviewSummary = {
+  activeFilterCount: number;
+  estimatedPeakGainDb: number;
+  maxBoostDb: number;
+  maxBoostFrequencyHz: number | null;
+  maxCutDb: number;
+  maxCutFrequencyHz: number | null;
+  recommendedPreampDb: number;
+  safePreampNeeded: boolean;
+};
+type EqImportAuditionSnapshot = {
+  snapshot: EqSnapshot;
+  enabled: boolean;
+};
 
 const eqUiModeStorageKey = 'echo-next.eq.uiMode';
 const eqAnalyzerStorageKey = 'echo-next.eq.spectrumAnalyzer';
@@ -92,6 +125,85 @@ const fallbackState: EqState = {
   })),
 };
 
+const defaultBandSlot = (index: number): EqBand => ({
+  frequencyHz: eqFrequenciesHz[index] ?? 1000,
+  gainDb: 0,
+  q: 1,
+  filterType: 'peaking',
+  enabled: true,
+});
+
+const bypassedBandSlot = (index: number): EqBand => ({
+  ...defaultBandSlot(index),
+  enabled: false,
+});
+
+const isBandSlotAvailable = (band: EqBand | undefined, index: number): boolean => {
+  if (!band || band.enabled === false) {
+    return true;
+  }
+
+  return (
+    Math.abs(band.gainDb) <= 0.05 &&
+    (band.filterType ?? 'peaking') === 'peaking' &&
+    Math.abs((band.q ?? 1) - 1) <= 0.05 &&
+    Math.abs((band.frequencyHz ?? eqFrequenciesHz[index] ?? 1000) - (eqFrequenciesHz[index] ?? 1000)) <= 0.05
+  );
+};
+
+const roundSimpleToneGain = (gainDb: number, intensity = 1): number =>
+  Math.round(gainDb * Math.max(0.5, Math.min(1.5, intensity)) * 10) / 10;
+
+const simpleToneGainDb = (tone: EqSimpleToneId, frequencyHz: number, intensity = 1): number => {
+  if (tone === 'flat') {
+    return 0;
+  }
+
+  if (tone === 'bass') {
+    if (frequencyHz <= 80) {
+      return roundSimpleToneGain(2.5, intensity);
+    }
+    if (frequencyHz <= 160) {
+      return roundSimpleToneGain(1.6, intensity);
+    }
+    if (frequencyHz <= 315) {
+      return roundSimpleToneGain(0.7, intensity);
+    }
+    return frequencyHz >= 10000 ? roundSimpleToneGain(-0.4, intensity) : 0;
+  }
+
+  if (tone === 'vocal') {
+    if (frequencyHz >= 800 && frequencyHz <= 2500) {
+      return roundSimpleToneGain(1.7, intensity);
+    }
+    if (frequencyHz >= 315 && frequencyHz < 800) {
+      return roundSimpleToneGain(0.7, intensity);
+    }
+    if (frequencyHz >= 5000 && frequencyHz <= 8000) {
+      return roundSimpleToneGain(-0.8, intensity);
+    }
+    return frequencyHz <= 80 ? roundSimpleToneGain(-0.4, intensity) : 0;
+  }
+
+  if (tone === 'air') {
+    if (frequencyHz >= 10000) {
+      return roundSimpleToneGain(2, intensity);
+    }
+    if (frequencyHz >= 5000) {
+      return roundSimpleToneGain(1.1, intensity);
+    }
+    return frequencyHz <= 160 ? roundSimpleToneGain(-0.5, intensity) : 0;
+  }
+
+  if (frequencyHz <= 125) {
+    return roundSimpleToneGain(1.4, intensity);
+  }
+  if (frequencyHz >= 4000) {
+    return roundSimpleToneGain(-0.9, intensity);
+  }
+  return frequencyHz >= 250 && frequencyHz <= 1000 ? roundSimpleToneGain(0.4, intensity) : 0;
+};
+
 const fallbackChannelBalanceState: ChannelBalanceState = {
   enabled: false,
   balance: 0,
@@ -123,6 +235,19 @@ const eqFilterLabelKeys: Record<EqFilterType, TranslationKey> = {
   highPass: 'settings.eq.filter.highPass',
   notch: 'settings.eq.filter.notch',
 };
+
+const simpleToneOptions: EqSimpleToneOption[] = [
+  { id: 'bass', icon: 'waves', labelKey: 'settings.eq.simpleTone.bass', detailKey: 'settings.eq.simpleTone.bassDetail' },
+  { id: 'vocal', icon: 'headphones', labelKey: 'settings.eq.simpleTone.vocal', detailKey: 'settings.eq.simpleTone.vocalDetail' },
+  { id: 'air', icon: 'waveform', labelKey: 'settings.eq.simpleTone.air', detailKey: 'settings.eq.simpleTone.airDetail' },
+  { id: 'warm', icon: 'gauge', labelKey: 'settings.eq.simpleTone.warm', detailKey: 'settings.eq.simpleTone.warmDetail' },
+  { id: 'flat', icon: 'reset', labelKey: 'settings.eq.simpleTone.flat', detailKey: 'settings.eq.simpleTone.flatDetail' },
+];
+const simpleZoneOptions: EqSimpleZoneOption[] = [
+  { id: 'low', minFrequencyHz: 20, maxFrequencyHz: 160, labelKey: 'settings.eq.simpleZone.low', detailKey: 'settings.eq.simpleZone.lowDetail' },
+  { id: 'vocal', minFrequencyHz: 250, maxFrequencyHz: 4000, labelKey: 'settings.eq.simpleZone.vocal', detailKey: 'settings.eq.simpleZone.vocalDetail' },
+  { id: 'air', minFrequencyHz: 5000, maxFrequencyHz: 20000, labelKey: 'settings.eq.simpleZone.air', detailKey: 'settings.eq.simpleZone.airDetail' },
+];
 const eqQPresetValues: Record<EqFilterType, { wide: number; normal: number; narrow: number }> = {
   peaking: { wide: 0.7, normal: 1.4, narrow: 4 },
   lowShelf: { wide: 0.5, normal: 0.7, narrow: 1.2 },
@@ -187,6 +312,76 @@ const formatApoDirectiveSummary = (summary: Record<string, number> | undefined):
   return entries.map(([name, count]) => `${name} x${count}`).join(' / ');
 };
 
+const sanitizeImportedPresetId = (name: string): string =>
+  name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 48) || `apo-${Date.now()}`;
+
+const uniqueImportedPresetId = (name: string, presets: EqPreset[]): string => {
+  const existingIds = new Set(presets.map((preset) => preset.id));
+  const baseId = sanitizeImportedPresetId(name);
+  let candidate = baseId;
+  let suffix = 2;
+
+  while (existingIds.has(candidate)) {
+    candidate = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return candidate;
+};
+
+const summarizeSimpleZones = (bands: EqBand[]): EqSimpleZoneSummary[] =>
+  simpleZoneOptions.map((zone) => {
+    const zoneBands = bands.filter((band) =>
+      band.enabled !== false &&
+      isEqFilterGainEditable(band.filterType) &&
+      band.frequencyHz >= zone.minFrequencyHz &&
+      band.frequencyHz <= zone.maxFrequencyHz,
+    );
+    const averageGainDb = zoneBands.length
+      ? Math.round((zoneBands.reduce((total, band) => total + band.gainDb, 0) / zoneBands.length) * 10) / 10
+      : 0;
+
+    return {
+      ...zone,
+      averageGainDb,
+      levelPercent: Math.min(100, Math.round((Math.abs(averageGainDb) / 6) * 100)),
+    };
+  });
+
+const summarizeImportPreview = (preview: EqPresetImportPreviewResult | null): EqImportPreviewSummary | null => {
+  if (!preview) {
+    return null;
+  }
+
+  const activeEditableBands = preview.request.bands.filter((band) => band.enabled !== false && isEqFilterGainEditable(band.filterType));
+  const maxBoostBand = activeEditableBands.reduce<EqBand | null>((current, band) => (
+    !current || band.gainDb > current.gainDb ? band : current
+  ), null);
+  const maxCutBand = activeEditableBands.reduce<EqBand | null>((current, band) => (
+    !current || band.gainDb < current.gainDb ? band : current
+  ), null);
+  const recommendedPreampDb = computeRecommendedPreamp({ bands: preview.request.bands });
+
+  return {
+    activeFilterCount: preview.request.bands.filter((band) => band.enabled !== false).length,
+    estimatedPeakGainDb: computeEstimatedPeakGain({
+      preampDb: preview.request.preampDb,
+      bands: preview.request.bands,
+    }),
+    maxBoostDb: Math.max(0, maxBoostBand?.gainDb ?? 0),
+    maxBoostFrequencyHz: maxBoostBand && maxBoostBand.gainDb > 0 ? maxBoostBand.frequencyHz : null,
+    maxCutDb: Math.min(0, maxCutBand?.gainDb ?? 0),
+    maxCutFrequencyHz: maxCutBand && maxCutBand.gainDb < 0 ? maxCutBand.frequencyHz : null,
+    recommendedPreampDb,
+    safePreampNeeded: preview.request.preampDb > recommendedPreampDb + 0.05,
+  };
+};
+
 const resolveImportCompatibility = (metadata: EqPresetImportMetadata): EqImportCompatibility => {
   if (
     metadata.skippedFilterCount > 0 ||
@@ -218,6 +413,9 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
   const [error, setError] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<EqPresetImportPreviewResult | null>(null);
   const [importReport, setImportReport] = useState<{ presetName: string; preampDb: number; metadata: EqPresetImportMetadata } | null>(null);
+  const [importAuditionSnapshot, setImportAuditionSnapshot] = useState<EqImportAuditionSnapshot | null>(null);
+  const [apoPasteOpen, setApoPasteOpen] = useState(false);
+  const [apoPasteText, setApoPasteText] = useState('');
   const [selectedBandIndex, setSelectedBandIndex] = useState(0);
   const [bypassSnapshot, setBypassSnapshot] = useState<boolean | null>(null);
   const [frequencyUnlocked, setFrequencyUnlocked] = useState(false);
@@ -232,6 +430,7 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
   const [autoGainEnabled, setAutoGainEnabled] = useState(readEqAutoGainEnabled);
   const [autoGainStatus, setAutoGainStatus] = useState<EqAutoGainStatus>('idle');
   const [autoGainAdjustmentDb, setAutoGainAdjustmentDb] = useState(0);
+  const [simpleToneIntensity, setSimpleToneIntensity] = useState(1);
   const debounceTimers = useRef<Record<number, number>>({});
   const frequencyDebounceTimers = useRef<Record<number, number>>({});
   const editStartSnapshot = useRef<EqSnapshot | null>(null);
@@ -283,8 +482,19 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
   const selectedBandQPresets = eqQPresetValues[selectedBandFilterType];
   const selectedBandEnabled = selectedBand?.enabled !== false;
   const activeBandCount = state.bands.filter((band) => band.enabled !== false).length;
+  const configuredBandCount = state.bands.filter((band, index) => !isBandSlotAvailable(band, index)).length;
   const selectedBandMode = frequencyEditUnlocked ? t('settings.eq.band.modeFree') : t('settings.eq.band.modeStandard');
   const selectedPresetMetadata = describePreset(state.presetId);
+  const simpleToneNames = simpleToneOptions.map((option) => ({ id: option.id, name: t(option.labelKey) }));
+  const activeSimpleTone = state.presetId === 'custom'
+    ? simpleToneNames.find((option) => option.name === state.presetName)?.id ?? null
+    : null;
+  const simpleZoneSummaries = summarizeSimpleZones(state.bands);
+  const displayPresetName = state.presetId === 'custom'
+    ? activeSimpleTone
+      ? state.presetName
+      : t('settings.eq.preset.modified')
+    : state.presetName;
   const needsSafePreamp = estimatedPeakGainDb > 0 || clippingRisk;
   const autoGainActive = autoGainEnabled && (autoGainStatus === 'reducing' || autoGainStatus === 'recovering' || autoGainStatus === 'clipping');
   const roomCorrectionStatusLabel = roomCorrection.error
@@ -322,12 +532,13 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
         );
       })
     : [];
-  const importPreviewDisplayBands = importPreviewRelevantBands.slice(0, 8);
+  const importPreviewDisplayBands = importPreviewRelevantBands;
   const importPreviewHiddenBandCount = Math.max(0, importPreviewRelevantBands.length - importPreviewDisplayBands.length);
   const importPreviewDirectiveSummary = formatApoDirectiveSummary(importPreview?.metadata.unsupportedDirectiveSummary);
   const importReportDirectiveSummary = formatApoDirectiveSummary(importReport?.metadata.unsupportedDirectiveSummary);
   const importPreviewCompatibility = importPreview ? resolveImportCompatibility(importPreview.metadata) : null;
   const importReportCompatibility = importReport ? resolveImportCompatibility(importReport.metadata) : null;
+  const importPreviewSummary = summarizeImportPreview(importPreview);
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -744,6 +955,61 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
     });
   };
 
+  const commitBandSlot = (band: number, nextBand: EqBand): void => {
+    const eq = getEqBridge();
+    const safeBand: EqBand = {
+      frequencyHz: Math.max(eqMinFrequencyHz, Math.min(eqMaxFrequencyHz, Math.round(nextBand.frequencyHz * 10) / 10)),
+      gainDb: isEqFilterGainEditable(nextBand.filterType) ? Math.max(-12, Math.min(12, Math.round(nextBand.gainDb * 10) / 10)) : 0,
+      q: Math.max(eqMinQ, Math.min(eqMaxQ, Math.round((nextBand.q ?? 1) * 10) / 10)),
+      filterType: nextBand.filterType ?? 'peaking',
+      enabled: nextBand.enabled !== false,
+    };
+    const nextState: EqState = {
+      ...state,
+      presetId: 'custom',
+      presetName: 'Custom',
+      bands: state.bands.map((item, index) => (index === band ? safeBand : item)),
+    };
+
+    pushUndoSnapshot(createEqHistorySnapshot(state));
+    clearGainDebounce(band);
+    clearFrequencyDebounce(band);
+    setSelectedBandIndex(band);
+    setState(nextState);
+
+    if (!eq) {
+      setError(t('settings.eq.error.bridgeControlEq'));
+      return;
+    }
+
+    void Promise.all([
+      eq.setBandFrequency({ band, frequencyHz: safeBand.frequencyHz }),
+      eq.setBandGain({ band, gainDb: safeBand.gainDb }),
+      eq.setBandQ({ band, q: safeBand.q }),
+      eq.setBandFilterType({ band, filterType: safeBand.filterType ?? 'peaking' }),
+      eq.setBandEnabled({ band, enabled: safeBand.enabled !== false }),
+    ])
+      .then(() => commitState(nextState))
+      .catch((bandError: unknown) => {
+        setError(bandError instanceof Error ? bandError.message : String(bandError));
+      });
+  };
+
+  const addFilterSlot = (): void => {
+    const bandCount = state.bands.length;
+    const orderedIndexes = Array.from({ length: bandCount }, (_, offset) => (selectedBandIndex + 1 + offset) % bandCount);
+    const targetBand = orderedIndexes.find((index) => isBandSlotAvailable(state.bands[index], index)) ?? selectedBandIndex;
+    commitBandSlot(targetBand, defaultBandSlot(targetBand));
+  };
+
+  const deleteSelectedFilter = (): void => {
+    if (!selectedBand) {
+      return;
+    }
+
+    commitBandSlot(selectedBandIndex, bypassedBandSlot(selectedBandIndex));
+  };
+
   const markAutoGainUserBaseline = (preampDb: number): void => {
     autoGainBaselinePreampDb.current = preampDb;
     autoGainManualHoldUntilMs.current = Date.now() + eqAutoGainManualHoldMs;
@@ -816,7 +1082,7 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
 
   const applyEqSnapshot = async (
     snapshot: EqSnapshot,
-    options: { recordHistory?: boolean; loudnessMatch?: boolean } = {},
+    options: { enabled?: boolean; recordHistory?: boolean; loudnessMatch?: boolean } = {},
   ): Promise<void> => {
     const eq = getEqBridge();
 
@@ -829,6 +1095,7 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
     const nextPreampDb = options.loudnessMatch ? computeLoudnessMatchedPreamp(state, snapshot) : snapshot.preampDb;
     const nextState: EqState = {
       ...state,
+      enabled: options.enabled ?? state.enabled,
       preampDb: nextPreampDb,
       presetId: options.loudnessMatch ? 'custom' : snapshot.presetId,
       presetName: options.loudnessMatch ? 'Custom' : snapshot.presetName,
@@ -843,6 +1110,7 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
 
     try {
       await Promise.all([
+        ...(options.enabled === undefined ? [] : [eq.setEnabled(options.enabled)]),
         eq.setPreamp(nextPreampDb),
         ...nextBands.flatMap((nextBand, band) => [
           eq.setBandFrequency({ band, frequencyHz: nextBand.frequencyHz }),
@@ -993,6 +1261,52 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
     handleBandFrequencyCommit(selectedBandIndex, nextFrequencyHz);
   };
 
+  const applySimpleTone = (tone: EqSimpleToneId, intensity = simpleToneIntensity): void => {
+    const toneOption = simpleToneOptions.find((option) => option.id === tone);
+    const safeIntensity = tone === 'flat' ? 1 : Math.max(0.5, Math.min(1.5, Math.round(intensity * 100) / 100));
+    setSimpleToneIntensity(safeIntensity);
+    const nextBands = eqFrequenciesHz.map((frequencyHz, index): EqBand => ({
+      ...(state.bands[index] ?? defaultBandSlot(index)),
+      frequencyHz,
+      gainDb: simpleToneGainDb(tone, frequencyHz, safeIntensity),
+      q: 1,
+      filterType: 'peaking',
+      enabled: true,
+    }));
+    const nextPreampDb = tone === 'flat' ? 0 : computeRecommendedPreamp({ bands: nextBands });
+    markAutoGainUserBaseline(nextPreampDb);
+
+    void applyEqSnapshot({
+      preampDb: nextPreampDb,
+      bands: nextBands,
+      presetId: 'custom',
+      presetName: toneOption ? t(toneOption.labelKey) : 'Custom',
+      clippingRisk: false,
+    }).then(() => {
+      if (!state.enabled) {
+        const eq = getEqBridge();
+        setState((current) => ({ ...current, enabled: true }));
+
+        if (!eq) {
+          setError(t('settings.eq.error.bridgeControlEq'));
+          return;
+        }
+
+        void eq.setEnabled(true).catch((toggleError: unknown) => {
+          setError(toggleError instanceof Error ? toggleError.message : String(toggleError));
+        });
+      }
+    });
+  };
+
+  const adjustSimpleToneIntensity = (intensity: number): void => {
+    if (!activeSimpleTone || activeSimpleTone === 'flat') {
+      return;
+    }
+
+    applySimpleTone(activeSimpleTone, intensity);
+  };
+
   const setPreset = (presetId: string): void => {
     const eq = getEqBridge();
 
@@ -1085,9 +1399,51 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
       }
       setImportPreview(preview);
       setImportReport(null);
+      setImportAuditionSnapshot(null);
       setError(null);
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : String(importError));
+    }
+  };
+
+  const previewPastedApoPreset = (): void => {
+    const rawContent = apoPasteText.trim();
+    if (!rawContent) {
+      setError(t('settings.eq.import.pasteEmpty'));
+      return;
+    }
+
+    try {
+      const pastedPreset = parseEqualizerApoPreset(rawContent, { name: t('settings.eq.import.pasteDefaultName') });
+      const skippedIncludeCount = (rawContent.match(/^\s*Include\s*:/gim) ?? []).length;
+      const includeWarning = skippedIncludeCount > 0 ? [t('settings.eq.import.pasteIncludeWarning')] : [];
+      setImportPreview({
+        request: {
+          id: uniqueImportedPresetId(pastedPreset.name, presets),
+          name: pastedPreset.name,
+          preampDb: pastedPreset.preampDb,
+          bands: pastedPreset.bands,
+        },
+        metadata: {
+          source: 'equalizer-apo',
+          importedFilterCount: pastedPreset.importedFilterCount,
+          skippedFilterCount: pastedPreset.skippedFilterCount,
+          graphicEqPointCount: pastedPreset.graphicEqPointCount,
+          includedFileCount: 0,
+          skippedIncludeCount,
+          unsupportedDirectiveCount: pastedPreset.unsupportedDirectiveCount,
+          unsupportedDirectiveSummary: pastedPreset.unsupportedDirectiveSummary,
+          channelScopedFilterCount: pastedPreset.channelScopedFilterCount,
+          bandwidthFilterCount: pastedPreset.bandwidthFilterCount,
+          warnings: [...includeWarning, ...pastedPreset.warnings],
+        },
+        fileName: t('settings.eq.import.pasteFileName'),
+      });
+      setImportReport(null);
+      setImportAuditionSnapshot(null);
+      setError(null);
+    } catch (pasteError) {
+      setError(pasteError instanceof Error ? pasteError.message : String(pasteError));
     }
   };
 
@@ -1159,10 +1515,100 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
         metadata: importPreview.metadata,
       });
       setImportPreview(null);
+      setImportAuditionSnapshot(null);
       await setPreset(imported.id);
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : String(importError));
     }
+  };
+
+  const auditionImportPreview = async (): Promise<void> => {
+    if (!importPreview) {
+      return;
+    }
+
+    const original = importAuditionSnapshot ?? {
+      snapshot: captureEqSnapshot(state),
+      enabled: state.enabled,
+    };
+    setImportAuditionSnapshot(original);
+    await applyEqSnapshot({
+      preampDb: importPreview.request.preampDb,
+      bands: importPreview.request.bands,
+      presetId: 'custom',
+      presetName: t('settings.eq.import.auditionPresetName', { name: importPreview.request.name }),
+      clippingRisk: importPreviewSummary?.estimatedPeakGainDb ? importPreviewSummary.estimatedPeakGainDb > 0.05 : false,
+    }, { enabled: true, recordHistory: false });
+  };
+
+  const restoreImportAudition = async (): Promise<void> => {
+    if (!importAuditionSnapshot) {
+      return;
+    }
+
+    await applyEqSnapshot(importAuditionSnapshot.snapshot, {
+      enabled: importAuditionSnapshot.enabled,
+      recordHistory: false,
+    });
+    setImportAuditionSnapshot(null);
+  };
+
+  const cancelImportPreview = async (): Promise<void> => {
+    if (importAuditionSnapshot) {
+      await restoreImportAudition();
+    }
+    setImportPreview(null);
+  };
+
+  const updateImportPreviewPreamp = (preampDb: number): void => {
+    const safePreampDb = Math.max(eqMinPreampDb, Math.min(eqMaxPreampDb, Math.round((Number.isFinite(preampDb) ? preampDb : 0) * 10) / 10));
+    setImportPreview((current) => (
+      current
+        ? {
+          ...current,
+          request: {
+            ...current.request,
+            preampDb: safePreampDb,
+          },
+        }
+        : current
+    ));
+  };
+
+  const updateImportPreviewBand = (bandIndex: number, patch: Partial<EqBand>): void => {
+    setImportPreview((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        request: {
+          ...current.request,
+          bands: current.request.bands.map((band, index) => {
+            if (index !== bandIndex) {
+              return band;
+            }
+
+            const filterType = patch.filterType ?? band.filterType ?? 'peaking';
+            const gainEditable = isEqFilterGainEditable(filterType);
+            const nextFrequencyHz = patch.frequencyHz ?? band.frequencyHz;
+            const nextGainDb = patch.gainDb ?? band.gainDb;
+            const nextQ = patch.q ?? band.q ?? 1;
+
+            return {
+              ...band,
+              ...patch,
+              frequencyHz: Math.max(eqMinFrequencyHz, Math.min(eqMaxFrequencyHz, Math.round((Number.isFinite(nextFrequencyHz) ? nextFrequencyHz : band.frequencyHz) * 10) / 10)),
+              gainDb: gainEditable ? Math.max(-12, Math.min(12, Math.round((Number.isFinite(nextGainDb) ? nextGainDb : 0) * 10) / 10)) : 0,
+              q: Math.max(eqMinQ, Math.min(eqMaxQ, Math.round((Number.isFinite(nextQ) ? nextQ : 1) * 10) / 10)),
+              filterType,
+              enabled: patch.enabled ?? band.enabled ?? true,
+            };
+          }),
+        },
+      };
+    });
   };
 
   const importRoomCorrectionIr = async (): Promise<void> => {
@@ -1519,21 +1965,21 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
   const dspGuardTitle = dspActive ? t('settings.eq.signal.dspActive') : t('settings.eq.signal.bitPerfectOutput');
   const dspGuardDetail = dspActive
     ? bitPerfectText
-    : 'DSP bypass: native playback stays direct, and samples are not modified by the effect chain.';
+    : t('settings.eq.routing.nativeBypassComfort');
   const dspGuardModules = dspActive
     ? activeDspSourceLabels.join(' / ')
-    : 'EQ / FIR / Balance bypassed';
+    : t('settings.eq.routing.modulesBypassedDetail');
   const dspComfortMode = clippingRisk ? 'risk' : dspActive ? 'tuned' : 'direct';
   const dspComfortLabel = clippingRisk
-    ? '需要留意电平'
+    ? t('settings.eq.comfort.risk')
     : dspActive
-      ? '正在修饰声音'
-      : '原声直通';
+      ? t('settings.eq.comfort.tuned')
+      : t('settings.eq.comfort.direct');
   const dspComfortDetail = clippingRisk
-    ? '检测到潜在削波或保护动作，建议先保留 -6 dB Headroom。'
+    ? t('settings.eq.comfort.riskDetail')
     : dspActive
-      ? '只处理已开启的 DSP 模块；关闭后会回到原生播放路径。'
-      : 'DSP 关闭时不压低音量、不改动采样，适合安心听原声。';
+      ? t('settings.eq.comfort.tunedDetail')
+      : t('settings.eq.comfort.directDetail');
   const balanceReadout = channelBalance.balance === 0
     ? t('settings.eq.channel.center')
     : `${channelBalance.balance < 0 ? 'L' : 'R'} ${Math.round(Math.abs(channelBalance.balance) * 100)}%`;
@@ -1592,9 +2038,23 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
           <span>{t('settings.eq.status.eq')}</span>
           <strong>{state.enabled ? t('common.enabled') : t('common.disabled')}</strong>
         </button>
+        <button
+          aria-label={t('settings.eq.action.holdOriginal')}
+          className="eq-quick-action"
+          disabled={!state.enabled}
+          type="button"
+          onPointerDown={holdBypass}
+          onPointerUp={releaseBypass}
+          onPointerCancel={releaseBypass}
+          onBlur={releaseBypass}
+        >
+          <Shuffle size={15} aria-hidden="true" />
+          <span>{t('settings.eq.action.holdOriginal')}</span>
+          <strong>{t('settings.eq.signal.bitPerfectOutput')}</strong>
+        </button>
         <div className="eq-quick-metric">
           <span>{t('settings.eq.status.preset')}</span>
-          <strong>{state.presetId === 'custom' ? t('settings.eq.preset.modified') : state.presetName}</strong>
+          <strong>{displayPresetName}</strong>
         </div>
         <label className="eq-quick-slider">
           <span>{t('settings.eq.status.preamp')}</span>
@@ -1644,6 +2104,64 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
           <strong>{t('settings.eq.routing.nativeDirect')}</strong>
         </button>
       </div>
+
+      {!showAdvancedTools ? (
+        <>
+          <section className="eq-simple-tones" aria-label={t('settings.eq.simpleTone.aria')}>
+            {simpleToneOptions.map((option) => (
+              <button type="button" data-active={activeSimpleTone === option.id} key={option.id} onClick={() => applySimpleTone(option.id)}>
+                {option.icon === 'waves' ? <Waves size={15} aria-hidden="true" /> : null}
+                {option.icon === 'headphones' ? <Headphones size={15} aria-hidden="true" /> : null}
+                {option.icon === 'waveform' ? <AudioWaveform size={15} aria-hidden="true" /> : null}
+                {option.icon === 'gauge' ? <Gauge size={15} aria-hidden="true" /> : null}
+                {option.icon === 'reset' ? <RotateCcw size={15} aria-hidden="true" /> : null}
+                <span>{t(option.labelKey)}</span>
+                <strong>{t(option.detailKey)}</strong>
+              </button>
+            ))}
+            {activeSimpleTone && activeSimpleTone !== 'flat' ? (
+              <label className="eq-simple-tone-amount">
+                <span>{t('settings.eq.simpleTone.amount')}</span>
+                <input
+                  aria-label={t('settings.eq.simpleTone.amountAria')}
+                  type="range"
+                  min="0.5"
+                  max="1.5"
+                  step="0.05"
+                  value={simpleToneIntensity}
+                  onInput={(event) => adjustSimpleToneIntensity(Number(event.currentTarget.value))}
+                  onChange={(event) => adjustSimpleToneIntensity(Number(event.currentTarget.value))}
+                />
+                <strong>{`${Math.round(simpleToneIntensity * 100)}%`}</strong>
+              </label>
+            ) : null}
+          </section>
+          <section className="eq-simple-zones" aria-label={t('settings.eq.simpleZone.aria')}>
+            {simpleZoneSummaries.map((zone) => {
+              const zoneLabel = t(zone.labelKey);
+              const zoneDetail = t(zone.detailKey);
+              const isNeutral = Math.abs(zone.averageGainDb) <= 0.05;
+              return (
+                <article
+                  aria-label={`${zoneLabel} ${isNeutral ? t('settings.eq.simpleZone.neutral') : formatDb(zone.averageGainDb)}`}
+                  data-direction={isNeutral ? 'neutral' : zone.averageGainDb > 0 ? 'boost' : 'cut'}
+                  key={zone.id}
+                  role="group"
+                >
+                  <div>
+                    <span>{zoneLabel}</span>
+                    <strong>{isNeutral ? t('settings.eq.simpleZone.neutral') : formatDb(zone.averageGainDb)}</strong>
+                  </div>
+                  <div className="eq-simple-zone-bar" aria-hidden="true">
+                    <span style={{ width: `${zone.levelPercent}%` } as CSSProperties} />
+                  </div>
+                  <small>{zoneDetail}</small>
+                </article>
+              );
+            })}
+          </section>
+        </>
+      ) : null}
 
       <div className="eq-dsp-guard" data-mode={dspGuardMode}>
         <div className="eq-dsp-guard__main">
@@ -1698,7 +2216,7 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
       <div className="eq-simple-summary" data-risk={clippingRisk} data-mode={eqUiMode}>
         <span>
           <em>{t('settings.eq.status.preset')}</em>
-          <strong>{state.presetId === 'custom' ? t('settings.eq.preset.modified') : state.presetName}</strong>
+          <strong>{displayPresetName}</strong>
         </span>
         <span>
           <em>{t('settings.eq.status.headroom')}</em>
@@ -1771,7 +2289,7 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
         </div>
         <div className="eq-status-card">
           <span>{t('settings.eq.status.preset')}</span>
-          <strong>{state.presetId === 'custom' ? t('settings.eq.preset.modified') : state.presetName}</strong>
+          <strong>{displayPresetName}</strong>
         </div>
         <div className="eq-status-card">
           <span>{t('settings.eq.status.estimatedPeak')}</span>
@@ -2211,8 +2729,8 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
           {showAdvancedTools ? (
           <div className="eq-band-strip" aria-label={t('settings.eq.band.readoutsAria')}>
             <div className="eq-band-strip-heading">
-              <span>{t('settings.eq.band.matrix')}</span>
-              <strong>{`${activeBandCount}/${state.bands.length} ${t('settings.eq.band.enabledShort')}`}</strong>
+              <span>{t('settings.eq.band.filterStack')}</span>
+              <strong>{`${configuredBandCount}/${state.bands.length} ${t('settings.eq.band.filters')}`}</strong>
             </div>
             <div className="eq-band-list">
               {state.bands.map((band, index) => (
@@ -2220,6 +2738,7 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
                   className="eq-band-chip"
                   data-selected={selectedBandIndex === index}
                   data-bypassed={band.enabled === false}
+                  data-empty={isBandSlotAvailable(band, index)}
                   type="button"
                   key={`${band.frequencyHz}-${index}`}
                   onClick={() => setSelectedBandIndex(index)}
@@ -2234,6 +2753,14 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
               ))}
             </div>
             <div className="eq-band-actions">
+              <button className="eq-soft-button" type="button" onClick={addFilterSlot}>
+                <Plus size={14} />
+                {t('settings.eq.action.addFilter')}
+              </button>
+              <button className="eq-soft-button" type="button" disabled={!selectedBand} onClick={deleteSelectedFilter}>
+                <Trash2 size={14} />
+                {t('settings.eq.action.deleteFilter')}
+              </button>
               <button className="eq-soft-button" type="button" onClick={resetSelectedBand}>
                 {t('settings.eq.action.resetSelected')}
               </button>
@@ -2567,6 +3094,10 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
             <button type="button" onClick={() => void previewImportPreset()}>
               {t('settings.eq.action.importPreset')}
             </button>
+            <button type="button" aria-expanded={apoPasteOpen} onClick={() => setApoPasteOpen((current) => !current)}>
+              <Copy size={15} />
+              {t('settings.eq.action.pasteApoPreset')}
+            </button>
             <button type="button" disabled={!canOverwritePreset} onClick={() => void overwritePreset()}>
               <Save size={15} />
               {t('settings.eq.action.overwrite')}
@@ -2587,6 +3118,27 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
       </footer>
 
       {error ? <p className="eq-panel-error">{error}</p> : null}
+      {apoPasteOpen ? (
+        <section className="eq-apo-paste">
+          <label>
+            <span>{t('settings.eq.import.pasteTitle')}</span>
+            <textarea
+              aria-label={t('settings.eq.import.pasteTitle')}
+              value={apoPasteText}
+              placeholder={'Preamp: -6 dB\nFilter 1: ON PK Fc 1000 Hz Gain -3 dB Q 1'}
+              onChange={(event) => setApoPasteText(event.currentTarget.value)}
+            />
+          </label>
+          <div>
+            <button className="eq-soft-button" type="button" onClick={previewPastedApoPreset}>
+              {t('settings.eq.import.previewPaste')}
+            </button>
+            <button className="eq-soft-button" type="button" onClick={() => setApoPasteText('')}>
+              {t('settings.eq.import.clearPaste')}
+            </button>
+          </div>
+        </section>
+      ) : null}
       {importPreview ? (
         <section className="eq-import-preview" data-warning={importPreview.metadata.warnings.length > 0 || importPreview.metadata.skippedFilterCount > 0}>
           <div>
@@ -2636,7 +3188,16 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
           ) : null}
           <span>
             <em>{t('settings.eq.import.preamp')}</em>
-            <strong>{formatDb(importPreview.request.preampDb)}</strong>
+            <input
+              className="eq-import-preview-number"
+              aria-label={t('settings.eq.import.preampAria')}
+              type="number"
+              min={eqMinPreampDb}
+              max={eqMaxPreampDb}
+              step="0.1"
+              value={importPreview.request.preampDb}
+              onChange={(event) => updateImportPreviewPreamp(Number(event.currentTarget.value))}
+            />
           </span>
           <span>
             <em>{t('settings.eq.import.filters')}</em>
@@ -2657,21 +3218,102 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
               <strong>{String(importPreview.metadata.graphicEqPointCount)}</strong>
             </span>
           ) : null}
+          {importPreviewSummary ? (
+            <section className="eq-import-safety" data-risk={importPreviewSummary.safePreampNeeded || importPreviewSummary.estimatedPeakGainDb > 0.05}>
+              <div>
+                <span>{t('settings.eq.import.safetyTitle')}</span>
+                <strong>{importPreviewSummary.safePreampNeeded ? t('settings.eq.import.safetyNeedsHeadroom') : t('settings.eq.import.safetyOk')}</strong>
+                <small>{t('settings.eq.import.safetyDetail')}</small>
+              </div>
+              <span>
+                <em>{t('settings.eq.import.estimatedPeak')}</em>
+                <strong>{formatDb(importPreviewSummary.estimatedPeakGainDb)}</strong>
+              </span>
+              <span>
+                <em>{t('settings.eq.import.maxBoost')}</em>
+                <strong>{importPreviewSummary.maxBoostFrequencyHz
+                  ? `${formatDb(importPreviewSummary.maxBoostDb)} @ ${formatFrequencyLabel(importPreviewSummary.maxBoostFrequencyHz)}`
+                  : formatDb(0)}</strong>
+              </span>
+              <span>
+                <em>{t('settings.eq.import.maxCut')}</em>
+                <strong>{importPreviewSummary.maxCutFrequencyHz
+                  ? `${formatDb(importPreviewSummary.maxCutDb)} @ ${formatFrequencyLabel(importPreviewSummary.maxCutFrequencyHz)}`
+                  : formatDb(0)}</strong>
+              </span>
+              <span>
+                <em>{t('settings.eq.import.safePreamp')}</em>
+                <strong>{formatDb(importPreviewSummary.recommendedPreampDb)}</strong>
+              </span>
+              <button
+                className="eq-soft-button"
+                type="button"
+                disabled={!importPreviewSummary.safePreampNeeded}
+                onClick={() => updateImportPreviewPreamp(importPreviewSummary.recommendedPreampDb)}
+              >
+                {t('settings.eq.import.useSafePreamp')}
+              </button>
+            </section>
+          ) : null}
           <div className="eq-import-preview-bands">
             <span>{t('settings.eq.import.filterPreview')}</span>
             {importPreviewDisplayBands.length > 0 ? (
               <div className="eq-import-preview-band-list">
                 {importPreviewDisplayBands.map(({ band, index }) => {
                   const filterType = band.filterType ?? 'peaking';
+                  const gainEditable = isEqFilterGainEditable(filterType);
                   return (
-                    <span className="eq-import-preview-band" data-bypassed={band.enabled === false} key={`${index}-${band.frequencyHz}-${filterType}`}>
+                    <div className="eq-import-preview-band" data-bypassed={band.enabled === false} key={`${index}-${band.frequencyHz}-${filterType}`}>
                       <em>{String(index + 1).padStart(2, '0')}</em>
-                      <strong>{formatFrequencyLabel(band.frequencyHz)}</strong>
-                      <small>{t(eqFilterLabelKeys[filterType])}</small>
-                      <small>{isEqFilterGainEditable(filterType) ? formatDb(band.gainDb) : t('settings.eq.band.gainFixed')}</small>
-                      <small>{`Q ${Number(band.q ?? 1).toFixed(2)}`}</small>
-                      {band.enabled === false ? <small>{t('settings.eq.band.bypassed')}</small> : null}
-                    </span>
+                      <label className="eq-import-preview-toggle">
+                        <input
+                          aria-label={t('settings.eq.import.filterEnabledAria', { index: String(index + 1) })}
+                          type="checkbox"
+                          checked={band.enabled !== false}
+                          onChange={(event) => updateImportPreviewBand(index, { enabled: event.currentTarget.checked })}
+                        />
+                        <small data-state={band.enabled === false ? 'off' : 'on'}>{band.enabled === false ? t('settings.eq.band.bypassed') : t('settings.eq.band.enabledShort')}</small>
+                      </label>
+                      <input
+                        aria-label={t('settings.eq.import.filterFrequencyAria', { index: String(index + 1) })}
+                        type="number"
+                        min={eqMinFrequencyHz}
+                        max={eqMaxFrequencyHz}
+                        step="0.1"
+                        value={band.frequencyHz}
+                        onChange={(event) => updateImportPreviewBand(index, { frequencyHz: Number(event.currentTarget.value) })}
+                      />
+                      <select
+                        aria-label={t('settings.eq.import.filterTypeAria', { index: String(index + 1) })}
+                        value={filterType}
+                        onChange={(event) => updateImportPreviewBand(index, { filterType: event.currentTarget.value as EqFilterType })}
+                      >
+                        {eqFilterTypes.map((type) => (
+                          <option value={type} key={type}>
+                            {t(eqFilterLabelKeys[type])}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        aria-label={t('settings.eq.import.filterGainAria', { index: String(index + 1) })}
+                        type="number"
+                        min="-12"
+                        max="12"
+                        step="0.1"
+                        value={gainEditable ? band.gainDb : 0}
+                        disabled={!gainEditable}
+                        onChange={(event) => updateImportPreviewBand(index, { gainDb: Number(event.currentTarget.value) })}
+                      />
+                      <input
+                        aria-label={t('settings.eq.import.filterQAria', { index: String(index + 1) })}
+                        type="number"
+                        min={eqMinQ}
+                        max={eqMaxQ}
+                        step="0.1"
+                        value={band.q ?? 1}
+                        onChange={(event) => updateImportPreviewBand(index, { q: Number(event.currentTarget.value) })}
+                      />
+                    </div>
                   );
                 })}
               </div>
@@ -2682,10 +3324,16 @@ export const EqPanel = ({ audioStatus, onAudioStatusRefresh }: EqPanelProps): JS
           </div>
           {importPreview.metadata.warnings.length > 0 ? <p>{importPreview.metadata.warnings.join(' ')}</p> : null}
           <div className="eq-import-preview-actions">
-            <button className="eq-soft-button" type="button" onClick={() => void applyImportPreview()}>
+            <button className="eq-soft-button" type="button" onClick={() => void auditionImportPreview()}>
+              {importAuditionSnapshot ? t('settings.eq.import.updateAudition') : t('settings.eq.import.audition')}
+            </button>
+            <button className="eq-soft-button" type="button" disabled={!importAuditionSnapshot} onClick={() => void restoreImportAudition()}>
+              {t('settings.eq.import.restoreAudition')}
+            </button>
+            <button className="eq-soft-button eq-import-apply" type="button" onClick={() => void applyImportPreview()}>
               {t('settings.eq.import.applyPreview')}
             </button>
-            <button className="eq-soft-button" type="button" onClick={() => setImportPreview(null)}>
+            <button className="eq-soft-button" type="button" onClick={() => void cancelImportPreview()}>
               {t('settings.eq.import.cancelPreview')}
             </button>
           </div>
