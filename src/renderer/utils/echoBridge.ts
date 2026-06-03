@@ -9,6 +9,9 @@ import type {
   EqBand,
   EqFilterType,
   EqPreset,
+  EqPresetImportMetadata,
+  EqPresetImportPreviewResult,
+  EqPresetImportResult,
   EqProfile,
   EqProfileBinding,
   EqProfileBindingInfo,
@@ -24,6 +27,8 @@ import type {
   RoomCorrectionState,
 } from '../../shared/types/eq';
 import {
+  dspHeadroomMaxDb,
+  dspHeadroomMinDb,
   eqBandCount,
   eqFilterTypes,
   eqFrequenciesHz,
@@ -36,6 +41,7 @@ import {
   eqMinPreampDb,
   eqMinQ,
 } from '../../shared/types/eq';
+import { formatEqualizerApoGraphicEqPreset, formatEqualizerApoPreset, parseEqualizerApoPreset } from '../../shared/utils/equalizerApoPreset';
 import type {
   StreamingFavoriteCollectionDeleteResult,
   StreamingFavoriteCollectionRenameResult,
@@ -77,6 +83,7 @@ const clamp = (value: number, min: number, max: number): number => Math.max(min,
 const nowIso = (): string => new Date().toISOString();
 
 const filterTypes = new Set<EqFilterType>(eqFilterTypes);
+const legacyEqBandCount = 10;
 
 const normalizeFilterType = (value: unknown): EqFilterType => (filterTypes.has(value as EqFilterType) ? value as EqFilterType : 'peaking');
 
@@ -118,6 +125,7 @@ const browserBuiltInPresets: EqPreset[] = [
 const defaultBrowserEqState = (): EqState => ({
   enabled: false,
   preampDb: 0,
+  dspHeadroomDb: 0,
   bands: createBands(),
   presetId: 'flat',
   presetName: 'Flat',
@@ -185,11 +193,12 @@ const uniquePresetId = (name: string, existingIds: Set<string>): string => {
 };
 
 const normalizeBands = (bands: unknown, fallback = createBands()): EqBand[] => {
-  if (!Array.isArray(bands) || bands.length !== eqBandCount) {
+  if (!Array.isArray(bands) || (bands.length !== eqBandCount && bands.length !== legacyEqBandCount)) {
     return cloneBands(fallback);
   }
 
-  return bands.map((value, index) => {
+  return Array.from({ length: eqBandCount }, (_, index) => {
+    const value = bands[index] ?? fallback[index] ?? null;
     const input = value as Partial<EqBand> | null;
     const frequencyHz = Number(input?.frequencyHz ?? eqFrequenciesHz[index]);
     const gainDb = Number(input?.gainDb ?? 0);
@@ -212,10 +221,12 @@ const normalizeState = (value: unknown): EqState => {
 
   const input = value as Partial<EqState>;
   const preampDb = Number(input.preampDb ?? 0);
+  const dspHeadroomDb = Number(input.dspHeadroomDb ?? 0);
 
   return {
     enabled: Boolean(input.enabled),
     preampDb: Number.isFinite(preampDb) ? clamp(preampDb, eqMinPreampDb, eqMaxPreampDb) : 0,
+    dspHeadroomDb: Number.isFinite(dspHeadroomDb) ? clamp(dspHeadroomDb, dspHeadroomMinDb, dspHeadroomMaxDb) : 0,
     bands: normalizeBands(input.bands),
     presetId: typeof input.presetId === 'string' && input.presetId ? input.presetId : 'flat',
     presetName: typeof input.presetName === 'string' && input.presetName ? input.presetName : 'Flat',
@@ -462,6 +473,18 @@ class BrowserEqBridge implements EqBridgeApi {
     return this.getState();
   }
 
+  async setDspHeadroom(headroomDb: number): Promise<EqState> {
+    const rawHeadroomDb = Number(headroomDb);
+    if (!Number.isFinite(rawHeadroomDb)) {
+      throw new Error('invalid_dsp_headroom');
+    }
+
+    const safeHeadroomDb = clamp(rawHeadroomDb, dspHeadroomMinDb, dspHeadroomMaxDb);
+    this.storage.state = { ...this.storage.state, dspHeadroomDb: safeHeadroomDb };
+    this.writeStorage();
+    return this.getState();
+  }
+
   async setPreset(presetId: string): Promise<EqState> {
     const preset = this.allPresets().find((item) => item.id === presetId);
 
@@ -472,6 +495,7 @@ class BrowserEqBridge implements EqBridgeApi {
     this.storage.state = {
       enabled: this.storage.state.enabled,
       preampDb: preset.preampDb,
+      dspHeadroomDb: this.storage.state.dspHeadroomDb,
       bands: cloneBands(preset.bands),
       presetId: preset.id,
       presetName: preset.name,
@@ -564,14 +588,70 @@ class BrowserEqBridge implements EqBridgeApi {
     return fileName;
   }
 
-  async importPreset(): Promise<EqPreset | null> {
+  async exportApoPreset(request: EqSavePresetRequest): Promise<string | null> {
+    const normalized = normalizePreset({
+      id: request.id ?? sanitizePresetId(request.name),
+      name: request.name,
+      preampDb: request.preampDb,
+      bands: request.bands,
+      readonly: false,
+    });
+
+    if (!normalized) {
+      throw new Error('invalid_eq_preset');
+    }
+
+    const fileName = `${sanitizePresetId(normalized.name) || 'echo-next-eq-preset'}.txt`;
+    const blob = new Blob([formatEqualizerApoPreset({
+      name: normalized.name,
+      preampDb: normalized.preampDb,
+      bands: normalized.bands,
+    })], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    return fileName;
+  }
+
+  async exportApoGraphicEqPreset(request: EqSavePresetRequest): Promise<string | null> {
+    const normalized = normalizePreset({
+      id: request.id ?? sanitizePresetId(request.name),
+      name: request.name,
+      preampDb: request.preampDb,
+      bands: request.bands,
+      readonly: false,
+    });
+
+    if (!normalized) {
+      throw new Error('invalid_eq_preset');
+    }
+
+    const fileName = `${sanitizePresetId(normalized.name) || 'echo-next-eq-preset'}-graphic-eq.txt`;
+    const blob = new Blob([formatEqualizerApoGraphicEqPreset({
+      name: normalized.name,
+      preampDb: normalized.preampDb,
+      bands: normalized.bands,
+    })], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    return fileName;
+  }
+
+  async previewImportPreset(): Promise<EqPresetImportPreviewResult | null> {
     if (typeof document === 'undefined') {
       return null;
     }
 
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'application/json,.json';
+    input.accept = 'application/json,.json,.txt,.cfg,.apo';
 
     const file = await new Promise<File | null>((resolve) => {
       input.onchange = () => resolve(input.files?.[0] ?? null);
@@ -582,22 +662,83 @@ class BrowserEqBridge implements EqBridgeApi {
       return null;
     }
 
-    const parsed = JSON.parse(await file.text()) as unknown;
-    const payload = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as { preset?: Partial<EqSavePresetRequest>; name?: unknown; preampDb?: unknown; bands?: unknown }
-      : null;
-    const candidate = payload?.preset && typeof payload.preset === 'object' ? payload.preset : payload;
+    const rawContent = await file.text();
+    const trimmed = rawContent.trimStart();
+    const candidate: EqSavePresetRequest & { metadata: EqPresetImportMetadata } = trimmed.startsWith('{')
+      ? (() => {
+        const parsed = JSON.parse(rawContent) as unknown;
+        const payload = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed as { preset?: Partial<EqSavePresetRequest>; name?: unknown; preampDb?: unknown; bands?: unknown }
+          : null;
+        const jsonCandidate = payload?.preset && typeof payload.preset === 'object' ? payload.preset : payload;
+        if (!jsonCandidate || typeof jsonCandidate.name !== 'string') {
+          throw new Error('invalid_eq_preset_import');
+        }
+        return {
+          name: jsonCandidate.name,
+          preampDb: Number(jsonCandidate.preampDb ?? 0),
+          bands: jsonCandidate.bands as EqSavePresetRequest['bands'],
+          metadata: {
+            source: 'echo-json',
+            importedFilterCount: Array.isArray(jsonCandidate.bands) ? jsonCandidate.bands.length : 0,
+            skippedFilterCount: 0,
+            graphicEqPointCount: 0,
+            includedFileCount: 0,
+            skippedIncludeCount: 0,
+            unsupportedDirectiveCount: 0,
+            unsupportedDirectiveSummary: {},
+            channelScopedFilterCount: 0,
+            bandwidthFilterCount: 0,
+            warnings: [],
+          },
+        };
+      })()
+      : (() => {
+        const equalizerApoPreset = parseEqualizerApoPreset(rawContent, { name: file.name.replace(/\.[^.]+$/, '') || 'Equalizer APO Import' });
+        return {
+          name: equalizerApoPreset.name,
+          preampDb: equalizerApoPreset.preampDb,
+          bands: equalizerApoPreset.bands,
+          metadata: {
+            source: 'equalizer-apo',
+            importedFilterCount: equalizerApoPreset.importedFilterCount,
+            skippedFilterCount: equalizerApoPreset.skippedFilterCount,
+            graphicEqPointCount: equalizerApoPreset.graphicEqPointCount,
+            includedFileCount: 0,
+            skippedIncludeCount: 0,
+            unsupportedDirectiveCount: equalizerApoPreset.unsupportedDirectiveCount,
+            unsupportedDirectiveSummary: equalizerApoPreset.unsupportedDirectiveSummary,
+            channelScopedFilterCount: equalizerApoPreset.channelScopedFilterCount,
+            bandwidthFilterCount: equalizerApoPreset.bandwidthFilterCount,
+            warnings: equalizerApoPreset.warnings,
+          },
+        };
+      })();
 
-    if (!candidate || typeof candidate.name !== 'string') {
-      throw new Error('invalid_eq_preset_import');
+    return {
+      request: {
+        id: uniquePresetId(candidate.name, new Set(this.allPresets().map((preset) => preset.id))),
+        name: candidate.name,
+        preampDb: Number(candidate.preampDb ?? 0),
+        bands: candidate.bands,
+      },
+      metadata: candidate.metadata,
+      fileName: file.name,
+    };
+  }
+
+  async importPreset(): Promise<EqPresetImportResult | null> {
+    const preview = await this.previewImportPreset();
+    if (!preview) {
+      return null;
     }
 
-    return this.savePreset({
-      id: uniquePresetId(candidate.name, new Set(this.allPresets().map((preset) => preset.id))),
-      name: candidate.name,
-      preampDb: Number(candidate.preampDb ?? 0),
-      bands: candidate.bands as EqSavePresetRequest['bands'],
-    });
+    const preset = await this.savePreset(preview.request);
+
+    return {
+      preset,
+      metadata: preview.metadata,
+    };
   }
 
   async deletePreset(presetId: string): Promise<EqPreset[]> {

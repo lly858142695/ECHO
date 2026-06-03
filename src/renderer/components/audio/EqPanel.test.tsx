@@ -2,11 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AudioStatus, ChannelBalanceState } from '../../../shared/types/audio';
-import type { EqPreset, EqState, RoomCorrectionState } from '../../../shared/types/eq';
+import { eqFrequenciesHz, type EqPreset, type EqState, type RoomCorrectionState } from '../../../shared/types/eq';
 import { I18nProvider } from '../../i18n/I18nProvider';
 import { EqPanel } from './EqPanel';
 
-const bands = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((frequencyHz) => ({
+const bands = eqFrequenciesHz.map((frequencyHz) => ({
   frequencyHz,
   gainDb: 0,
   q: 1,
@@ -149,8 +149,39 @@ beforeEach(() => {
       setPreamp: vi.fn().mockImplementation((preampDb: number) => Promise.resolve(eqState({ preampDb }))),
       setPreset: vi.fn().mockImplementation((presetId: string) => Promise.resolve(eqState({ presetId, presetName: presetId === 'rock' ? 'Rock' : 'User Bright' }))),
       reset: vi.fn().mockResolvedValue(eqState()),
-      savePreset: vi.fn().mockResolvedValue(presets[2]),
+      savePreset: vi.fn().mockImplementation((request: { id?: string; name: string; preampDb: number; bands: EqState['bands'] }) =>
+        Promise.resolve({
+          id: request.id ?? 'user-bright',
+          name: request.name,
+          preampDb: request.preampDb,
+          bands: request.bands,
+          createdAt: 'now',
+          updatedAt: 'now',
+          readonly: false,
+        }),
+      ),
       exportPreset: vi.fn().mockResolvedValue('D:\\Exports\\Desk Headphones.json'),
+      previewImportPreset: vi.fn().mockResolvedValue({
+        request: {
+          name: 'User Bright',
+          preampDb: -4,
+          bands,
+        },
+        metadata: {
+          source: 'echo-json',
+          importedFilterCount: bands.length,
+          skippedFilterCount: 0,
+          graphicEqPointCount: 0,
+          includedFileCount: 0,
+          skippedIncludeCount: 0,
+          unsupportedDirectiveCount: 0,
+          unsupportedDirectiveSummary: {},
+          channelScopedFilterCount: 0,
+          bandwidthFilterCount: 0,
+          warnings: [],
+        },
+        fileName: 'User Bright.json',
+      }),
       importPreset: vi.fn().mockResolvedValue(presets.find((preset) => preset.id === 'user-bright')),
       deletePreset: vi.fn().mockResolvedValue(presets.slice(0, 2)),
       listProfiles: vi.fn().mockResolvedValue([]),
@@ -216,16 +247,28 @@ describe('EqPanel', () => {
   it('renders Simple mode with the core EQ workflow first', async () => {
     renderEqPanel();
 
-    await screen.findByRole('img', { name: 'Draggable 10-band EQ frequency response' });
+    await screen.findByRole('img', { name: 'Draggable 31-band EQ frequency response' });
     expect(screen.getByRole('heading', { name: 'EQ' })).toBeTruthy();
     expect(screen.getByText('Sound curve, safe headroom, and advanced tuning')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Simple' }).dataset.active).toBe('true');
-    expect(screen.queryByText('Signal Path')).toBeNull();
+    expect(screen.getByText('Signal Path')).toBeTruthy();
     expect(screen.queryByText('Selected band console')).toBeNull();
     expect(screen.queryByLabelText('Q')).toBeNull();
     expect(await screen.findByLabelText('Balance')).toBeTruthy();
+    expect(screen.getByLabelText('Quick EQ preamp')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Quick Auto Gain' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Quick -6 dB headroom' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Quick native direct' })).toBeTruthy();
     expect(screen.getAllByText('Headroom').length).toBeGreaterThan(0);
     expect(screen.getByText('Bit-perfect')).toBeTruthy();
+  });
+
+  it('updates preamp from the quick strip slider', async () => {
+    renderEqPanel();
+
+    fireEvent.change(await screen.findByLabelText('Quick EQ preamp'), { target: { value: '-5.5' } });
+
+    await waitFor(() => expect(window.echo.eq.setPreamp).toHaveBeenCalledWith(-5.5));
   });
 
   it('keeps the full professional tools behind Pro mode', async () => {
@@ -278,7 +321,7 @@ describe('EqPanel', () => {
 
     renderEqPanel();
 
-    expect(await screen.findByText('IR too long')).toBeTruthy();
+    expect((await screen.findAllByText('IR too long')).length).toBeGreaterThan(0);
   });
 
   it('names Room Correction as the bit-perfect DSP source', async () => {
@@ -295,7 +338,7 @@ describe('EqPanel', () => {
     renderEqPanel({ ...audioStatus, eqEnabled: false, dspActive: true, bitPerfectDisabledReason: 'room_correction_enabled', warnings: ['room_correction_bit_perfect_disabled'] });
     await showAdvancedEqTools();
 
-    expect(await screen.findByText('DSP active: bit-perfect disabled (Room Correction).')).toBeTruthy();
+    expect((await screen.findAllByText('DSP active: bit-perfect disabled (Room Correction).')).length).toBeGreaterThan(0);
   });
 
   it('updates PEQ band Q, filter type, and bypass state from the advanced inspector', async () => {
@@ -364,7 +407,7 @@ describe('EqPanel', () => {
   it('lets EQ curve nodes update gain and snapped frequency while standard frequency snap is locked', async () => {
     renderEqPanel();
 
-    const curve = await screen.findByRole('img', { name: 'Draggable 10-band EQ frequency response' });
+    const curve = await screen.findByRole('img', { name: 'Draggable 31-band EQ frequency response' });
     curve.getBoundingClientRect = vi.fn(() => ({
       x: 0,
       y: 0,
@@ -383,7 +426,7 @@ describe('EqPanel', () => {
     fireEvent.pointerUp(curve, { clientX: 410, clientY: 94, pointerId: 1 });
 
     await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 2, gainDb: 3.5 }));
-    await waitFor(() => expect(window.echo.eq.setBandFrequency).toHaveBeenCalledWith({ band: 2, frequencyHz: 500 }));
+    await waitFor(() => expect(window.echo.eq.setBandFrequency).toHaveBeenCalledWith({ band: 2, frequencyHz: 400 }));
 
     await showAdvancedEqTools();
     fireEvent.click(screen.getByRole('button', { name: 'Reset selected' }));
@@ -393,7 +436,7 @@ describe('EqPanel', () => {
   it('maps EQ drag coordinates through the SVG screen matrix when the chart is letterboxed', async () => {
     renderEqPanel();
 
-    const curve = await screen.findByRole('img', { name: 'Draggable 10-band EQ frequency response' });
+    const curve = await screen.findByRole('img', { name: 'Draggable 31-band EQ frequency response' });
     curve.getBoundingClientRect = vi.fn(() => ({
       x: 0,
       y: 0,
@@ -425,14 +468,14 @@ describe('EqPanel', () => {
 
     expect(point.matrixTransform).toHaveBeenCalled();
     await waitFor(() => expect(window.echo.eq.setBandGain).toHaveBeenCalledWith({ band: 2, gainDb: 3.5 }));
-    await waitFor(() => expect(window.echo.eq.setBandFrequency).toHaveBeenCalledWith({ band: 2, frequencyHz: 500 }));
+    await waitFor(() => expect(window.echo.eq.setBandFrequency).toHaveBeenCalledWith({ band: 2, frequencyHz: 400 }));
   });
 
   it('only edits band frequency when free-frequency mode is unlocked', async () => {
     renderEqPanel();
     await showAdvancedEqTools();
 
-    const curve = await screen.findByRole('img', { name: 'Draggable 10-band EQ frequency response' });
+    const curve = await screen.findByRole('img', { name: 'Draggable 31-band EQ frequency response' });
     curve.getBoundingClientRect = vi.fn(() => ({
       x: 0,
       y: 0,
@@ -464,7 +507,7 @@ describe('EqPanel', () => {
     (window.echo.eq.setBandGain as ReturnType<typeof vi.fn>).mockClear();
     (window.echo.eq.setBandFrequency as ReturnType<typeof vi.fn>).mockClear();
 
-    const curve = await screen.findByRole('img', { name: 'Draggable 10-band EQ frequency response' });
+    const curve = await screen.findByRole('img', { name: 'Draggable 31-band EQ frequency response' });
     curve.getBoundingClientRect = vi.fn(() => ({
       x: 0,
       y: 0,
@@ -483,7 +526,7 @@ describe('EqPanel', () => {
     fireEvent.pointerUp(curve, { clientX: 410, clientY: 40, pointerId: 1 });
 
     expect(window.echo.eq.setBandGain).not.toHaveBeenCalled();
-    await waitFor(() => expect(window.echo.eq.setBandFrequency).toHaveBeenCalledWith({ band: 0, frequencyHz: 500 }));
+    await waitFor(() => expect(window.echo.eq.setBandFrequency).toHaveBeenCalledWith({ band: 0, frequencyHz: 400 }));
   });
 
   it('supports keyboard fine gain adjustment on selected EQ nodes', async () => {
@@ -615,7 +658,7 @@ describe('EqPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Analyzer' }));
     expect(container.querySelectorAll('.eq-spectrum-bar')).toHaveLength(32);
 
-    const curve = await screen.findByRole('img', { name: 'Draggable 10-band EQ frequency response' });
+    const curve = await screen.findByRole('img', { name: 'Draggable 31-band EQ frequency response' });
     curve.getBoundingClientRect = vi.fn(() => ({
       x: 0,
       y: 0,
@@ -751,7 +794,7 @@ describe('EqPanel', () => {
     renderEqPanel();
     await showAdvancedEqTools();
 
-    const curve = await screen.findByRole('img', { name: 'Draggable 10-band EQ frequency response' });
+    const curve = await screen.findByRole('img', { name: 'Draggable 31-band EQ frequency response' });
     curve.getBoundingClientRect = vi.fn(() => ({
       x: 0,
       y: 0,
@@ -855,9 +898,11 @@ describe('EqPanel', () => {
   it('imports an EQ preset file and applies the imported preset', async () => {
     renderEqPanel();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Import preset' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Import preset / APO' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply import' }));
 
-    await waitFor(() => expect(window.echo.eq.importPreset).toHaveBeenCalled());
+    await waitFor(() => expect(window.echo.eq.previewImportPreset).toHaveBeenCalled());
+    await waitFor(() => expect(window.echo.eq.savePreset).toHaveBeenCalledWith(expect.objectContaining({ name: 'User Bright' })));
     await waitFor(() => expect(window.echo.eq.listPresets).toHaveBeenCalled());
     await waitFor(() => expect(window.echo.eq.setPreset).toHaveBeenCalledWith('user-bright'));
   });

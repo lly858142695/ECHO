@@ -1,4 +1,36 @@
-export const eqFrequenciesHz = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const;
+export const eqFrequenciesHz = [
+  20,
+  25,
+  31.5,
+  40,
+  50,
+  63,
+  80,
+  100,
+  125,
+  160,
+  200,
+  250,
+  315,
+  400,
+  500,
+  630,
+  800,
+  1000,
+  1250,
+  1600,
+  2000,
+  2500,
+  3150,
+  4000,
+  5000,
+  6300,
+  8000,
+  10000,
+  12500,
+  16000,
+  20000,
+] as const;
 
 export const eqBandCount = eqFrequenciesHz.length;
 export const eqMinGainDb = -12;
@@ -9,6 +41,8 @@ export const eqMinFrequencyHz = 20;
 export const eqMaxFrequencyHz = 20000;
 export const eqMinQ = 0.1;
 export const eqMaxQ = 12;
+export const dspHeadroomMinDb = -12;
+export const dspHeadroomMaxDb = 0;
 
 export const eqFilterTypes = ['peaking', 'lowShelf', 'highShelf', 'lowPass', 'highPass', 'notch'] as const;
 
@@ -25,6 +59,7 @@ export type EqBand = {
 export type EqState = {
   enabled: boolean;
   preampDb: number;
+  dspHeadroomDb?: number;
   bands: EqBand[];
   presetId: string;
   presetName: string;
@@ -39,6 +74,31 @@ export type EqPreset = {
   createdAt: string;
   updatedAt: string;
   readonly: boolean;
+};
+
+export type EqPresetImportMetadata = {
+  source: 'echo-json' | 'equalizer-apo';
+  importedFilterCount: number;
+  skippedFilterCount: number;
+  graphicEqPointCount: number;
+  includedFileCount: number;
+  skippedIncludeCount: number;
+  unsupportedDirectiveCount: number;
+  unsupportedDirectiveSummary: Record<string, number>;
+  channelScopedFilterCount: number;
+  bandwidthFilterCount: number;
+  warnings: string[];
+};
+
+export type EqPresetImportResult = {
+  preset: EqPreset;
+  metadata: EqPresetImportMetadata;
+};
+
+export type EqPresetImportPreviewResult = {
+  request: EqSavePresetRequest;
+  metadata: EqPresetImportMetadata;
+  fileName: string;
 };
 
 export type EqSetBandGainRequest = {

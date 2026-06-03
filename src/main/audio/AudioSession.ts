@@ -1467,6 +1467,8 @@ export class AudioSession extends EventEmitter {
     bufferedFrames: null,
     underrunCallbacks: 0,
     underrunFrames: 0,
+    dspClippingRisk: false,
+    dspLimiterProtecting: false,
   };
   private lastNativeTelemetryStatusEmittedAt = 0;
   private lastLevelMeterStatusEmittedAt = 0;
@@ -3248,22 +3250,26 @@ export class AudioSession extends EventEmitter {
     const eqState = getEqBridge().getState();
     const channelBalanceState = getEqBridge().getChannelBalanceState();
     const roomCorrectionState = getEqBridge().getRoomCorrectionState();
+    const dspModuleActive = eqState.enabled || roomCorrectionState.enabled || channelBalanceState.enabled;
     const audioVisualSpectrumEnabled = isAudioVisualSpectrumEnabled();
     this.levelMeterTransform?.setVisualSpectrumEnabled(audioVisualSpectrumEnabled);
     const audioLevels = createAudioLevelTelemetry(
       audioVisualSpectrumEnabled ? this.levelSnapshot : this.createLevelSnapshotWithoutVisualTelemetry(this.levelSnapshot),
       eqState,
       channelBalanceState,
+      dspModuleActive,
     );
     const realtimeLevelClippingRisk = audioLevels.estimatedOutputPeakDb !== null && audioLevels.estimatedOutputPeakDb >= 0;
     const realtimeLevelClipped = audioLevels.clipCount > 0;
+    const nativeDspClippingRisk = this.nativeTelemetry.dspClippingRisk === true;
+    const nativeDspLimiterProtecting = this.nativeTelemetry.dspLimiterProtecting === true;
     const chainedPlaybackActive = this.activeAutomix !== null;
     const gaplessActive = this.activeAutomix?.gapless === true;
     const automixActive = chainedPlaybackActive && !gaplessActive;
     const settings = getReplayGainAudioSettings();
     const replayGainCalculation = this.currentReplayGainCalculation;
     const replayGainActive = replayGainCalculation.active && Math.abs(replayGainCalculation.appliedDb) >= 0.001;
-    const dspActive = eqState.enabled || roomCorrectionState.enabled || channelBalanceState.enabled || chainedPlaybackActive || replayGainActive;
+    const dspActive = dspModuleActive || chainedPlaybackActive || replayGainActive;
     const bitPerfectDisabledReason = eqState.enabled
       ? 'eq_enabled'
       : roomCorrectionState.enabled
@@ -3302,6 +3308,11 @@ export class AudioSession extends EventEmitter {
 
     if (eqState.clippingRisk || roomCorrectionState.clippingRisk || channelBalanceState.clippingRisk) {
       warnings.push(eqState.clippingRisk ? 'eq_clipping_risk' : roomCorrectionState.clippingRisk ? 'room_correction_clipping_risk' : 'channel_balance_clipping_risk');
+    }
+    if (nativeDspLimiterProtecting && !warnings.includes('dsp_limiter_protecting')) {
+      warnings.push('dsp_limiter_protecting');
+    } else if (nativeDspClippingRisk && !warnings.includes('dsp_clipping_risk')) {
+      warnings.push('dsp_clipping_risk');
     }
     if (realtimeLevelClippingRisk && !warnings.includes('audio_level_clipping_risk')) {
       warnings.push('audio_level_clipping_risk');
@@ -3434,8 +3445,11 @@ export class AudioSession extends EventEmitter {
       channelBalanceEnabled: channelBalanceState.enabled,
       dspActive,
       preampDb: eqState.preampDb,
+      dspHeadroomDb: eqState.dspHeadroomDb ?? 0,
       eqPresetName: eqState.presetName,
-      clippingRisk: eqState.clippingRisk || roomCorrectionState.clippingRisk || Boolean(channelBalanceState.clippingRisk) || realtimeLevelClippingRisk || realtimeLevelClipped,
+      clippingRisk: eqState.clippingRisk || roomCorrectionState.clippingRisk || Boolean(channelBalanceState.clippingRisk) || nativeDspClippingRisk || nativeDspLimiterProtecting || realtimeLevelClippingRisk || realtimeLevelClipped,
+      dspClippingRisk: nativeDspClippingRisk,
+      dspLimiterProtecting: nativeDspLimiterProtecting,
       audioLevels,
       bitPerfectDisabledReason,
       sharedStabilityTier: plan?.outputMode === 'shared' ? this.sharedStabilityTier : null,
@@ -6882,6 +6896,8 @@ export class AudioSession extends EventEmitter {
           : Math.max(0, Math.round(Number(telemetry.bufferedFrames) || 0)),
       underrunCallbacks: Math.max(0, Math.round(Number(telemetry.underrunCallbacks) || 0)),
       underrunFrames: Math.max(0, Math.round(Number(telemetry.underrunFrames) || 0)),
+      dspClippingRisk: telemetry.dspClippingRisk === true,
+      dspLimiterProtecting: telemetry.dspLimiterProtecting === true,
       reportedAtMs:
         telemetry.reportedAtMs === null || telemetry.reportedAtMs === undefined
           ? null
@@ -7202,6 +7218,8 @@ export class AudioSession extends EventEmitter {
       bufferedFrames: null,
       underrunCallbacks: 0,
       underrunFrames: 0,
+      dspClippingRisk: false,
+      dspLimiterProtecting: false,
       reportedAtMs: null,
       nativePositionStalenessMs: null,
     };

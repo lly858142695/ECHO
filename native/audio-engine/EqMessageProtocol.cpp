@@ -193,11 +193,22 @@ std::string EqMessageProtocol::createRoomCorrectionStateMessage(const Convolutio
     return output.str();
 }
 
+std::string EqMessageProtocol::createDspStateMessage(const DspHeadroomProcessor& processor)
+{
+    std::ostringstream output;
+    output << "{\"type\":\"dsp:state\","
+           << "\"ok\":true,"
+           << "\"headroomDb\":" << processor.getHeadroomDb()
+           << "}";
+    return output.str();
+}
+
 std::string EqMessageProtocol::handleJsonLine(
     const std::string& line,
     EqProcessor& processor,
     ChannelBalanceProcessor& channelBalanceProcessor,
-    ConvolutionProcessor& convolutionProcessor)
+    ConvolutionProcessor& convolutionProcessor,
+    DspHeadroomProcessor& headroomProcessor)
 {
     const auto parsed = juce::JSON::parse(juce::String::fromUTF8(line.data(), static_cast<int>(line.size())));
     const auto* object = parsed.getDynamicObject();
@@ -215,6 +226,15 @@ std::string EqMessageProtocol::handleJsonLine(
 
     if (type == "roomCorrection.getState" || type == "roomCorrection:get-state")
         return createRoomCorrectionStateMessage(convolutionProcessor);
+
+    if (type == "dsp.getState" || type == "dsp:get-state")
+        return createDspStateMessage(headroomProcessor);
+
+    if (type == "dsp.setHeadroom" || type == "dsp:set-headroom")
+    {
+        headroomProcessor.setHeadroomDb(getNumber(*object, "headroomDb", 0.0f));
+        return createDspStateMessage(headroomProcessor);
+    }
 
     if (type == "roomCorrection.setEnabled" || type == "roomCorrection:set-enabled")
     {
@@ -344,14 +364,23 @@ std::string EqMessageProtocol::handleJsonLine(
         const auto bands = object->getProperty("bands");
         const auto* bandArray = bands.getArray();
 
-        if (bandArray == nullptr || bandArray->size() != eqBandCount)
+        constexpr int legacyEqBandCount = 10;
+        if (bandArray == nullptr || (bandArray->size() != eqBandCount && bandArray->size() != legacyEqBandCount))
             return createErrorMessage(type, "invalid_preset_bands");
 
         for (int index = 0; index < eqBandCount; ++index)
         {
-            const auto* bandObject = bandArray->getReference(index).getDynamicObject();
+            const auto* bandObject = index < bandArray->size() ? bandArray->getReference(index).getDynamicObject() : nullptr;
+
             if (bandObject == nullptr)
-                return createErrorMessage(type, "invalid_preset_band");
+            {
+                processor.setBandFrequencyHz(index, eqFrequenciesHz[static_cast<size_t>(index)]);
+                processor.setBandGainDb(index, 0.0f);
+                processor.setBandQ(index, 1.0f);
+                processor.setBandFilterType(index, EqFilterType::Peaking);
+                processor.setBandEnabled(index, true);
+                continue;
+            }
 
             processor.setBandFrequencyHz(index, getNumber(*bandObject, "frequencyHz", eqFrequenciesHz[static_cast<size_t>(index)]));
             processor.setBandGainDb(index, getNumber(*bandObject, "gainDb", 0.0f));
@@ -372,10 +401,21 @@ std::string EqMessageProtocol::handleJsonLine(
 std::string EqMessageProtocol::handleJsonLine(
     const std::string& line,
     EqProcessor& processor,
+    ChannelBalanceProcessor& channelBalanceProcessor,
+    ConvolutionProcessor& convolutionProcessor)
+{
+    DspHeadroomProcessor headroomProcessor;
+    return handleJsonLine(line, processor, channelBalanceProcessor, convolutionProcessor, headroomProcessor);
+}
+
+std::string EqMessageProtocol::handleJsonLine(
+    const std::string& line,
+    EqProcessor& processor,
     ChannelBalanceProcessor& channelBalanceProcessor)
 {
     ConvolutionProcessor convolutionProcessor;
-    return handleJsonLine(line, processor, channelBalanceProcessor, convolutionProcessor);
+    DspHeadroomProcessor headroomProcessor;
+    return handleJsonLine(line, processor, channelBalanceProcessor, convolutionProcessor, headroomProcessor);
 }
 
 std::string EqMessageProtocol::createErrorMessage(const std::string& requestType, const std::string& message)

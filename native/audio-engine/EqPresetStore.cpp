@@ -42,6 +42,20 @@ EqPreset makeParametricPreset(const std::string& id, const std::string& name, fl
     preset.createdAt = "built-in";
     preset.updatedAt = "built-in";
     preset.bands = std::move(bands);
+    if (preset.bands.size() > static_cast<size_t>(eqBandCount))
+        preset.bands.resize(static_cast<size_t>(eqBandCount));
+
+    while (preset.bands.size() < static_cast<size_t>(eqBandCount))
+    {
+        const auto index = preset.bands.size();
+        preset.bands.push_back({
+            eqFrequenciesHz[index],
+            0.0f,
+            1.0f,
+            EqFilterType::Peaking,
+            true,
+        });
+    }
     return preset;
 }
 } // namespace

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EqBridge } from './EqBridge';
 import type { EqState } from '../../shared/types/eq';
+import { eqBandCount } from '../../shared/types/eq';
 
 const tempDirs: string[] = [];
 const servers: net.Server[] = [];
@@ -16,31 +17,33 @@ const createBridge = (): EqBridge => {
   return new EqBridge(dir);
 };
 
+const padGains = (gains: number[]): number[] => [...gains, ...Array(Math.max(0, eqBandCount - gains.length)).fill(0)].slice(0, eqBandCount);
+
 const expectedBuiltInCurves: Record<string, { preampDb: number; gains: number[] }> = {
-  flat: { preampDb: 0, gains: Array(10).fill(0) as number[] },
-  'bass-boost': { preampDb: -8, gains: [7.5, 6.8, 5, 2.3, 0.5, -0.4, -1, -1.6, -2.2, -2.8] },
-  'vocal-clear': { preampDb: -6, gains: [-6, -5, -3, 0.5, 2.8, 4.5, 3.8, 2, -0.8, -2.8] },
-  'treble-sparkle': { preampDb: -7, gains: [-3, -2.5, -1.8, -0.8, 0, 0.8, 2.8, 4.8, 6.2, 5.5] },
-  loudness: { preampDb: -8, gains: [7.5, 6.8, 4.4, 1.2, -1.6, -1.8, 0.6, 2.8, 4.6, 5.2] },
-  night: { preampDb: -2, gains: [-6.5, -5.8, -3.6, -1.2, 0, 1.2, 0.6, -1.8, -4.5, -6.5] },
-  'headphone-warm': { preampDb: -6, gains: [5, 5.3, 4, 2, 0.5, -0.4, -1.1, -1.8, -2.6, -3.5] },
-  'anime-jpop': { preampDb: -6, gains: [3, 2.3, 0.5, -1.8, -2.2, 1.2, 3.8, 5.5, 4.6, 2.2] },
-  rock: { preampDb: -6, gains: [5.5, 4.6, 1.8, -2, -3, -0.6, 2.2, 4.5, 3.8, 2] },
-  classical: { preampDb: -4, gains: [1.8, 1.4, 0.3, -0.4, -1, -0.5, 1, 2.8, 3.5, 2.2] },
-  'harman-target': { preampDb: -6, gains: [6, 5.8, 4.5, 2, 0.5, 0, 2.5, 3.5, 2, 0.5] },
-  'harman-in-ear': { preampDb: -8, gains: [8, 7, 5.5, 2.5, 0, -0.5, 2.5, 4, 3, 1.5] },
-  'diffuse-field': { preampDb: -7, gains: [-5.5, -4.8, -2.8, -0.8, 0.6, 2, 5.5, 6.2, 3.8, 0.8] },
-  'bk-room-curve': { preampDb: -6, gains: [5.5, 4.8, 3.4, 1.7, 0.5, -0.8, -2, -3.2, -4.4, -5.4] },
-  'studio-neutral': { preampDb: -2, gains: [-1.5, -1.8, -1, -0.2, 0.2, 1.1, 2, 1.6, 0.2, -1.2] },
-  'classic-smiley': { preampDb: -8, gains: [7, 6, 3, -2.8, -4.5, -3.2, 1, 4, 6.2, 7] },
-  'vinyl-warmth': { preampDb: -6, gains: [5, 4.4, 2.8, 1, 0, -0.7, -1.6, -2.8, -4, -5.2] },
-  'broadcast-voice': { preampDb: -6, gains: [-8, -6.5, -3.4, 1.5, 4, 5.5, 4.4, 1.5, -2.5, -5.5] },
-  'sub-cleanup': { preampDb: -2, gains: [0, 1.5, 0, -2.5, 0, 0, 0, 0, 0, 0] },
-  'vocal-de-ess': { preampDb: -3, gains: [0, 0, -1.5, 0, 0, 0, 1.5, 0, -4.5, 0] },
-  'headphone-notch': { preampDb: -3, gains: [1.5, 0, 0, 0, 0, -2, 0, 0, -2.5, 0] },
-  'subsonic-filter': { preampDb: -2, gains: [0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0] },
-  'sibilance-tamer': { preampDb: -4, gains: [0, 0, -1.2, 0, 0, 0, 0, -2.8, 0, -1] },
-  'bluetooth-speaker-cleanup': { preampDb: -3, gains: [0, -2, 0, -2, 0, 0, 0, 2, 0, 0] },
+  flat: { preampDb: 0, gains: padGains([]) },
+  'bass-boost': { preampDb: -8, gains: padGains([7.5, 6.8, 5, 2.3, 0.5, -0.4, -1, -1.6, -2.2, -2.8]) },
+  'vocal-clear': { preampDb: -6, gains: padGains([-6, -5, -3, 0.5, 2.8, 4.5, 3.8, 2, -0.8, -2.8]) },
+  'treble-sparkle': { preampDb: -7, gains: padGains([-3, -2.5, -1.8, -0.8, 0, 0.8, 2.8, 4.8, 6.2, 5.5]) },
+  loudness: { preampDb: -8, gains: padGains([7.5, 6.8, 4.4, 1.2, -1.6, -1.8, 0.6, 2.8, 4.6, 5.2]) },
+  night: { preampDb: -2, gains: padGains([-6.5, -5.8, -3.6, -1.2, 0, 1.2, 0.6, -1.8, -4.5, -6.5]) },
+  'headphone-warm': { preampDb: -6, gains: padGains([5, 5.3, 4, 2, 0.5, -0.4, -1.1, -1.8, -2.6, -3.5]) },
+  'anime-jpop': { preampDb: -6, gains: padGains([3, 2.3, 0.5, -1.8, -2.2, 1.2, 3.8, 5.5, 4.6, 2.2]) },
+  rock: { preampDb: -6, gains: padGains([5.5, 4.6, 1.8, -2, -3, -0.6, 2.2, 4.5, 3.8, 2]) },
+  classical: { preampDb: -4, gains: padGains([1.8, 1.4, 0.3, -0.4, -1, -0.5, 1, 2.8, 3.5, 2.2]) },
+  'harman-target': { preampDb: -6, gains: padGains([6, 5.8, 4.5, 2, 0.5, 0, 2.5, 3.5, 2, 0.5]) },
+  'harman-in-ear': { preampDb: -8, gains: padGains([8, 7, 5.5, 2.5, 0, -0.5, 2.5, 4, 3, 1.5]) },
+  'diffuse-field': { preampDb: -7, gains: padGains([-5.5, -4.8, -2.8, -0.8, 0.6, 2, 5.5, 6.2, 3.8, 0.8]) },
+  'bk-room-curve': { preampDb: -6, gains: padGains([5.5, 4.8, 3.4, 1.7, 0.5, -0.8, -2, -3.2, -4.4, -5.4]) },
+  'studio-neutral': { preampDb: -2, gains: padGains([-1.5, -1.8, -1, -0.2, 0.2, 1.1, 2, 1.6, 0.2, -1.2]) },
+  'classic-smiley': { preampDb: -8, gains: padGains([7, 6, 3, -2.8, -4.5, -3.2, 1, 4, 6.2, 7]) },
+  'vinyl-warmth': { preampDb: -6, gains: padGains([5, 4.4, 2.8, 1, 0, -0.7, -1.6, -2.8, -4, -5.2]) },
+  'broadcast-voice': { preampDb: -6, gains: padGains([-8, -6.5, -3.4, 1.5, 4, 5.5, 4.4, 1.5, -2.5, -5.5]) },
+  'sub-cleanup': { preampDb: -2, gains: padGains([0, 1.5, 0, -2.5, 0, 0, 0, 0, 0, 0]) },
+  'vocal-de-ess': { preampDb: -3, gains: padGains([0, 0, -1.5, 0, 0, 0, 1.5, 0, -4.5, 0]) },
+  'headphone-notch': { preampDb: -3, gains: padGains([1.5, 0, 0, 0, 0, -2, 0, 0, -2.5, 0]) },
+  'subsonic-filter': { preampDb: -2, gains: padGains([0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0]) },
+  'sibilance-tamer': { preampDb: -4, gains: padGains([0, 0, -1.2, 0, 0, 0, 0, -2.8, 0, -1]) },
+  'bluetooth-speaker-cleanup': { preampDb: -3, gains: padGains([0, -2, 0, -2, 0, 0, 0, 2, 0, 0]) },
 };
 
 afterEach(() => {
@@ -313,6 +316,7 @@ describe('EqBridge protocol validation', () => {
     const server = await createEqControlServer();
     bridge.connect(server.port);
     await new Promise((resolve) => setTimeout(resolve, 0));
+    await bridge.syncStateToNative();
 
     await bridge.importRoomCorrectionIr(sourceIr);
     await bridge.setRoomCorrectionTrim(-99);
@@ -483,7 +487,7 @@ describe('EqBridge protocol validation', () => {
     });
   });
 
-  it('keeps every built-in preset locked to intentional 10-band curve data', () => {
+  it('keeps every built-in preset locked to intentional 31-band curve data', () => {
     const bridge = createBridge();
     const builtInPresets = bridge.listPresets().filter((preset) => preset.readonly);
 
@@ -492,7 +496,7 @@ describe('EqBridge protocol validation', () => {
       const expected = expectedBuiltInCurves[preset.id];
       expect(expected, preset.name).toBeDefined();
       expect(preset.preampDb, preset.name).toBe(expected.preampDb);
-      expect(preset.bands).toHaveLength(10);
+      expect(preset.bands).toHaveLength(eqBandCount);
       expect(preset.bands.map((band) => band.gainDb), preset.name).toEqual(expected.gains);
 
       const usesParametricFilter = preset.bands.some((band) => band.filterType && band.filterType !== 'peaking');

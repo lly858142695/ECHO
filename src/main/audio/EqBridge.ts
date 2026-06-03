@@ -33,6 +33,8 @@ import type {
   RoomCorrectionStatus,
 } from '../../shared/types/eq';
 import {
+  dspHeadroomMaxDb,
+  dspHeadroomMinDb,
   eqBandCount,
   eqFilterTypes,
   eqFrequenciesHz,
@@ -50,6 +52,7 @@ import {
 import { defaultChannelBalanceSettings, getAppSettings, setAppSettings } from '../app/appSettings';
 
 type PendingRequest = {
+  expectedState: 'eq' | 'channelBalance' | 'roomCorrection';
   resolve: (state: EqState | ChannelBalanceState | RoomCorrectionState) => void;
   reject: (error: Error) => void;
 };
@@ -66,6 +69,7 @@ const clamp = (value: number, min: number, max: number): number => Math.max(min,
 const nowIso = (): string => new Date().toISOString();
 
 const filterTypes = new Set<EqFilterType>(eqFilterTypes);
+const legacyEqBandCount = 10;
 
 const normalizeFilterType = (value: unknown): EqFilterType => (filterTypes.has(value as EqFilterType) ? value as EqFilterType : 'peaking');
 
@@ -244,6 +248,7 @@ const builtInPresets: EqPreset[] = builtInPresetDefinitions.map((preset) => ({
 const defaultState = (): EqState => ({
   enabled: false,
   preampDb: 0,
+  dspHeadroomDb: 0,
   bands: createBands(),
   presetId: 'flat',
   presetName: 'Flat',
@@ -257,15 +262,17 @@ const normalizeState = (value: unknown): EqState | null => {
 
   const input = value as Partial<EqState>;
   const preampDb = Number(input.preampDb ?? 0);
+  const dspHeadroomDb = Number(input.dspHeadroomDb ?? 0);
   const bands = validateBands(input.bands);
 
-  if (!Number.isFinite(preampDb) || !bands) {
+  if (!Number.isFinite(preampDb) || !Number.isFinite(dspHeadroomDb) || !bands) {
     return null;
   }
 
   return {
     enabled: input.enabled === true,
     preampDb: clamp(preampDb, eqMinPreampDb, eqMaxPreampDb),
+    dspHeadroomDb: clamp(dspHeadroomDb, dspHeadroomMinDb, dspHeadroomMaxDb),
     bands,
     presetId: typeof input.presetId === 'string' && input.presetId.trim() ? input.presetId.trim().slice(0, 64) : 'flat',
     presetName: typeof input.presetName === 'string' && input.presetName.trim() ? input.presetName.trim().slice(0, 64) : 'Flat',
@@ -335,7 +342,7 @@ const sanitizePresetId = (name: string): string =>
     .slice(0, 48) || `preset-${Date.now()}`;
 
 const validateBands = (bands: unknown, fallbackBands?: EqBand[]): EqBand[] | null => {
-  if (!Array.isArray(bands) || bands.length !== eqBandCount) {
+  if (!Array.isArray(bands) || (bands.length !== eqBandCount && bands.length !== legacyEqBandCount)) {
     return null;
   }
 
@@ -733,6 +740,20 @@ export class EqBridge extends EventEmitter {
     return this.emitState();
   }
 
+  async setDspHeadroom(headroomDb: number): Promise<EqState> {
+    const rawHeadroomDb = Number(headroomDb);
+    if (!Number.isFinite(rawHeadroomDb)) {
+      throw new Error('invalid_dsp_headroom');
+    }
+
+    const safeHeadroomDb = clamp(rawHeadroomDb, dspHeadroomMinDb, dspHeadroomMaxDb);
+    this.state = { ...this.state, dspHeadroomDb: safeHeadroomDb };
+    this.markStateChanged();
+    this.persistState();
+    await this.sendNative({ type: 'dsp:set-headroom', headroomDb: safeHeadroomDb });
+    return this.emitState();
+  }
+
   async setPreset(presetId: string): Promise<EqState> {
     const preset = this.listPresets().find((item) => item.id === presetId);
 
@@ -743,6 +764,7 @@ export class EqBridge extends EventEmitter {
     this.state = {
       enabled: this.state.enabled,
       preampDb: preset.preampDb,
+      dspHeadroomDb: this.state.dspHeadroomDb,
       bands: preset.bands.map((band) => ({ ...band })),
       presetId: preset.id,
       presetName: preset.name,
@@ -759,6 +781,7 @@ export class EqBridge extends EventEmitter {
     this.state = {
       enabled: this.state.enabled,
       preampDb: flat.preampDb,
+      dspHeadroomDb: this.state.dspHeadroomDb,
       bands: flat.bands.map((band) => ({ ...band })),
       presetId: flat.id,
       presetName: flat.name,
@@ -1049,6 +1072,7 @@ export class EqBridge extends EventEmitter {
       await this.enqueueNative(async () => {
         await this.sendNativeNow({ type: 'eq:set-enabled', enabled: eqState.enabled });
         await this.sendNativeNow({ type: 'eq:set-preset', preampDb: eqState.preampDb, bands: eqState.bands });
+        await this.sendNativeNow({ type: 'dsp:set-headroom', headroomDb: eqState.dspHeadroomDb ?? 0 });
       });
     } finally {
       const syncRevision = this.nativeSyncTargetRevision;
@@ -1098,7 +1122,7 @@ export class EqBridge extends EventEmitter {
     }
 
     return new Promise<EqState>((resolve, reject) => {
-      this.pending.push({ resolve: (state) => resolve(state as EqState), reject });
+      this.pending.push({ expectedState: 'eq', resolve: (state) => resolve(state as EqState), reject });
       socket.write(`${JSON.stringify(message)}\n`, (error) => {
         if (error) {
           this.rejectPending(error);
@@ -1119,7 +1143,7 @@ export class EqBridge extends EventEmitter {
     }
 
     return new Promise<ChannelBalanceState>((resolve, reject) => {
-      this.pending.push({ resolve: (state) => resolve(state as ChannelBalanceState), reject });
+      this.pending.push({ expectedState: 'channelBalance', resolve: (state) => resolve(state as ChannelBalanceState), reject });
       socket.write(`${JSON.stringify(message)}\n`, (error) => {
         if (error) {
           this.rejectPending(error);
@@ -1140,7 +1164,7 @@ export class EqBridge extends EventEmitter {
     }
 
     return new Promise<RoomCorrectionState>((resolve, reject) => {
-      this.pending.push({ resolve: (state) => resolve(state as RoomCorrectionState), reject });
+      this.pending.push({ expectedState: 'roomCorrection', resolve: (state) => resolve(state as RoomCorrectionState), reject });
       socket.write(`${JSON.stringify(message)}\n`, (error) => {
         if (error) {
           this.rejectPending(error);
@@ -1174,12 +1198,18 @@ export class EqBridge extends EventEmitter {
     const pending = this.pending.shift();
 
     if (!line) {
-      pending?.resolve(this.getState());
+      pending?.resolve(
+        pending.expectedState === 'channelBalance'
+          ? this.getChannelBalanceState()
+          : pending.expectedState === 'roomCorrection'
+            ? this.getRoomCorrectionState()
+            : this.getState(),
+      );
       return;
     }
 
     try {
-      const message = JSON.parse(line) as Partial<EqState & ChannelBalanceState & RoomCorrectionState> & { type?: string; message?: string };
+      const message = JSON.parse(line) as Partial<EqState & ChannelBalanceState & RoomCorrectionState> & { type?: string; message?: string; headroomDb?: unknown };
 
       if (message.type === 'eq:error') {
         pending?.reject(new Error(message.message ?? 'eq_native_error'));
@@ -1219,10 +1249,19 @@ export class EqBridge extends EventEmitter {
         this.emitRoomCorrectionState();
       }
 
+      if (message.type === 'dsp:state') {
+        const dspHeadroomDb = Number(message.headroomDb ?? this.state.dspHeadroomDb);
+        this.state = {
+          ...this.state,
+          dspHeadroomDb: Number.isFinite(dspHeadroomDb) ? clamp(dspHeadroomDb, dspHeadroomMinDb, dspHeadroomMaxDb) : this.state.dspHeadroomDb,
+        };
+        this.emitState();
+      }
+
       pending?.resolve(
-        message.type === 'channelBalance:state'
+        pending.expectedState === 'channelBalance'
           ? this.getChannelBalanceState()
-          : message.type === 'roomCorrection:state'
+          : pending.expectedState === 'roomCorrection'
             ? this.getRoomCorrectionState()
             : this.getState(),
       );

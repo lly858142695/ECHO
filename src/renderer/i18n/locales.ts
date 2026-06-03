@@ -815,11 +815,16 @@ export type TranslationKey =
   | 'audioProfessional.action.showDetails'
   | 'audioProfessional.badge.bitPerfect'
   | 'audioProfessional.badge.dsp'
+  | 'audioProfessional.badge.protect'
   | 'audioProfessional.badge.replayGain'
   | 'audioProfessional.badge.resampling'
   | 'audioProfessional.badge.sampleMismatch'
   | 'audioProfessional.badge.warning'
   | 'audioProfessional.issue.reason'
+  | 'audioProfessional.issue.audioLevelClipped'
+  | 'audioProfessional.issue.audioLevelClippingRisk'
+  | 'audioProfessional.issue.dspClippingRisk'
+  | 'audioProfessional.issue.dspLimiterProtecting'
   | 'audioProfessional.issue.roomCorrectionBitPerfectDisabled'
   | 'audioProfessional.issue.roomCorrectionClippingRisk'
   | 'audioProfessional.issue.sharedMixRateTooHigh'
@@ -828,6 +833,13 @@ export type TranslationKey =
   | 'audioProfessional.group.playbackChain'
   | 'audioProfessional.group.sampleRate'
   | 'audioProfessional.group.stability'
+  | 'audioProfessional.signal.decode'
+  | 'audioProfessional.signal.dsp'
+  | 'audioProfessional.signal.fir'
+  | 'audioProfessional.signal.headroom'
+  | 'audioProfessional.signal.native'
+  | 'audioProfessional.signal.output'
+  | 'audioProfessional.signal.source'
   | 'audioProfessional.row.actualBuffer'
   | 'audioProfessional.row.actualDeviceSampleRate'
   | 'audioProfessional.row.bitDepth'
@@ -850,12 +862,14 @@ export type TranslationKey =
   | 'audioProfessional.row.outputLatency'
   | 'audioProfessional.row.outputMode'
   | 'audioProfessional.row.replayGain'
+  | 'audioProfessional.row.protectLimiter'
   | 'audioProfessional.row.roomCorrection'
   | 'audioProfessional.row.requestedBuffer'
   | 'audioProfessional.row.requestedOutputSampleRate'
   | 'audioProfessional.row.resampler'
   | 'audioProfessional.row.resampling'
   | 'audioProfessional.row.sampleRateMismatch'
+  | 'audioProfessional.row.signalPath'
   | 'audioProfessional.row.sharedDeviceSampleRate'
   | 'audioProfessional.row.sharedStability'
   | 'audioProfessional.row.soxr'
@@ -865,7 +879,9 @@ export type TranslationKey =
   | 'audioProfessional.summary.pending'
   | 'audioProfessional.title'
   | 'audioProfessional.value.disabled'
+  | 'audioProfessional.value.dspPath'
   | 'audioProfessional.value.enabled'
+  | 'audioProfessional.value.nativePath'
   | 'audioProfessional.value.no'
   | 'audioProfessional.value.pending'
   | 'audioProfessional.value.ready'
@@ -2342,6 +2358,8 @@ export type TranslationKey =
   | 'settings.eq.action.bypass'
   | 'settings.eq.action.delete'
   | 'settings.eq.action.duplicatePreset'
+  | 'settings.eq.action.exportApoGraphicEqPreset'
+  | 'settings.eq.action.exportApoPreset'
   | 'settings.eq.action.freqDown'
   | 'settings.eq.action.freqFineDown'
   | 'settings.eq.action.freqFineUp'
@@ -2493,6 +2511,31 @@ export type TranslationKey =
   | 'settings.eq.error.presetName'
   | 'settings.eq.error.profileName'
   | 'settings.eq.error.profileTarget'
+  | 'settings.eq.import.filters'
+  | 'settings.eq.import.filtersValue'
+  | 'settings.eq.import.filterPreview'
+  | 'settings.eq.import.graphicEq'
+  | 'settings.eq.import.includes'
+  | 'settings.eq.import.includesValue'
+  | 'settings.eq.import.apoDirectives'
+  | 'settings.eq.import.apoDirectiveDetails'
+  | 'settings.eq.import.apoDirectivesValue'
+  | 'settings.eq.import.bandwidthFilters'
+  | 'settings.eq.import.bandwidthFiltersValue'
+  | 'settings.eq.import.compatibility'
+  | 'settings.eq.import.compatibility.adjusted'
+  | 'settings.eq.import.compatibility.clean'
+  | 'settings.eq.import.compatibility.partial'
+  | 'settings.eq.import.moreFilters'
+  | 'settings.eq.import.noFilters'
+  | 'settings.eq.import.preamp'
+  | 'settings.eq.import.applyPreview'
+  | 'settings.eq.import.cancelPreview'
+  | 'settings.eq.import.previewTitle'
+  | 'settings.eq.import.reportTitle'
+  | 'settings.eq.import.source'
+  | 'settings.eq.import.sourceApo'
+  | 'settings.eq.import.sourceEcho'
   | 'settings.eq.filter.highShelf'
   | 'settings.eq.filter.highPass'
   | 'settings.eq.filter.lowShelf'
@@ -2522,6 +2565,28 @@ export type TranslationKey =
   | 'settings.eq.signal.preamp'
   | 'settings.eq.signal.protecting'
   | 'settings.eq.signal.title'
+  | 'settings.eq.routing.action.armHeadroom6'
+  | 'settings.eq.routing.action.nativeDirect'
+  | 'settings.eq.routing.armed'
+  | 'settings.eq.routing.dspPath'
+  | 'settings.eq.routing.dspPathDetail'
+  | 'settings.eq.routing.headroomActiveDetail'
+  | 'settings.eq.routing.headroomStandby'
+  | 'settings.eq.routing.headroomStandbyDetail'
+  | 'settings.eq.routing.modules'
+  | 'settings.eq.routing.modulesActiveDetail'
+  | 'settings.eq.routing.modulesBypassed'
+  | 'settings.eq.routing.modulesBypassedDetail'
+  | 'settings.eq.routing.nativeDirect'
+  | 'settings.eq.routing.nativeDirectDetail'
+  | 'settings.eq.routing.nativeNoGainDetail'
+  | 'settings.eq.routing.playbackPath'
+  | 'settings.eq.routing.protectActive'
+  | 'settings.eq.routing.protectActiveDetail'
+  | 'settings.eq.routing.safety'
+  | 'settings.eq.headroom.dsp'
+  | 'settings.eq.headroom.nativeBypassNote'
+  | 'settings.eq.headroom.presetsAria'
   | 'settings.eq.profile.bound'
   | 'settings.eq.profile.empty'
   | 'settings.eq.profile.nameAria'
@@ -3523,11 +3588,16 @@ const zhCN: TranslationMap = {
   'audioProfessional.action.showDetails': '展开专业详情',
   'audioProfessional.badge.bitPerfect': 'Bit-perfect',
   'audioProfessional.badge.dsp': 'DSP active',
+  'audioProfessional.badge.protect': 'Protect',
   'audioProfessional.badge.replayGain': 'ReplayGain',
   'audioProfessional.badge.resampling': '重采样',
   'audioProfessional.badge.sampleMismatch': '采样率不匹配',
   'audioProfessional.badge.warning': '设备异常/警告',
   'audioProfessional.issue.reason': '异常原因',
+  'audioProfessional.issue.audioLevelClipped': '实时电平检测到削波，请降低前级增益或关闭增益类 DSP。',
+  'audioProfessional.issue.audioLevelClippingRisk': '实时电平接近 0 dBFS，有削波风险。',
+  'audioProfessional.issue.dspClippingRisk': 'DSP 链路输出有削波风险，Protect limiter 已进入待命监控。',
+  'audioProfessional.issue.dspLimiterProtecting': 'Protect limiter 正在保护输出，说明 DSP 后级信号已经超过安全阈值。',
   'audioProfessional.issue.roomCorrectionBitPerfectDisabled': '房间校正会关闭 bit-perfect 输出。',
   'audioProfessional.issue.roomCorrectionClippingRisk': '房间校正输出有削波风险，请降低 FIR Trim 或启用 Auto Gain。',
   'audioProfessional.issue.sharedMixRateTooHigh': 'Windows 共享采样率过高：设备是 {deviceRate}，ECHO 当前输出 {decoderRate} PCM，可能导致变速。建议把 Windows 默认格式改到 48 kHz。',
@@ -3536,7 +3606,13 @@ const zhCN: TranslationMap = {
   'audioProfessional.group.playbackChain': '播放链路',
   'audioProfessional.group.sampleRate': '采样率链路',
   'audioProfessional.group.stability': '稳定性',
-  'audioProfessional.row.actualBuffer': '实际 buffer',
+  'audioProfessional.signal.decode': '解码',
+  'audioProfessional.signal.dsp': 'DSP',
+  'audioProfessional.signal.fir': 'FIR',
+  'audioProfessional.signal.headroom': '余量',
+  'audioProfessional.signal.native': '原生',
+  'audioProfessional.signal.output': '输出',
+  'audioProfessional.signal.source': '来源',  'audioProfessional.row.actualBuffer': '实际 buffer',
   'audioProfessional.row.actualDeviceSampleRate': '实际设备采样率',
   'audioProfessional.row.bitDepth': '位深',
   'audioProfessional.row.bitPerfect': 'Bit-perfect',
@@ -3558,12 +3634,14 @@ const zhCN: TranslationMap = {
   'audioProfessional.row.outputLatency': '输出延迟',
   'audioProfessional.row.outputMode': '输出模式',
   'audioProfessional.row.replayGain': 'ReplayGain',
+  'audioProfessional.row.protectLimiter': 'Protect limiter',
   'audioProfessional.row.roomCorrection': '房间校正',
   'audioProfessional.row.requestedBuffer': '请求 buffer',
   'audioProfessional.row.requestedOutputSampleRate': '请求输出',
   'audioProfessional.row.resampler': '重采样器',
   'audioProfessional.row.resampling': '重采样',
   'audioProfessional.row.sampleRateMismatch': '采样率不匹配',
+  'audioProfessional.row.signalPath': '信号路径',
   'audioProfessional.row.sharedDeviceSampleRate': '共享设备采样率',
   'audioProfessional.row.sharedStability': '共享稳定档',
   'audioProfessional.row.soxr': 'SOXR',
@@ -3573,7 +3651,9 @@ const zhCN: TranslationMap = {
   'audioProfessional.summary.pending': '等待音频状态',
   'audioProfessional.title': '专业播放状态',
   'audioProfessional.value.disabled': '关闭',
+  'audioProfessional.value.dspPath': 'DSP 路径：{modules}',
   'audioProfessional.value.enabled': '开启',
+  'audioProfessional.value.nativePath': '原生直通',
   'audioProfessional.value.no': '否',
   'audioProfessional.value.pending': '待确认',
   'audioProfessional.value.ready': '可直通',
@@ -4857,7 +4937,7 @@ const zhCN: TranslationMap = {
   'settings.appearance.themePreset.frostJazz': '霜林爵士',
   'settings.appearance.themePreset.frostJazz.description': '冷蓝爵士底色，带一抹梅紫舞台光。',
   'settings.appearance.themePreset.FINAL': 'FINAL',
-  'settings.appearance.themePreset.FINAL.description': '川崎工房、精密金属与声学测量线感，安静克制的 FINAL 音响气质。',
+  'settings.appearance.themePreset.FINAL.description': '参考 final 官网的黑白产品摄影、声学工程与 8K SOUND 语言，克制、精密、偏监听。',
   'settings.appearance.themeCustom.title': '自定义当前主题',
   'settings.appearance.themeCustom.description': '先选一个主题，再微调颜色；每个主题都会记住自己的自定义。',
   'settings.appearance.themeCustom.action.autoFix': '自动修正文字',
@@ -5236,13 +5316,15 @@ const zhCN: TranslationMap = {
   'settings.eq.action.bypass': '旁路',
   'settings.eq.action.delete': '删除',
   'settings.eq.action.duplicatePreset': '复制当前',
+  'settings.eq.action.exportApoGraphicEqPreset': '导出 GraphicEQ',
+  'settings.eq.action.exportApoPreset': '导出 APO',
   'settings.eq.action.freqDown': '频率 -',
   'settings.eq.action.freqFineDown': '细 -',
   'settings.eq.action.freqFineUp': '细 +',
   'settings.eq.action.freqUp': '频率 +',
   'settings.eq.action.holdBypass': '按住旁路 EQ',
   'settings.eq.action.hideAdvanced': '隐藏 PEQ 控制台',
-  'settings.eq.action.importPreset': '导入预设',
+  'settings.eq.action.importPreset': '导入预设 / APO',
   'settings.eq.action.applyA': '应用 A',
   'settings.eq.action.applyB': '应用 B',
   'settings.eq.action.applySafePreamp': '应用安全前级',
@@ -5334,7 +5416,7 @@ const zhCN: TranslationMap = {
   'settings.eq.band.modeFree': '自由频率',
   'settings.eq.band.modeStandard': '标准频点',
   'settings.eq.band.q': 'Q',
-  'settings.eq.band.readoutsAria': '10 段 EQ 可拖动频段读数',
+  'settings.eq.band.readoutsAria': '31 段 EQ 可拖动频段读数',
   'settings.eq.bitPerfect.channelDisabled': 'DSP 已启用：bit-perfect 已关闭。',
   'settings.eq.bitPerfect.disabled': 'DSP 已启用：bit-perfect 已关闭{reason}。',
   'settings.eq.bitPerfect.readyPath': '可保留 bit-perfect 路径。',
@@ -5375,7 +5457,7 @@ const zhCN: TranslationMap = {
   'settings.eq.channel.rightTotal': '右总增益',
   'settings.eq.channel.swap': '交换 L/R',
   'settings.eq.channel.title': '声道平衡',
-  'settings.eq.curve.aria': '可拖动 10 段 EQ 频响曲线',
+  'settings.eq.curve.aria': '可拖动 31 段 EQ 频响曲线',
   'settings.eq.curve.dragBand': '拖动 {frequency} EQ 频段',
   'settings.eq.curve.fineEdit': 'Shift 细调',
   'settings.eq.curve.freeFrequency': '自由频率',
@@ -5387,6 +5469,31 @@ const zhCN: TranslationMap = {
   'settings.eq.error.presetName': '请输入预设名称。',
   'settings.eq.error.profileName': '请输入配置档名称。',
   'settings.eq.error.profileTarget': '请选择一个配置档。',
+  'settings.eq.import.filters': 'Filter',
+  'settings.eq.import.filtersValue': '{count} 导入 / {skipped} 跳过',
+  'settings.eq.import.filterPreview': 'Filter 明细',
+  'settings.eq.import.graphicEq': 'GraphicEQ 点',
+  'settings.eq.import.includes': 'Include 文件',
+  'settings.eq.import.includesValue': '{count} 展开 / {skipped} 跳过',
+  'settings.eq.import.apoDirectives': 'APO 指令',
+  'settings.eq.import.apoDirectiveDetails': '指令明细',
+  'settings.eq.import.apoDirectivesValue': '{count} 识别 / {skipped} 声道 Filter 跳过',
+  'settings.eq.import.bandwidthFilters': 'BW 换算',
+  'settings.eq.import.bandwidthFiltersValue': '{count} 条转为 Q',
+  'settings.eq.import.compatibility': '兼容性',
+  'settings.eq.import.compatibility.adjusted': '已换算',
+  'settings.eq.import.compatibility.clean': '完整导入',
+  'settings.eq.import.compatibility.partial': '部分导入',
+  'settings.eq.import.moreFilters': '还有 {count} 条 Filter 未显示',
+  'settings.eq.import.noFilters': '没有需要显示的有效滤波器。',
+  'settings.eq.import.preamp': 'Preamp',
+  'settings.eq.import.applyPreview': '应用导入',
+  'settings.eq.import.cancelPreview': '取消导入',
+  'settings.eq.import.previewTitle': '导入预览',
+  'settings.eq.import.reportTitle': '导入完成',
+  'settings.eq.import.source': '来源',
+  'settings.eq.import.sourceApo': 'Equalizer APO',
+  'settings.eq.import.sourceEcho': 'ECHO JSON',
   'settings.eq.filter.highShelf': '高架',
   'settings.eq.filter.highPass': '高通',
   'settings.eq.filter.lowShelf': '低架',
@@ -5416,7 +5523,28 @@ const zhCN: TranslationMap = {
   'settings.eq.signal.preamp': '前级',
   'settings.eq.signal.protecting': '保护中',
   'settings.eq.signal.title': '信号链',
-  'settings.eq.profile.bound': '{output} 已绑定 {profile}',
+  'settings.eq.routing.action.armHeadroom6': '预设 -6dB 余量',
+  'settings.eq.routing.action.nativeDirect': '原生直通',
+  'settings.eq.routing.armed': '已待命',
+  'settings.eq.routing.dspPath': 'DSP 路径',
+  'settings.eq.routing.dspPathDetail': '当前处理会明确显示在链路中。',
+  'settings.eq.routing.headroomActiveDetail': '余量正在 DSP 路径中生效。',
+  'settings.eq.routing.headroomStandby': '余量待命',
+  'settings.eq.routing.headroomStandbyDetail': '仅在启用 DSP 后生效。',
+  'settings.eq.routing.modules': '模块',
+  'settings.eq.routing.modulesActiveDetail': '下方会显示每个启用的处理阶段。',
+  'settings.eq.routing.modulesBypassed': '已旁路',
+  'settings.eq.routing.modulesBypassedDetail': 'EQ / FIR / Balance 均关闭。',
+  'settings.eq.routing.nativeDirect': '原生直通',
+  'settings.eq.routing.nativeDirectDetail': 'DSP 旁路时不会改动原生播放。',
+  'settings.eq.routing.nativeNoGainDetail': '原生直通下不做增益衰减。',
+  'settings.eq.routing.playbackPath': '播放路径',
+  'settings.eq.routing.protectActive': '保护中',
+  'settings.eq.routing.protectActiveDetail': 'Limiter 正在防止过载。',
+  'settings.eq.routing.safety': '安全',
+  'settings.eq.headroom.dsp': 'DSP 余量',
+  'settings.eq.headroom.nativeBypassNote': '仅在 EQ / FIR / Balance 启用时生效，原生旁路保持直通。',
+  'settings.eq.headroom.presetsAria': 'DSP 余量快捷档位',  'settings.eq.profile.bound': '{output} 已绑定 {profile}',
   'settings.eq.profile.empty': '未选择配置档',
   'settings.eq.profile.nameAria': 'EQ 配置档名称',
   'settings.eq.profile.namePlaceholder': '保存为配置档',
@@ -5424,7 +5552,7 @@ const zhCN: TranslationMap = {
   'settings.eq.profile.selectorAria': 'EQ 配置档',
   'settings.eq.profile.title': '配置档',
   'settings.eq.profile.unbound': '{output} 未绑定配置档',
-  'settings.eq.preset.approximation': '10 段近似',
+  'settings.eq.preset.approximation': '31 段近似',
   'settings.eq.preset.builtIn': '内置预设',
   'settings.eq.preset.copyName': '{name} 副本',
   'settings.eq.preset.filter.all': '全部',
@@ -5434,7 +5562,7 @@ const zhCN: TranslationMap = {
   'settings.eq.preset.filter.user': '用户',
   'settings.eq.preset.filter.utility': '工具',
   'settings.eq.preset.filterAria': '预设筛选',
-  'settings.eq.preset.meta.approximationCaution': '这是 10 段图示 EQ 近似，不是精确耳机校准。',
+  'settings.eq.preset.meta.approximationCaution': '这是 31 段图示 EQ 近似，不是精确耳机校准。',
   'settings.eq.preset.meta.genrePurpose': '用于快速塑造音乐风格取向。',
   'settings.eq.preset.meta.genreScenario': '适合按曲风试听，再按设备微调。',
   'settings.eq.preset.meta.targetPurpose': '用于接近常见听感目标曲线。',
@@ -6591,11 +6719,16 @@ const zhTW: TranslationMap = {
   'audioProfessional.action.showDetails': '展開專業詳情',
   'audioProfessional.badge.bitPerfect': 'Bit-perfect',
   'audioProfessional.badge.dsp': 'DSP active',
+  'audioProfessional.badge.protect': 'Protect',
   'audioProfessional.badge.replayGain': 'ReplayGain',
   'audioProfessional.badge.resampling': '重取樣',
   'audioProfessional.badge.sampleMismatch': '取樣率不符',
   'audioProfessional.badge.warning': '裝置異常/警告',
   'audioProfessional.issue.reason': '異常原因',
+  'audioProfessional.issue.audioLevelClipped': '即時電平偵測到削波，請降低前級增益或關閉增益類 DSP。',
+  'audioProfessional.issue.audioLevelClippingRisk': '即時電平接近 0 dBFS，有削波風險。',
+  'audioProfessional.issue.dspClippingRisk': 'DSP 鏈路輸出有削波風險，Protect limiter 已進入待命監控。',
+  'audioProfessional.issue.dspLimiterProtecting': 'Protect limiter 正在保護輸出，表示 DSP 後級訊號已超過安全閾值。',
   'audioProfessional.issue.roomCorrectionBitPerfectDisabled': '房間校正會關閉 bit-perfect 輸出。',
   'audioProfessional.issue.roomCorrectionClippingRisk': '房間校正輸出有削波風險，請降低 FIR Trim 或啟用 Auto Gain。',
   'audioProfessional.issue.sharedMixRateTooHigh': 'Windows 共享取樣率過高：裝置是 {deviceRate}，ECHO 目前輸出 {decoderRate} PCM，可能導致變速。建議把 Windows 預設格式改到 48 kHz。',
@@ -6604,7 +6737,13 @@ const zhTW: TranslationMap = {
   'audioProfessional.group.playbackChain': '播放鏈路',
   'audioProfessional.group.sampleRate': '取樣率鏈路',
   'audioProfessional.group.stability': '穩定性',
-  'audioProfessional.row.actualBuffer': '實際 buffer',
+  'audioProfessional.signal.decode': '解碼',
+  'audioProfessional.signal.dsp': 'DSP',
+  'audioProfessional.signal.fir': 'FIR',
+  'audioProfessional.signal.headroom': '餘量',
+  'audioProfessional.signal.native': '原生',
+  'audioProfessional.signal.output': '輸出',
+  'audioProfessional.signal.source': '來源',  'audioProfessional.row.actualBuffer': '實際 buffer',
   'audioProfessional.row.actualDeviceSampleRate': '實際裝置取樣率',
   'audioProfessional.row.bitDepth': '位元深度',
   'audioProfessional.row.bitPerfect': 'Bit-perfect',
@@ -6626,12 +6765,14 @@ const zhTW: TranslationMap = {
   'audioProfessional.row.outputLatency': '輸出延遲',
   'audioProfessional.row.outputMode': '輸出模式',
   'audioProfessional.row.replayGain': 'ReplayGain',
+  'audioProfessional.row.protectLimiter': 'Protect limiter',
   'audioProfessional.row.roomCorrection': '房間校正',
   'audioProfessional.row.requestedBuffer': '要求 buffer',
   'audioProfessional.row.requestedOutputSampleRate': '要求輸出',
   'audioProfessional.row.resampler': '重取樣器',
   'audioProfessional.row.resampling': '重取樣',
   'audioProfessional.row.sampleRateMismatch': '取樣率不符',
+  'audioProfessional.row.signalPath': '訊號路徑',
   'audioProfessional.row.sharedDeviceSampleRate': '共享裝置取樣率',
   'audioProfessional.row.sharedStability': '共享穩定檔',
   'audioProfessional.row.soxr': 'SOXR',
@@ -6641,7 +6782,9 @@ const zhTW: TranslationMap = {
   'audioProfessional.summary.pending': '等待音訊狀態',
   'audioProfessional.title': '專業播放狀態',
   'audioProfessional.value.disabled': '關閉',
+  'audioProfessional.value.dspPath': 'DSP 路徑：{modules}',
   'audioProfessional.value.enabled': '開啟',
+  'audioProfessional.value.nativePath': '原生直通',
   'audioProfessional.value.no': '否',
   'audioProfessional.value.pending': '待確認',
   'audioProfessional.value.ready': '可直通',
@@ -7629,6 +7772,8 @@ const zhTW: TranslationMap = {
   'settings.eq.action.delete': '刪除',
   'settings.eq.action.holdBypass': '按住旁路 EQ',
   'settings.eq.action.hideAdvanced': '隱藏 PEQ 控制台',
+  'settings.eq.action.exportApoGraphicEqPreset': '匯出 GraphicEQ',
+  'settings.eq.action.exportApoPreset': '匯出 APO',
   'settings.eq.action.resetChannelBalance': '重置聲道平衡',
   'settings.eq.action.save': '儲存',
   'settings.eq.action.showAdvanced': 'PEQ 控制台',
@@ -7696,7 +7841,7 @@ const zhTW: TranslationMap = {
   'settings.eq.channel.mono.off': '關閉',
   'settings.eq.channel.mono.sum': '合併',
   'settings.eq.channel.title': '聲道平衡',
-  'settings.eq.curve.aria': '可拖動 10 段 EQ 頻響曲線',
+  'settings.eq.curve.aria': '可拖動 31 段 EQ 頻響曲線',
   'settings.eq.curve.dragBand': '拖動 {frequency} EQ 頻段',
   'settings.eq.filter.highShelf': '高架',
   'settings.eq.filter.highPass': '高通',
@@ -7709,6 +7854,31 @@ const zhTW: TranslationMap = {
   'settings.eq.error.bridgeDeletePreset': '桌面橋接不可用。請在 ECHO Next 桌面端刪除 EQ 預設。',
   'settings.eq.error.bridgeSavePreset': '桌面橋接不可用。請在 ECHO Next 桌面端儲存 EQ 預設。',
   'settings.eq.error.presetName': '請輸入預設名稱。',
+  'settings.eq.import.filters': 'Filter',
+  'settings.eq.import.filtersValue': '{count} 匯入 / {skipped} 跳過',
+  'settings.eq.import.filterPreview': 'Filter 明細',
+  'settings.eq.import.graphicEq': 'GraphicEQ 點',
+  'settings.eq.import.includes': 'Include 檔案',
+  'settings.eq.import.includesValue': '{count} 展開 / {skipped} 跳過',
+  'settings.eq.import.apoDirectives': 'APO 指令',
+  'settings.eq.import.apoDirectiveDetails': '指令明細',
+  'settings.eq.import.apoDirectivesValue': '{count} 識別 / {skipped} 聲道 Filter 跳過',
+  'settings.eq.import.bandwidthFilters': 'BW 換算',
+  'settings.eq.import.bandwidthFiltersValue': '{count} 條轉為 Q',
+  'settings.eq.import.compatibility': '相容性',
+  'settings.eq.import.compatibility.adjusted': '已換算',
+  'settings.eq.import.compatibility.clean': '完整匯入',
+  'settings.eq.import.compatibility.partial': '部分匯入',
+  'settings.eq.import.moreFilters': '還有 {count} 條 Filter 未顯示',
+  'settings.eq.import.noFilters': '沒有需要顯示的有效濾波器。',
+  'settings.eq.import.preamp': 'Preamp',
+  'settings.eq.import.applyPreview': '套用匯入',
+  'settings.eq.import.cancelPreview': '取消匯入',
+  'settings.eq.import.previewTitle': '匯入預覽',
+  'settings.eq.import.reportTitle': '匯入完成',
+  'settings.eq.import.source': '來源',
+  'settings.eq.import.sourceApo': 'Equalizer APO',
+  'settings.eq.import.sourceEcho': 'ECHO JSON',
   'settings.eq.preamp.inputSafety': 'Headroom 管理',
   'settings.eq.preamp.safeHeadroom': '安全餘量',
   'settings.eq.preset.readonly': '內建預設為唯讀。',
@@ -7729,7 +7899,28 @@ const zhTW: TranslationMap = {
   'settings.eq.signal.preamp': '前級',
   'settings.eq.signal.protecting': '保護中',
   'settings.eq.signal.title': '訊號鏈',
-  'settings.eq.mode.aria': 'EQ 顯示模式',
+  'settings.eq.routing.action.armHeadroom6': '預設 -6dB 餘量',
+  'settings.eq.routing.action.nativeDirect': '原生直通',
+  'settings.eq.routing.armed': '已待命',
+  'settings.eq.routing.dspPath': 'DSP 路徑',
+  'settings.eq.routing.dspPathDetail': '目前處理會明確顯示在鏈路中。',
+  'settings.eq.routing.headroomActiveDetail': '餘量正在 DSP 路徑中生效。',
+  'settings.eq.routing.headroomStandby': '餘量待命',
+  'settings.eq.routing.headroomStandbyDetail': '只會在啟用 DSP 後生效。',
+  'settings.eq.routing.modules': '模組',
+  'settings.eq.routing.modulesActiveDetail': '下方會顯示每個啟用的處理階段。',
+  'settings.eq.routing.modulesBypassed': '已旁路',
+  'settings.eq.routing.modulesBypassedDetail': 'EQ / FIR / Balance 均關閉。',
+  'settings.eq.routing.nativeDirect': '原生直通',
+  'settings.eq.routing.nativeDirectDetail': 'DSP 旁路時不會改動原生播放。',
+  'settings.eq.routing.nativeNoGainDetail': '原生直通下不做增益衰減。',
+  'settings.eq.routing.playbackPath': '播放路徑',
+  'settings.eq.routing.protectActive': '保護中',
+  'settings.eq.routing.protectActiveDetail': 'Limiter 正在防止過載。',
+  'settings.eq.routing.safety': '安全',
+  'settings.eq.headroom.dsp': 'DSP 餘量',
+  'settings.eq.headroom.nativeBypassNote': '僅在 EQ / FIR / Balance 啟用時生效，原生旁路保持直通。',
+  'settings.eq.headroom.presetsAria': 'DSP 餘量快捷檔位',  'settings.eq.mode.aria': 'EQ 顯示模式',
   'settings.eq.mode.current': '模式',
   'settings.eq.mode.pro': 'Pro',
   'settings.eq.mode.simple': 'Simple',
@@ -8233,7 +8424,7 @@ const zhTW: TranslationMap = {
   'settings.appearance.themePreset.frostJazz': '霜林爵士',
   'settings.appearance.themePreset.frostJazz.description': '冷藍爵士底色，帶一抹梅紫舞台光。',
   'settings.appearance.themePreset.FINAL': 'FINAL',
-  'settings.appearance.themePreset.FINAL.description': '川崎工房、精密金屬與聲學測量線感，安靜克制的 FINAL 音響氣質。',
+  'settings.appearance.themePreset.FINAL.description': '參考 final 官網的黑白產品攝影、聲學工程與 8K SOUND 語言，克制、精密、偏監聽。',
   'settings.appearance.themeCustom.title': '自訂目前主題',
   'settings.appearance.themeCustom.description': '先選一個主題，再微調顏色；每個主題都會記住自己的自訂。',
   'settings.appearance.themeCustom.action.autoFix': '自動修正文字',
@@ -9239,11 +9430,16 @@ const jaJP: TranslationMap = {
   'audioProfessional.action.showDetails': '詳細を表示',
   'audioProfessional.badge.bitPerfect': 'Bit-perfect',
   'audioProfessional.badge.dsp': 'DSP active',
+  'audioProfessional.badge.protect': 'Protect',
   'audioProfessional.badge.replayGain': 'ReplayGain',
   'audioProfessional.badge.resampling': 'リサンプル',
   'audioProfessional.badge.sampleMismatch': 'サンプルレート不一致',
   'audioProfessional.badge.warning': 'デバイス警告',
   'audioProfessional.issue.reason': '理由',
+  'audioProfessional.issue.audioLevelClipped': 'リアルタイムレベルでクリップを検出しました。プリアンプを下げるか、ゲイン系 DSP をオフにしてください。',
+  'audioProfessional.issue.audioLevelClippingRisk': 'リアルタイムレベルが 0 dBFS に近く、クリップの危険があります。',
+  'audioProfessional.issue.dspClippingRisk': 'DSP チェーン出力にクリップの危険があります。Protect limiter は待機監視中です。',
+  'audioProfessional.issue.dspLimiterProtecting': 'Protect limiter が出力を保護しています。DSP 後段の信号が安全しきい値を超えています。',
   'audioProfessional.issue.roomCorrectionBitPerfectDisabled': 'ルーム補正は bit-perfect 出力を無効にします。',
   'audioProfessional.issue.roomCorrectionClippingRisk': 'ルーム補正の出力にクリップの危険があります。FIR Trim を下げるか Auto Gain を有効にしてください。',
   'audioProfessional.issue.sharedMixRateTooHigh': 'Windows の共有サンプルレートが高すぎます。デバイスは {deviceRate}、ECHO は現在 {decoderRate} PCM を出力しているため、再生速度が変わる可能性があります。Windows の既定形式を 48 kHz に下げてください。',
@@ -9252,7 +9448,13 @@ const jaJP: TranslationMap = {
   'audioProfessional.group.playbackChain': '再生チェーン',
   'audioProfessional.group.sampleRate': 'サンプルレート',
   'audioProfessional.group.stability': '安定性',
-  'audioProfessional.row.actualBuffer': '実 buffer',
+  'audioProfessional.signal.decode': 'デコード',
+  'audioProfessional.signal.dsp': 'DSP',
+  'audioProfessional.signal.fir': 'FIR',
+  'audioProfessional.signal.headroom': 'ヘッドルーム',
+  'audioProfessional.signal.native': 'ネイティブ',
+  'audioProfessional.signal.output': '出力',
+  'audioProfessional.signal.source': 'ソース',  'audioProfessional.row.actualBuffer': '実 buffer',
   'audioProfessional.row.actualDeviceSampleRate': '実デバイスレート',
   'audioProfessional.row.bitDepth': 'ビット深度',
   'audioProfessional.row.bitPerfect': 'Bit-perfect',
@@ -9274,12 +9476,14 @@ const jaJP: TranslationMap = {
   'audioProfessional.row.outputLatency': '出力遅延',
   'audioProfessional.row.outputMode': '出力モード',
   'audioProfessional.row.replayGain': 'ReplayGain',
+  'audioProfessional.row.protectLimiter': 'Protect limiter',
   'audioProfessional.row.roomCorrection': 'ルーム補正',
   'audioProfessional.row.requestedBuffer': '要求 buffer',
   'audioProfessional.row.requestedOutputSampleRate': '要求出力',
   'audioProfessional.row.resampler': 'リサンプラー',
   'audioProfessional.row.resampling': 'リサンプル',
   'audioProfessional.row.sampleRateMismatch': 'レート不一致',
+  'audioProfessional.row.signalPath': '信号パス',
   'audioProfessional.row.sharedDeviceSampleRate': '共有デバイスレート',
   'audioProfessional.row.sharedStability': '共有安定度',
   'audioProfessional.row.soxr': 'SOXR',
@@ -9289,7 +9493,9 @@ const jaJP: TranslationMap = {
   'audioProfessional.summary.pending': '音声状態を待機中',
   'audioProfessional.title': 'プロ再生ステータス',
   'audioProfessional.value.disabled': 'オフ',
+  'audioProfessional.value.dspPath': 'DSP Path: {modules}',
   'audioProfessional.value.enabled': 'オン',
+  'audioProfessional.value.nativePath': 'Native Path',
   'audioProfessional.value.no': 'いいえ',
   'audioProfessional.value.pending': '確認中',
   'audioProfessional.value.ready': 'Direct ready',
@@ -10225,7 +10431,7 @@ const jaJP: TranslationMap = {
   'settings.eq.action.resetEq': 'EQ をリセット',
   'settings.eq.action.save': '保存',
   'settings.eq.band.fallback': 'バンド',
-  'settings.eq.band.readoutsAria': '10 バンド EQ のドラッグ可能なバンド表示',
+  'settings.eq.band.readoutsAria': '31 バンド EQ のドラッグ可能なバンド表示',
   'settings.eq.bitPerfect.channelDisabled': 'DSP 有効: bit-perfect は無効です。',
   'settings.eq.bitPerfect.disabled': 'DSP 有効: bit-perfect は無効です{reason}。',
   'settings.eq.bitPerfect.readyPath': 'bit-perfect 経路を維持できます。',
@@ -10253,7 +10459,7 @@ const jaJP: TranslationMap = {
   'settings.eq.channel.rightTotal': '右合計',
   'settings.eq.channel.swap': 'L/R 交換',
   'settings.eq.channel.title': 'チャンネルバランス',
-  'settings.eq.curve.aria': 'ドラッグ可能な 10 バンド EQ 周波数特性',
+  'settings.eq.curve.aria': 'ドラッグ可能な 31 バンド EQ 周波数特性',
   'settings.eq.curve.dragBand': '{frequency} EQ バンドをドラッグ',
   'settings.eq.filter.highShelf': 'ハイシェルフ',
   'settings.eq.filter.highPass': 'ハイパス',
@@ -10266,7 +10472,34 @@ const jaJP: TranslationMap = {
   'settings.eq.error.bridgeDeletePreset': 'デスクトップブリッジを利用できません。ECHO Next デスクトップ版で EQ プリセットを削除してください。',
   'settings.eq.error.bridgeSavePreset': 'デスクトップブリッジを利用できません。ECHO Next デスクトップ版で EQ プリセットを保存してください。',
   'settings.eq.error.presetName': 'プリセット名を入力してください。',
+  'settings.eq.import.filters': 'Filter',
+  'settings.eq.import.filtersValue': '{count} インポート / {skipped} スキップ',
+  'settings.eq.import.filterPreview': 'Filter 詳細',
+  'settings.eq.import.graphicEq': 'GraphicEQ 点',
+  'settings.eq.import.includes': 'Include ファイル',
+  'settings.eq.import.includesValue': '{count} 展開 / {skipped} スキップ',
+  'settings.eq.import.apoDirectives': 'APO 指令',
+  'settings.eq.import.apoDirectiveDetails': '指令詳細',
+  'settings.eq.import.apoDirectivesValue': '{count} 認識 / {skipped} チャンネル Filter スキップ',
+  'settings.eq.import.bandwidthFilters': 'BW 変換',
+  'settings.eq.import.bandwidthFiltersValue': '{count} 件を Q に変換',
+  'settings.eq.import.compatibility': '互換性',
+  'settings.eq.import.compatibility.adjusted': '変換済み',
+  'settings.eq.import.compatibility.clean': '完全インポート',
+  'settings.eq.import.compatibility.partial': '部分インポート',
+  'settings.eq.import.moreFilters': 'ほか {count} 件の Filter は未表示',
+  'settings.eq.import.noFilters': '表示する有効なフィルターはありません。',
+  'settings.eq.import.preamp': 'Preamp',
+  'settings.eq.import.applyPreview': 'インポートを適用',
+  'settings.eq.import.cancelPreview': 'キャンセル',
+  'settings.eq.import.previewTitle': 'インポートプレビュー',
+  'settings.eq.import.reportTitle': 'インポート完了',
+  'settings.eq.import.source': 'ソース',
+  'settings.eq.import.sourceApo': 'Equalizer APO',
+  'settings.eq.import.sourceEcho': 'ECHO JSON',
   'settings.eq.action.hideAdvanced': 'PEQ コンソールを隠す',
+  'settings.eq.action.exportApoGraphicEqPreset': 'GraphicEQ へ書き出し',
+  'settings.eq.action.exportApoPreset': 'APO へ書き出し',
   'settings.eq.action.showAdvanced': 'PEQ コンソール',
   'settings.eq.ab.summary': '{preset} / peak {peak} / out {output} / preamp {preamp}',
   'settings.eq.autoGain.adjustment': 'Auto {value}',
@@ -10353,7 +10586,28 @@ const jaJP: TranslationMap = {
   'settings.eq.signal.preamp': 'プリアンプ',
   'settings.eq.signal.protecting': '保護中',
   'settings.eq.signal.title': '信号チェーン',
-  'settings.eq.mode.aria': 'EQ 表示モード',
+  'settings.eq.routing.action.armHeadroom6': '-6dB ヘッドルームを待機',
+  'settings.eq.routing.action.nativeDirect': 'ネイティブ直通',
+  'settings.eq.routing.armed': '待機中',
+  'settings.eq.routing.dspPath': 'DSP パス',
+  'settings.eq.routing.dspPathDetail': '有効な処理は信号経路に明示されます。',
+  'settings.eq.routing.headroomActiveDetail': 'ヘッドルームは DSP パスで有効です。',
+  'settings.eq.routing.headroomStandby': 'ヘッドルーム待機',
+  'settings.eq.routing.headroomStandbyDetail': 'DSP を有効にした時だけ適用されます。',
+  'settings.eq.routing.modules': 'モジュール',
+  'settings.eq.routing.modulesActiveDetail': '有効な処理段は下に表示されます。',
+  'settings.eq.routing.modulesBypassed': 'バイパス済み',
+  'settings.eq.routing.modulesBypassedDetail': 'EQ / FIR / Balance はオフです。',
+  'settings.eq.routing.nativeDirect': 'ネイティブ直通',
+  'settings.eq.routing.nativeDirectDetail': 'DSP バイパス時はネイティブ再生を変更しません。',
+  'settings.eq.routing.nativeNoGainDetail': 'ネイティブ直通ではゲインを下げません。',
+  'settings.eq.routing.playbackPath': '再生パス',
+  'settings.eq.routing.protectActive': '保護中',
+  'settings.eq.routing.protectActiveDetail': 'Limiter が過負荷を防いでいます。',
+  'settings.eq.routing.safety': '安全',
+  'settings.eq.headroom.dsp': 'DSP ヘッドルーム',
+  'settings.eq.headroom.nativeBypassNote': 'EQ / FIR / Balance が有効な時だけ適用され、ネイティブバイパスは直通のままです。',
+  'settings.eq.headroom.presetsAria': 'DSP ヘッドルームのプリセット',  'settings.eq.mode.aria': 'EQ 表示モード',
   'settings.eq.mode.current': 'モード',
   'settings.eq.mode.pro': 'Pro',
   'settings.eq.mode.simple': 'Simple',
@@ -10919,7 +11173,7 @@ const jaJP: TranslationMap = {
   'settings.appearance.themePreset.frostJazz': 'フロストジャズ',
   'settings.appearance.themePreset.frostJazz.description': '冷たいブルージャズに梅紫のステージライト。',
   'settings.appearance.themePreset.FINAL': 'FINAL',
-  'settings.appearance.themePreset.FINAL.description': '川崎の工房、精密金属、音響測定線の気配をまとった静かで端正な FINAL らしさ。',
+  'settings.appearance.themePreset.FINAL.description': 'final公式のモノクロ製品写真、音響工学、8K SOUNDの言葉から着想した、抑制された精密なモニター調。',
   'settings.appearance.themeCustom.title': 'Customize Current Theme',
   'settings.appearance.themeCustom.description': 'Choose a theme first, then tune colors. Each theme keeps its own custom colors.',
   'settings.appearance.themeCustom.action.autoFix': 'Auto-fix Text',
@@ -11957,11 +12211,16 @@ const enUS: TranslationMap = {
   'audioProfessional.action.showDetails': 'Show professional details',
   'audioProfessional.badge.bitPerfect': 'Bit-perfect',
   'audioProfessional.badge.dsp': 'DSP active',
+  'audioProfessional.badge.protect': 'Protect',
   'audioProfessional.badge.replayGain': 'ReplayGain',
   'audioProfessional.badge.resampling': 'Resampling',
   'audioProfessional.badge.sampleMismatch': 'Sample-rate mismatch',
   'audioProfessional.badge.warning': 'Device issue/warning',
   'audioProfessional.issue.reason': 'Reason',
+  'audioProfessional.issue.audioLevelClipped': 'Real-time level metering detected clipping. Lower preamp gain or disable gain-boosting DSP.',
+  'audioProfessional.issue.audioLevelClippingRisk': 'Real-time level is near 0 dBFS and may clip.',
+  'audioProfessional.issue.dspClippingRisk': 'DSP chain output has clipping risk. Protect limiter is armed and monitoring.',
+  'audioProfessional.issue.dspLimiterProtecting': 'Protect limiter is actively protecting the output because post-DSP signal exceeded the safe threshold.',
   'audioProfessional.issue.roomCorrectionBitPerfectDisabled': 'Room correction disables bit-perfect output.',
   'audioProfessional.issue.roomCorrectionClippingRisk': 'Room correction output has clipping risk. Lower FIR Trim or enable Auto Gain.',
   'audioProfessional.issue.sharedMixRateTooHigh': 'Windows shared rate is too high: the device is at {deviceRate} while ECHO is outputting {decoderRate} PCM, so playback may sound sped up. Set the Windows default format to 48 kHz.',
@@ -11970,7 +12229,13 @@ const enUS: TranslationMap = {
   'audioProfessional.group.playbackChain': 'Playback Chain',
   'audioProfessional.group.sampleRate': 'Sample-Rate Chain',
   'audioProfessional.group.stability': 'Stability',
-  'audioProfessional.row.actualBuffer': 'Actual buffer',
+  'audioProfessional.signal.decode': 'Decode',
+  'audioProfessional.signal.dsp': 'DSP',
+  'audioProfessional.signal.fir': 'FIR',
+  'audioProfessional.signal.headroom': 'Headroom',
+  'audioProfessional.signal.native': 'Native',
+  'audioProfessional.signal.output': 'Output',
+  'audioProfessional.signal.source': 'Source',  'audioProfessional.row.actualBuffer': 'Actual buffer',
   'audioProfessional.row.actualDeviceSampleRate': 'Actual device rate',
   'audioProfessional.row.bitDepth': 'Bit depth',
   'audioProfessional.row.bitPerfect': 'Bit-perfect',
@@ -11992,12 +12257,14 @@ const enUS: TranslationMap = {
   'audioProfessional.row.outputLatency': 'Output latency',
   'audioProfessional.row.outputMode': 'Output mode',
   'audioProfessional.row.replayGain': 'ReplayGain',
+  'audioProfessional.row.protectLimiter': 'Protect limiter',
   'audioProfessional.row.roomCorrection': 'Room correction',
   'audioProfessional.row.requestedBuffer': 'Requested buffer',
   'audioProfessional.row.requestedOutputSampleRate': 'Requested output',
   'audioProfessional.row.resampler': 'Resampler',
   'audioProfessional.row.resampling': 'Resampling',
   'audioProfessional.row.sampleRateMismatch': 'Sample-rate mismatch',
+  'audioProfessional.row.signalPath': 'Signal path',
   'audioProfessional.row.sharedDeviceSampleRate': 'Shared device rate',
   'audioProfessional.row.sharedStability': 'Shared stability',
   'audioProfessional.row.soxr': 'SOXR',
@@ -12007,7 +12274,9 @@ const enUS: TranslationMap = {
   'audioProfessional.summary.pending': 'Waiting for audio status',
   'audioProfessional.title': 'Professional Playback Status',
   'audioProfessional.value.disabled': 'Disabled',
+  'audioProfessional.value.dspPath': 'DSP Path: {modules}',
   'audioProfessional.value.enabled': 'Enabled',
+  'audioProfessional.value.nativePath': 'Native Path',
   'audioProfessional.value.no': 'No',
   'audioProfessional.value.pending': 'Pending',
   'audioProfessional.value.ready': 'Ready',
@@ -12940,13 +13209,15 @@ const enUS: TranslationMap = {
   'settings.eq.action.bypass': 'Bypass',
   'settings.eq.action.delete': 'Delete',
   'settings.eq.action.duplicatePreset': 'Duplicate current',
+  'settings.eq.action.exportApoGraphicEqPreset': 'Export GraphicEQ',
+  'settings.eq.action.exportApoPreset': 'Export APO',
   'settings.eq.action.freqDown': 'Freq -',
   'settings.eq.action.freqFineDown': 'Fine -',
   'settings.eq.action.freqFineUp': 'Fine +',
   'settings.eq.action.freqUp': 'Freq +',
   'settings.eq.action.holdBypass': 'Hold to Bypass EQ',
   'settings.eq.action.hideAdvanced': 'Hide PEQ console',
-  'settings.eq.action.importPreset': 'Import preset',
+  'settings.eq.action.importPreset': 'Import preset / APO',
   'settings.eq.action.applyA': 'Apply A',
   'settings.eq.action.applyB': 'Apply B',
   'settings.eq.action.applySafePreamp': 'Apply safe preamp',
@@ -13038,7 +13309,7 @@ const enUS: TranslationMap = {
   'settings.eq.band.modeFree': 'Free frequency',
   'settings.eq.band.modeStandard': 'Standard bands',
   'settings.eq.band.q': 'Q',
-  'settings.eq.band.readoutsAria': '10-band EQ draggable band readouts',
+  'settings.eq.band.readoutsAria': '31-band EQ draggable band readouts',
   'settings.eq.bitPerfect.channelDisabled': 'DSP active: bit-perfect disabled.',
   'settings.eq.bitPerfect.disabled': 'DSP active: bit-perfect disabled{reason}.',
   'settings.eq.bitPerfect.readyPath': 'Bit-perfect path can be preserved.',
@@ -13079,7 +13350,7 @@ const enUS: TranslationMap = {
   'settings.eq.channel.rightTotal': 'Right total',
   'settings.eq.channel.swap': 'Swap L/R',
   'settings.eq.channel.title': 'Channel Balance',
-  'settings.eq.curve.aria': 'Draggable 10-band EQ frequency response',
+  'settings.eq.curve.aria': 'Draggable 31-band EQ frequency response',
   'settings.eq.curve.dragBand': 'Drag {frequency} EQ band',
   'settings.eq.curve.fineEdit': 'Shift fine edit',
   'settings.eq.curve.freeFrequency': 'Free frequency',
@@ -13091,6 +13362,31 @@ const enUS: TranslationMap = {
   'settings.eq.error.presetName': 'Enter a preset name before saving.',
   'settings.eq.error.profileName': 'Enter a profile name before saving.',
   'settings.eq.error.profileTarget': 'Select a profile first.',
+  'settings.eq.import.filters': 'Filter',
+  'settings.eq.import.filtersValue': '{count} imported / {skipped} skipped',
+  'settings.eq.import.filterPreview': 'Filter details',
+  'settings.eq.import.graphicEq': 'GraphicEQ points',
+  'settings.eq.import.includes': 'Include files',
+  'settings.eq.import.includesValue': '{count} expanded / {skipped} skipped',
+  'settings.eq.import.apoDirectives': 'APO directives',
+  'settings.eq.import.apoDirectiveDetails': 'Directive details',
+  'settings.eq.import.apoDirectivesValue': '{count} recognized / {skipped} channel filters skipped',
+  'settings.eq.import.bandwidthFilters': 'BW conversion',
+  'settings.eq.import.bandwidthFiltersValue': '{count} converted to Q',
+  'settings.eq.import.compatibility': 'Compatibility',
+  'settings.eq.import.compatibility.adjusted': 'Converted',
+  'settings.eq.import.compatibility.clean': 'Full import',
+  'settings.eq.import.compatibility.partial': 'Partial import',
+  'settings.eq.import.moreFilters': '{count} more filters hidden',
+  'settings.eq.import.noFilters': 'No active filters to show.',
+  'settings.eq.import.preamp': 'Preamp',
+  'settings.eq.import.applyPreview': 'Apply import',
+  'settings.eq.import.cancelPreview': 'Cancel import',
+  'settings.eq.import.previewTitle': 'Import preview',
+  'settings.eq.import.reportTitle': 'Import complete',
+  'settings.eq.import.source': 'Source',
+  'settings.eq.import.sourceApo': 'Equalizer APO',
+  'settings.eq.import.sourceEcho': 'ECHO JSON',
   'settings.eq.filter.highShelf': 'High shelf',
   'settings.eq.filter.highPass': 'High pass',
   'settings.eq.filter.lowShelf': 'Low shelf',
@@ -13120,7 +13416,28 @@ const enUS: TranslationMap = {
   'settings.eq.signal.preamp': 'Preamp',
   'settings.eq.signal.protecting': 'Protecting',
   'settings.eq.signal.title': 'Signal Path',
-  'settings.eq.profile.bound': '{output} bound to {profile}',
+  'settings.eq.routing.action.armHeadroom6': 'Arm -6dB Headroom',
+  'settings.eq.routing.action.nativeDirect': 'Native Direct',
+  'settings.eq.routing.armed': 'Armed',
+  'settings.eq.routing.dspPath': 'DSP Path',
+  'settings.eq.routing.dspPathDetail': 'Processing is explicit and visible.',
+  'settings.eq.routing.headroomActiveDetail': 'Headroom is active in the DSP path.',
+  'settings.eq.routing.headroomStandby': 'Headroom Standby',
+  'settings.eq.routing.headroomStandbyDetail': 'Will apply only when DSP is enabled.',
+  'settings.eq.routing.modules': 'Modules',
+  'settings.eq.routing.modulesActiveDetail': 'Every active stage is shown below.',
+  'settings.eq.routing.modulesBypassed': 'Bypassed',
+  'settings.eq.routing.modulesBypassedDetail': 'EQ / FIR / Balance are off.',
+  'settings.eq.routing.nativeDirect': 'Native Direct',
+  'settings.eq.routing.nativeDirectDetail': 'DSP bypass keeps playback untouched.',
+  'settings.eq.routing.nativeNoGainDetail': 'No gain reduction on native bypass.',
+  'settings.eq.routing.playbackPath': 'Playback Path',
+  'settings.eq.routing.protectActive': 'Protect Active',
+  'settings.eq.routing.protectActiveDetail': 'Limiter is preventing overload.',
+  'settings.eq.routing.safety': 'Safety',
+  'settings.eq.headroom.dsp': 'DSP Headroom',
+  'settings.eq.headroom.nativeBypassNote': 'Only applies when EQ / FIR / Balance is active, so native bypass stays direct.',
+  'settings.eq.headroom.presetsAria': 'DSP Headroom presets',  'settings.eq.profile.bound': '{output} bound to {profile}',
   'settings.eq.profile.empty': 'No profile selected',
   'settings.eq.profile.nameAria': 'EQ profile name',
   'settings.eq.profile.namePlaceholder': 'Save as profile',
@@ -13128,7 +13445,7 @@ const enUS: TranslationMap = {
   'settings.eq.profile.selectorAria': 'EQ profile',
   'settings.eq.profile.title': 'Profiles',
   'settings.eq.profile.unbound': '{output} has no profile binding',
-  'settings.eq.preset.approximation': '10-band approximation',
+  'settings.eq.preset.approximation': '31-band approximation',
   'settings.eq.preset.builtIn': 'Built-in presets',
   'settings.eq.preset.copyName': 'Copy of {name}',
   'settings.eq.preset.filter.all': 'All',
@@ -13138,7 +13455,7 @@ const enUS: TranslationMap = {
   'settings.eq.preset.filter.user': 'User',
   'settings.eq.preset.filter.utility': 'Utility',
   'settings.eq.preset.filterAria': 'Preset filter',
-  'settings.eq.preset.meta.approximationCaution': 'This is a 10-band graphic EQ approximation, not exact headphone calibration.',
+  'settings.eq.preset.meta.approximationCaution': 'This is a 31-band graphic EQ approximation, not exact headphone calibration.',
   'settings.eq.preset.meta.genrePurpose': 'Shapes the playback toward a familiar genre voicing.',
   'settings.eq.preset.meta.genreScenario': 'Useful for quick listening by style before device-specific tweaks.',
   'settings.eq.preset.meta.targetPurpose': 'Approximates a common listening target curve.',
@@ -13789,7 +14106,7 @@ const enUS: TranslationMap = {
   'settings.appearance.themePreset.frostJazz': 'Frost Jazz',
   'settings.appearance.themePreset.frostJazz.description': 'Cool blue jazz tones with a plum stage-light accent.',
   'settings.appearance.themePreset.FINAL': 'FINAL',
-  'settings.appearance.themePreset.FINAL.description': 'A quiet FINAL tone shaped by Kawasaki craft, precision metal, and acoustic measurement lines.',
+  'settings.appearance.themePreset.FINAL.description': 'A restrained monitor tone inspired by final product photography, acoustic engineering, and 8K SOUND.',
   'settings.appearance.themeCustom.title': 'Customize Current Theme',
   'settings.appearance.themeCustom.description': 'Choose a theme first, then tune colors. Each theme keeps its own custom colors.',
   'settings.appearance.themeCustom.action.autoFix': 'Auto-fix Text',

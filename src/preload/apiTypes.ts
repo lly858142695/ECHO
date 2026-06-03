@@ -25,6 +25,8 @@ import type { AirPlayReceiverStatus, ConnectDevice, ConnectReceiverStatus, Conne
 import type {
   EqBindProfileRequest,
   EqPreset,
+  EqPresetImportPreviewResult,
+  EqPresetImportResult,
   EqProfile,
   EqProfileBindingInfo,
   EqProfileBindingTarget,
@@ -777,12 +779,16 @@ export type EchoApi = {
     setBandFilterType: (request: EqSetBandFilterTypeRequest) => Promise<EqState>;
     setBandEnabled: (request: EqSetBandEnabledRequest) => Promise<EqState>;
     setPreamp: (preampDb: number) => Promise<EqState>;
+    setDspHeadroom: (headroomDb: number) => Promise<EqState>;
     setPreset: (presetId: string) => Promise<EqState>;
     reset: () => Promise<EqState>;
     listPresets: () => Promise<EqPreset[]>;
     savePreset: (request: EqSavePresetRequest) => Promise<EqPreset>;
     exportPreset: (request: EqSavePresetRequest) => Promise<string | null>;
-    importPreset: () => Promise<EqPreset | null>;
+    exportApoPreset: (request: EqSavePresetRequest) => Promise<string | null>;
+    exportApoGraphicEqPreset: (request: EqSavePresetRequest) => Promise<string | null>;
+    previewImportPreset: () => Promise<EqPresetImportPreviewResult | null>;
+    importPreset: () => Promise<EqPresetImportResult | null>;
     deletePreset: (presetId: string) => Promise<EqPreset[]>;
     listProfiles: () => Promise<EqProfile[]>;
     saveProfile: (request: EqSaveProfileRequest) => Promise<EqProfile>;

@@ -185,7 +185,10 @@ export type AudioStatus = {
   roomCorrectionEnabled?: boolean;
   channelBalanceEnabled: boolean;
   dspActive: boolean;
+  dspClippingRisk?: boolean;
+  dspLimiterProtecting?: boolean;
   preampDb: number;
+  dspHeadroomDb?: number;
   eqPresetName: string | null;
   clippingRisk: boolean;
   audioLevels?: AudioLevelTelemetry;

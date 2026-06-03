@@ -1,4 +1,5 @@
 #include "../../audio-engine/ChannelBalanceProcessor.h"
+#include "../../audio-engine/DspChain.h"
 #include "../../audio-engine/EqMessageProtocol.h"
 #include "../../audio-engine/EqProcessor.h"
 
@@ -152,6 +153,98 @@ void testConvolutionRejectsLongImpulseAndClipsSafely()
     requireFinite(buffer, "hot convolution finite");
     require(processor.hasClippingRisk(), "hot convolution reports clipping risk");
     require(std::abs(buffer.getSample(0, 0)) <= 1.0f, "hot convolution limited");
+}
+
+void testDspChainBypassPreservesDryBuffer()
+{
+    echo::EqProcessor eqProcessor;
+    echo::ConvolutionProcessor convolutionProcessor;
+    echo::ChannelBalanceProcessor channelBalanceProcessor;
+    echo::DspHeadroomProcessor headroomProcessor;
+    echo::DspChain dspChain(eqProcessor, convolutionProcessor, channelBalanceProcessor, headroomProcessor);
+    dspChain.prepare(48000.0, 128, 2);
+
+    auto buffer = makeBuffer(2, 128);
+    auto dry = makeBuffer(2, 128);
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+    {
+        auto* samples = buffer.getWritePointer(channel);
+        auto* drySamples = dry.getWritePointer(channel);
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        {
+            const float value = channel == 0
+                ? static_cast<float>(sample) / 127.0f
+                : -static_cast<float>(sample) / 127.0f;
+            samples[sample] = value;
+            drySamples[sample] = value;
+        }
+    }
+
+    require(! dspChain.isActive(), "inactive DSP chain must report bypass");
+    dspChain.processBlock(buffer, 0, buffer.getNumSamples());
+    requireBuffersClose(buffer, dry, strictTolerance, "inactive DSP chain must not touch native playback samples");
+    require(! dspChain.hasClippingRisk(), "inactive DSP chain must not report clipping risk");
+    require(! dspChain.isSafetyLimiterProtecting(), "inactive DSP chain must not report limiter protection");
+}
+
+void testDspChainLimiterProtectsActiveOutput()
+{
+    echo::EqProcessor eqProcessor;
+    echo::ConvolutionProcessor convolutionProcessor;
+    echo::ChannelBalanceProcessor channelBalanceProcessor;
+    echo::DspHeadroomProcessor headroomProcessor;
+    echo::DspChain dspChain(eqProcessor, convolutionProcessor, channelBalanceProcessor, headroomProcessor);
+    dspChain.prepare(48000.0, 128, 2);
+    eqProcessor.setEnabled(true);
+
+    auto buffer = makeBuffer(2, 128);
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+    {
+        auto* samples = buffer.getWritePointer(channel);
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            samples[sample] = sample % 2 == 0 ? 2.0f : -2.0f;
+    }
+
+    require(dspChain.isActive(), "enabled EQ must activate DSP chain");
+    dspChain.processBlock(buffer, 0, buffer.getNumSamples());
+    require(dspChain.hasClippingRisk(), "active DSP chain must report clipping risk after limiting hot output");
+    require(dspChain.isSafetyLimiterProtecting(), "active DSP chain must expose safety limiter protection");
+
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+    {
+        const auto* samples = buffer.getReadPointer(channel);
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            require(std::abs(samples[sample]) <= 1.0f + nearTolerance, "DSP safety limiter must cap active-chain output");
+    }
+}
+
+void testDspHeadroomOnlyAppliesToActiveDsp()
+{
+    echo::EqProcessor eqProcessor;
+    echo::ConvolutionProcessor convolutionProcessor;
+    echo::ChannelBalanceProcessor channelBalanceProcessor;
+    echo::DspHeadroomProcessor headroomProcessor;
+    echo::DspChain dspChain(eqProcessor, convolutionProcessor, channelBalanceProcessor, headroomProcessor);
+    dspChain.prepare(48000.0, 128, 2);
+    headroomProcessor.setHeadroomDb(-6.0f);
+
+    auto bypassed = makeBuffer(2, 128);
+    bypassed.clear();
+    bypassed.setSample(0, 0, 0.5f);
+    bypassed.setSample(1, 0, -0.5f);
+    dspChain.processBlock(bypassed, 0, bypassed.getNumSamples());
+    require(std::abs(bypassed.getSample(0, 0) - 0.5f) <= strictTolerance, "DSP headroom must not affect native bypass");
+    require(std::abs(bypassed.getSample(1, 0) + 0.5f) <= strictTolerance, "DSP headroom must preserve bypass polarity");
+
+    eqProcessor.setEnabled(true);
+    auto processed = makeBuffer(2, 128);
+    processed.clear();
+    processed.setSample(0, 0, 0.5f);
+    processed.setSample(1, 0, -0.5f);
+    dspChain.processBlock(processed, 0, processed.getNumSamples());
+
+    require(std::abs(processed.getSample(0, 0)) < 0.5f, "DSP headroom must attenuate active DSP output");
+    require(std::abs(processed.getSample(1, 0)) < 0.5f, "DSP headroom must attenuate active DSP output on all channels");
 }
 
 void testDisabledEqIsDry()
@@ -1104,6 +1197,9 @@ int main()
         { "FIR convolution delay impulse", testConvolutionDelayImpulse },
         { "FIR convolution stereo mapping", testConvolutionStereoMapping },
         { "FIR convolution rejects long IR and clips safely", testConvolutionRejectsLongImpulseAndClipsSafely },
+        { "DSP chain bypass preserves dry buffer", testDspChainBypassPreservesDryBuffer },
+        { "DSP chain limiter protects active output", testDspChainLimiterProtectsActiveOutput },
+        { "DSP headroom only applies to active DSP", testDspHeadroomOnlyAppliesToActiveDsp },
         { "host buffer fallback attempts", testHostBufferFallbackAttempts },
         { "host shared backend options", testHostSharedBackendOptions },
         { "host backend names", testHostBackendNames },

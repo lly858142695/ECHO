@@ -5,6 +5,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../../audio-engine/EqMessageProtocol.h"
+  #include "../../audio-engine/DspChain.h"
   #include "../../audio-engine/ChannelBalanceProcessor.h"
   #include "../../audio-engine/ConvolutionProcessor.h"
   #include "../../audio-engine/EqProcessor.h"
@@ -1338,10 +1339,11 @@ public:
           buffer(static_cast<size_t>(capacityFrames * channelCount), 0.0f),
           automixFifo(capacityFrames),
           automixBuffer(static_cast<size_t>(capacityFrames * channelCount), 0.0f),
-          eqProcessor(eqProcessorToUse),
           ownedConvolutionProcessor(std::make_unique<echo::ConvolutionProcessor>()),
           convolutionProcessor(ownedConvolutionProcessor.get()),
-          channelBalanceProcessor(channelBalanceProcessorToUse)
+          ownedHeadroomProcessor(std::make_unique<echo::DspHeadroomProcessor>()),
+          headroomProcessor(ownedHeadroomProcessor.get()),
+          dspChain(eqProcessorToUse, *convolutionProcessor, channelBalanceProcessorToUse, *headroomProcessor)
     {
     }
 
@@ -1353,7 +1355,8 @@ public:
         double gainToUse,
         echo::EqProcessor& eqProcessorToUse,
         echo::ConvolutionProcessor& convolutionProcessorToUse,
-        echo::ChannelBalanceProcessor& channelBalanceProcessorToUse)
+        echo::ChannelBalanceProcessor& channelBalanceProcessorToUse,
+        echo::DspHeadroomProcessor& headroomProcessorToUse)
         : channels(channelCount),
           gain(static_cast<float>(std::max(0.0, std::min(1.0, gainToUse)))),
           startupPrebufferFrames(std::max(0, startupPrebufferFramesToUse)),
@@ -1362,18 +1365,16 @@ public:
           buffer(static_cast<size_t>(capacityFrames * channelCount), 0.0f),
           automixFifo(capacityFrames),
           automixBuffer(static_cast<size_t>(capacityFrames * channelCount), 0.0f),
-          eqProcessor(eqProcessorToUse),
           convolutionProcessor(&convolutionProcessorToUse),
-          channelBalanceProcessor(channelBalanceProcessorToUse)
+          headroomProcessor(&headroomProcessorToUse),
+          dspChain(eqProcessorToUse, *convolutionProcessor, channelBalanceProcessorToUse, *headroomProcessor)
     {
     }
 
     void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override
     {
         configureDeclickRamp(sampleRate);
-        eqProcessor.prepare(sampleRate, samplesPerBlockExpected, channels);
-        convolutionProcessor->prepare(sampleRate, samplesPerBlockExpected, channels);
-        channelBalanceProcessor.prepare(sampleRate, samplesPerBlockExpected, channels);
+        dspChain.prepare(sampleRate, samplesPerBlockExpected, channels);
     }
 
     void prepareForNativeRender(int maxFramesPerCallback, double sampleRate)
@@ -1381,16 +1382,27 @@ public:
         const int safeFrames = std::max(1, maxFramesPerCallback);
         nativeRenderBuffer.setSize(channels, safeFrames, false, true, true);
         configureDeclickRamp(sampleRate);
-        eqProcessor.prepare(sampleRate, safeFrames, channels);
-        convolutionProcessor->prepare(sampleRate, safeFrames, channels);
-        channelBalanceProcessor.prepare(sampleRate, safeFrames, channels);
+        dspChain.prepare(sampleRate, safeFrames, channels);
     }
 
     void releaseResources() override
     {
-        eqProcessor.reset();
-        convolutionProcessor->reset();
-        channelBalanceProcessor.reset();
+        dspChain.reset();
+    }
+
+    bool isDspActive() const
+    {
+        return dspChain.isActive();
+    }
+
+    bool hasDspClippingRisk() const
+    {
+        return dspChain.hasClippingRisk();
+    }
+
+    bool isDspLimiterProtecting() const
+    {
+        return dspChain.isSafetyLimiterProtecting();
     }
 
     void getNextAudioBlock(const juce::AudioSourceChannelInfo& info) override
@@ -1507,9 +1519,7 @@ public:
         if (renderedFrames > 0)
             framesPlayed.fetch_add(renderedFrames, std::memory_order_relaxed);
 
-        eqProcessor.processBlock(output, startSample, frameCount);
-        convolutionProcessor->processBlock(output, startSample, frameCount);
-        channelBalanceProcessor.processBlock(output, startSample, frameCount);
+        dspChain.processBlock(output, startSample, frameCount);
         applyDeclickRamp(output, startSample, frameCount);
 
         return renderedFrames;
@@ -2015,10 +2025,11 @@ private:
     juce::AbstractFifo automixFifo;
     std::vector<float> automixBuffer;
     juce::AudioBuffer<float> nativeRenderBuffer;
-    echo::EqProcessor& eqProcessor;
     std::unique_ptr<echo::ConvolutionProcessor> ownedConvolutionProcessor;
     echo::ConvolutionProcessor* convolutionProcessor = nullptr;
-    echo::ChannelBalanceProcessor& channelBalanceProcessor;
+    std::unique_ptr<echo::DspHeadroomProcessor> ownedHeadroomProcessor;
+    echo::DspHeadroomProcessor* headroomProcessor = nullptr;
+    echo::DspChain dspChain;
     mutable std::mutex fifoMutex;
     mutable std::mutex automixMutex;
     AutomixNativePlan automixPlan;
@@ -2584,7 +2595,9 @@ public:
           processor(processorToUse),
           channelBalanceProcessor(channelBalanceProcessorToUse),
           ownedConvolutionProcessor(std::make_unique<echo::ConvolutionProcessor>()),
-          convolutionProcessor(ownedConvolutionProcessor.get())
+          convolutionProcessor(ownedConvolutionProcessor.get()),
+          ownedHeadroomProcessor(std::make_unique<echo::DspHeadroomProcessor>()),
+          headroomProcessor(ownedHeadroomProcessor.get())
     {
     }
 
@@ -2592,11 +2605,13 @@ public:
         int portToUse,
         echo::EqProcessor& processorToUse,
         echo::ChannelBalanceProcessor& channelBalanceProcessorToUse,
-        echo::ConvolutionProcessor& convolutionProcessorToUse)
+        echo::ConvolutionProcessor& convolutionProcessorToUse,
+        echo::DspHeadroomProcessor& headroomProcessorToUse)
         : port(portToUse),
           processor(processorToUse),
           channelBalanceProcessor(channelBalanceProcessorToUse),
-          convolutionProcessor(&convolutionProcessorToUse)
+          convolutionProcessor(&convolutionProcessorToUse),
+          headroomProcessor(&headroomProcessorToUse)
     {
     }
 
@@ -2683,7 +2698,7 @@ private:
 
                 if (! line.empty())
                 {
-                    const auto response = echo::EqMessageProtocol::handleJsonLine(line, processor, channelBalanceProcessor, *convolutionProcessor) + "\n";
+                    const auto response = echo::EqMessageProtocol::handleJsonLine(line, processor, channelBalanceProcessor, *convolutionProcessor, *headroomProcessor) + "\n";
                     socket.write(response.data(), static_cast<int>(response.size()));
                 }
 
@@ -2697,6 +2712,8 @@ private:
     echo::ChannelBalanceProcessor& channelBalanceProcessor;
     std::unique_ptr<echo::ConvolutionProcessor> ownedConvolutionProcessor;
     echo::ConvolutionProcessor* convolutionProcessor = nullptr;
+    std::unique_ptr<echo::DspHeadroomProcessor> ownedHeadroomProcessor;
+    echo::DspHeadroomProcessor* headroomProcessor = nullptr;
     juce::StreamingSocket listener;
     juce::StreamingSocket* client = nullptr;
     std::thread worker;
@@ -4225,7 +4242,8 @@ int runLegacyWasapiExclusiveHost(const Options& options)
     echo::EqProcessor eqProcessor;
     echo::ChannelBalanceProcessor channelBalanceProcessor;
     echo::ConvolutionProcessor convolutionProcessor;
-    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor, convolutionProcessor);
+    echo::DspHeadroomProcessor headroomProcessor;
+    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor, convolutionProcessor, headroomProcessor);
     const bool eqControlReady = eqControlServer.start();
     const int requestedDeviceBufferFrames = getDeviceBufferSize(options);
     const int fifoCapacityFrames = getFifoCapacityFrames(options, options.sampleRate);
@@ -4240,7 +4258,8 @@ int runLegacyWasapiExclusiveHost(const Options& options)
         options.volume,
         eqProcessor,
         convolutionProcessor,
-        channelBalanceProcessor);
+        channelBalanceProcessor,
+        headroomProcessor);
     source.prepareForNativeRender(fifoCapacityFrames, static_cast<double>(options.sampleRate));
 
     std::atomic<bool> shutdownRequested { false };
@@ -4315,7 +4334,9 @@ int runLegacyWasapiExclusiveHost(const Options& options)
         + ",\"fifoCapacityFrames\":" + std::to_string(fifoCapacityFrames)
         + ",\"startupPrebufferFrames\":" + std::to_string(startupPrebufferFrames)
         + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
-        + ",\"dspActive\":" + std::string((eqProcessor.isEnabled() || convolutionProcessor.isEnabled() || channelBalanceProcessor.isEnabled()) ? "true" : "false")
+        + ",\"dspActive\":" + std::string(source.isDspActive() ? "true" : "false")
+        + ",\"dspClippingRisk\":" + std::string(source.hasDspClippingRisk() ? "true" : "false")
+        + ",\"dspLimiterProtecting\":" + std::string(source.isDspLimiterProtecting() ? "true" : "false")
         + ",\"backend\":\"wasapi-exclusive\""
         + ",\"backendImpl\":\"legacy-wasapi-exclusive\""
         + ",\"format\":\"" + jsonEscape(juce::String::fromUTF8(readyInfo.format)) + "\""
@@ -4469,6 +4490,8 @@ int runLegacyWasapiExclusiveDopHost(const Options& options)
         + ",\"startupPrebufferFrames\":" + std::to_string(startupPrebufferFrames)
         + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
         + ",\"dspActive\":false"
+        + ",\"dspClippingRisk\":false"
+        + ",\"dspLimiterProtecting\":false"
         + ",\"backend\":\"wasapi-exclusive\""
         + ",\"backendImpl\":\"legacy-wasapi-exclusive-dop\""
         + ",\"format\":\"" + jsonEscape(juce::String::fromUTF8(readyInfo.format)) + "\""
@@ -4566,7 +4589,8 @@ int runLegacyWasapiSharedHost(const Options& options)
     echo::EqProcessor eqProcessor;
     echo::ChannelBalanceProcessor channelBalanceProcessor;
     echo::ConvolutionProcessor convolutionProcessor;
-    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor, convolutionProcessor);
+    echo::DspHeadroomProcessor headroomProcessor;
+    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor, convolutionProcessor, headroomProcessor);
     const bool eqControlReady = eqControlServer.start();
     const int fifoCapacityFrames = getFifoCapacityFrames(options, plannedSampleRate);
     const int startupPrebufferFrames = getStartupPrebufferFrames(options, plannedSampleRate);
@@ -4580,7 +4604,8 @@ int runLegacyWasapiSharedHost(const Options& options)
         options.volume,
         eqProcessor,
         convolutionProcessor,
-        channelBalanceProcessor);
+        channelBalanceProcessor,
+        headroomProcessor);
     source.prepareForNativeRender(fifoCapacityFrames, static_cast<double>(plannedSampleRate));
 
     std::atomic<bool> shutdownRequested { false };
@@ -4655,7 +4680,9 @@ int runLegacyWasapiSharedHost(const Options& options)
         + ",\"fifoCapacityFrames\":" + std::to_string(fifoCapacityFrames)
         + ",\"startupPrebufferFrames\":" + std::to_string(startupPrebufferFrames)
         + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
-        + ",\"dspActive\":" + std::string((eqProcessor.isEnabled() || convolutionProcessor.isEnabled() || channelBalanceProcessor.isEnabled()) ? "true" : "false")
+        + ",\"dspActive\":" + std::string(source.isDspActive() ? "true" : "false")
+        + ",\"dspClippingRisk\":" + std::string(source.hasDspClippingRisk() ? "true" : "false")
+        + ",\"dspLimiterProtecting\":" + std::string(source.isDspLimiterProtecting() ? "true" : "false")
         + ",\"backend\":\"wasapi-shared\""
         + ",\"backendImpl\":\"legacy-wasapi-shared\""
         + ",\"format\":\"" + jsonEscape(juce::String::fromUTF8(readyInfo.format)) + "\""
@@ -4759,7 +4786,8 @@ int runLegacyAsioHost(const Options& options)
     echo::EqProcessor eqProcessor;
     echo::ChannelBalanceProcessor channelBalanceProcessor;
     echo::ConvolutionProcessor convolutionProcessor;
-    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor, convolutionProcessor);
+    echo::DspHeadroomProcessor headroomProcessor;
+    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor, convolutionProcessor, headroomProcessor);
     const bool eqControlReady = eqControlServer.start();
 
     PcmRingAudioSource source(
@@ -4770,7 +4798,8 @@ int runLegacyAsioHost(const Options& options)
         options.volume,
         eqProcessor,
         convolutionProcessor,
-        channelBalanceProcessor);
+        channelBalanceProcessor,
+        headroomProcessor);
     source.prepareForNativeRender(fifoCapacityFrames, static_cast<double>(plannedSampleRate));
 
     std::atomic<bool> shutdownRequested { false };
@@ -4840,7 +4869,9 @@ int runLegacyAsioHost(const Options& options)
         + ",\"fifoCapacityFrames\":" + std::to_string(fifoCapacityFrames)
         + ",\"startupPrebufferFrames\":" + std::to_string(startupPrebufferFrames)
         + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
-        + ",\"dspActive\":" + std::string((eqProcessor.isEnabled() || convolutionProcessor.isEnabled() || channelBalanceProcessor.isEnabled()) ? "true" : "false")
+        + ",\"dspActive\":" + std::string(source.isDspActive() ? "true" : "false")
+        + ",\"dspClippingRisk\":" + std::string(source.hasDspClippingRisk() ? "true" : "false")
+        + ",\"dspLimiterProtecting\":" + std::string(source.isDspLimiterProtecting() ? "true" : "false")
         + ",\"backend\":\"asio\""
         + ",\"backendImpl\":\"legacy-asio-sdk\""
         + ",\"format\":\"" + jsonEscape(juce::String::fromUTF8(readyInfo.format)) + "\""
@@ -4999,6 +5030,8 @@ int runLegacyAsioDopHost(const Options& options)
         + ",\"startupPrebufferFrames\":" + std::to_string(startupPrebufferFrames)
         + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
         + ",\"dspActive\":false"
+        + ",\"dspClippingRisk\":false"
+        + ",\"dspLimiterProtecting\":false"
         + ",\"backend\":\"asio\""
         + ",\"backendImpl\":\"legacy-asio-sdk-dop\""
         + ",\"format\":\"" + jsonEscape(juce::String::fromUTF8(readyInfo.format)) + "\""
@@ -5151,6 +5184,8 @@ int runLegacyAsioNativeDsdHost(const Options& options)
         + ",\"startupPrebufferFrames\":" + std::to_string(reportedStartupPrebufferFrames)
         + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
         + ",\"dspActive\":false"
+        + ",\"dspClippingRisk\":false"
+        + ",\"dspLimiterProtecting\":false"
         + ",\"backend\":\"asio\""
         + ",\"backendImpl\":\"legacy-asio-sdk-native-dsd\""
         + ",\"format\":\"" + jsonEscape(juce::String::fromUTF8(readyInfo.format)) + "\""
@@ -5477,7 +5512,8 @@ int runHost(const Options& options)
     echo::EqProcessor eqProcessor;
     echo::ChannelBalanceProcessor channelBalanceProcessor;
     echo::ConvolutionProcessor convolutionProcessor;
-    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor, convolutionProcessor);
+    echo::DspHeadroomProcessor headroomProcessor;
+    EqControlServer eqControlServer(options.eqControlPort, eqProcessor, channelBalanceProcessor, convolutionProcessor, headroomProcessor);
     const bool eqControlReady = eqControlServer.start();
     const int fifoCapacityFrames = getFifoCapacityFrames(options, actualSampleRate);
     const int startupPrebufferFrames = getStartupPrebufferFrames(options, actualSampleRate);
@@ -5491,7 +5527,8 @@ int runHost(const Options& options)
         options.volume,
         eqProcessor,
         convolutionProcessor,
-        channelBalanceProcessor);
+        channelBalanceProcessor,
+        headroomProcessor);
     juce::AudioSourcePlayer player;
     player.setSource(&source);
 
@@ -5526,7 +5563,9 @@ int runHost(const Options& options)
         + ",\"fifoCapacityFrames\":" + std::to_string(fifoCapacityFrames)
         + ",\"startupPrebufferFrames\":" + std::to_string(startupPrebufferFrames)
         + ",\"startupPrebufferTimeoutMs\":" + std::to_string(startupPrebufferTimeoutMs)
-        + ",\"dspActive\":" + std::string((eqProcessor.isEnabled() || convolutionProcessor.isEnabled() || channelBalanceProcessor.isEnabled()) ? "true" : "false")
+        + ",\"dspActive\":" + std::string(source.isDspActive() ? "true" : "false")
+        + ",\"dspClippingRisk\":" + std::string(source.hasDspClippingRisk() ? "true" : "false")
+        + ",\"dspLimiterProtecting\":" + std::string(source.isDspLimiterProtecting() ? "true" : "false")
         + ",\"backend\":\"" + getBackendName(options, openedDescriptor.typeName)
         + "\",\"backendImpl\":\"" + getBackendImplName(options, openedDescriptor.typeName)
         + "\",\"deviceType\":\""

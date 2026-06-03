@@ -183,6 +183,11 @@ export const PlayerStatusChips = ({ status, state, track }: PlayerStatusChipsPro
         ? { label: 'Rate Mismatch', className: 'tag-warning' }
         : null,
     status?.roomCorrectionEnabled ? { label: 'FIR', className: 'tag-warning' } : null,
+    status?.dspLimiterProtecting ? { label: 'Protect', className: 'tag-warning' } : null,
+    !status?.dspLimiterProtecting && status?.dspClippingRisk ? { label: 'DSP Risk', className: 'tag-warning' } : null,
+    status?.dspActive && Math.abs(status?.dspHeadroomDb ?? 0) > 0.05 ? { label: `Headroom ${status?.dspHeadroomDb?.toFixed(1)}dB`, className: 'tag-warning' } : null,
+    status?.eqEnabled ? { label: 'EQ', className: 'tag-warning' } : null,
+    status?.channelBalanceEnabled ? { label: 'Balance', className: 'tag-warning' } : null,
     automixLabel ? { label: automixLabel, className: 'tag-automix' } : null,
     isDlnaReceiverTrack(track) ? { label: 'DLNA', className: 'tag-dlna' } : null,
     isAirPlayReceiverTrack(track) ? { label: 'AIRPLAY', className: 'tag-airplay' } : null,
