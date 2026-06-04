@@ -485,6 +485,7 @@ export const defaultSettings: AppSettings = {
   lyricsSecondaryFontSizePx: 22,
   lyricsFontFamily: 'Microsoft YaHei',
   lyricsFontFilePath: null,
+  lyricsTextDirection: 'horizontal',
   lyricsLineSpacingPercent: 110,
   lyricsLineMaxChars: 0,
   lyricsContextOpacityPercent: 49,
@@ -507,6 +508,7 @@ export const defaultSettings: AppSettings = {
   desktopLyricsColor: defaultDesktopLyricsColor,
   desktopLyricsStrokeColor: defaultDesktopLyricsStrokeColor,
   desktopLyricsOpacityPercent: 96,
+  desktopLyricsTextDirection: 'horizontal',
   desktopLyricsRomanizationEnabled: true,
   desktopLyricsTranslationEnabled: true,
   desktopLyricsBounds: null,
@@ -1218,6 +1220,9 @@ const normalizeLyricsBackgroundMode = (value: unknown): LyricsBackgroundMode =>
     ? value
     : defaultSettings.lyricsBackgroundMode;
 
+const normalizeLyricsTextDirection = (value: unknown): AppSettings['lyricsTextDirection'] =>
+  value === 'vertical' || value === 'horizontal' ? value : defaultSettings.lyricsTextDirection ?? 'horizontal';
+
 const normalizeLyricsMiniPlayerColorMode = (value: unknown): LyricsMiniPlayerColorMode =>
   value === 'custom' || value === 'cover' || value === 'default' ? value : defaultSettings.lyricsPlayerBarDrawerColorMode ?? 'default';
 
@@ -1722,6 +1727,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
       : defaultSettings.lyricsSecondaryFontSizePx,
     lyricsFontFamily: normalizeRequiredText(settings.lyricsFontFamily, defaultSettings.lyricsFontFamily ?? 'Microsoft YaHei'),
     lyricsFontFilePath: normalizeFontPath(settings.lyricsFontFilePath),
+    lyricsTextDirection: normalizeLyricsTextDirection(settings.lyricsTextDirection),
     lyricsLineSpacingPercent: Number.isFinite(lyricsLineSpacingPercent)
       ? Math.round(clamp(lyricsLineSpacingPercent, 60, 150))
       : defaultSettings.lyricsLineSpacingPercent,
@@ -1764,6 +1770,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     desktopLyricsOpacityPercent: Number.isFinite(desktopLyricsOpacityPercent)
       ? Math.round(clamp(desktopLyricsOpacityPercent, 35, 100))
       : defaultSettings.desktopLyricsOpacityPercent,
+    desktopLyricsTextDirection: normalizeLyricsTextDirection(settings.desktopLyricsTextDirection),
     desktopLyricsRomanizationEnabled: settings.desktopLyricsRomanizationEnabled !== false,
     desktopLyricsTranslationEnabled: settings.desktopLyricsTranslationEnabled !== false,
     desktopLyricsBounds: normalizeDesktopLyricsBounds(settings.desktopLyricsBounds),

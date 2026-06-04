@@ -10,6 +10,7 @@ import type { SidebarRouteId } from './sidebar';
 export type ScanPerformanceMode = 'low' | 'balanced' | 'performance';
 export type RemoteCoverLoadPerformanceMode = 'low' | 'balanced' | 'aggressive' | 'lan';
 export type LyricsBackgroundMode = 'theme' | 'cover' | 'coverColor' | 'customWallpaper';
+export type LyricsTextDirection = 'horizontal' | 'vertical';
 export type LyricsMiniPlayerColorMode = 'default' | 'custom' | 'cover';
 export type DesktopLyricsColorMode = 'theme' | 'custom';
 export type AppWallpaperMediaType = 'image' | 'video';
@@ -305,6 +306,7 @@ export type AppSettings = {
   lyricsSecondaryFontSizePx?: number;
   lyricsFontFamily?: string;
   lyricsFontFilePath?: string | null;
+  lyricsTextDirection?: LyricsTextDirection;
   lyricsLineSpacingPercent?: number;
   lyricsLineMaxChars?: number;
   lyricsContextOpacityPercent?: number;
@@ -327,6 +329,7 @@ export type AppSettings = {
   desktopLyricsColor?: string;
   desktopLyricsStrokeColor?: string;
   desktopLyricsOpacityPercent?: number;
+  desktopLyricsTextDirection?: LyricsTextDirection;
   desktopLyricsRomanizationEnabled?: boolean;
   desktopLyricsTranslationEnabled?: boolean;
   desktopLyricsBounds?: DesktopLyricsBounds | null;
