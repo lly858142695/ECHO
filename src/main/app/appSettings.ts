@@ -1028,7 +1028,7 @@ const normalizeAudioExportFormat = (value: unknown): AudioExportFormat =>
   value === 'wav' || value === 'flac' || value === 'ogg' || value === 'mp3' ? value : defaultSettings.audioExportFormat ?? 'mp3';
 
 const normalizeAudioEchoSrcMode = (value: unknown): AudioEchoSrcMode =>
-  value === 'family2x' || value === 'family4x' ? value : 'off';
+  value === 'family2x' || value === 'family4x' || value === 'family8x' ? value : 'off';
 
 const normalizeAudioEchoSrcQualityProfile = (value: unknown): AudioEchoSrcQualityProfile =>
   value === 'balanced' || value === 'lowLatency' ? value : 'transparent';

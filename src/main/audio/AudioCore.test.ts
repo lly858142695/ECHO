@@ -1479,6 +1479,42 @@ describe('Audio Core sample-rate regression guard', () => {
     });
   });
 
+  it('applies ECHO SRC family 8x to PCM direct output as an experimental ultra path', async () => {
+    const { bridges, decoder, session } = createSessionHarness([probe('441.flac', 44100), probe('48.flac', 48000)]);
+
+    const firstStatus = await session.playLocalFile({
+      filePath: '441.flac',
+      output: { outputMode: 'exclusive', echoSrcMode: 'family8x' },
+    });
+
+    expect(firstStatus.requestedOutputSampleRate).toBe(352800);
+    expect(firstStatus.decoderOutputSampleRate).toBe(352800);
+    expect(firstStatus.echoSrcMode).toBe('family8x');
+    expect(firstStatus.echoSrcTargetSampleRate).toBe(352800);
+    expect(firstStatus.echoSrcActive).toBe(true);
+    expect(firstStatus.warnings).toContain('echo_src_active:44100->352800');
+    expect(bridges[0].startOptions).toMatchObject({
+      exclusive: true,
+      requestedOutputSampleRate: 352800,
+    });
+    expect(decoder.decodeRequests.at(-1)).toMatchObject({
+      filePath: '441.flac',
+      decoderOutputSampleRate: 352800,
+      resamplerEngine: 'soxr',
+    });
+
+    const secondStatus = await session.playLocalFile({
+      filePath: '48.flac',
+      output: { outputMode: 'exclusive', echoSrcMode: 'family8x' },
+    });
+
+    expect(secondStatus.requestedOutputSampleRate).toBe(384000);
+    expect(secondStatus.decoderOutputSampleRate).toBe(384000);
+    expect(secondStatus.echoSrcTargetSampleRate).toBe(384000);
+    expect(secondStatus.echoSrcActive).toBe(true);
+    expect(secondStatus.warnings).toContain('echo_src_active:48000->384000');
+  });
+
   it('switching 48k to 44.1k exclusive reopens at the source rate', async () => {
     const { bridges, decoder, session } = createSessionHarness([probe('48.flac', 48000), probe('441.flac', 44100)]);
 

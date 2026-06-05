@@ -75,6 +75,10 @@ const formatIssueReason = (
     return 'ECHO SRC is bypassed in shared output; the system mixer rate is used.';
   }
 
+  if (value === 'echo_src_bypassed_in_non_direct_output') {
+    return 'ECHO SRC is bypassed outside ASIO or Exclusive output.';
+  }
+
   if (value === 'echo_src_bypassed_for_dsd_direct' || value === 'echo_src_bypassed_for_dsd_pcm') {
     return 'ECHO SRC is bypassed for DSD playback.';
   }
@@ -227,7 +231,7 @@ export const AudioProfessionalStatusPanel = ({ status, variant = 'drawer' }: Aud
       nextBadges.push({ label: t('audioProfessional.badge.bitPerfect'), tone: 'good' });
     }
     if (status?.resampling) {
-      nextBadges.push({ label: t('audioProfessional.badge.resampling'), tone: 'warning' });
+      nextBadges.push({ label: t(status.echoSrcActive ? 'audioProfessional.badge.upsampling' : 'audioProfessional.badge.resampling'), tone: 'warning' });
     }
     if (status?.dspActive || status?.eqEnabled || status?.roomCorrectionEnabled || status?.channelBalanceEnabled) {
       nextBadges.push({ label: t('audioProfessional.badge.dsp'), tone: 'warning' });
@@ -283,7 +287,7 @@ export const AudioProfessionalStatusPanel = ({ status, variant = 'drawer' }: Aud
       rows: [
         { label: t('audioProfessional.row.signalPath'), value: signalPathText, tone: dspModules.length ? 'warning' : 'good' },
         { label: t('audioProfessional.row.bitPerfect'), value: bitPerfectText, tone: status?.bitPerfectCandidate ? 'good' : 'muted' },
-        { label: t('audioProfessional.row.resampling'), value: status?.resampling ? yes : no, tone: status?.resampling ? 'warning' : 'good' },
+        { label: t(status?.echoSrcActive ? 'audioProfessional.row.upsampling' : 'audioProfessional.row.resampling'), value: status?.resampling ? yes : no, tone: status?.resampling ? 'warning' : 'good' },
         { label: t('audioProfessional.row.sampleRateMismatch'), value: status?.sampleRateMismatch ? yes : no, tone: status?.sampleRateMismatch ? 'danger' : 'good' },
         { label: t('audioProfessional.row.eq'), value: status?.eqEnabled ? enabled : disabled, tone: status?.eqEnabled ? 'warning' : 'muted' },
         { label: t('audioProfessional.row.roomCorrection'), value: status?.roomCorrectionEnabled ? enabled : disabled, tone: status?.roomCorrectionEnabled ? 'warning' : 'muted' },

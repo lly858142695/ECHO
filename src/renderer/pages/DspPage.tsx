@@ -103,6 +103,7 @@ const echoSrcModeOptions: Array<{ mode: AudioEchoSrcMode; title: string; detail:
   { mode: 'off', title: '关闭', detail: '保持源采样率，Bit-perfect 条件不受 SRC 影响。' },
   { mode: 'family2x', title: '2x PCM', detail: '44.1k 家族升到 88.2k，48k 家族升到 96k。' },
   { mode: 'family4x', title: '4x PCM', detail: '44.1k 家族升到 176.4k，48k 家族升到 192k。' },
+  { mode: 'family8x', title: '8x Ultra', detail: '实验档：44.1k 家族升到 352.8k，48k 家族升到 384k。' },
 ];
 
 const echoSrcQualityOptions: Array<{ profile: AudioEchoSrcQualityProfile; title: string; detail: string; precision: string }> = [
@@ -112,7 +113,7 @@ const echoSrcQualityOptions: Array<{ profile: AudioEchoSrcQualityProfile; title:
 ];
 
 const normalizeEchoSrcMode = (mode: unknown): AudioEchoSrcMode =>
-  mode === 'family2x' || mode === 'family4x' ? mode : 'off';
+  mode === 'family2x' || mode === 'family4x' || mode === 'family8x' ? mode : 'off';
 
 const normalizeEchoSrcQualityProfile = (profile: unknown): AudioEchoSrcQualityProfile =>
   profile === 'balanced' || profile === 'lowLatency' ? profile : 'transparent';
@@ -135,6 +136,8 @@ const dspLocalText: Record<string, string> = {
   'dsp.brand.subtitle': 'Signal Control',
   'dsp.module.src.description': 'PCM 采样率转换',
   'dsp.module.src.title': 'SRC / 升频',
+  'dsp.panel.src.abBypass': 'A/B 原生',
+  'dsp.panel.src.abRestore': '恢复升频',
   'dsp.panel.src.active': '正在升频',
   'dsp.panel.src.bypassDsd': 'DSD 输出旁路',
   'dsp.panel.src.bypassShared': '共享输出旁路',
@@ -614,9 +617,11 @@ type ModulePanelProps = {
   channelBalance: ChannelBalanceState;
   echoSrcMode: AudioEchoSrcMode;
   echoSrcQualityProfile: AudioEchoSrcQualityProfile;
+  echoSrcCompareReturnMode: AudioEchoSrcMode | null;
   busyKey: string | null;
   onEchoSrcModeChange: (mode: AudioEchoSrcMode) => void;
   onEchoSrcQualityProfileChange: (profile: AudioEchoSrcQualityProfile) => void;
+  onEchoSrcCompareToggle: () => void;
   onHeadroomChange: (headroomDb: number) => void;
   onImportRoomCorrection: () => void;
   onToggleRoomCorrection: () => void;
@@ -639,9 +644,11 @@ const EchoSrcPanel = ({
   audioStatus,
   echoSrcMode,
   echoSrcQualityProfile,
+  echoSrcCompareReturnMode,
   busyKey,
   onEchoSrcModeChange,
   onEchoSrcQualityProfileChange,
+  onEchoSrcCompareToggle,
   onRefresh,
 }: ModulePanelProps): JSX.Element => {
   const { t } = useDspI18n();
@@ -649,6 +656,7 @@ const EchoSrcPanel = ({
   const active = audioStatus?.echoSrcActive === true;
   const effectiveQualityProfile = normalizeEchoSrcQualityProfile(audioStatus?.echoSrcQualityProfile ?? echoSrcQualityProfile);
   const qualityOption = echoSrcQualityOptions.find((option) => option.profile === effectiveQualityProfile) ?? echoSrcQualityOptions[0];
+  const modeOption = echoSrcModeOptions.find((option) => option.mode === echoSrcMode) ?? echoSrcModeOptions[0];
   const sharedBypass = echoSrcMode !== 'off' && (audioStatus?.outputMode === 'shared' || warnings.includes('echo_src_bypassed_in_shared_output'));
   const dsdBypass =
     echoSrcMode !== 'off' &&
@@ -663,13 +671,14 @@ const EchoSrcPanel = ({
   const sourceRate = audioStatus?.fileSampleRate ?? null;
   const targetRate = active ? audioStatus?.echoSrcTargetSampleRate : null;
   const busy = busyKey === 'src';
+  const compareDisabled = busy || (echoSrcMode === 'off' && !echoSrcCompareReturnMode);
 
   return (
     <section className="dsp-module-panel dsp-module-panel--src">
       <p className="dsp-module-kicker">{t('dsp.panel.src.kicker')}</p>
       <div className="dsp-module-heading">
         <span><RadioTower size={18} />{t('dsp.module.src.title')}</span>
-        <strong>{echoSrcMode === 'off' ? 'Off' : echoSrcMode === 'family4x' ? '4x PCM' : '2x PCM'}</strong>
+        <strong>{echoSrcMode === 'off' ? 'Off' : modeOption.title}</strong>
       </div>
       <p className="dsp-module-note">{t('dsp.panel.src.detail')}</p>
 
@@ -698,6 +707,10 @@ const EchoSrcPanel = ({
         <button type="button" disabled={busy} onClick={onRefresh}>
           <Activity size={14} aria-hidden="true" />
           {t('dsp.action.refresh')}
+        </button>
+        <button type="button" data-active={echoSrcMode === 'off' && Boolean(echoSrcCompareReturnMode)} disabled={compareDisabled} onClick={onEchoSrcCompareToggle}>
+          <RotateCcw size={14} aria-hidden="true" />
+          {echoSrcMode === 'off' ? t('dsp.panel.src.abRestore') : t('dsp.panel.src.abBypass')}
         </button>
       </div>
 
@@ -1750,6 +1763,7 @@ export const DspPage = (): JSX.Element => {
   const [channelBalance, setChannelBalance] = useState<ChannelBalanceState>(fallbackChannelBalance);
   const [echoSrcMode, setEchoSrcMode] = useState<AudioEchoSrcMode>('off');
   const [echoSrcQualityProfile, setEchoSrcQualityProfile] = useState<AudioEchoSrcQualityProfile>('transparent');
+  const [echoSrcCompareReturnMode, setEchoSrcCompareReturnMode] = useState<AudioEchoSrcMode | null>(null);
   const [moduleError, setModuleError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -1783,7 +1797,11 @@ export const DspPage = (): JSX.Element => {
     let cancelled = false;
     const applyEchoSrcSetting = (mode: unknown): void => {
       if (!cancelled) {
-        setEchoSrcMode(normalizeEchoSrcMode(mode));
+        const nextMode = normalizeEchoSrcMode(mode);
+        setEchoSrcMode(nextMode);
+        if (nextMode !== 'off') {
+          setEchoSrcCompareReturnMode(nextMode);
+        }
       }
     };
     const applyEchoSrcQualitySetting = (profile: unknown): void => {
@@ -1839,6 +1857,9 @@ export const DspPage = (): JSX.Element => {
       }
 
       const previousMode = echoSrcMode;
+      if (mode !== 'off') {
+        setEchoSrcCompareReturnMode(mode);
+      }
       setEchoSrcMode(mode);
       void runModuleAction('src', async () => {
         try {
@@ -1853,6 +1874,19 @@ export const DspPage = (): JSX.Element => {
     },
     [echoSrcMode, runModuleAction, t],
   );
+
+  const handleEchoSrcCompareToggle = useCallback((): void => {
+    if (echoSrcMode !== 'off') {
+      setEchoSrcCompareReturnMode(echoSrcMode);
+      handleEchoSrcModeChange('off');
+      return;
+    }
+
+    const restoreMode = normalizeEchoSrcMode(echoSrcCompareReturnMode);
+    if (restoreMode !== 'off') {
+      handleEchoSrcModeChange(restoreMode);
+    }
+  }, [echoSrcCompareReturnMode, echoSrcMode, handleEchoSrcModeChange]);
 
   const handleEchoSrcQualityProfileChange = useCallback(
     (profile: AudioEchoSrcQualityProfile): void => {
@@ -2016,13 +2050,12 @@ export const DspPage = (): JSX.Element => {
   const sampleRate = audioStatus?.actualDeviceSampleRate ?? audioStatus?.requestedOutputSampleRate ?? audioStatus?.fileSampleRate ?? null;
   const echoSrcActive = audioStatus?.echoSrcActive === true;
   const echoSrcEnabled = echoSrcMode !== 'off' || echoSrcActive;
+  const echoSrcModeOption = echoSrcModeOptions.find((option) => option.mode === echoSrcMode) ?? echoSrcModeOptions[0];
   const echoSrcSubtitle = echoSrcActive
     ? formatRate(audioStatus?.echoSrcTargetSampleRate, t('dsp.status.auto'))
-    : echoSrcMode === 'family4x'
-      ? '4x PCM'
-      : echoSrcMode === 'family2x'
-        ? '2x PCM'
-        : t('dsp.status.bypassed');
+    : echoSrcMode !== 'off'
+      ? echoSrcModeOption.title
+      : t('dsp.status.bypassed');
 
   const modules = useMemo<DspModule[]>(
     () => [
@@ -2118,9 +2151,11 @@ export const DspPage = (): JSX.Element => {
     channelBalance,
     echoSrcMode,
     echoSrcQualityProfile,
+    echoSrcCompareReturnMode,
     busyKey,
     onEchoSrcModeChange: handleEchoSrcModeChange,
     onEchoSrcQualityProfileChange: handleEchoSrcQualityProfileChange,
+    onEchoSrcCompareToggle: handleEchoSrcCompareToggle,
     onHeadroomChange: handleHeadroomChange,
     onImportRoomCorrection: handleImportRoomCorrection,
     onToggleRoomCorrection: handleToggleRoomCorrection,

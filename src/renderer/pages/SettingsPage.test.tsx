@@ -1007,11 +1007,15 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     clickSettingsNav('settings\\.nav\\.about\\.label');
-    fireEvent.click(screen.getByRole('button', { name: /爱发电/ }));
-    fireEvent.click(screen.getByRole('button', { name: /查看历史更新日志/ }));
-    fireEvent.click(screen.getByRole('button', { name: /加入 QQ 群聊/ }));
-    fireEvent.click(screen.getByRole('button', { name: /加入 Discord/ }));
+    fireEvent.click(screen.getByRole('button', { name: /官方网站/ }));
+    fireEvent.click(screen.getByRole('button', { name: /百度网盘/ }));
+    fireEvent.click(screen.getByRole('button', { name: /settings\.about\.updates\.action\.afdian/ }));
+    fireEvent.click(screen.getByRole('button', { name: /settings\.about\.updates\.action\.history/ }));
+    fireEvent.click(screen.getByRole('button', { name: /settings\.about\.updates\.action\.qq/ }));
+    fireEvent.click(screen.getByRole('button', { name: /settings\.about\.updates\.action\.discord/ }));
 
+    expect(openExternalUrlMock).toHaveBeenCalledWith('https://echonagi.com');
+    expect(openExternalUrlMock).toHaveBeenCalledWith('https://pan.baidu.com/s/1ta0McyhY9knaD6FT5xW3Og?pwd=echo');
     await waitFor(() => expect(openExternalUrlMock).toHaveBeenCalledWith('https://afdian.com/a/echonext'));
     await waitFor(() => expect(openExternalUrlMock).toHaveBeenCalledWith('https://github.com/moekotori/echo/releases'));
     expect(openExternalUrlMock).toHaveBeenCalledWith('https://qm.qq.com/q/KrJE8PIqSQ');

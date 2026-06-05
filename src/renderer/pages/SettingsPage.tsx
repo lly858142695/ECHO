@@ -382,6 +382,8 @@ const defaultTidalRedirectUri = 'http://127.0.0.1:43880/tidal/callback';
 const spotifyDeveloperDashboardUrl = 'https://developer.spotify.com/dashboard';
 const tidalDeveloperDashboardUrl = 'https://developer.tidal.com/dashboard';
 const discogsDeveloperSettingsUrl = 'https://www.discogs.com/settings/developers';
+const officialWebsiteUrl = 'https://echonagi.com';
+const baiduPanShareUrl = 'https://pan.baidu.com/s/1ta0McyhY9knaD6FT5xW3Og?pwd=echo';
 const playbackAdvancedPanelExpandedStorageKey = 'echo:settings:playback:advanced-panel-expanded';
 const integrationsAccountPanelExpandedStorageKey = 'echo:settings:integrations:account-panel-expanded';
 const integrationsCredentialPanelExpandedStorageKey = 'echo:settings:integrations:credential-panel-expanded';
@@ -13615,6 +13617,22 @@ export const SettingsPage = (): JSX.Element => {
                     <button className="settings-action-button" type="button" onClick={() => void handleOpenRepository()}>
                       <Github size={15} />
                       ECHO NEXT
+                    </button>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => void handleOpenExternalUrl(officialWebsiteUrl)}
+                    >
+                      <Globe2 size={15} />
+                      官方网站
+                    </button>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => void handleOpenExternalUrl(baiduPanShareUrl)}
+                    >
+                      <ExternalLink size={15} />
+                      百度网盘
                     </button>
                     <button
                       className="settings-action-button"

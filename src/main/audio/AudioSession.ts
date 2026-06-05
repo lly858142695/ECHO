@@ -244,7 +244,7 @@ export type AudioSessionDependencies = {
 const fallbackSampleRate = 44100;
 const fallbackSharedMixSampleRate = 48000;
 const maxReliableSharedOutputSampleRate = 96000;
-const maxEchoSrcPcmTargetSampleRate = 192000;
+const maxEchoSrcPcmTargetSampleRate = 384000;
 const recommendedWindowsSharedDefaultSampleRate = 48000;
 const preparedLocalPlaybackTtlMs = 2 * 60 * 1000;
 const preparedLocalPlaybackMaxItems = 50;
@@ -690,7 +690,7 @@ const normalizePlaybackSpeedMode = (value: unknown): PlaybackSpeedMode => {
 };
 
 const normalizeEchoSrcMode = (value: unknown): AudioEchoSrcMode =>
-  value === 'family2x' || value === 'family4x' ? value : 'off';
+  value === 'family2x' || value === 'family4x' || value === 'family8x' ? value : 'off';
 
 const normalizeEchoSrcQualityProfile = (value: unknown): AudioEchoSrcQualityProfile =>
   value === 'balanced' || value === 'lowLatency' ? value : 'transparent';
@@ -719,7 +719,8 @@ const resolveEchoSrcTargetSampleRate = (
     return null;
   }
 
-  const target = familyBase * (mode === 'family4x' ? 4 : 2);
+  const multiplier = mode === 'family8x' ? 8 : mode === 'family4x' ? 4 : 2;
+  const target = familyBase * multiplier;
   if (target > maxEchoSrcPcmTargetSampleRate || sourceSampleRate >= target) {
     return null;
   }
@@ -4792,9 +4793,10 @@ export class AudioSession extends EventEmitter {
     const explicitRequestedSampleRate = normalizePositiveInteger(outputSettings.requestedOutputSampleRate);
     const echoSrcMode = normalizeEchoSrcMode(outputSettings.echoSrcMode);
     const echoSrcQualityProfile = normalizeEchoSrcQualityProfile(outputSettings.echoSrcQualityProfile);
+    const echoSrcOutputModeSupported = outputMode === 'asio' || outputMode === 'exclusive';
     const echoSrcTargetSampleRate =
       echoSrcMode !== 'off' &&
-      outputMode !== 'shared' &&
+      echoSrcOutputModeSupported &&
       dsdOutputMode === 'pcm' &&
       !dsdPcmOutputSampleRate
         ? resolveEchoSrcTargetSampleRate(echoSrcMode, sourceSampleRate)
@@ -4882,6 +4884,8 @@ export class AudioSession extends EventEmitter {
 
     if (echoSrcMode !== 'off' && outputMode === 'shared') {
       warnings.push('echo_src_bypassed_in_shared_output');
+    } else if (echoSrcMode !== 'off' && !echoSrcOutputModeSupported) {
+      warnings.push('echo_src_bypassed_in_non_direct_output');
     } else if (echoSrcMode !== 'off' && dsdOutputMode !== 'pcm') {
       warnings.push('echo_src_bypassed_for_dsd_direct');
     } else if (echoSrcMode !== 'off' && dsdPcmOutputSampleRate) {

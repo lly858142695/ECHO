@@ -78,9 +78,46 @@ const formatBitDepth = (value: number | null | undefined): string | null =>
 
 const formatRoonRate = (value: number | null | undefined): string | null => formatRate(value)?.replace(' kHz', 'kHz') ?? null;
 
+const formatEchoSrcQualityProfile = (value: AudioStatus['echoSrcQualityProfile']): string => {
+  if (value === 'balanced') {
+    return 'Balanced';
+  }
+  if (value === 'lowLatency') {
+    return 'Low latency';
+  }
+  return 'Transparent';
+};
+
+const formatEchoSrcPath = (status: AudioStatus | null, track?: LibraryTrack | null): string | null => {
+  if (!status?.echoSrcActive) {
+    return null;
+  }
+
+  const sourceRate = formatRoonRate(status.fileSampleRate ?? track?.sampleRate);
+  const targetRate = formatRoonRate(
+    status.echoSrcTargetSampleRate
+    ?? status.decoderOutputSampleRate
+    ?? status.requestedOutputSampleRate
+    ?? status.actualDeviceSampleRate,
+  );
+  const engine = status.resamplerEngine === 'soxr' ? 'SOXR' : status.resamplerEngine ?? 'SRC';
+  const quality = formatEchoSrcQualityProfile(status.echoSrcQualityProfile);
+
+  if (sourceRate && targetRate) {
+    return `${sourceRate} -> ECHO SRC ${targetRate} / ${engine} ${quality}`;
+  }
+
+  return targetRate ? `ECHO SRC -> ${targetRate} / ${engine} ${quality}` : `ECHO SRC / ${engine} ${quality}`;
+};
+
 const formatResamplePath = (status: AudioStatus | null, track?: LibraryTrack | null): string | null => {
   if (!status?.resampling) {
     return null;
+  }
+
+  const echoSrcPath = formatEchoSrcPath(status, track);
+  if (echoSrcPath) {
+    return echoSrcPath;
   }
 
   const sourceRate = formatRoonRate(status.fileSampleRate ?? track?.sampleRate);
@@ -204,6 +241,7 @@ const buildDspModules = (status: AudioStatus | null): string[] => {
       ? `Headroom ${formatDb(status.dspHeadroomDb) ?? ''}`.trim()
       : null,
     status.eqEnabled ? status.eqPresetName ? `EQ ${status.eqPresetName}` : 'EQ' : null,
+    status.echoSrcActive ? 'ECHO SRC' : null,
     status.roomCorrectionEnabled ? 'FIR 房间校正' : null,
     status.channelBalanceEnabled ? '声道平衡' : null,
     status.replayGainEnabled ? `ReplayGain ${formatDb(status.replayGainAppliedDb) ?? ''}`.trim() : null,
@@ -311,6 +349,14 @@ const getSignalSummary = (status: AudioStatus | null, track: LibraryTrack | null
       tone,
     };
   }
+  if (status.echoSrcActive) {
+    return {
+      label: '升频',
+      detail: formatEchoSrcPath(status, track) ?? 'ECHO SRC active',
+      spec,
+      tone,
+    };
+  }
   if (
     status.dspActive
     || status.eqEnabled
@@ -375,6 +421,9 @@ const getRoonPathLabel = (status: AudioStatus | null): string => {
   return '无损';
 };
 
+const getDisplayRoonPathLabel = (status: AudioStatus | null): string =>
+  status?.echoSrcActive ? '升频' : getRoonPathLabel(status);
+
 const outputLabel = (status: AudioStatus | null): string => {
   if (!status) {
     return unknown;
@@ -409,7 +458,18 @@ const buildRoonProcessingNodes = (status: AudioStatus | null, track: LibraryTrac
   }
 
   const nodes: RoonSignalNode[] = [];
-  const resamplePath = formatResamplePath(status, track);
+  const echoSrcPath = formatEchoSrcPath(status, track);
+  const resamplePath = echoSrcPath ? null : formatResamplePath(status, track);
+
+  if (echoSrcPath) {
+    nodes.push({
+      badge: '',
+      title: 'ECHO SRC / 升频',
+      value: echoSrcPath,
+      tone: 'warning',
+      variant: 'process',
+    });
+  }
 
   if (resamplePath) {
     nodes.push({
@@ -553,7 +613,7 @@ export const AudioSignalPathPopover = ({
 
   const nodes = buildRoonSignalPathNodes(status, track);
   const summary = getSignalSummary(status, track);
-  const pathLabel = getRoonPathLabel(status);
+  const pathLabel = getDisplayRoonPathLabel(status);
 
   return (
     <section className="signal-path-popover signal-path-popover--roon" role="dialog" aria-label="信号路径" data-tone={summary.tone}>

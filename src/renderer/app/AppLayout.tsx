@@ -1730,7 +1730,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         const asioUnavailableFallbackEnabled = settings?.audioAsioUnavailableFallbackEnabled === true;
         const exclusiveInstabilityFallbackEnabled = settings?.audioExclusiveInstabilityFallbackEnabled === true;
         const soxrFallbackEnabled = settings?.audioSoxrFallbackEnabled !== false;
-        const echoSrcMode = settings?.audioEchoSrcMode === 'family2x' || settings?.audioEchoSrcMode === 'family4x'
+        const echoSrcMode = settings?.audioEchoSrcMode === 'family2x' || settings?.audioEchoSrcMode === 'family4x' || settings?.audioEchoSrcMode === 'family8x'
           ? settings.audioEchoSrcMode
           : 'off';
         const echoSrcQualityProfile =

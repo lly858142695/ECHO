@@ -372,6 +372,36 @@ describe('PlayerBar', () => {
     expect(dialog.textContent).toContain('96kHz -> 48kHz');
   });
 
+  it('shows ECHO SRC as upsampling in the signal path', () => {
+    const track = makeTrack(36, { title: 'Upsampled Signal Track', codec: 'flac', sampleRate: 44100, bitDepth: 16 });
+    const status = {
+      ...audioStatus(track),
+      decoderOutputSampleRate: 352800,
+      requestedOutputSampleRate: 352800,
+      actualDeviceSampleRate: 352800,
+      resampling: true,
+      dspActive: true,
+      echoSrcMode: 'family8x' as const,
+      echoSrcQualityProfile: 'transparent' as const,
+      echoSrcTargetSampleRate: 352800,
+      echoSrcActive: true,
+      resamplerEngine: 'soxr' as const,
+      resamplerFallbackActive: false,
+    };
+
+    render(
+      <>
+        <AudioSignalPathControl isOpen={true} status={status} track={track} onClick={vi.fn()} />
+        <AudioSignalPathPopover isOpen={true} status={status} track={track} onClose={vi.fn()} />
+      </>,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: '信号路径' });
+    expect(dialog.textContent).toContain('ECHO SRC / 升频');
+    expect(dialog.textContent).toContain('44.1kHz -> ECHO SRC 352.8kHz / SOXR Transparent');
+    expect(dialog.textContent).not.toContain('96kHz -> 48kHz');
+  });
+
   it('routes global play/pause to the active DLNA Connect session instead of local playback', async () => {
     const track = makeTrack(32, { title: 'Matrix Shortcut Track' });
     const playingConnectStatus = dlnaConnectStatus(track, 'playing');

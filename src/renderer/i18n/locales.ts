@@ -694,6 +694,7 @@ export type TranslationKey =
   | 'audioDrawer.badge.resampling'
   | 'audioDrawer.badge.soxrResampler'
   | 'audioDrawer.badge.speedUp'
+  | 'audioDrawer.badge.upsampling'
   | 'audioDrawer.buffer.asio'
   | 'audioDrawer.buffer.auto'
   | 'audioDrawer.buffer.collapsedDescription'
@@ -726,6 +727,7 @@ export type TranslationKey =
   | 'audioDrawer.meter.resample'
   | 'audioDrawer.meter.source'
   | 'audioDrawer.meter.latency'
+  | 'audioDrawer.meter.upsample'
   | 'audioDrawer.guard.asioUnavailable.description'
   | 'audioDrawer.guard.asioUnavailable.title'
   | 'audioDrawer.guard.exclusiveInstability.description'
@@ -823,6 +825,7 @@ export type TranslationKey =
   | 'audioProfessional.badge.replayGain'
   | 'audioProfessional.badge.resampling'
   | 'audioProfessional.badge.sampleMismatch'
+  | 'audioProfessional.badge.upsampling'
   | 'audioProfessional.badge.warning'
   | 'audioProfessional.issue.reason'
   | 'audioProfessional.issue.audioLevelClipped'
@@ -873,6 +876,7 @@ export type TranslationKey =
   | 'audioProfessional.row.resampler'
   | 'audioProfessional.row.resampling'
   | 'audioProfessional.row.sampleRateMismatch'
+  | 'audioProfessional.row.upsampling'
   | 'audioProfessional.row.signalPath'
   | 'audioProfessional.row.sharedDeviceSampleRate'
   | 'audioProfessional.row.sharedStability'
@@ -3621,6 +3625,7 @@ const zhCN: TranslationMap = {
   'audioDrawer.badge.resampling': 'Resampling',
   'audioDrawer.badge.soxrResampler': 'SOXR',
   'audioDrawer.badge.speedUp': 'Speed Up',
+  'audioDrawer.badge.upsampling': '升频',
   'audioDrawer.buffer.asio': 'ASIO 缓冲',
   'audioDrawer.buffer.auto': '自动',
   'audioDrawer.buffer.collapsedDescription': '默认收起；点开可调整延迟档位和 ASIO 缓冲。',
@@ -3653,6 +3658,7 @@ const zhCN: TranslationMap = {
   'audioDrawer.meter.resample': '重采样',
   'audioDrawer.meter.source': '音源',
   'audioDrawer.meter.latency': '延迟',
+  'audioDrawer.meter.upsample': '升频',
   'audioDrawer.guard.asioUnavailable.description': '默认关闭。遇到 No device found 后会短暂跳过同一个 ASIO 设备，并改用安全的共享输出。',
   'audioDrawer.guard.asioUnavailable.title': 'ASIO 不可用保护',
   'audioDrawer.guard.exclusiveInstability.description': '默认关闭。WASAPI 独占持续 underrun 或设备变得不稳定时，开启后会从当前位置切到安全共享输出。',
@@ -3750,6 +3756,7 @@ const zhCN: TranslationMap = {
   'audioProfessional.badge.replayGain': 'ReplayGain',
   'audioProfessional.badge.resampling': '重采样',
   'audioProfessional.badge.sampleMismatch': '采样率不匹配',
+  'audioProfessional.badge.upsampling': '升频',
   'audioProfessional.badge.warning': '设备异常/警告',
   'audioProfessional.issue.reason': '异常原因',
   'audioProfessional.issue.audioLevelClipped': '实时电平检测到削波，请降低前级增益或关闭增益类 DSP。',
@@ -3799,6 +3806,7 @@ const zhCN: TranslationMap = {
   'audioProfessional.row.resampler': '重采样器',
   'audioProfessional.row.resampling': '重采样',
   'audioProfessional.row.sampleRateMismatch': '采样率不匹配',
+  'audioProfessional.row.upsampling': '升频',
   'audioProfessional.row.signalPath': '信号路径',
   'audioProfessional.row.sharedDeviceSampleRate': '共享设备采样率',
   'audioProfessional.row.sharedStability': '共享稳定档',
@@ -6906,6 +6914,7 @@ const zhTW: TranslationMap = {
   'audioDrawer.badge.resampling': '重取樣',
   'audioDrawer.badge.soxrResampler': 'SOXR',
   'audioDrawer.badge.speedUp': '加速',
+  'audioDrawer.badge.upsampling': '升頻',
   'audioDrawer.buffer.asio': 'ASIO 緩衝',
   'audioDrawer.buffer.auto': '自動',
   'audioDrawer.buffer.collapsedDescription': '預設收合；點開可調整延遲檔位與 ASIO 緩衝。',
@@ -6938,6 +6947,7 @@ const zhTW: TranslationMap = {
   'audioDrawer.meter.resample': '重取樣',
   'audioDrawer.meter.source': '音源',
   'audioDrawer.meter.latency': '延遲',
+  'audioDrawer.meter.upsample': '升頻',
   'audioDrawer.guard.asioUnavailable.description': '預設關閉。遇到 No device found 後會短暫跳過同一個 ASIO 裝置，並改用安全的共享輸出。',
   'audioDrawer.guard.asioUnavailable.title': 'ASIO 不可用保護',
   'audioDrawer.guard.exclusiveInstability.description': '預設關閉。WASAPI 獨占持續 underrun 或裝置變得不穩定時，開啟後會從目前位置切到安全共享輸出。',
@@ -7035,6 +7045,7 @@ const zhTW: TranslationMap = {
   'audioProfessional.badge.replayGain': 'ReplayGain',
   'audioProfessional.badge.resampling': '重取樣',
   'audioProfessional.badge.sampleMismatch': '取樣率不符',
+  'audioProfessional.badge.upsampling': '升頻',
   'audioProfessional.badge.warning': '裝置異常/警告',
   'audioProfessional.issue.reason': '異常原因',
   'audioProfessional.issue.audioLevelClipped': '即時電平偵測到削波，請降低前級增益或關閉增益類 DSP。',
@@ -7084,6 +7095,7 @@ const zhTW: TranslationMap = {
   'audioProfessional.row.resampler': '重取樣器',
   'audioProfessional.row.resampling': '重取樣',
   'audioProfessional.row.sampleRateMismatch': '取樣率不符',
+  'audioProfessional.row.upsampling': '升頻',
   'audioProfessional.row.signalPath': '訊號路徑',
   'audioProfessional.row.sharedDeviceSampleRate': '共享裝置取樣率',
   'audioProfessional.row.sharedStability': '共享穩定檔',
@@ -9765,6 +9777,7 @@ const jaJP: TranslationMap = {
   'audioDrawer.badge.resampling': 'リサンプル',
   'audioDrawer.badge.soxrResampler': 'SOXR',
   'audioDrawer.badge.speedUp': '速度アップ',
+  'audioDrawer.badge.upsampling': 'アップサンプル',
   'audioDrawer.buffer.asio': 'ASIO バッファー',
   'audioDrawer.buffer.auto': '自動',
   'audioDrawer.buffer.collapsedDescription': '既定では折りたたみます。開くとレイテンシプロファイルと ASIO バッファーを調整できます。',
@@ -9797,6 +9810,7 @@ const jaJP: TranslationMap = {
   'audioDrawer.meter.resample': 'リサンプル',
   'audioDrawer.meter.source': 'ソース',
   'audioDrawer.meter.latency': 'レイテンシ',
+  'audioDrawer.meter.upsample': 'アップサンプル',
   'audioDrawer.guard.asioUnavailable.description': '既定ではオフです。No device found の後、同じ ASIO デバイスを短時間スキップし、安全な共有出力を使います。',
   'audioDrawer.guard.asioUnavailable.title': 'ASIO 不可時ガード',
   'audioDrawer.guard.exclusiveInstability.description': '既定ではオフです。WASAPI 排他で underrun が続く、またはデバイスが不安定になった場合、オンなら現在位置から安全な共有出力へ切り替えます。',
@@ -9894,6 +9908,7 @@ const jaJP: TranslationMap = {
   'audioProfessional.badge.replayGain': 'ReplayGain',
   'audioProfessional.badge.resampling': 'リサンプル',
   'audioProfessional.badge.sampleMismatch': 'サンプルレート不一致',
+  'audioProfessional.badge.upsampling': 'アップサンプル',
   'audioProfessional.badge.warning': 'デバイス警告',
   'audioProfessional.issue.reason': '理由',
   'audioProfessional.issue.audioLevelClipped': 'リアルタイムレベルでクリップを検出しました。プリアンプを下げるか、ゲイン系 DSP をオフにしてください。',
@@ -9943,6 +9958,7 @@ const jaJP: TranslationMap = {
   'audioProfessional.row.resampler': 'リサンプラー',
   'audioProfessional.row.resampling': 'リサンプル',
   'audioProfessional.row.sampleRateMismatch': 'レート不一致',
+  'audioProfessional.row.upsampling': 'アップサンプル',
   'audioProfessional.row.signalPath': '信号パス',
   'audioProfessional.row.sharedDeviceSampleRate': '共有デバイスレート',
   'audioProfessional.row.sharedStability': '共有安定度',
@@ -12694,6 +12710,7 @@ const enUS: TranslationMap = {
   'audioDrawer.badge.resampling': 'Resampling',
   'audioDrawer.badge.soxrResampler': 'SOXR',
   'audioDrawer.badge.speedUp': 'Speed Up',
+  'audioDrawer.badge.upsampling': 'Upsampling',
   'audioDrawer.buffer.asio': 'ASIO buffer',
   'audioDrawer.buffer.auto': 'Auto',
   'audioDrawer.buffer.collapsedDescription': 'Collapsed by default; open to adjust latency profile and ASIO buffer options.',
@@ -12726,6 +12743,7 @@ const enUS: TranslationMap = {
   'audioDrawer.meter.resample': 'Resample',
   'audioDrawer.meter.source': 'Source',
   'audioDrawer.meter.latency': 'Latency',
+  'audioDrawer.meter.upsample': 'Upsampling',
   'audioDrawer.guard.asioUnavailable.description': 'Default off. Skips the same ASIO device briefly after No device found, then uses safe shared output.',
   'audioDrawer.guard.asioUnavailable.title': 'ASIO unavailable guard',
   'audioDrawer.guard.exclusiveInstability.description': 'Default off. If WASAPI Exclusive has sustained underruns or becomes unstable, switch from the current position to safe Shared output.',
@@ -12823,6 +12841,7 @@ const enUS: TranslationMap = {
   'audioProfessional.badge.replayGain': 'ReplayGain',
   'audioProfessional.badge.resampling': 'Resampling',
   'audioProfessional.badge.sampleMismatch': 'Sample-rate mismatch',
+  'audioProfessional.badge.upsampling': 'Upsampling',
   'audioProfessional.badge.warning': 'Device issue/warning',
   'audioProfessional.issue.reason': 'Reason',
   'audioProfessional.issue.audioLevelClipped': 'Real-time level metering detected clipping. Lower preamp gain or disable gain-boosting DSP.',
@@ -12872,6 +12891,7 @@ const enUS: TranslationMap = {
   'audioProfessional.row.resampler': 'Resampler',
   'audioProfessional.row.resampling': 'Resampling',
   'audioProfessional.row.sampleRateMismatch': 'Sample-rate mismatch',
+  'audioProfessional.row.upsampling': 'Upsampling',
   'audioProfessional.row.signalPath': 'Signal path',
   'audioProfessional.row.sharedDeviceSampleRate': 'Shared device rate',
   'audioProfessional.row.sharedStability': 'Shared stability',
