@@ -389,8 +389,7 @@ afterEach(() => {
 });
 
 describe('AlbumDetailView', () => {
-  it('returns from the album detail after a quick Escape animation', async () => {
-    vi.useFakeTimers();
+  it('returns from the album detail immediately after Escape', () => {
     installLibrary();
     const onBack = vi.fn();
 
@@ -398,12 +397,6 @@ describe('AlbumDetailView', () => {
 
     expect(screen.getByText('Mock Album')).toBeTruthy();
     fireEvent.keyDown(window, { key: 'Escape' });
-
-    expect(onBack).not.toHaveBeenCalled();
-
-    await act(async () => {
-      vi.advanceTimersByTime(90);
-    });
 
     expect(onBack).toHaveBeenCalledTimes(1);
   });

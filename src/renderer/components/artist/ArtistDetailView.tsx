@@ -29,7 +29,6 @@ const streamingAlbumTrackRenderStep = 48;
 const streamingAlbumTrackRenderDelayMs = 80;
 const overviewTrackInitialCount = 6;
 const overviewTrackLoadStep = 6;
-const detailReturnAnimationMs = 90;
 const streamingAlbumDownloadQueueYieldMs = 90;
 
 type StreamingAlbumProviderPageState = {
@@ -651,7 +650,7 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
     setStreamingAlbumDownload(null);
     streamingAlbumDownloadRunIdRef.current += 1;
   }, []);
-  const { isReturning, returnBack } = useAnimatedBackNavigation(onBack, !selectedAlbum && !selectedStreamingAlbum, { durationMs: detailReturnAnimationMs, rootRef: detailRootRef });
+  const { isReturning, returnBack } = useAnimatedBackNavigation(onBack, !selectedAlbum && !selectedStreamingAlbum, { durationMs: 0, rootRef: detailRootRef });
   const { isReturning: isStreamingAlbumReturning, returnBack: returnBackFromStreamingAlbum } = useAnimatedBackNavigation(
     handleBackFromStreamingAlbum,
     Boolean(selectedStreamingAlbum),

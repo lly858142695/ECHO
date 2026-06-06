@@ -93,8 +93,6 @@ type AlbumMenuPosition = {
 
 type AlbumDetailTab = 'tracks' | 'sources' | 'releases' | 'information';
 
-const detailReturnAnimationMs = 90;
-
 type OnlineInfoState = {
   loading: boolean;
   info: AlbumOnlineInfo | null;
@@ -491,7 +489,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   const { locale, t } = useI18n();
   const { appendToQueue, appendTracksToQueue, currentTrackId, playTrack, playTrackNext, removeTrackFromQueue, replaceQueue, updateTrackSnapshot } = usePlaybackQueue();
   const detailRootRef = useRef<HTMLDivElement | null>(null);
-  const { isReturning, returnBack } = useAnimatedBackNavigation(onBack, true, { durationMs: detailReturnAnimationMs, rootRef: detailRootRef });
+  const { isReturning, returnBack } = useAnimatedBackNavigation(onBack, true, { durationMs: 0, rootRef: detailRootRef });
   const [firstTrack, setFirstTrack] = useState<LibraryTrack | null>(null);
   const [loadedTracks, setLoadedTracks] = useState<LibraryTrack[]>([]);
   const [loadedTotal, setLoadedTotal] = useState(0);

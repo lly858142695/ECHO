@@ -22,6 +22,7 @@ import { readStoredLibrarySort, writeStoredLibrarySort } from '../utils/libraryS
 import { readStoredLibrarySourceMode, writeStoredLibrarySourceMode, type LibrarySourceMode } from '../utils/librarySourceMode';
 
 const pageSize = 90;
+const albumWallReturnAnimationMs = 80;
 const priorityAlbumWallImageCount = 32;
 const albumWallLoadAheadDistancePx = 1400;
 const albumWallImageLoadAheadMargin = '1000px 0px';
@@ -75,6 +76,7 @@ export const AlbumsPage = (): JSX.Element => {
   const [hasMore, setHasMore] = useState(false);
   const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null);
   const [selectedAlbumReturnTo, setSelectedAlbumReturnTo] = useState<DetailReturnTarget | null>(null);
+  const [isAlbumWallReturning, setIsAlbumWallReturning] = useState(false);
   const [albumMenu, setAlbumMenu] = useState<AlbumMenuState | null>(null);
   const [likedAlbumIds, setLikedAlbumIds] = useState<Record<string, boolean>>({});
   const [editingAlbum, setEditingAlbum] = useState<LibraryAlbum | null>(null);
@@ -92,6 +94,7 @@ export const AlbumsPage = (): JSX.Element => {
   const requestIdRef = useRef(0);
   const isLoadingRef = useRef(false);
   const tagEditorCloseTimerRef = useRef<number | null>(null);
+  const albumWallReturnTimerRef = useRef<number | null>(null);
   const coverRetryTimersRef = useRef<Record<string, number>>({});
   const coverErrorAttemptsRef = useRef<Record<string, { url: string; count: number }>>({});
   const pauseDeferredAlbumImages = useScrollImagePause(pageRootRef);
@@ -281,15 +284,34 @@ export const AlbumsPage = (): JSX.Element => {
   }, [selectedAlbum]);
 
   const openAlbumDetail = useCallback((album: LibraryAlbum, returnTo: DetailReturnTarget | null = null): void => {
+    if (albumWallReturnTimerRef.current !== null) {
+      window.clearTimeout(albumWallReturnTimerRef.current);
+      albumWallReturnTimerRef.current = null;
+    }
+    setIsAlbumWallReturning(false);
     pageScrollTopRef.current = readAlbumWallScrollTop(pageRootRef.current);
     shouldRestorePageScrollRef.current = !returnTo;
     setSelectedAlbumReturnTo(returnTo);
     setSelectedAlbum(album);
   }, []);
 
-  const closeAlbumDetail = useCallback((): void => {
+  const closeAlbumDetail = useCallback((showReturnAnimation = false): void => {
     setSelectedAlbumReturnTo(null);
     setSelectedAlbum(null);
+
+    if (!showReturnAnimation) {
+      return;
+    }
+
+    if (albumWallReturnTimerRef.current !== null) {
+      window.clearTimeout(albumWallReturnTimerRef.current);
+    }
+
+    setIsAlbumWallReturning(true);
+    albumWallReturnTimerRef.current = window.setTimeout(() => {
+      albumWallReturnTimerRef.current = null;
+      setIsAlbumWallReturning(false);
+    }, albumWallReturnAnimationMs);
   }, []);
 
   useEffect(() => {
@@ -329,7 +351,7 @@ export const AlbumsPage = (): JSX.Element => {
       return;
     }
 
-    closeAlbumDetail();
+    closeAlbumDetail(true);
   }, [closeAlbumDetail, selectedAlbumReturnTo]);
 
   const getAllAlbumTracks = useCallback(async (albumId: string): Promise<LibraryTrack[]> => {
@@ -666,6 +688,9 @@ export const AlbumsPage = (): JSX.Element => {
 
   useEffect(() => {
     return () => {
+      if (albumWallReturnTimerRef.current !== null) {
+        window.clearTimeout(albumWallReturnTimerRef.current);
+      }
       Object.values(coverRetryTimersRef.current).forEach((timer) => window.clearTimeout(timer));
       coverRetryTimersRef.current = {};
     };
@@ -674,7 +699,12 @@ export const AlbumsPage = (): JSX.Element => {
   return (
     <>
       {selectedAlbum ? <AlbumDetailView album={selectedAlbum} onBack={handleBackFromAlbumDetail} /> : null}
-      <div className="albums-page" data-detail-open={selectedAlbum ? 'true' : 'false'} aria-hidden={selectedAlbum ? 'true' : undefined}>
+      <div
+        className="albums-page"
+        data-detail-open={selectedAlbum ? 'true' : 'false'}
+        data-detail-returning={isAlbumWallReturning ? 'true' : undefined}
+        aria-hidden={selectedAlbum ? 'true' : undefined}
+      >
         <header className="songs-header">
           <div className="songs-title-group">
             <h1>{t('library.albums.title')}</h1>
