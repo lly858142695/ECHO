@@ -885,6 +885,18 @@ const scheduleSettingsIdleTask = (callback: () => void): (() => void) => {
   };
 };
 
+const yieldToSettingsPaint = (): Promise<void> =>
+  new Promise((resolve) => {
+    if (typeof window.requestAnimationFrame !== 'function') {
+      window.setTimeout(resolve, 0);
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      window.setTimeout(resolve, 0);
+    });
+  });
+
 const settingsNavItems: SettingsNavItem[] = [
   { key: 'general', labelKey: 'settings.nav.general.label', descriptionKey: 'settings.nav.general.description', icon: MessageSquare },
   { key: 'playback', labelKey: 'settings.nav.playback.label', descriptionKey: 'settings.nav.playback.description', icon: Zap },
@@ -8656,6 +8668,7 @@ export const SettingsPage = (): JSX.Element => {
       setLibraryScanBusy(true);
       setLibraryScanMessage(null);
       setError(null);
+      await yieldToSettingsPaint();
       const folders = await library.getFolders();
 
       if (folders.length === 0) {
@@ -8675,9 +8688,14 @@ export const SettingsPage = (): JSX.Element => {
         return;
       }
 
-      const scans = await Promise.all(foldersToScan.map((folder) => library.scanFolder(folder.id)));
-      scans.forEach(rememberLibraryScanStatus);
-      setLibraryScanStatuses(getLibraryScanStatuses());
+      const scans: LibraryScanStatus[] = [];
+      for (const folder of foldersToScan) {
+        const scan = await library.scanFolder(folder.id, { reduceScanPressure: true });
+        scans.push(scan);
+        rememberLibraryScanStatus(scan);
+        setLibraryScanStatuses(getLibraryScanStatuses());
+        await yieldToSettingsPaint();
+      }
       setLibraryScanMessage(
         runningFolderIds.size > 0
           ? `已加入 ${scans.length} 个曲库文件夹到扫描队列，已有 ${runningFolderIds.size} 个正在排队/运行。`
@@ -8703,6 +8721,7 @@ export const SettingsPage = (): JSX.Element => {
       setEmbeddedTagRescanBusy(scope);
       setEmbeddedTagRescanMessage(null);
       setError(null);
+      await yieldToSettingsPaint();
       const scans = await library.rescanEmbeddedTags(
         scope === 'all' ? 'embedded-tags-all' : 'embedded-tags-missing-cover',
       );

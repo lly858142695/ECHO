@@ -24,6 +24,7 @@ import type { FileScanner } from './workers/FileScanner';
 import type { MetadataReader } from './workers/MetadataReader';
 
 const tempRoots: string[] = [];
+const previousSyncScanHealthCheckEnv = process.env.ECHO_SYNC_SCAN_HEALTH_CHECK;
 
 const makeTempRoot = (): string => {
   const root = join(tmpdir(), `echo-next-scan-queue-${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -540,6 +541,11 @@ const identityObservation = (overrides: Partial<FileIdentityObservation> = {}): 
 
 afterEach(() => {
   vi.useRealTimers();
+  if (previousSyncScanHealthCheckEnv === undefined) {
+    delete process.env.ECHO_SYNC_SCAN_HEALTH_CHECK;
+  } else {
+    process.env.ECHO_SYNC_SCAN_HEALTH_CHECK = previousSyncScanHealthCheckEnv;
+  }
   for (const root of tempRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   }
@@ -961,6 +967,7 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
   });
 
   it('creates a recovery snapshot after a successful scan writes library changes', async () => {
+    process.env.ECHO_SYNC_SCAN_HEALTH_CHECK = '1';
     const root = makeTempRoot();
     const [file] = makeFiles(root, 1);
     const store = new FakeStore();
@@ -1015,6 +1022,7 @@ describe('ScanJobQueue progress and cover memory behavior', () => {
   });
 
   it('keeps a successful scan completed when the recovery snapshot cannot be written', async () => {
+    process.env.ECHO_SYNC_SCAN_HEALTH_CHECK = '1';
     const root = makeTempRoot();
     const [file] = makeFiles(root, 1);
     const store = new FakeStore();
@@ -1871,6 +1879,7 @@ describe('ScanJobQueue local path rescans', () => {
   });
 
   it('recovers from a scan guard after database health fails at the end of a scan', async () => {
+    process.env.ECHO_SYNC_SCAN_HEALTH_CHECK = '1';
     const root = makeTempRoot();
     const folder = baseFolder(root);
     mkdirSync(folder.path, { recursive: true });

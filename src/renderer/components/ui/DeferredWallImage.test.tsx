@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { DeferredWallImage } from './DeferredWallImage';
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('DeferredWallImage', () => {
@@ -39,5 +40,24 @@ describe('DeferredWallImage', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('img')).toHaveLength(8);
     });
+  });
+
+  it('releases slow image slots so jumped-to rows can start loading', async () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <>
+        {Array.from({ length: 12 }, (_, index) => (
+          <DeferredWallImage alt="" key={index} src={`echo-cover://album/${index}`} />
+        ))}
+      </>,
+    );
+
+    expect(container.querySelectorAll('img')).toHaveLength(8);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1200);
+    });
+
+    expect(container.querySelectorAll('img')).toHaveLength(12);
   });
 });

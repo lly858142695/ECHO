@@ -4,6 +4,7 @@ import { getPageScrollContainer } from './InfiniteScrollSentinel';
 
 const wallImageIdleDelayMs = 180;
 const maxConcurrentWallImages = 8;
+const wallImageSlotLeaseMs = 1200;
 
 let activeWallImageLoads = 0;
 const wallImageQueue: Array<() => void> = [];
@@ -18,6 +19,7 @@ const requestWallImageSlot = (onGrant: (release: () => void) => void): (() => vo
   let queued = true;
   let granted = false;
   let released = false;
+  let leaseTimer: number | null = null;
 
   const release = (): void => {
     if (released) {
@@ -25,6 +27,10 @@ const requestWallImageSlot = (onGrant: (release: () => void) => void): (() => vo
     }
 
     released = true;
+    if (leaseTimer !== null) {
+      window.clearTimeout(leaseTimer);
+      leaseTimer = null;
+    }
     activeWallImageLoads = Math.max(0, activeWallImageLoads - 1);
     drainWallImageQueue();
   };
@@ -37,6 +43,7 @@ const requestWallImageSlot = (onGrant: (release: () => void) => void): (() => vo
     queued = false;
     granted = true;
     activeWallImageLoads += 1;
+    leaseTimer = window.setTimeout(release, wallImageSlotLeaseMs);
     onGrant(release);
   };
 

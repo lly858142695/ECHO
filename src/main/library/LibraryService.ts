@@ -378,9 +378,16 @@ export class LibraryService {
     return this.scanJobQueue.scanPaths(folder, paths, options);
   }
 
-  rescanEmbeddedTags(mode: Exclude<NonNullable<LibraryScanOptions['mode']>, 'normal'>): LibraryScanStatus[] {
+  async rescanEmbeddedTags(mode: Exclude<NonNullable<LibraryScanOptions['mode']>, 'normal'>): Promise<LibraryScanStatus[]> {
     const folders = this.getFolders();
-    return folders.map((folder) => this.scanJobQueue.scanStoredTracks(folder, { mode }));
+    const statuses: LibraryScanStatus[] = [];
+
+    for (const folder of folders) {
+      statuses.push(this.scanJobQueue.scanStoredTracks(folder, { mode, reduceScanPressure: true }));
+      await yieldToMainLoop();
+    }
+
+    return statuses;
   }
 
   getScanStatus(jobId: string): LibraryScanStatus {
