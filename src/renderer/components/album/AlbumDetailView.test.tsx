@@ -389,7 +389,7 @@ afterEach(() => {
 });
 
 describe('AlbumDetailView', () => {
-  it('returns from the album detail after Escape plays the back animation', async () => {
+  it('returns from the album detail after a quick Escape animation', async () => {
     vi.useFakeTimers();
     installLibrary();
     const onBack = vi.fn();
@@ -402,7 +402,7 @@ describe('AlbumDetailView', () => {
     expect(onBack).not.toHaveBeenCalled();
 
     await act(async () => {
-      vi.advanceTimersByTime(180);
+      vi.advanceTimersByTime(90);
     });
 
     expect(onBack).toHaveBeenCalledTimes(1);

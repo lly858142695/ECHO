@@ -35,27 +35,21 @@ export const miniPlayerTransition: Transition = {
 export const pageVariants: Variants = {
   enter: {
     opacity: 0,
-    y: 8,
   },
   active: {
     opacity: 1,
-    y: 0,
   },
   inactive: {
     opacity: 0,
-    y: 6,
   },
   exit: {
     opacity: 0,
-    y: -6,
   },
   reducedActive: {
     opacity: 1,
-    y: 0,
   },
   reducedInactive: {
     opacity: 0,
-    y: 0,
   },
 };
 

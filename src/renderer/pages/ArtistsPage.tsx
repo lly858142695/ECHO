@@ -492,12 +492,10 @@ export const ArtistsPage = (): JSX.Element => {
     }
   }, [openArtistDetail]);
 
-  if (selectedArtist) {
-    return <ArtistDetailView artist={selectedArtist} onBack={handleBackFromArtistDetail} />;
-  }
-
   return (
-    <div className="artists-page">
+    <>
+      {selectedArtist ? <ArtistDetailView artist={selectedArtist} onBack={handleBackFromArtistDetail} /> : null}
+      <div className="artists-page" data-detail-open={selectedArtist ? 'true' : 'false'} aria-hidden={selectedArtist ? 'true' : undefined}>
       <header className="songs-header">
         <div className="songs-title-group">
           <h1>{t('library.artists.title')}</h1>
@@ -653,13 +651,14 @@ export const ArtistsPage = (): JSX.Element => {
         </section>
         <InfiniteScrollSentinel canLoadMore={hasMore} isLoading={isLoading} onLoadMore={handleLoadMoreArtists} />
 
-        {error || isLoading ? (
+        {error ? (
           <div className="list-footer">
-            <span>{error ?? t('library.artists.loading')}</span>
+            <span>{error}</span>
           </div>
         ) : null}
         <MediaWallScrollSpacer height={spacerHeight} />
       </div>
-    </div>
+      </div>
+    </>
   );
 };

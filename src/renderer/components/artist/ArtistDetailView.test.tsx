@@ -399,7 +399,7 @@ describe('ArtistDetailView', () => {
     expect(screen.queryByRole('button', { name: 'Expand all' })).toBeNull();
   });
 
-  it('returns from the artist detail after Escape plays the back animation', async () => {
+  it('returns from the artist detail after a quick Escape animation', async () => {
     installLibrary();
     const onBack = vi.fn();
 
@@ -412,7 +412,7 @@ describe('ArtistDetailView', () => {
     expect(onBack).not.toHaveBeenCalled();
 
     await act(async () => {
-      vi.advanceTimersByTime(180);
+      vi.advanceTimersByTime(90);
     });
 
     expect(onBack).toHaveBeenCalledTimes(1);
