@@ -326,6 +326,7 @@ export type EchoApi = {
     onUpdateStatus: (handler: (status: UpdateStatus) => void) => () => void;
     openRepository: () => Promise<void>;
     openExternalUrl: (url: string) => Promise<void>;
+    showTouchKeyboard: () => Promise<boolean>;
     testNetworkProxy: (patch?: Partial<AppSettings>) => Promise<NetworkProxyTestResult>;
     validateGlobalShortcut: (accelerator: string) => Promise<GlobalShortcutValidationResult>;
     onGlobalShortcutCommand: (handler: (action: GlobalShortcutAction) => void) => () => void;

@@ -90,6 +90,7 @@ describe('app settings normalization', () => {
     expect(settings.sidebarAutoHideEnabled).toBe(false);
     expect(settings.sidebarIconOnlyEnabled).toBe(false);
     expect(settings.featureCommentsHidden).toBe(false);
+    expect(settings.touchOnScreenKeyboardEnabled).toBe(false);
     expect(settings.rememberWindowSizeEnabled).toBe(true);
     expect(settings.rememberedWindowSize).toBeNull();
     expect(settings.appWindowAcrylicEnabled).toBe(false);
@@ -256,6 +257,14 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).fastStartupEnabled).toBe(false);
     expect(normalizeSettings({ fastStartupEnabled: true }).fastStartupEnabled).toBe(true);
     expect(normalizeSettings({ fastStartupEnabled: 'true' }).fastStartupEnabled).toBe(false);
+  });
+
+  it('normalizes the touch on-screen keyboard as an explicit opt-in', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).touchOnScreenKeyboardEnabled).toBe(false);
+    expect(normalizeSettings({ touchOnScreenKeyboardEnabled: true }).touchOnScreenKeyboardEnabled).toBe(true);
+    expect(normalizeSettings({ touchOnScreenKeyboardEnabled: 'true' as never }).touchOnScreenKeyboardEnabled).toBe(false);
   });
 
   it('normalizes data protection disable as an explicit opt-in', async () => {

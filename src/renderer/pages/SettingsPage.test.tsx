@@ -177,6 +177,7 @@ const hqPlayerSetSettingsMock = vi.fn();
 const hqPlayerGetStatusMock = vi.fn();
 const hqPlayerTestConnectionMock = vi.fn();
 const openDevConsoleMock = vi.fn();
+const relaunchAppMock = vi.fn();
 
 const downloadSettings: DownloadSettings = {
   audioStrategy: 'best_available',
@@ -328,6 +329,7 @@ vi.mock('../utils/echoBridge', () => ({
     openDiagnosticsFolder: vi.fn(),
     openCrashReport: vi.fn().mockResolvedValue('D:\\Echo\\crash-report.md'),
     openAudioCrashReport: vi.fn().mockResolvedValue('D:\\Echo\\audio-crash-report.md'),
+    relaunchApp: relaunchAppMock,
     openDevConsole: openDevConsoleMock,
   }),
   getDownloadsBridge: () => ({
@@ -665,6 +667,9 @@ beforeEach(() => {
       setSettings: setSettingsMock,
       chooseLyricsWallpaper: chooseLyricsWallpaperMock,
       chooseAppWallpaper: chooseAppWallpaperMock,
+    },
+    diagnostics: {
+      relaunchApp: relaunchAppMock,
     },
   } as unknown as Window['echo'];
 });
@@ -1730,8 +1735,9 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ nowPlayingCoverColorEnabled: true }));
   });
 
-  it('saves the window acrylic opt-in from appearance controls', async () => {
+  it('saves the window acrylic opt-in and offers to relaunch for the window material change', async () => {
     Element.prototype.scrollIntoView = vi.fn();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     getSettingsMock.mockResolvedValue(settings);
     setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => ({ ...settings, ...patch }));
     resetSettingsMock.mockResolvedValue(settings);
@@ -1745,6 +1751,8 @@ describe('SettingsPage', () => {
     fireEvent.click(within(row).getByRole('button'));
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ appWindowAcrylicEnabled: true }));
+    expect(confirmSpy).toHaveBeenCalledWith('settings.appearance.windowAcrylic.restartConfirm');
+    expect(relaunchAppMock).toHaveBeenCalledTimes(1);
   });
 
   it('saves The Dark Side of the Moon theme preset from Settings', async () => {

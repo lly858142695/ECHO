@@ -1305,6 +1305,54 @@ describe('Library Core', () => {
     harness.cleanup();
   });
 
+  it('embedded tag rescan can target a child folder without rereading sibling tracks', async () => {
+    const scannedFiles: ScannedFile[] = [];
+    const metadataCalls: string[] = [];
+    const metadataTitles = new Map<string, string>();
+    const metadataReader: MetadataReader = {
+      async read(filePath: string) {
+        metadataCalls.push(filePath);
+        return metadataResult({ title: metadataTitles.get(filePath) ?? 'Untitled' });
+      },
+    };
+    const harness = createHarness({
+      fileScanner: new FakeFileScanner(scannedFiles),
+      metadataReader,
+      coverExtractor: new FakeCoverExtractor(),
+    });
+    const childFolder = join(harness.folder, 'Child');
+    const siblingFolder = join(harness.folder, 'Sibling');
+    mkdirSync(childFolder, { recursive: true });
+    mkdirSync(siblingFolder, { recursive: true });
+    const childFile = writeAudioFile(childFolder, 'Artist - Child.flac');
+    const siblingFile = writeAudioFile(siblingFolder, 'Artist - Sibling.flac');
+    scannedFiles.push(
+      { path: childFile, sizeBytes: 128, mtimeMs: 1 },
+      { path: siblingFile, sizeBytes: 128, mtimeMs: 1 },
+    );
+    metadataTitles.set(childFile, 'Child Before');
+    metadataTitles.set(siblingFile, 'Sibling Before');
+    const folder = harness.addFolder();
+
+    await harness.scanFolder();
+    metadataTitles.set(childFile, 'Child After');
+    metadataTitles.set(siblingFile, 'Sibling After');
+    const [job] = await harness.service.rescanEmbeddedTags('embedded-tags-all', {
+      folderId: folder.id,
+      path: childFolder,
+      recursive: true,
+    });
+    await harness.service.waitForScan(job!.id);
+    const secondScan = harness.service.getScanStatus(job!.id);
+    const tracks = harness.service.getTracks({ pageSize: 10 }).items;
+
+    expect(metadataCalls).toHaveLength(3);
+    expect(secondScan.updatedTracks).toBe(1);
+    expect(tracks.find((track) => track.path === childFile)?.title).toBe('Child After');
+    expect(tracks.find((track) => track.path === siblingFile)?.title).toBe('Sibling Before');
+    harness.cleanup();
+  });
+
   it('embedded tag rescan missing cover only rereads tracks without complete cover cache', async () => {
     const coverExtractor = new FakeCoverExtractor({ source: 'embedded' });
     const harness = createHarness({ coverExtractor });

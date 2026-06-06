@@ -196,6 +196,7 @@ export type AppSettings = {
   sidebarAutoHideEnabled?: boolean;
   sidebarIconOnlyEnabled?: boolean;
   featureCommentsHidden?: boolean;
+  touchOnScreenKeyboardEnabled?: boolean;
   songsSort?: LibrarySort;
   rememberedAudioOutput?: RememberedAudioOutput;
   hiddenAudioDeviceKeys?: string[];

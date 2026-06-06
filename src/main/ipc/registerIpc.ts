@@ -31,6 +31,7 @@ import {
 } from '../app/dataBackup';
 import { exportEchoDataPackage } from '../app/dataPackage';
 import { getTaskbarPlaybackStatus, refreshTaskbarPlaybackIntegration } from '../app/taskbarPlaybackIntegration';
+import { showWindowsTouchKeyboard } from '../app/touchKeyboard';
 import { ensureTray, requestAppQuit } from '../app/tray';
 import { ensureCoverCacheDirectory } from '../library/CoverCacheManager';
 import { getLibraryService } from '../library/LibraryService';
@@ -594,6 +595,7 @@ export const registerIpc = (): void => {
   ipcMain.handle(IpcChannels.AppOpenExternalUrl, async (_event: IpcMainInvokeEvent, rawUrl: unknown): Promise<void> => {
     await shell.openExternal(requireExternalHttpUrl(rawUrl));
   });
+  ipcMain.handle(IpcChannels.AppShowTouchKeyboard, (): boolean => showWindowsTouchKeyboard());
   ipcMain.handle(IpcChannels.AppTestNetworkProxy, (_event: IpcMainInvokeEvent, rawPatch?: unknown) =>
     testNetworkProxyConnection(
       normalizeNetworkProxyTestSettings(rawPatch),

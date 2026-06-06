@@ -11,6 +11,7 @@ export const pluginPermissions = [
   'sources:provide',
   'settings:read',
   'settings:write',
+  'audio:analyze',
   'network',
   'fs:plugin',
 ] as const;
@@ -75,6 +76,13 @@ export const pluginPermissionDescriptors: Record<PluginPermission, PluginPermiss
     permission: 'settings:write',
     label: '修改设置',
     description: '可写入小型设置 patch，属于高风险能力。',
+    risk: 'high',
+    availability: 'active',
+  },
+  'audio:analyze': {
+    permission: 'audio:analyze',
+    label: 'Audio analysis',
+    description: 'Allows host-controlled quality and DSD confidence analysis for library tracks by trackId.',
     risk: 'high',
     availability: 'active',
   },
@@ -419,6 +427,50 @@ export type PluginNetworkRequest = {
   timeoutMs?: number;
 };
 
+export type PluginAudioAnalysisVerdict =
+  | 'trusted_lossless'
+  | 'likely_lossy_transcode'
+  | 'likely_fake_hires'
+  | 'trusted_dsd_container'
+  | 'dsd_metadata_mismatch'
+  | 'lossy_source'
+  | 'not_applicable'
+  | 'unknown';
+
+export type PluginAudioAnalysisSeverity = 'info' | 'warning' | 'risk';
+
+export type PluginAudioAnalysisEvidence = {
+  id: string;
+  severity: PluginAudioAnalysisSeverity;
+  message: string;
+};
+
+export type PluginAudioAnalysisMetrics = {
+  codec: string | null;
+  extension: string | null;
+  sampleRate: number | null;
+  bitDepth: number | null;
+  bitrate: number | null;
+  durationSeconds: number | null;
+  fileSizeBytes: number | null;
+  dsdNativeSampleRate: number | null;
+};
+
+export type PluginAudioAnalysisReport = {
+  trackId: string;
+  analyzedAt: string;
+  status: 'ready' | 'unsupported' | 'error';
+  verdict: PluginAudioAnalysisVerdict;
+  confidence: number;
+  metrics: PluginAudioAnalysisMetrics;
+  evidence: PluginAudioAnalysisEvidence[];
+  limitations: string[];
+};
+
+export type PluginAudioAnalyzeTrackRequest = {
+  trackId: string;
+};
+
 export type PluginSettingsPatch = Record<string, string | number | boolean | null>;
 
 export type PluginSettingsResult = {
@@ -584,7 +636,13 @@ export type PluginRunCommandRequest = {
   args?: unknown[];
 };
 
-export type PluginCreateExampleKind = 'playback-panel' | 'command-tool' | 'library-script' | 'source-provider' | 'theme-preset';
+export type PluginCreateExampleKind =
+  | 'playback-panel'
+  | 'command-tool'
+  | 'library-script'
+  | 'audio-authenticity'
+  | 'source-provider'
+  | 'theme-preset';
 
 export type PluginCreateExampleResult = {
   pluginId: string;

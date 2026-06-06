@@ -37,6 +37,7 @@ export const IpcChannels = {
   AppUpdateStatusChanged: 'app:update-status-changed',
   AppOpenRepository: 'app:open-repository',
   AppOpenExternalUrl: 'app:open-external-url',
+  AppShowTouchKeyboard: 'app:show-touch-keyboard',
   AppTestNetworkProxy: 'app:test-network-proxy',
   AppValidateGlobalShortcut: 'app:validate-global-shortcut',
   AppGlobalShortcutCommand: 'app:global-shortcut-command',

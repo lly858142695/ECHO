@@ -207,23 +207,17 @@ const librarySorts: LibrarySort[] = [
 ];
 
 export const defaultAppearancePreferences: AppearancePreferences = {
-  mainFontFamily: 'Satoshi',
+  mainFontFamily: 'Outfit',
   mainFontFilePath: null,
-  chineseFontFamily: 'Noto Sans SC',
+  chineseFontFamily: 'Microsoft YaHei',
   chineseFontFilePath: null,
-  fallbackFontFamily: 'Outfit',
+  fallbackFontFamily: 'Noto Sans SC',
   fallbackFontFilePath: null,
   baseFontSize: 14,
   lineHeight: 1.35,
   textDepth: 62,
   albumCoverShape: 'rounded',
 };
-
-const legacyDefaultFontPreferences = {
-  mainFontFamily: 'Outfit',
-  chineseFontFamily: 'Microsoft YaHei',
-  fallbackFontFamily: 'Noto Sans SC',
-} as const;
 
 const defaultRememberedAudioOutput: RememberedAudioOutput = {
   enabled: true,
@@ -382,6 +376,7 @@ export const defaultSettings: AppSettings = {
   sidebarAutoHideEnabled: false,
   sidebarIconOnlyEnabled: false,
   featureCommentsHidden: false,
+  touchOnScreenKeyboardEnabled: false,
   songsSort: 'default',
   rememberedAudioOutput: { ...defaultRememberedAudioOutput },
   hiddenAudioDeviceKeys: [],
@@ -1064,7 +1059,7 @@ const normalizeAppearancePreferences = (value: unknown): AppearancePreferences =
   const lineHeight = Number(input.lineHeight);
   const textDepth = Number(input.textDepth);
 
-  const normalized: AppearancePreferences = {
+  return {
     mainFontFamily: normalizeAppearanceFontFamily(input.mainFontFamily, defaultAppearancePreferences.mainFontFamily),
     mainFontFilePath: normalizeFontPath(input.mainFontFilePath),
     chineseFontFamily: normalizeAppearanceFontFamily(input.chineseFontFamily, defaultAppearancePreferences.chineseFontFamily),
@@ -1082,24 +1077,6 @@ const normalizeAppearancePreferences = (value: unknown): AppearancePreferences =
       : defaultAppearancePreferences.textDepth,
     albumCoverShape: normalizeAlbumCoverShape(input.albumCoverShape),
   };
-
-  if (
-    normalized.mainFontFamily === legacyDefaultFontPreferences.mainFontFamily &&
-    normalized.mainFontFilePath === null &&
-    normalized.chineseFontFamily === legacyDefaultFontPreferences.chineseFontFamily &&
-    normalized.chineseFontFilePath === null &&
-    normalized.fallbackFontFamily === legacyDefaultFontPreferences.fallbackFontFamily &&
-    normalized.fallbackFontFilePath === null
-  ) {
-    return {
-      ...normalized,
-      mainFontFamily: defaultAppearancePreferences.mainFontFamily,
-      chineseFontFamily: defaultAppearancePreferences.chineseFontFamily,
-      fallbackFontFamily: defaultAppearancePreferences.fallbackFontFamily,
-    };
-  }
-
-  return normalized;
 };
 
 const normalizeRememberedAudioOutput = (value: unknown): RememberedAudioOutput => {
@@ -1645,6 +1622,7 @@ export const normalizeSettings = (value: unknown): AppSettings => {
     sidebarAutoHideEnabled: settings.sidebarAutoHideEnabled === true,
     sidebarIconOnlyEnabled: settings.sidebarAutoHideEnabled === true ? false : settings.sidebarIconOnlyEnabled === true,
     featureCommentsHidden: settings.featureCommentsHidden === true,
+    touchOnScreenKeyboardEnabled: settings.touchOnScreenKeyboardEnabled === true,
     songsSort: normalizeSongsSort(settings.songsSort),
     rememberedAudioOutput: migrateRememberedAudioOutput(
       normalizeRememberedAudioOutput(settings.rememberedAudioOutput),

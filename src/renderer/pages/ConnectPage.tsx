@@ -153,6 +153,8 @@ const hqPlayerLocalHost = '127.0.0.1';
 const hqPlayerDefaultPort = 4321;
 const hiddenConnectDevicesStorageKey = 'echo.connect.hiddenDevices.v1';
 const connectDeviceSectionCollapsedStorageKey = 'echo.connect.deviceSectionCollapsed.v1';
+const connectRadioPanelCollapsedStorageKey = 'echo.connect.radioPanelCollapsed.v1';
+const connectHqPlayerPanelCollapsedStorageKey = 'echo.connect.hqPlayerPanelCollapsed.v1';
 const legacyRadioStationsStorageKey = 'echo.connect.radioStations.v1';
 const radioStationsStorageKey = 'echo.connect.radioStations.v2';
 const maxStoredRadioStations = 40;
@@ -890,6 +892,12 @@ export const ConnectPage = (): JSX.Element => {
   const [isDeviceSectionCollapsed, setIsDeviceSectionCollapsed] = useState(() =>
     readStoredBoolean(connectDeviceSectionCollapsedStorageKey, false),
   );
+  const [isRadioPanelCollapsed, setIsRadioPanelCollapsed] = useState(() =>
+    readStoredBoolean(connectRadioPanelCollapsedStorageKey, false),
+  );
+  const [isHqPlayerPanelCollapsed, setIsHqPlayerPanelCollapsed] = useState(() =>
+    readStoredBoolean(connectHqPlayerPanelCollapsedStorageKey, false),
+  );
 
   const activeDevice = useMemo(
     () => devices.find((device) => device.id === status.deviceId) ?? null,
@@ -1547,6 +1555,22 @@ export const ConnectPage = (): JSX.Element => {
     });
   }, []);
 
+  const toggleRadioPanelCollapsed = useCallback((): void => {
+    setIsRadioPanelCollapsed((current) => {
+      const next = !current;
+      writeStoredBoolean(connectRadioPanelCollapsedStorageKey, next);
+      return next;
+    });
+  }, []);
+
+  const toggleHqPlayerPanelCollapsed = useCallback((): void => {
+    setIsHqPlayerPanelCollapsed((current) => {
+      const next = !current;
+      writeStoredBoolean(connectHqPlayerPanelCollapsedStorageKey, next);
+      return next;
+    });
+  }, []);
+
   return (
     <div className="connect-page">
       <header className="connect-header">
@@ -1764,15 +1788,29 @@ export const ConnectPage = (): JSX.Element => {
         </section>
       </section>
 
-      <section className="connect-radio-panel" aria-label="网络电台">
+      <section className="connect-radio-panel" aria-label="网络电台" data-collapsed={isRadioPanelCollapsed ? 'true' : undefined}>
         <div className="connect-section-title">
           <div>
             <span>Radio</span>
             <h2>网络电台</h2>
           </div>
-          <small>{radioStatusLabel}</small>
+          <div className="connect-section-actions">
+            <small>{radioStatusLabel}</small>
+            <button
+              className="icon-button connect-collapse-button"
+              type="button"
+              aria-label={isRadioPanelCollapsed ? '展开网络电台' : '折叠网络电台'}
+              title={isRadioPanelCollapsed ? '展开网络电台' : '折叠网络电台'}
+              aria-expanded={!isRadioPanelCollapsed}
+              onClick={toggleRadioPanelCollapsed}
+            >
+              <ChevronDown size={16} />
+            </button>
+          </div>
         </div>
 
+        <div className="connect-collapsible-content" data-expanded={!isRadioPanelCollapsed}>
+          <div className="connect-collapsible-content__inner">
         <form className="connect-radio-form" aria-label="网络电台表单" onSubmit={(event) => void playRadioDraft(event)}>
           <label className="connect-radio-field">
             <span>电台名</span>
@@ -1860,9 +1898,16 @@ export const ConnectPage = (): JSX.Element => {
             </div>
           )}
         </div>
+          </div>
+        </div>
       </section>
 
-      <section className="connect-hqplayer-panel" aria-label="HQPlayer Connect" data-collapsed={isHqPlayerExpanded ? undefined : 'true'}>
+      <section
+        className="connect-hqplayer-panel"
+        aria-label="HQPlayer Connect"
+        data-collapsed={isHqPlayerExpanded ? undefined : 'true'}
+        data-section-collapsed={isHqPlayerPanelCollapsed ? 'true' : undefined}
+      >
         <div className="connect-hqplayer-header">
           <div className="connect-hqplayer-title">
             <div className="connect-hqplayer-icon">
@@ -1884,9 +1929,21 @@ export const ConnectPage = (): JSX.Element => {
               <RefreshCw className={hqPlayerBusy === 'test' ? 'spinning-icon' : undefined} size={15} />
               {t('connectPage.hqplayer.test')}
             </button>
+            <button
+              className="icon-button connect-collapse-button"
+              type="button"
+              aria-label={isHqPlayerPanelCollapsed ? '展开 HQPlayer' : '折叠 HQPlayer'}
+              title={isHqPlayerPanelCollapsed ? '展开 HQPlayer' : '折叠 HQPlayer'}
+              aria-expanded={!isHqPlayerPanelCollapsed}
+              onClick={toggleHqPlayerPanelCollapsed}
+            >
+              <ChevronDown size={16} />
+            </button>
           </div>
         </div>
 
+        <div className="connect-collapsible-content" data-expanded={!isHqPlayerPanelCollapsed}>
+          <div className="connect-collapsible-content__inner">
         {shouldShowHqPlayerDetails ? (
           <div className="connect-hqplayer-layout" data-expanded={isHqPlayerExpanded ? 'true' : 'false'}>
           <div className="connect-hqplayer-config">
@@ -2105,6 +2162,8 @@ export const ConnectPage = (): JSX.Element => {
             </div>
           </div>
         ) : null}
+          </div>
+        </div>
       </section>
 
       <section className="connect-receiver-panel" aria-label={t('connectPage.receiver.aria')}>

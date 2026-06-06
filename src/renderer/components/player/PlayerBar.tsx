@@ -48,8 +48,8 @@ type PlayerBarProps = {
   onUnlockDesktopLyrics?: () => void;
 };
 
-const progressRenderIntervalMs = 250;
 const lowLoadProgressRenderIntervalMs = 1000;
+const minRealtimeProgressStepSeconds = 0.004;
 const bpmAnalysisStatusPollMs = 1500;
 const playbackSeekedEvent = 'playback:seeked';
 const lyricsViewModeMemoryKey = 'echo:lyrics:view-mode';
@@ -1505,12 +1505,11 @@ export const PlayerBar = ({
   }, [durationSeconds, filePath, playbackAudioStatus?.playbackRate, sourcePositionSeconds, state, trackId, visualState]);
 
   useEffect(() => {
-    if (visualState !== 'playing' || seekPreviewSeconds !== null) {
+    if (visualState !== 'playing' || state !== 'playing' || seekPreviewSeconds !== null) {
       return;
     }
 
-    const intervalMs = lowLoadPlaybackModeEnabled ? lowLoadProgressRenderIntervalMs : progressRenderIntervalMs;
-    const timer = window.setInterval(() => {
+    const updateRealtimePosition = (): void => {
       const clock = progressClockRef.current;
       if (clock.state !== 'playing') {
         return;
@@ -1518,11 +1517,32 @@ export const PlayerBar = ({
 
       const durationLimit = clock.durationSeconds > 0 ? clock.durationSeconds : Number.POSITIVE_INFINITY;
       const elapsedSeconds = Math.max(0, (performance.now() - clock.updatedAtMs) / 1000) * clock.playbackRate;
-      setRealtimePositionSeconds(Math.min(clock.positionSeconds + elapsedSeconds, durationLimit));
-    }, intervalMs);
+      const nextPositionSeconds = Math.min(clock.positionSeconds + elapsedSeconds, durationLimit);
+      setRealtimePositionSeconds((currentPositionSeconds) =>
+        Math.abs(nextPositionSeconds - currentPositionSeconds) >= minRealtimeProgressStepSeconds
+          ? nextPositionSeconds
+          : currentPositionSeconds,
+      );
+    };
 
-    return () => window.clearInterval(timer);
-  }, [lowLoadPlaybackModeEnabled, seekPreviewSeconds, visualState]);
+    if (lowLoadPlaybackModeEnabled) {
+      const timer = window.setInterval(updateRealtimePosition, lowLoadProgressRenderIntervalMs);
+      return () => window.clearInterval(timer);
+    }
+
+    let frameId: number | null = null;
+    const tick = (): void => {
+      updateRealtimePosition();
+      frameId = window.requestAnimationFrame(tick);
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [lowLoadPlaybackModeEnabled, seekPreviewSeconds, state, visualState]);
 
   useEffect(() => {
     if (!currentTrack || currentTrack.mediaType !== 'streaming') {

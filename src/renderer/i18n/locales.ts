@@ -1012,6 +1012,7 @@ export type TranslationKey =
   | 'folders.action.remove'
   | 'folders.action.scan'
   | 'folders.action.scanChanges'
+  | 'folders.action.rescanEmbeddedTags'
   | 'folders.confirm.deleteTrack'
   | 'folders.confirm.removeRoot'
   | 'folders.count.tracks'
@@ -1049,6 +1050,7 @@ export type TranslationKey =
   | 'folders.message.queuedTracks'
   | 'folders.message.scanCancelled'
   | 'folders.message.incrementalScanStarted'
+  | 'folders.message.embeddedTagRescanStarted'
   | 'folders.message.scanStarted'
   | 'folders.metrics.duration'
   | 'folders.metrics.label'
@@ -1896,6 +1898,7 @@ export type TranslationKey =
   | 'settings.appearance.nowPlayingCoverColor.description'
   | 'settings.appearance.nowPlayingCoverColor.title'
   | 'settings.appearance.windowAcrylic.description'
+  | 'settings.appearance.windowAcrylic.restartConfirm'
   | 'settings.appearance.windowAcrylic.title'
   | 'settings.appearance.reset.action'
   | 'settings.appearance.reset.description'
@@ -2272,6 +2275,8 @@ export type TranslationKey =
   | 'settings.general.sidebarIconOnly.title'
   | 'settings.general.featureCommentsHidden.description'
   | 'settings.general.featureCommentsHidden.title'
+  | 'settings.general.touchKeyboard.description'
+  | 'settings.general.touchKeyboard.title'
   | 'settings.header.searchPlaceholder'
   | 'settings.integrations.discord.description'
   | 'settings.integrations.discord.action.refresh'
@@ -4054,6 +4059,7 @@ const zhCN: TranslationMap = {
   'folders.action.remove': '移除',
   'folders.action.scan': '扫描',
   'folders.action.scanChanges': '增量扫描',
+  'folders.action.rescanEmbeddedTags': '重扫内嵌标签',
   'folders.confirm.deleteTrack': '删除这个音乐文件？\n{title}',
   'folders.confirm.removeRoot': '从曲库索引中移除“{name}”？音乐文件会保留在磁盘上。',
   'folders.count.tracks': '{count} 首',
@@ -4091,6 +4097,7 @@ const zhCN: TranslationMap = {
   'folders.message.queuedTracks': '已加入队列 {count} 首。',
   'folders.message.scanCancelled': '扫描已取消。',
   'folders.message.incrementalScanStarted': '增量扫描已开始，只处理新增和移除。',
+  'folders.message.embeddedTagRescanStarted': '内嵌标签重扫已在后台开始。',
   'folders.message.scanStarted': '扫描已开始。',
   'folders.metrics.duration': '时长',
   'folders.metrics.label': '文件夹指标',
@@ -5011,7 +5018,7 @@ const zhCN: TranslationMap = {
   'settings.appearance.font.chinese.title': '中文字体',
   'settings.appearance.font.fallback.description': '界面字体的第三组备用，优先级最低，用于继续补齐缺失字符。',
   'settings.appearance.font.fallback.title': '备用字体',
-  'settings.appearance.font.main.description': 'ECHO 默认使用 Satoshi、Noto Sans SC 与 Outfit；也可以输入任意已安装字体名称。',
+  'settings.appearance.font.main.description': 'ECHO 默认使用 Outfit、Microsoft YaHei 与 Noto Sans SC；也可以输入任意已安装字体名称。',
   'settings.appearance.font.main.title': '主字体',
   'settings.appearance.fontSize.description': '调整全局界面的基础字号。',
   'settings.appearance.fontSize.title': '基础字号',
@@ -5020,9 +5027,10 @@ const zhCN: TranslationMap = {
   'settings.appearance.nowPlayingCoverColor.title': '播放界面封面取色',
   'settings.appearance.nowPlayingCoverColor.description': '开启后，正在播放页会在空闲时从小封面抽样生成轻量背景；低负载模式会自动跳过。默认关闭。',
   'settings.appearance.windowAcrylic.title': '窗口亚克力',
-  'settings.appearance.windowAcrylic.description': '开启后使用系统亚克力材质，让桌面背景从窗口后方透出；界面会保留可读遮罩。Windows 11 22H2 及以上效果最佳。',
+  'settings.appearance.windowAcrylic.description': '开启后下次启动会使用系统亚克力材质，让桌面背景从窗口后方透出；界面会保留可读遮罩。Windows 11 22H2 及以上效果最佳。',
+  'settings.appearance.windowAcrylic.restartConfirm': '窗口亚克力需要重启 ECHO 才能改变系统窗口材质。现在重启吗？',
   'settings.appearance.reset.action': '恢复默认',
-  'settings.appearance.reset.description': '恢复 Satoshi、Noto Sans SC、Outfit、字号、行距、文字深浅与圆角封面。',
+  'settings.appearance.reset.description': '恢复 Outfit、Microsoft YaHei、Noto Sans SC、字号、行距、文字深浅与圆角封面。',
   'settings.appearance.reset.title': '外观默认值',
   'settings.appearance.sidebar.title': '左侧栏',
   'settings.appearance.sidebar.description': '调整左侧入口的顺序和显示状态，不会改动页面或播放链路。',
@@ -5380,6 +5388,8 @@ const zhCN: TranslationMap = {
   'settings.general.sidebarIconOnly.description': '开启后左侧栏保持显示，但导航入口只显示图标；悬停仍可查看名称。默认关闭。',
   'settings.general.featureCommentsHidden.title': '关闭功能注释',
   'settings.general.featureCommentsHidden.description': '开启后收起设置、抽屉和导航里的解释性说明，只保留标题、控件与状态。默认关闭。',
+  'settings.general.touchKeyboard.title': '启用屏幕键盘',
+  'settings.general.touchKeyboard.description': '输入字段能够自动显示屏幕上的 Windows 键盘。此功能适用于触摸屏。',
   'settings.general.fastStartup.description': '开启后，启动时只做轻量只读曲库验证；完整数据保护快照会在窗口打开后后台完成。默认关闭。',
   'settings.general.fastStartup.title': '快速启动',
   'settings.general.firstRunWizard.description': '打开后会重新显示第一次启动时的向导，可选择标准输出（系统音频）、WASAPI、Exclusive 或 ASIO；完成或跳过后会自动关闭这个开关。',
@@ -7173,6 +7183,7 @@ const zhTW: TranslationMap = {
   'folders.action.remove': '移除',
   'folders.action.scan': '掃描',
   'folders.action.scanChanges': '增量掃描',
+  'folders.action.rescanEmbeddedTags': '重掃內嵌標籤',
   'folders.confirm.deleteTrack': '刪除這個音樂檔？\n{title}',
   'folders.confirm.removeRoot': '從曲庫索引中移除「{name}」？音樂檔會保留在磁碟上。',
   'folders.count.tracks': '{count} 首',
@@ -7210,6 +7221,7 @@ const zhTW: TranslationMap = {
   'folders.message.queuedTracks': '已加入佇列 {count} 首。',
   'folders.message.scanCancelled': '掃描已取消。',
   'folders.message.incrementalScanStarted': '增量掃描已開始，只處理新增和移除。',
+  'folders.message.embeddedTagRescanStarted': '內嵌標籤重掃已在背景開始。',
   'folders.message.scanStarted': '掃描已開始。',
   'folders.metrics.duration': '長度',
   'folders.metrics.label': '資料夾指標',
@@ -8475,6 +8487,8 @@ const zhTW: TranslationMap = {
   'settings.general.sidebarIconOnly.description': '開啟後側邊欄保持顯示，但導覽入口只顯示圖示；懸停仍可查看名稱。預設關閉。',
   'settings.general.featureCommentsHidden.title': '關閉功能註釋',
   'settings.general.featureCommentsHidden.description': '開啟後收起設定、抽屜和導覽裡的解釋性說明，只保留標題、控制項與狀態。預設關閉。',
+  'settings.general.touchKeyboard.title': '啟用螢幕鍵盤',
+  'settings.general.touchKeyboard.description': '輸入欄位可自動顯示螢幕上的 Windows 鍵盤。此功能適用於觸控螢幕。',
   'settings.general.fastStartup.description': '開啟後，啟動時只做輕量唯讀曲庫驗證；完整資料保護快照會在視窗開啟後於背景完成。預設關閉。',
   'settings.general.fastStartup.title': '快速啟動',
   'settings.general.firstRunWizard.description': '開啟後會重新顯示第一次啟動時的向導，可選擇標準輸出（系統音訊）、WASAPI、Exclusive 或 ASIO；完成或略過後會自動關閉這個開關。',
@@ -8828,7 +8842,8 @@ const zhTW: TranslationMap = {
   'settings.appearance.nowPlayingCoverColor.title': '播放介面封面取色',
   'settings.appearance.nowPlayingCoverColor.description': '開啟後，正在播放頁會在閒置時從小封面取樣生成輕量背景；低負載模式會自動略過。預設關閉。',
   'settings.appearance.windowAcrylic.title': '視窗壓克力',
-  'settings.appearance.windowAcrylic.description': '開啟後使用系統壓克力材質，讓桌面背景從視窗後方透出；介面會保留可讀遮罩。Windows 11 22H2 以上效果最佳。',
+  'settings.appearance.windowAcrylic.description': '開啟後下次啟動會使用系統壓克力材質，讓桌面背景從視窗後方透出；介面會保留可讀遮罩。Windows 11 22H2 以上效果最佳。',
+  'settings.appearance.windowAcrylic.restartConfirm': '視窗壓克力需要重新啟動 ECHO 才能變更系統視窗材質。現在重新啟動嗎？',
   'settings.appearance.albumCoverShape.title': '專輯封面形狀',
   'settings.appearance.albumCoverShape.description': '選擇專輯封面顯示為圓角或方角；此設定優先於主題預設。預設圓角。',
   'settings.appearance.albumCoverShape.rounded': '圓角',
@@ -10023,6 +10038,7 @@ const jaJP: TranslationMap = {
   'folders.action.remove': '削除',
   'folders.action.scan': 'スキャン',
   'folders.action.scanChanges': '差分スキャン',
+  'folders.action.rescanEmbeddedTags': '埋め込みタグを再スキャン',
   'folders.confirm.deleteTrack': 'この音楽ファイルを削除しますか？\n{title}',
   'folders.confirm.removeRoot': '「{name}」をライブラリインデックスから削除しますか？音楽ファイルはディスク上に残ります。',
   'folders.count.tracks': '{count} 曲',
@@ -10060,6 +10076,7 @@ const jaJP: TranslationMap = {
   'folders.message.queuedTracks': '{count} 曲をキューに追加しました。',
   'folders.message.scanCancelled': 'スキャンをキャンセルしました。',
   'folders.message.incrementalScanStarted': '差分スキャンを開始しました。追加と削除だけを処理します。',
+  'folders.message.embeddedTagRescanStarted': '埋め込みタグの再スキャンをバックグラウンドで開始しました。',
   'folders.message.scanStarted': 'スキャンを開始しました。',
   'folders.metrics.duration': '再生時間',
   'folders.metrics.label': 'フォルダー指標',
@@ -11385,6 +11402,8 @@ const jaJP: TranslationMap = {
   'settings.general.sidebarIconOnly.description': '有効にするとサイドバーは表示したまま、ナビゲーション項目はアイコンだけになります。ホバーで名前を確認できます。既定ではオフです。',
   'settings.general.featureCommentsHidden.title': '機能注釈を非表示',
   'settings.general.featureCommentsHidden.description': '有効にすると、設定、ドロワー、ナビゲーションの説明文を畳み、タイトル、操作、状態だけを残します。既定ではオフです。',
+  'settings.general.touchKeyboard.title': 'スクリーンキーボードを有効化',
+  'settings.general.touchKeyboard.description': '入力フィールドにフォーカスすると、画面上の Windows キーボードを自動で表示します。タッチスクリーン向けの機能です。',
   'settings.general.fastStartup.description': '有効にすると、起動時は軽量な読み取り専用のライブラリ確認だけを行い、完全なデータ保護スナップショットはウィンドウ表示後にバックグラウンドで完了します。既定ではオフです。',
   'settings.general.fastStartup.title': '高速起動',
   'settings.general.firstRunWizard.description': '有効にすると初回起動時のガイドをもう一度表示し、標準出力（システムオーディオ）、WASAPI、Exclusive、ASIO を選べます。完了またはスキップ後、このスイッチは自動でオフになります。',
@@ -11735,7 +11754,8 @@ const jaJP: TranslationMap = {
   'settings.appearance.nowPlayingCoverColor.title': '再生画面のカバー色',
   'settings.appearance.nowPlayingCoverColor.description': '有効にすると、再生中ページがアイドル時に小さなカバー画像から軽量な背景色を抽出します。低負荷モードでは自動的にスキップします。既定はオフです。',
   'settings.appearance.windowAcrylic.title': 'ウィンドウ アクリル',
-  'settings.appearance.windowAcrylic.description': '有効にするとシステムのアクリル素材を使い、デスクトップ背景をウィンドウ越しに見せます。読みやすさを保つ保護レイヤーは維持します。Windows 11 22H2 以降で最適です。',
+  'settings.appearance.windowAcrylic.description': '有効にすると次回起動時にシステムのアクリル素材を使い、デスクトップ背景をウィンドウ越しに見せます。読みやすさを保つ保護レイヤーは維持します。Windows 11 22H2 以降で最適です。',
+  'settings.appearance.windowAcrylic.restartConfirm': 'ウィンドウ アクリルでシステムのウィンドウ素材を変更するには ECHO の再起動が必要です。今すぐ再起動しますか？',
   'settings.appearance.albumCoverShape.title': 'アルバムカバー形状',
   'settings.appearance.albumCoverShape.description': 'アルバムアートを角丸または四角で表示します。この設定はテーマプリセットより優先されます。既定は角丸です。',
   'settings.appearance.albumCoverShape.rounded': '角丸',
@@ -12962,6 +12982,7 @@ const enUS: TranslationMap = {
   'folders.action.remove': 'Remove',
   'folders.action.scan': 'Scan',
   'folders.action.scanChanges': 'Scan changes',
+  'folders.action.rescanEmbeddedTags': 'Rescan embedded tags',
   'folders.confirm.deleteTrack': 'Delete the music file?\n{title}',
   'folders.confirm.removeRoot': 'Remove "{name}" from the library index? Music files stay on disk.',
   'folders.count.tracks': '{count} tracks',
@@ -12999,6 +13020,7 @@ const enUS: TranslationMap = {
   'folders.message.queuedTracks': 'Queued {count} tracks.',
   'folders.message.scanCancelled': 'Scan cancelled.',
   'folders.message.incrementalScanStarted': 'Incremental scan started. Only additions and removals will be processed.',
+  'folders.message.embeddedTagRescanStarted': 'Embedded tag rescan started in the background.',
   'folders.message.scanStarted': 'Scan started.',
   'folders.metrics.duration': 'Duration',
   'folders.metrics.label': 'Folder metrics',
@@ -14394,6 +14416,8 @@ const enUS: TranslationMap = {
   'settings.general.sidebarIconOnly.description': 'Keep the left sidebar visible, but show navigation entries as icons only. Hover still shows each name. Off by default.',
   'settings.general.featureCommentsHidden.title': 'Hide Feature Comments',
   'settings.general.featureCommentsHidden.description': 'Hide explanatory notes in settings, drawers, and navigation, leaving titles, controls, and status text. Off by default.',
+  'settings.general.touchKeyboard.title': 'Enable On-Screen Keyboard',
+  'settings.general.touchKeyboard.description': 'Input fields can automatically show the on-screen Windows keyboard. This is useful for touch screens.',
   'settings.general.fastStartup.description': 'When enabled, startup only runs a lightweight read-only library check; the full data protection snapshot finishes in the background after the window opens. Off by default.',
   'settings.general.fastStartup.title': 'Fast Startup',
   'settings.general.firstRunWizard.description': 'Show the first-run guide again after opening. You can choose Standard Output (system audio), WASAPI, Exclusive, or ASIO; this switch turns off automatically after finishing or skipping.',
@@ -14832,7 +14856,8 @@ const enUS: TranslationMap = {
   'settings.appearance.nowPlayingCoverColor.title': 'Now Playing Cover Color',
   'settings.appearance.nowPlayingCoverColor.description': 'Sample the small cover art while idle to tint the Now Playing page. Low-load playback mode skips it automatically. Off by default.',
   'settings.appearance.windowAcrylic.title': 'Window Acrylic',
-  'settings.appearance.windowAcrylic.description': 'Use the system acrylic material so the desktop shows through behind the window, while keeping a readability scrim over the UI. Best on Windows 11 22H2 and later.',
+  'settings.appearance.windowAcrylic.description': 'Use the system acrylic material on next launch so the desktop shows through behind the window, while keeping a readability scrim over the UI. Best on Windows 11 22H2 and later.',
+  'settings.appearance.windowAcrylic.restartConfirm': 'Window Acrylic needs an ECHO restart to change the system window material. Restart now?',
   'settings.appearance.wallpaper.title': 'Custom Background',
   'settings.appearance.wallpaper.description': 'Landscape and portrait backgrounds are saved separately. Portrait windows only apply the portrait background. Supports images and local videos.',
   'settings.appearance.wallpaper.choose': 'Choose Landscape Background',
@@ -15052,14 +15077,14 @@ const enUS: TranslationMap = {
   'settings.appearance.font.chinese.title': 'Chinese Font',
   'settings.appearance.font.fallback.description': 'The third and lowest-priority interface font group, used to continue filling missing glyphs.',
   'settings.appearance.font.fallback.title': 'Fallback Font',
-  'settings.appearance.font.main.description': 'ECHO uses Satoshi, Noto Sans SC, and Outfit by default. You can enter any installed font family.',
+  'settings.appearance.font.main.description': 'ECHO uses Outfit, Microsoft YaHei, and Noto Sans SC by default. You can enter any installed font family.',
   'settings.appearance.font.main.title': 'Main Font',
   'settings.appearance.fontSize.description': 'Adjust the base size used by the interface.',
   'settings.appearance.fontSize.title': 'Base Font Size',
   'settings.appearance.lineHeight.description': 'Adjust default UI text spacing for denser or airier reading.',
   'settings.appearance.lineHeight.title': 'Interface Line Height',
   'settings.appearance.reset.action': 'Reset',
-  'settings.appearance.reset.description': 'Restore Satoshi, Noto Sans SC, Outfit, base size, line height, text depth, and rounded covers.',
+  'settings.appearance.reset.description': 'Restore Outfit, Microsoft YaHei, Noto Sans SC, base size, line height, text depth, and rounded covers.',
   'settings.appearance.reset.title': 'Appearance Defaults',
   'settings.appearance.textDepth.description': 'Adjust interface text darkness. Lower values make text lighter.',
   'settings.appearance.textDepth.title': 'Text Depth',

@@ -13,6 +13,8 @@ type EchoPluginPermission =
   | 'settings:read'
   /** Active high-risk permission: write a small settings patch, not a full settings object. */
   | 'settings:write'
+  /** Active high-risk permission: request host-controlled quality/DSD analysis for library track ids. */
+  | 'audio:analyze'
   /** Active in apiVersion 2: host-mediated http/https fetch with timeout, size, method, and header guardrails. */
   | 'network'
   /** Limited in v1: use echo.storage only; no arbitrary file API is exposed. */
@@ -207,6 +209,42 @@ type EchoPluginNetworkRequest = {
   timeoutMs?: number;
 };
 
+type EchoPluginAudioAnalysisVerdict =
+  | 'trusted_lossless'
+  | 'likely_lossy_transcode'
+  | 'likely_fake_hires'
+  | 'trusted_dsd_container'
+  | 'dsd_metadata_mismatch'
+  | 'lossy_source'
+  | 'not_applicable'
+  | 'unknown';
+
+type EchoPluginAudioAnalysisEvidence = {
+  id: string;
+  severity: 'info' | 'warning' | 'risk';
+  message: string;
+};
+
+type EchoPluginAudioAnalysisReport = {
+  trackId: string;
+  analyzedAt: string;
+  status: 'ready' | 'unsupported' | 'error';
+  verdict: EchoPluginAudioAnalysisVerdict;
+  confidence: number;
+  metrics: {
+    codec: string | null;
+    extension: string | null;
+    sampleRate: number | null;
+    bitDepth: number | null;
+    bitrate: number | null;
+    durationSeconds: number | null;
+    fileSizeBytes: number | null;
+    dsdNativeSampleRate: number | null;
+  };
+  evidence: EchoPluginAudioAnalysisEvidence[];
+  limitations: string[];
+};
+
 type EchoPluginTrackQuery = {
   page?: number;
   pageSize?: number;
@@ -322,6 +360,7 @@ type EchoPluginThemePresetContribution = {
  * - source providers return bounded track candidates; playback must resolve to explicit http/https audio URLs
  * - theme presets are declared in echo.plugin.json contributes.themePresets; plugins do not inject arbitrary CSS
  * - apiVersion 2 network access must go through echo.net and requires the network permission
+ * - audio analysis must go through echo.audio and requires the audio:analyze permission
  * - apiVersion 2 settings are plugin-owned; apiVersion 1 settings keep the legacy app-settings bridge
  * - plugins do not get Node, Electron, SQLite, app DOM, decoder, DSP, or output access
  */
@@ -361,6 +400,10 @@ type EchoPluginApi = {
   library: {
     getSummary(): Promise<Record<string, unknown>>;
     getTracks(query?: EchoPluginTrackQuery): Promise<EchoPluginPage<EchoPluginTrack>>;
+  };
+  audio: {
+    analyzeTrack(trackId: string): Promise<EchoPluginAudioAnalysisReport>;
+    analyzeTrack(request: { trackId: string }): Promise<EchoPluginAudioAnalysisReport>;
   };
   settings: {
     get<T = unknown>(key?: string): Promise<T>;

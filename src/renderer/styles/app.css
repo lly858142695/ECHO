@@ -1596,7 +1596,7 @@
 .settings-nav-desc {
   color: var(--theme-subtle-text);
   font-size: 12px;
-  font-weight: 620;
+  font-weight: 400;
   line-height: 1.3;
 }
 
@@ -1797,7 +1797,7 @@
   margin: 0;
   color: #6f7e91;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.45;
 }
 
@@ -5116,8 +5116,15 @@
   margin: 8px 0 0;
   color: var(--theme-muted-text);
   font-size: 12px;
-  font-weight: 650;
   line-height: 1.45;
+}
+
+.settings-inline-note {
+  font-weight: 400;
+}
+
+.settings-inline-error {
+  font-weight: 650;
 }
 
 .settings-inline-error {
@@ -10721,7 +10728,7 @@
   max-width: 620px;
   color: var(--theme-muted-text);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 400;
 }
 
 .settings-chip-row {
@@ -11990,6 +11997,50 @@
   font-size: 12px;
   font-weight: 860;
   text-align: center;
+}
+
+.lyrics-settings-drawer .audio-drawer-scroll,
+.lyrics-settings-drawer .audio-drawer-section,
+.lyrics-settings-drawer .lyrics-font-panel,
+.lyrics-settings-drawer .lyrics-desktop-font-panel-body,
+.lyrics-settings-drawer .lyrics-font-actions,
+.lyrics-settings-drawer .lyrics-background-segmented,
+.lyrics-settings-drawer .lyrics-desktop-opacity-control,
+.lyrics-settings-drawer .mv-threshold-slider {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.lyrics-settings-drawer .lyrics-font-actions .audio-device-pill {
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.lyrics-settings-drawer .lyrics-font-actions .audio-device-pill em {
+  display: none;
+}
+
+.lyrics-settings-drawer .lyrics-desktop-opacity-control {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.lyrics-settings-drawer .lyrics-desktop-opacity-control .mv-threshold-slider {
+  width: 100%;
+  max-width: none;
+  justify-self: stretch;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.lyrics-settings-drawer .lyrics-desktop-opacity-control .mv-threshold-slider input[type="range"] {
+  min-width: 0;
+}
+
+.lyrics-settings-drawer .lyrics-background-segmented button {
+  overflow: hidden;
+  padding-inline: 8px;
+  text-overflow: ellipsis;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -14117,20 +14168,20 @@ html[data-theme="dark"] .downloads-page .empty-state strong {
 }
 
 .history-recent-list {
+  --history-recent-row-height: 66px;
   display: grid;
-  grid-auto-columns: minmax(220px, 1fr);
-  grid-auto-flow: column;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px;
+  max-height: var(--history-recent-row-height);
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 2px;
+  overflow: hidden;
 }
 
 .history-recent-row {
   display: grid;
   min-width: 0;
-  min-height: 66px;
+  height: var(--history-recent-row-height);
+  box-sizing: border-box;
   grid-template-columns: 42px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
   align-items: center;
@@ -15658,7 +15709,7 @@ html[data-theme="dark"] .history-play-count {
   }
 
   .history-recent-list {
-    grid-auto-columns: minmax(190px, 82vw);
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   }
 
   .history-activity-wall {
@@ -18028,8 +18079,48 @@ html[data-theme="dark"] .history-play-count {
   height: 32px;
 }
 
+.connect-collapse-button svg {
+  transition: transform 220ms ease;
+}
+
 .connect-collapse-button[aria-expanded="false"] svg {
   transform: rotate(-90deg);
+}
+
+.connect-collapsible-content {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 200ms ease,
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 0s;
+}
+
+.connect-collapsible-content[data-expanded="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  visibility: hidden;
+  transition:
+    grid-template-rows 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 170ms ease,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 280ms;
+}
+
+.connect-collapsible-content__inner {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .connect-hidden-devices {
@@ -18470,8 +18561,21 @@ html[data-theme="dark"] .history-play-count {
   padding: 20px;
 }
 
-.connect-hqplayer-panel[data-collapsed="true"] {
+.connect-radio-panel[data-collapsed="true"],
+.connect-hqplayer-panel[data-collapsed="true"],
+.connect-hqplayer-panel[data-section-collapsed="true"] {
   gap: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connect-collapse-button svg,
+  .connect-collapsible-content {
+    transition: none;
+  }
+
+  .connect-collapsible-content[data-expanded="false"] {
+    transition: none;
+  }
 }
 
 .connect-receiver-body {

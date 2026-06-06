@@ -52,6 +52,22 @@ export const resolveInitialMainWindowSize = (settings: AppSettings = getAppSetti
   };
 };
 
+export const resolveMainWindowBackgroundOptions = (
+  settings: Pick<AppSettings, 'appWindowAcrylicEnabled'>,
+  acrylicSupported = isMainWindowAcrylicSupportedPlatform(),
+): Pick<Electron.BrowserWindowConstructorOptions, 'backgroundColor' | 'backgroundMaterial'> => {
+  const acrylicEnabled = acrylicSupported && settings.appWindowAcrylicEnabled === true;
+
+  return {
+    backgroundColor: '#f7f9fc',
+    ...(acrylicSupported
+      ? {
+          backgroundMaterial: acrylicEnabled ? 'acrylic' : 'none',
+        }
+      : {}),
+  };
+};
+
 const rememberMainWindowSize = (window: BrowserWindow): void => {
   if (window.isDestroyed() || window.isMinimized() || window.isMaximized() || window.isFullScreen()) {
     return;
@@ -73,8 +89,6 @@ const rememberMainWindowSize = (window: BrowserWindow): void => {
 export const createMainWindow = (): BrowserWindow => {
   markStartupStage('main-window:create:start');
   const settings = getAppSettings();
-  const acrylicSupported = isMainWindowAcrylicSupportedPlatform();
-  const acrylicEnabled = acrylicSupported && settings.appWindowAcrylicEnabled === true;
   const initialSize = resolveInitialMainWindowSize(settings);
   const window = new BrowserWindow({
     width: initialSize.width,
@@ -83,8 +97,7 @@ export const createMainWindow = (): BrowserWindow => {
     minHeight: mainWindowMinimumSize.height,
     title: 'ECHO NEXT',
     icon: existsSync(appIconPath) ? appIconPath : undefined,
-    backgroundColor: acrylicEnabled ? '#00000000' : '#f7f9fc',
-    ...(acrylicSupported ? { backgroundMaterial: acrylicEnabled ? 'acrylic' : 'none', transparent: true } : {}),
+    ...resolveMainWindowBackgroundOptions(settings),
     frame: false,
     show: false,
     webPreferences: createMainWindowWebPreferences(),

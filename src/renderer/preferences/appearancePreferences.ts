@@ -14,23 +14,17 @@ export type AppearanceFontFile = {
 const storageKey = 'echo-next:appearance-preferences';
 
 export const defaultAppearancePreferences: AppearancePreferences = {
-  mainFontFamily: 'Satoshi',
+  mainFontFamily: 'Outfit',
   mainFontFilePath: null,
-  chineseFontFamily: 'Noto Sans SC',
+  chineseFontFamily: 'Microsoft YaHei',
   chineseFontFilePath: null,
-  fallbackFontFamily: 'Outfit',
+  fallbackFontFamily: 'Noto Sans SC',
   fallbackFontFilePath: null,
   baseFontSize: 14,
   lineHeight: 1.35,
   textDepth: 62,
   albumCoverShape: 'rounded',
 };
-
-const legacyDefaultFontPreferences = {
-  mainFontFamily: 'Outfit',
-  chineseFontFamily: 'Microsoft YaHei',
-  fallbackFontFamily: 'Noto Sans SC',
-} as const;
 
 const childrenDoodleDefaultFontPreferences = {
   mainFontFamily: 'Monocraft',
@@ -61,38 +55,18 @@ const normalizeFontPath = (value: unknown): string | null => {
 const normalizeAlbumCoverShape = (value: unknown): AppearancePreferences['albumCoverShape'] =>
   value === 'square' ? 'square' : 'rounded';
 
-const normalizePreferences = (value: Partial<AppearancePreferences>): AppearancePreferences => {
-  const normalized: AppearancePreferences = {
-    mainFontFamily: normalizeFontName(value.mainFontFamily, defaultAppearancePreferences.mainFontFamily),
-    mainFontFilePath: normalizeFontPath(value.mainFontFilePath),
-    chineseFontFamily: normalizeFontName(value.chineseFontFamily, defaultAppearancePreferences.chineseFontFamily),
-    chineseFontFilePath: normalizeFontPath(value.chineseFontFilePath),
-    fallbackFontFamily: normalizeFontName(value.fallbackFontFamily, defaultAppearancePreferences.fallbackFontFamily),
-    fallbackFontFilePath: normalizeFontPath(value.fallbackFontFilePath),
-    baseFontSize: clamp(Number(value.baseFontSize) || defaultAppearancePreferences.baseFontSize, 12, 18),
-    lineHeight: clamp(Number(value.lineHeight) || defaultAppearancePreferences.lineHeight, 1.1, 1.8),
-    textDepth: clamp(Number(value.textDepth) || defaultAppearancePreferences.textDepth, 35, 100),
-    albumCoverShape: normalizeAlbumCoverShape(value.albumCoverShape),
-  };
-
-  if (
-    normalized.mainFontFamily === legacyDefaultFontPreferences.mainFontFamily &&
-    normalized.mainFontFilePath === null &&
-    normalized.chineseFontFamily === legacyDefaultFontPreferences.chineseFontFamily &&
-    normalized.chineseFontFilePath === null &&
-    normalized.fallbackFontFamily === legacyDefaultFontPreferences.fallbackFontFamily &&
-    normalized.fallbackFontFilePath === null
-  ) {
-    return {
-      ...normalized,
-      mainFontFamily: defaultAppearancePreferences.mainFontFamily,
-      chineseFontFamily: defaultAppearancePreferences.chineseFontFamily,
-      fallbackFontFamily: defaultAppearancePreferences.fallbackFontFamily,
-    };
-  }
-
-  return normalized;
-};
+const normalizePreferences = (value: Partial<AppearancePreferences>): AppearancePreferences => ({
+  mainFontFamily: normalizeFontName(value.mainFontFamily, defaultAppearancePreferences.mainFontFamily),
+  mainFontFilePath: normalizeFontPath(value.mainFontFilePath),
+  chineseFontFamily: normalizeFontName(value.chineseFontFamily, defaultAppearancePreferences.chineseFontFamily),
+  chineseFontFilePath: normalizeFontPath(value.chineseFontFilePath),
+  fallbackFontFamily: normalizeFontName(value.fallbackFontFamily, defaultAppearancePreferences.fallbackFontFamily),
+  fallbackFontFilePath: normalizeFontPath(value.fallbackFontFilePath),
+  baseFontSize: clamp(Number(value.baseFontSize) || defaultAppearancePreferences.baseFontSize, 12, 18),
+  lineHeight: clamp(Number(value.lineHeight) || defaultAppearancePreferences.lineHeight, 1.1, 1.8),
+  textDepth: clamp(Number(value.textDepth) || defaultAppearancePreferences.textDepth, 35, 100),
+  albumCoverShape: normalizeAlbumCoverShape(value.albumCoverShape),
+});
 
 const hasDefaultFontPreferences = (preferences: AppearancePreferences): boolean =>
   preferences.mainFontFamily === defaultAppearancePreferences.mainFontFamily &&

@@ -6877,6 +6877,36 @@ export const SettingsPage = (): JSX.Element => {
       });
   }, [dispatchSettingsChanged, refreshDataBackupStatus, refreshTaskbarPlaybackStatus]);
 
+  const handleWindowAcrylicToggle = useCallback((): void => {
+    const app = getAppBridge();
+    const diagnostics = getDiagnosticsBridge();
+
+    if (!app || !appSettings) {
+      setError('Desktop bridge unavailable. Open ECHO Next in Electron to save app settings.');
+      return;
+    }
+
+    const nextEnabled = !(appSettings.appWindowAcrylicEnabled ?? false);
+
+    void app
+      .setSettings({ appWindowAcrylicEnabled: nextEnabled })
+      .then((settings) => {
+        setAppSettings(settings);
+        dispatchSettingsChanged(settings);
+
+        if (window.confirm(t('settings.appearance.windowAcrylic.restartConfirm'))) {
+          if (!diagnostics) {
+            setError('Desktop bridge unavailable. Restart ECHO Next manually to apply Window Acrylic.');
+            return;
+          }
+          void diagnostics.relaunchApp();
+        }
+      })
+      .catch((settingsError) => {
+        setError(settingsError instanceof Error ? settingsError.message : String(settingsError));
+      });
+  }, [appSettings, dispatchSettingsChanged, t]);
+
   const handleSidebarRouteDragStart = useCallback((event: ReactDragEvent<HTMLDivElement>, routeId: SidebarRouteId): void => {
     setDraggingSidebarRouteId(routeId);
     event.dataTransfer.effectAllowed = 'move';
@@ -10262,6 +10292,22 @@ export const SettingsPage = (): JSX.Element => {
                 />
               </SettingRow>
               <SettingRow
+                id="settings-row-touch-keyboard"
+                highlighted={highlightedSettingId === 'settings-row-touch-keyboard'}
+                title={t('settings.general.touchKeyboard.title')}
+                description={t('settings.general.touchKeyboard.description')}
+              >
+                <ToggleButton
+                  active={appSettings?.touchOnScreenKeyboardEnabled === true}
+                  disabled={!appSettings}
+                  onClick={() =>
+                    patchAppSettings({
+                      touchOnScreenKeyboardEnabled: !(appSettings?.touchOnScreenKeyboardEnabled ?? false),
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
                 id="settings-row-sidebar-auto-hide"
                 highlighted={highlightedSettingId === 'settings-row-sidebar-auto-hide'}
                 title={t('settings.general.sidebarAutoHide.title')}
@@ -12948,11 +12994,7 @@ export const SettingsPage = (): JSX.Element => {
                 <ToggleButton
                   active={appSettings?.appWindowAcrylicEnabled === true}
                   disabled={!appSettings}
-                  onClick={() =>
-                    patchAppSettings({
-                      appWindowAcrylicEnabled: !(appSettings?.appWindowAcrylicEnabled ?? false),
-                    })
-                  }
+                  onClick={handleWindowAcrylicToggle}
                 />
               </SettingRow>
               <SettingRow

@@ -101,6 +101,40 @@ const rememberLyricsViewMode = (mode: LyricsViewMode): void => {
   }
 };
 
+const nonTextInputTypes = new Set([
+  'button',
+  'checkbox',
+  'color',
+  'file',
+  'hidden',
+  'image',
+  'radio',
+  'range',
+  'reset',
+  'submit',
+]);
+
+const isTouchKeyboardEditableTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const editable = target.closest('input, textarea, [contenteditable="true"], [role="textbox"]');
+  if (!(editable instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (editable instanceof HTMLInputElement) {
+    return !editable.disabled && !editable.readOnly && !nonTextInputTypes.has(editable.type);
+  }
+
+  if (editable instanceof HTMLTextAreaElement) {
+    return !editable.disabled && !editable.readOnly;
+  }
+
+  return editable.getAttribute('aria-readonly') !== 'true';
+};
+
 type AppWallpaperSettings = Pick<
   AppSettings,
   | 'appWindowAcrylicEnabled'
@@ -442,6 +476,8 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lyricsMiniPlayerHostRef = useRef<HTMLDivElement | null>(null);
   const lyricsMiniPlayerAutoHideTimerRef = useRef<number | null>(null);
+  const touchOnScreenKeyboardEnabledRef = useRef(false);
+  const touchKeyboardLastRequestAtRef = useRef(0);
   const lastAudioErrorRef = useRef<string | null>(null);
   const notifiedWindowsAudioDefaultFormatKeysRef = useRef<Set<string>>(new Set());
   const previousRouteIdRef = useRef<AppRouteId>('songs');
@@ -865,6 +901,63 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     return () => {
       cancelled = true;
       window.removeEventListener('settings:changed', handleSettingsChanged);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
+      if (!settings || !Object.prototype.hasOwnProperty.call(settings, 'touchOnScreenKeyboardEnabled')) {
+        return;
+      }
+
+      touchOnScreenKeyboardEnabledRef.current = settings.touchOnScreenKeyboardEnabled === true;
+    };
+
+    const refreshSettings = (): void => {
+      void window.echo?.app?.getSettings?.()
+        .then((settings) => {
+          if (!cancelled) {
+            applySettings(settings);
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    const handleSettingsChanged = (event: Event): void => {
+      if (event instanceof CustomEvent) {
+        applySettings(event.detail as Partial<AppSettings> | null | undefined);
+        return;
+      }
+
+      if (!cancelled) {
+        refreshSettings();
+      }
+    };
+
+    const handleFocusIn = (event: FocusEvent): void => {
+      if (!touchOnScreenKeyboardEnabledRef.current || !isTouchKeyboardEditableTarget(event.target)) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - touchKeyboardLastRequestAtRef.current < 700) {
+        return;
+      }
+
+      touchKeyboardLastRequestAtRef.current = now;
+      void window.echo?.app?.showTouchKeyboard?.().catch(() => undefined);
+    };
+
+    refreshSettings();
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    window.addEventListener('focusin', handleFocusIn);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('settings:changed', handleSettingsChanged);
+      window.removeEventListener('focusin', handleFocusIn);
     };
   }, []);
 

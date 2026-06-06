@@ -83,7 +83,7 @@ const pluginsBridge = {
   disable: vi.fn(async () => ({ ...plugins[0], enabled: false, status: 'disabled' })),
   reload: vi.fn(async () => plugins[0]),
   openDirectory: vi.fn(async () => undefined),
-  exportPackage: vi.fn(async () => 'D:\\Echo\\plugins\\echo.playback-panel.echo-plugin.json'),
+  exportPackage: vi.fn(async () => 'D:\\Echo\\plugins\\echo.playback-panel.echo'),
   importPackage: vi.fn(async () => ({ pluginId: 'echo.playback-panel', directory: 'D:\\Echo\\plugins\\echo.playback-panel', importedFileCount: 2, checksum: 'abc' })),
   runCommand: vi.fn(async () => undefined),
   queryLyrics: vi.fn(async () => ({ providers: [], candidates: [] })),
@@ -148,6 +148,10 @@ describe('PluginsPage', () => {
     fireEvent.click(createButtons[0]);
 
     await waitFor(() => expect(pluginsBridge.createExample).toHaveBeenCalledWith('playback-panel'));
+
+    fireEvent.click(createButtons[3]);
+
+    await waitFor(() => expect(pluginsBridge.createExample).toHaveBeenCalledWith('audio-authenticity'));
   });
 
   it('imports and exports local plugin packages', async () => {

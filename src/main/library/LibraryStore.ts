@@ -2355,6 +2355,57 @@ export class LibraryStore {
     return states;
   }
 
+  getTrackCacheStatesByFolderScope(folderId: string, folderPath: string, recursive: boolean): Map<string, StoredTrackCoverState> {
+    const folder = this.requireFolder(folderId);
+    const scopedPath = this.resolveFolderScopedPath(folder, folderPath);
+    const scope = this.folderTrackScope(folder.id, scopedPath, recursive);
+    const rows = this.allRows(
+      `SELECT
+        tracks.path, tracks.id, tracks.size_bytes, tracks.mtime_ms, tracks.duration,
+        tracks.cover_id, tracks.metadata_status, tracks.embedded_metadata_status, tracks.embedded_cover_status,
+        tracks.file_identity, tracks.file_identity_source, tracks.quick_hash, tracks.quick_hash_version,
+        tracks.identity_status, tracks.identity_updated_at, tracks.identity_error,
+        covers.source_type, covers.source_hash, covers.mime_type,
+        covers.thumb_path, covers.album_path, covers.large_path, covers.original_ref,
+        covers.cache_version
+      FROM tracks
+      LEFT JOIN covers ON covers.id = tracks.cover_id
+      WHERE ${scope.sql}`,
+      ...scope.params,
+    );
+    const states = new Map<string, StoredTrackCoverState>();
+
+    for (const row of rows) {
+      states.set(resolve(String(row.path)), {
+        id: String(row.id),
+        sizeBytes: Number(row.size_bytes),
+        mtimeMs: Number(row.mtime_ms),
+        duration: numberOrNull(row.duration),
+        coverId: textOrNull(row.cover_id),
+        metadataStatus: textOrNull(row.metadata_status),
+        embeddedMetadataStatus: textOrNull(row.embedded_metadata_status),
+        embeddedCoverStatus: textOrNull(row.embedded_cover_status),
+        coverSource: coverSourceOrNull(row.source_type),
+        sourceHash: textOrNull(row.source_hash),
+        mimeType: textOrNull(row.mime_type),
+        thumbPath: textOrNull(row.thumb_path),
+        albumPath: textOrNull(row.album_path),
+        largePath: textOrNull(row.large_path),
+        originalRef: textOrNull(row.original_ref),
+        cacheVersion: numberOrNull(row.cache_version),
+        fileIdentity: textOrNull(row.file_identity),
+        fileIdentitySource: textOrNull(row.file_identity_source),
+        quickHash: textOrNull(row.quick_hash),
+        quickHashVersion: numberOrNull(row.quick_hash_version),
+        identityStatus: textOrNull(row.identity_status),
+        identityUpdatedAt: textOrNull(row.identity_updated_at),
+        identityError: textOrNull(row.identity_error),
+      });
+    }
+
+    return states;
+  }
+
   getTrackCacheStatesByPaths(folderId: string, paths: readonly string[], options: { batchSize?: number } = {}): Map<string, StoredTrackCoverState> {
     const uniquePaths = Array.from(new Set(paths.map((filePath) => resolve(filePath))));
     const states = new Map<string, StoredTrackCoverState>();

@@ -13,7 +13,7 @@ export const applyMainWindowBackgroundMaterial = (
 
   const acrylicEnabled = isMainWindowAcrylicSupportedPlatform() && settings.appWindowAcrylicEnabled === true;
 
-  window.setBackgroundColor(acrylicEnabled ? '#00000000' : '#f7f9fc');
+  window.setBackgroundColor('#f7f9fc');
 
   if (isMainWindowAcrylicSupportedPlatform()) {
     window.setBackgroundMaterial(acrylicEnabled ? 'acrylic' : 'none');
