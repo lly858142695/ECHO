@@ -61,6 +61,7 @@ describe('app settings normalization', () => {
     expect(settings.appearanceThemePresetsExpanded).toBe(false);
     expect(settings.appearanceThemeCustomExpanded).toBe(false);
     expect(settings.appearanceSidebarLayoutExpanded).toBe(false);
+    expect(settings.hiddenPlayerBarButtonIds).toEqual(['audioExport']);
     expect(settings.albumMergeStrategy).toBe('standard');
     expect(settings.chineseCrossScriptSearchEnabled).toBe(true);
     expect(settings.artistWallAlbumArtwork).toBe(false);
@@ -206,6 +207,18 @@ describe('app settings normalization', () => {
     expect(settings.audioTransportFadeInMs).toBe(80);
     expect(settings.audioTransportFadeOutMs).toBe(80);
     expect(settings.audioTransportFadeCurve).toBe('smooth');
+  });
+
+  it('normalizes hidden bottom-right player buttons', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).hiddenPlayerBarButtonIds).toEqual(['audioExport']);
+    expect(
+      normalizeSettings({
+        hiddenPlayerBarButtonIds: ['volume', 'audioExport', 'volume', 'unknown'] as never,
+      }).hiddenPlayerBarButtonIds,
+    ).toEqual(['volume', 'audioExport']);
+    expect(normalizeSettings({ hiddenPlayerBarButtonIds: [] }).hiddenPlayerBarButtonIds).toEqual([]);
   });
 
   it('normalizes an empty coverCacheDir to null', async () => {

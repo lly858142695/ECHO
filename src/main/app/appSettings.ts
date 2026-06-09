@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { app } from 'electron';
 import { finalThemeUnlockVersion } from '../../shared/constants/featureUnlocks';
-import { artistOnlineInfoSources, artistStreamingAlbumProviders, autoUpdateSources, defaultArtistOnlineInfoSources, defaultArtistStreamingAlbumsProvider } from '../../shared/types/appSettings';
+import { artistOnlineInfoSources, artistStreamingAlbumProviders, autoUpdateSources, defaultArtistOnlineInfoSources, defaultArtistStreamingAlbumsProvider, playerBarButtonIds } from '../../shared/types/appSettings';
 import { defaultSidebarHiddenRouteIds, defaultSidebarRouteOrder, normalizeSidebarHiddenRouteIds, normalizeSidebarRouteOrder } from '../../shared/types/sidebar';
 import type {
   ArtistOnlineInfoSource,
@@ -26,6 +26,7 @@ import type {
   LyricsBackgroundMode,
   LyricsMiniPlayerColorMode,
   NetworkProxyMode,
+  PlayerBarButtonId,
   RememberedAudioOutput,
   DesktopLyricsBounds,
   RememberedWindowSize,
@@ -377,6 +378,7 @@ export const defaultSettings: AppSettings = {
   appWindowAcrylicKeepWhenUnfocusedEnabled: false,
   appWindowAcrylicTransparencyPercent: defaultAppWindowAcrylicTransparencyPercent,
   appearancePreferences: { ...defaultAppearancePreferences },
+  hiddenPlayerBarButtonIds: ['audioExport'],
   sidebarRouteOrder: [...defaultSidebarRouteOrder],
   sidebarHiddenRouteIds: [...defaultSidebarHiddenRouteIds],
   sidebarAutoHideEnabled: false,
@@ -1097,6 +1099,24 @@ const normalizeAppearancePreferences = (value: unknown): AppearancePreferences =
   };
 };
 
+const playerBarButtonIdSet = new Set<PlayerBarButtonId>(playerBarButtonIds);
+const normalizeHiddenPlayerBarButtonIds = (value: unknown): PlayerBarButtonId[] => {
+  if (!Array.isArray(value)) {
+    return [...(defaultSettings.hiddenPlayerBarButtonIds ?? [])];
+  }
+
+  const output: PlayerBarButtonId[] = [];
+  const seen = new Set<PlayerBarButtonId>();
+  for (const item of value) {
+    if (!playerBarButtonIdSet.has(item as PlayerBarButtonId) || seen.has(item as PlayerBarButtonId)) {
+      continue;
+    }
+    output.push(item as PlayerBarButtonId);
+    seen.add(item as PlayerBarButtonId);
+  }
+  return output;
+};
+
 const normalizeRememberedAudioOutput = (value: unknown): RememberedAudioOutput => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { ...defaultRememberedAudioOutput };
@@ -1650,6 +1670,7 @@ export const normalizeSettings = (value: unknown, options: NormalizeSettingsOpti
       ? clamp(Math.round(Number(settings.appWindowAcrylicTransparencyPercent)), 0, 100)
       : defaultAppWindowAcrylicTransparencyPercent,
     appearancePreferences: normalizeAppearancePreferences(settings.appearancePreferences),
+    hiddenPlayerBarButtonIds: normalizeHiddenPlayerBarButtonIds(settings.hiddenPlayerBarButtonIds),
     sidebarRouteOrder: normalizeSidebarRouteOrder(settings.sidebarRouteOrder),
     sidebarHiddenRouteIds: normalizeSidebarHiddenRouteIds(settings.sidebarHiddenRouteIds),
     sidebarAutoHideEnabled: settings.sidebarAutoHideEnabled === true,

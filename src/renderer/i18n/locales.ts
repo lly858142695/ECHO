@@ -1893,6 +1893,26 @@ export type TranslationKey =
   | 'settings.appearance.lineHeight.title'
   | 'settings.appearance.nowPlayingCoverColor.description'
   | 'settings.appearance.nowPlayingCoverColor.title'
+  | 'settings.appearance.playerBarButtons.audioExport'
+  | 'settings.appearance.playerBarButtons.audioExport.description'
+  | 'settings.appearance.playerBarButtons.count'
+  | 'settings.appearance.playerBarButtons.description'
+  | 'settings.appearance.playerBarButtons.desktopLyrics'
+  | 'settings.appearance.playerBarButtons.desktopLyrics.description'
+  | 'settings.appearance.playerBarButtons.hidden'
+  | 'settings.appearance.playerBarButtons.miniPlayer'
+  | 'settings.appearance.playerBarButtons.miniPlayer.description'
+  | 'settings.appearance.playerBarButtons.reset'
+  | 'settings.appearance.playerBarButtons.sleepTimer'
+  | 'settings.appearance.playerBarButtons.sleepTimer.description'
+  | 'settings.appearance.playerBarButtons.speed'
+  | 'settings.appearance.playerBarButtons.speed.description'
+  | 'settings.appearance.playerBarButtons.streamingDownload'
+  | 'settings.appearance.playerBarButtons.streamingDownload.description'
+  | 'settings.appearance.playerBarButtons.title'
+  | 'settings.appearance.playerBarButtons.visible'
+  | 'settings.appearance.playerBarButtons.volume'
+  | 'settings.appearance.playerBarButtons.volume.description'
   | 'settings.appearance.windowAcrylic.description'
   | 'settings.appearance.windowAcrylic.keepWhenUnfocused'
   | 'settings.appearance.windowAcrylic.restartConfirm'
@@ -5048,6 +5068,26 @@ const zhCN: TranslationMap = {
   'settings.appearance.lineHeight.title': '界面行距',
   'settings.appearance.nowPlayingCoverColor.title': '播放界面封面取色',
   'settings.appearance.nowPlayingCoverColor.description': '开启后，正在播放页会在空闲时从小封面抽样生成轻量背景；低负载模式会自动跳过。默认关闭。',
+  'settings.appearance.playerBarButtons.title': '右下角按钮',
+  'settings.appearance.playerBarButtons.description': '选择底部播放器右下角要显示的快捷按钮。默认隐藏导出文件，其余显示。',
+  'settings.appearance.playerBarButtons.count': '显示 {count} 个按钮',
+  'settings.appearance.playerBarButtons.reset': '恢复默认',
+  'settings.appearance.playerBarButtons.visible': '显示',
+  'settings.appearance.playerBarButtons.hidden': '隐藏',
+  'settings.appearance.playerBarButtons.sleepTimer': '睡眠定时',
+  'settings.appearance.playerBarButtons.sleepTimer.description': '打开睡眠定时器。',
+  'settings.appearance.playerBarButtons.desktopLyrics': '桌面歌词',
+  'settings.appearance.playerBarButtons.desktopLyrics.description': '显示或隐藏桌面歌词。',
+  'settings.appearance.playerBarButtons.miniPlayer': '迷你播放器',
+  'settings.appearance.playerBarButtons.miniPlayer.description': '打开或收起迷你播放器。',
+  'settings.appearance.playerBarButtons.volume': '音量',
+  'settings.appearance.playerBarButtons.volume.description': '调整当前输出音量。',
+  'settings.appearance.playerBarButtons.speed': '播放速度',
+  'settings.appearance.playerBarButtons.speed.description': '调整本地播放速度。',
+  'settings.appearance.playerBarButtons.streamingDownload': '流媒体下载',
+  'settings.appearance.playerBarButtons.streamingDownload.description': '下载支持的流媒体曲目。',
+  'settings.appearance.playerBarButtons.audioExport': '导出文件',
+  'settings.appearance.playerBarButtons.audioExport.description': '导出当前本地音频文件。',
   'settings.appearance.windowAcrylic.title': '窗口亚克力',
   'settings.appearance.windowAcrylic.description': '开启后下次启动会使用系统亚克力材质，让桌面背景从窗口后方透出；界面会保留可读遮罩。Windows 11 22H2 及以上效果最佳。',
   'settings.appearance.windowAcrylic.keepWhenUnfocused': '失焦时保持通透',
@@ -8918,6 +8958,26 @@ const zhTW: TranslationMap = {
   'settings.appearance.sidebar.showAria': '顯示 {label}',
   'settings.appearance.nowPlayingCoverColor.title': '播放介面封面取色',
   'settings.appearance.nowPlayingCoverColor.description': '開啟後，正在播放頁會在閒置時從小封面取樣生成輕量背景；低負載模式會自動略過。預設關閉。',
+  'settings.appearance.playerBarButtons.title': '右下角按鈕',
+  'settings.appearance.playerBarButtons.description': '選擇底部播放器右下角要顯示的快捷按鈕。預設隱藏匯出檔案，其餘顯示。',
+  'settings.appearance.playerBarButtons.count': '顯示 {count} 個按鈕',
+  'settings.appearance.playerBarButtons.reset': '恢復預設',
+  'settings.appearance.playerBarButtons.visible': '顯示',
+  'settings.appearance.playerBarButtons.hidden': '隱藏',
+  'settings.appearance.playerBarButtons.sleepTimer': '睡眠定時',
+  'settings.appearance.playerBarButtons.sleepTimer.description': '開啟睡眠定時器。',
+  'settings.appearance.playerBarButtons.desktopLyrics': '桌面歌詞',
+  'settings.appearance.playerBarButtons.desktopLyrics.description': '顯示或隱藏桌面歌詞。',
+  'settings.appearance.playerBarButtons.miniPlayer': '迷你播放器',
+  'settings.appearance.playerBarButtons.miniPlayer.description': '打開或收起迷你播放器。',
+  'settings.appearance.playerBarButtons.volume': '音量',
+  'settings.appearance.playerBarButtons.volume.description': '調整目前輸出音量。',
+  'settings.appearance.playerBarButtons.speed': '播放速度',
+  'settings.appearance.playerBarButtons.speed.description': '調整本機播放速度。',
+  'settings.appearance.playerBarButtons.streamingDownload': '串流下載',
+  'settings.appearance.playerBarButtons.streamingDownload.description': '下載支援的串流曲目。',
+  'settings.appearance.playerBarButtons.audioExport': '匯出檔案',
+  'settings.appearance.playerBarButtons.audioExport.description': '匯出目前本機音訊檔案。',
   'settings.appearance.windowAcrylic.title': '視窗壓克力',
   'settings.appearance.windowAcrylic.description': '開啟後下次啟動會使用系統壓克力材質，讓桌面背景從視窗後方透出；介面會保留可讀遮罩。Windows 11 22H2 以上效果最佳。',
   'settings.appearance.windowAcrylic.keepWhenUnfocused': '失焦時保持通透',
@@ -11857,6 +11917,26 @@ const jaJP: TranslationMap = {
   'settings.appearance.sidebar.showAria': '{label} を表示',
   'settings.appearance.nowPlayingCoverColor.title': '再生画面のカバー色',
   'settings.appearance.nowPlayingCoverColor.description': '有効にすると、再生中ページがアイドル時に小さなカバー画像から軽量な背景色を抽出します。低負荷モードでは自動的にスキップします。既定はオフです。',
+  'settings.appearance.playerBarButtons.title': '右下ボタン',
+  'settings.appearance.playerBarButtons.description': '下部プレーヤー右下に表示するショートカットを選びます。既定ではファイル書き出しのみ非表示です。',
+  'settings.appearance.playerBarButtons.count': '{count} 個のボタンを表示',
+  'settings.appearance.playerBarButtons.reset': '既定に戻す',
+  'settings.appearance.playerBarButtons.visible': '表示',
+  'settings.appearance.playerBarButtons.hidden': '非表示',
+  'settings.appearance.playerBarButtons.sleepTimer': 'スリープタイマー',
+  'settings.appearance.playerBarButtons.sleepTimer.description': 'スリープタイマーを開きます。',
+  'settings.appearance.playerBarButtons.desktopLyrics': 'デスクトップ歌詞',
+  'settings.appearance.playerBarButtons.desktopLyrics.description': 'デスクトップ歌詞を表示または非表示にします。',
+  'settings.appearance.playerBarButtons.miniPlayer': 'ミニプレーヤー',
+  'settings.appearance.playerBarButtons.miniPlayer.description': 'ミニプレーヤーを開く、または閉じます。',
+  'settings.appearance.playerBarButtons.volume': '音量',
+  'settings.appearance.playerBarButtons.volume.description': '現在の出力音量を調整します。',
+  'settings.appearance.playerBarButtons.speed': '再生速度',
+  'settings.appearance.playerBarButtons.speed.description': 'ローカル再生速度を調整します。',
+  'settings.appearance.playerBarButtons.streamingDownload': 'ストリーミング保存',
+  'settings.appearance.playerBarButtons.streamingDownload.description': '対応しているストリーミング曲を保存します。',
+  'settings.appearance.playerBarButtons.audioExport': 'ファイル書き出し',
+  'settings.appearance.playerBarButtons.audioExport.description': '現在のローカル音声ファイルを書き出します。',
   'settings.appearance.windowAcrylic.title': 'ウィンドウ アクリル',
   'settings.appearance.windowAcrylic.description': '有効にすると次回起動時にシステムのアクリル素材を使い、デスクトップ背景をウィンドウ越しに見せます。読みやすさを保つ保護レイヤーは維持します。Windows 11 22H2 以降で最適です。',
   'settings.appearance.windowAcrylic.keepWhenUnfocused': '非アクティブ時も透明感を維持',
@@ -14985,6 +15065,26 @@ const enUS: TranslationMap = {
   'settings.appearance.sidebar.showAria': 'Show {label}',
   'settings.appearance.nowPlayingCoverColor.title': 'Now Playing Cover Color',
   'settings.appearance.nowPlayingCoverColor.description': 'Sample the small cover art while idle to tint the Now Playing page. Low-load playback mode skips it automatically. Off by default.',
+  'settings.appearance.playerBarButtons.title': 'Bottom-Right Buttons',
+  'settings.appearance.playerBarButtons.description': 'Choose which shortcuts appear at the bottom-right of the player bar. File export is hidden by default; the others stay visible.',
+  'settings.appearance.playerBarButtons.count': '{count} buttons visible',
+  'settings.appearance.playerBarButtons.reset': 'Reset',
+  'settings.appearance.playerBarButtons.visible': 'Visible',
+  'settings.appearance.playerBarButtons.hidden': 'Hidden',
+  'settings.appearance.playerBarButtons.sleepTimer': 'Sleep Timer',
+  'settings.appearance.playerBarButtons.sleepTimer.description': 'Open the sleep timer.',
+  'settings.appearance.playerBarButtons.desktopLyrics': 'Desktop Lyrics',
+  'settings.appearance.playerBarButtons.desktopLyrics.description': 'Show or hide desktop lyrics.',
+  'settings.appearance.playerBarButtons.miniPlayer': 'Mini Player',
+  'settings.appearance.playerBarButtons.miniPlayer.description': 'Open or close the mini player.',
+  'settings.appearance.playerBarButtons.volume': 'Volume',
+  'settings.appearance.playerBarButtons.volume.description': 'Adjust the current output volume.',
+  'settings.appearance.playerBarButtons.speed': 'Playback Speed',
+  'settings.appearance.playerBarButtons.speed.description': 'Adjust local playback speed.',
+  'settings.appearance.playerBarButtons.streamingDownload': 'Streaming Download',
+  'settings.appearance.playerBarButtons.streamingDownload.description': 'Download supported streaming tracks.',
+  'settings.appearance.playerBarButtons.audioExport': 'File Export',
+  'settings.appearance.playerBarButtons.audioExport.description': 'Export the current local audio file.',
   'settings.appearance.windowAcrylic.title': 'Window Acrylic',
   'settings.appearance.windowAcrylic.description': 'Use the system acrylic material on next launch so the desktop shows through behind the window, while keeping a readability scrim over the UI. Best on Windows 11 22H2 and later.',
   'settings.appearance.windowAcrylic.keepWhenUnfocused': 'Keep translucent when unfocused',

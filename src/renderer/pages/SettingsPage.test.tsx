@@ -1140,6 +1140,37 @@ describe('SettingsPage', () => {
     });
   });
 
+  it('saves bottom-right player button visibility from appearance controls', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    let currentSettings: AppSettings = {
+      ...settings,
+      hiddenPlayerBarButtonIds: ['audioExport'],
+    };
+    getSettingsMock.mockResolvedValue(currentSettings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => {
+      currentSettings = { ...currentSettings, ...patch };
+      return currentSettings;
+    });
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.appearance\\.label');
+    const row = screen.getByText('settings.appearance.playerBarButtons.title').closest('.setting-row') as HTMLElement;
+    const volumeItem = within(row).getByText('settings.appearance.playerBarButtons.volume').closest('.settings-sidebar-route-item') as HTMLElement;
+    fireEvent.click(volumeItem.querySelector('.settings-sidebar-visibility-button') as HTMLButtonElement);
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenLastCalledWith({ hiddenPlayerBarButtonIds: ['audioExport', 'volume'] }));
+
+    const updatedRow = screen.getByText('settings.appearance.playerBarButtons.title').closest('.setting-row') as HTMLElement;
+    const audioExportItem = within(updatedRow).getByText('settings.appearance.playerBarButtons.audioExport').closest('.settings-sidebar-route-item') as HTMLElement;
+    fireEvent.click(audioExportItem.querySelector('.settings-sidebar-visibility-button') as HTMLButtonElement);
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenLastCalledWith({ hiddenPlayerBarButtonIds: ['volume'] }));
+  });
+
   it('keeps sidebar layout controls collapsed by default and remembers expansion', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     let currentSettings: AppSettings = {

@@ -6,6 +6,7 @@ import { audioExportFormats, type AudioExportFormat, type AudioStatus } from '..
 import { isReliableBpmAnalysis } from '../../../shared/constants/audioAnalysis';
 import type { AirPlayReceiverStatus, ConnectMetadata, ConnectReceiverStatus, ConnectSessionStatus } from '../../../shared/types/connect';
 import type { DownloadJob, DownloadJobStatus } from '../../../shared/types/downloads';
+import { playerBarButtonIds, type PlayerBarButtonId } from '../../../shared/types/appSettings';
 import type { LibraryTrack } from '../../../shared/types/library';
 import type { PlaybackStatus } from '../../../shared/types/playback';
 import type { MiniPlayerState } from '../../../shared/types/miniPlayer';
@@ -218,6 +219,8 @@ const readDsdAutoVolumeLockEnabledPatch = (patch: unknown): boolean | null => {
 };
 
 const audioExportFormatSet = new Set<AudioExportFormat>(audioExportFormats);
+const defaultHiddenPlayerBarButtonIds: PlayerBarButtonId[] = ['audioExport'];
+const playerBarButtonIdSet = new Set<PlayerBarButtonId>(playerBarButtonIds);
 const audioExportFormatLabels: Record<AudioExportFormat, string> = {
   mp3: 'MP3',
   wav: 'WAV',
@@ -242,6 +245,39 @@ const readAudioExportFormatPatch = (patch: unknown): AudioExportFormat | null =>
   }
 
   return normalizeAudioExportFormat((patch as { audioExportFormat?: unknown }).audioExportFormat);
+};
+
+const normalizeHiddenPlayerBarButtonIds = (value: unknown): PlayerBarButtonId[] => {
+  if (!Array.isArray(value)) {
+    return [...defaultHiddenPlayerBarButtonIds];
+  }
+
+  const output: PlayerBarButtonId[] = [];
+  const seen = new Set<PlayerBarButtonId>();
+  for (const item of value) {
+    if (!playerBarButtonIdSet.has(item as PlayerBarButtonId) || seen.has(item as PlayerBarButtonId)) {
+      continue;
+    }
+    output.push(item as PlayerBarButtonId);
+    seen.add(item as PlayerBarButtonId);
+  }
+  return output;
+};
+
+const readHiddenPlayerBarButtonIds = (settings: unknown): PlayerBarButtonId[] => {
+  if (!settings || typeof settings !== 'object') {
+    return [...defaultHiddenPlayerBarButtonIds];
+  }
+
+  return normalizeHiddenPlayerBarButtonIds((settings as { hiddenPlayerBarButtonIds?: unknown }).hiddenPlayerBarButtonIds);
+};
+
+const readHiddenPlayerBarButtonIdsPatch = (patch: unknown): PlayerBarButtonId[] | null => {
+  if (!patch || typeof patch !== 'object' || !Object.prototype.hasOwnProperty.call(patch, 'hiddenPlayerBarButtonIds')) {
+    return null;
+  }
+
+  return normalizeHiddenPlayerBarButtonIds((patch as { hiddenPlayerBarButtonIds?: unknown }).hiddenPlayerBarButtonIds);
 };
 
 const formatPlaybackRate = (value: unknown): string => {
@@ -614,6 +650,7 @@ export const PlayerBar = ({
   const [dsdAutoVolumeLockEnabled, setDsdAutoVolumeLockEnabled] = useState(false);
   const [dsdAutoVolumeLocked, setDsdAutoVolumeLocked] = useState(false);
   const [audioExportFormat, setAudioExportFormat] = useState<AudioExportFormat>('mp3');
+  const [hiddenPlayerBarButtonIds, setHiddenPlayerBarButtonIds] = useState<PlayerBarButtonId[]>(defaultHiddenPlayerBarButtonIds);
   const [isAudioExporting, setIsAudioExporting] = useState(false);
   const [miniPlayerState, setMiniPlayerState] = useState<MiniPlayerState | null>(null);
   const [isMiniPlayerBusy, setIsMiniPlayerBusy] = useState(false);
@@ -934,6 +971,8 @@ export const PlayerBar = ({
       : isAudioExporting
         ? '正在导出当前文件'
         : `导出当前文件为 ${audioExportFormatLabel}（${formatPlaybackRate(currentExportPlaybackRate)}）`;
+  const hiddenPlayerBarButtonIdSet = new Set(hiddenPlayerBarButtonIds);
+  const isPlayerBarButtonVisible = (id: PlayerBarButtonId): boolean => !hiddenPlayerBarButtonIdSet.has(id);
   const handleOpenCurrentArtist = useCallback((): void => {
     if (!currentLibraryArtistName) {
       return;
@@ -1298,6 +1337,7 @@ export const PlayerBar = ({
         setFixedVolumeEnabled(false);
         setDsdAutoVolumeLockEnabled(false);
         setAudioExportFormat('mp3');
+        setHiddenPlayerBarButtonIds([...defaultHiddenPlayerBarButtonIds]);
         return;
       }
 
@@ -1311,6 +1351,7 @@ export const PlayerBar = ({
             setFixedVolumeEnabled(readFixedVolumeEnabled(settings));
             setDsdAutoVolumeLockEnabled(readDsdAutoVolumeLockEnabled(settings));
             setAudioExportFormat(readAudioExportFormat(settings));
+            setHiddenPlayerBarButtonIds(readHiddenPlayerBarButtonIds(settings));
           }
         })
         .catch(() => {
@@ -1322,6 +1363,7 @@ export const PlayerBar = ({
             setFixedVolumeEnabled(false);
             setDsdAutoVolumeLockEnabled(false);
             setAudioExportFormat('mp3');
+            setHiddenPlayerBarButtonIds([...defaultHiddenPlayerBarButtonIds]);
           }
         });
     };
@@ -1351,6 +1393,10 @@ export const PlayerBar = ({
         const audioExportFormatPatch = readAudioExportFormatPatch(event.detail);
         if (audioExportFormatPatch !== null) {
           setAudioExportFormat(audioExportFormatPatch);
+        }
+        const hiddenPlayerBarButtonIdsPatch = readHiddenPlayerBarButtonIdsPatch(event.detail);
+        if (hiddenPlayerBarButtonIdsPatch !== null) {
+          setHiddenPlayerBarButtonIds(hiddenPlayerBarButtonIdsPatch);
         }
       }
 
@@ -2676,8 +2722,8 @@ export const PlayerBar = ({
       </div>
 
       <div className="output-status">
-        <SleepTimerButton />
-        {hasDesktopLyricsBridge ? (
+        {isPlayerBarButtonVisible('sleepTimer') ? <SleepTimerButton /> : null}
+        {isPlayerBarButtonVisible('desktopLyrics') && hasDesktopLyricsBridge ? (
           <button
             className={`icon-button ${desktopLyricsVisible ? 'is-soft-active' : ''}`}
             type="button"
@@ -2697,28 +2743,32 @@ export const PlayerBar = ({
             <Captions size={17} />
           </button>
         ) : null}
-        <button
-          className={`icon-button ${miniPlayerState?.visible ? 'is-soft-active' : ''}`}
-          type="button"
-          aria-label={miniPlayerState?.visible ? '隐藏迷你播放器' : '显示迷你播放器'}
-          title={miniPlayerState?.visible ? '隐藏迷你播放器' : '显示迷你播放器'}
-          disabled={!window.echo?.miniPlayer || isMiniPlayerBusy}
-          onClick={() => void handleToggleMiniPlayer()}
-        >
-          {isMiniPlayerBusy ? <Loader2 className="spinning-icon" size={17} /> : <Monitor size={17} />}
-        </button>
-        <PlayerVolumeControl
-          status={audioStatus}
-          fixedVolumeEnabled={fixedVolumeEnabled || dsdAutoVolumeLocked}
-          fixedVolumeAutoReason={dsdAutoVolumeLocked ? translateFallback('playerVolume.fixed.dsdAutoLocked') : null}
-          isOpen={openPopover === 'volume'}
-          onError={setError}
-          onFixedVolumeChange={setFixedVolumeEnabled}
-          onOpenChange={(isOpen) => setOpenPopover(isOpen ? 'volume' : null)}
-          onStatusChange={setAudioStatus}
-          onCommitVolume={isSpotifyCurrentTrack ? setSpotifyVolume : undefined}
-        />
-        {!isSpotifyCurrentTrack ? (
+        {isPlayerBarButtonVisible('miniPlayer') ? (
+          <button
+            className={`icon-button ${miniPlayerState?.visible ? 'is-soft-active' : ''}`}
+            type="button"
+            aria-label={miniPlayerState?.visible ? '隐藏迷你播放器' : '显示迷你播放器'}
+            title={miniPlayerState?.visible ? '隐藏迷你播放器' : '显示迷你播放器'}
+            disabled={!window.echo?.miniPlayer || isMiniPlayerBusy}
+            onClick={() => void handleToggleMiniPlayer()}
+          >
+            {isMiniPlayerBusy ? <Loader2 className="spinning-icon" size={17} /> : <Monitor size={17} />}
+          </button>
+        ) : null}
+        {isPlayerBarButtonVisible('volume') ? (
+          <PlayerVolumeControl
+            status={audioStatus}
+            fixedVolumeEnabled={fixedVolumeEnabled || dsdAutoVolumeLocked}
+            fixedVolumeAutoReason={dsdAutoVolumeLocked ? translateFallback('playerVolume.fixed.dsdAutoLocked') : null}
+            isOpen={openPopover === 'volume'}
+            onError={setError}
+            onFixedVolumeChange={setFixedVolumeEnabled}
+            onOpenChange={(isOpen) => setOpenPopover(isOpen ? 'volume' : null)}
+            onStatusChange={setAudioStatus}
+            onCommitVolume={isSpotifyCurrentTrack ? setSpotifyVolume : undefined}
+          />
+        ) : null}
+        {isPlayerBarButtonVisible('speed') && !isSpotifyCurrentTrack ? (
           <PlayerSpeedControl
             status={audioStatus}
             isOpen={openPopover === 'speed'}
@@ -2727,7 +2777,7 @@ export const PlayerBar = ({
             onStatusChange={setAudioStatus}
           />
         ) : null}
-        {isCurrentStreamingTrack && streamingDownloadActionsEnabled ? (
+        {isPlayerBarButtonVisible('streamingDownload') && isCurrentStreamingTrack && streamingDownloadActionsEnabled ? (
           <button
             className="icon-button"
             type="button"
@@ -2751,7 +2801,7 @@ export const PlayerBar = ({
             )}
           </button>
         ) : null}
-        {!isCurrentStreamingTrack ? (
+        {isPlayerBarButtonVisible('audioExport') && !isCurrentStreamingTrack ? (
           <button
             className="icon-button"
             type="button"

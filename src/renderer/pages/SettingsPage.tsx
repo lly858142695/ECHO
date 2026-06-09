@@ -3,6 +3,7 @@ import type { CSSProperties, DragEvent as ReactDragEvent, KeyboardEvent as React
 import {
   Captions,
   Check,
+  Clock3,
   Clapperboard,
   Code2,
   Clipboard,
@@ -10,8 +11,10 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  FileDown,
   FileText,
   FolderOpen,
+  Gauge,
   Github,
   Globe2,
   GripVertical,
@@ -21,6 +24,7 @@ import {
   Keyboard,
   Link2,
   MessageSquare,
+  Monitor,
   Palette,
   Pause,
   Play,
@@ -33,6 +37,7 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Trash2,
+  Volume2,
   X,
   Zap,
   ChevronDown,
@@ -52,7 +57,7 @@ import type {
 } from '../../shared/types/audio';
 import { QUIET_REPLAY_GAIN_TARGET_LUFS, SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS } from '../../shared/constants/replayGain';
 import { finalThemeUnlockPluginId, finalThemeUnlockVersion, isDownloadFeatureUnlockCode } from '../../shared/constants/featureUnlocks';
-import { defaultArtistOnlineInfoSources, defaultArtistStreamingAlbumsProvider } from '../../shared/types/appSettings';
+import { defaultArtistOnlineInfoSources, defaultArtistStreamingAlbumsProvider, playerBarButtonIds } from '../../shared/types/appSettings';
 import {
   defaultSidebarHiddenRouteIds,
   defaultSidebarRouteOrder,
@@ -74,6 +79,7 @@ import type {
   AutoUpdateSource,
   NetworkProxyMode,
   NetworkProxyTestResult,
+  PlayerBarButtonId,
 } from '../../shared/types/appSettings';
 import type { MvSettings, NetworkMvProviderId } from '../../shared/types/mv';
 import type { MiniPlayerState } from '../../shared/types/miniPlayer';
@@ -968,6 +974,87 @@ const sidebarSettingsRouteItems: SidebarSettingsRouteItem[] = [
 
 const sidebarSettingsRouteItemById = new Map(sidebarSettingsRouteItems.map((item) => [item.id, item]));
 const lockedVisibleSidebarRouteIdSet = new Set<SidebarRouteId>(lockedVisibleSidebarRouteIds);
+
+type PlayerBarButtonSettingsItem = {
+  id: PlayerBarButtonId;
+  labelKey: TranslationKey;
+  descriptionKey: TranslationKey;
+  icon: LucideIcon;
+};
+
+const defaultHiddenPlayerBarButtonIds: PlayerBarButtonId[] = ['audioExport'];
+const playerBarButtonIdSet = new Set<PlayerBarButtonId>(playerBarButtonIds);
+
+const playerBarButtonSettingsCopy = {
+  titleKey: 'settings.appearance.playerBarButtons.title',
+  descriptionKey: 'settings.appearance.playerBarButtons.description',
+  countKey: 'settings.appearance.playerBarButtons.count',
+  resetKey: 'settings.appearance.playerBarButtons.reset',
+  visibleKey: 'settings.appearance.playerBarButtons.visible',
+  hiddenKey: 'settings.appearance.playerBarButtons.hidden',
+} as const satisfies Record<string, TranslationKey>;
+
+const playerBarButtonSettingsItems: PlayerBarButtonSettingsItem[] = [
+  {
+    id: 'sleepTimer',
+    labelKey: 'settings.appearance.playerBarButtons.sleepTimer',
+    descriptionKey: 'settings.appearance.playerBarButtons.sleepTimer.description',
+    icon: Clock3,
+  },
+  {
+    id: 'desktopLyrics',
+    labelKey: 'settings.appearance.playerBarButtons.desktopLyrics',
+    descriptionKey: 'settings.appearance.playerBarButtons.desktopLyrics.description',
+    icon: Captions,
+  },
+  {
+    id: 'miniPlayer',
+    labelKey: 'settings.appearance.playerBarButtons.miniPlayer',
+    descriptionKey: 'settings.appearance.playerBarButtons.miniPlayer.description',
+    icon: Monitor,
+  },
+  {
+    id: 'volume',
+    labelKey: 'settings.appearance.playerBarButtons.volume',
+    descriptionKey: 'settings.appearance.playerBarButtons.volume.description',
+    icon: Volume2,
+  },
+  {
+    id: 'speed',
+    labelKey: 'settings.appearance.playerBarButtons.speed',
+    descriptionKey: 'settings.appearance.playerBarButtons.speed.description',
+    icon: Gauge,
+  },
+  {
+    id: 'streamingDownload',
+    labelKey: 'settings.appearance.playerBarButtons.streamingDownload',
+    descriptionKey: 'settings.appearance.playerBarButtons.streamingDownload.description',
+    icon: Download,
+  },
+  {
+    id: 'audioExport',
+    labelKey: 'settings.appearance.playerBarButtons.audioExport',
+    descriptionKey: 'settings.appearance.playerBarButtons.audioExport.description',
+    icon: FileDown,
+  },
+];
+
+const normalizeHiddenPlayerBarButtonIdsForRenderer = (value: unknown): PlayerBarButtonId[] => {
+  if (!Array.isArray(value)) {
+    return [...defaultHiddenPlayerBarButtonIds];
+  }
+
+  const output: PlayerBarButtonId[] = [];
+  const seen = new Set<PlayerBarButtonId>();
+  for (const item of value) {
+    if (!playerBarButtonIdSet.has(item as PlayerBarButtonId) || seen.has(item as PlayerBarButtonId)) {
+      continue;
+    }
+    output.push(item as PlayerBarButtonId);
+    seen.add(item as PlayerBarButtonId);
+  }
+  return output;
+};
 
 const pendingSettingsSectionStorageKey = 'echo-next.settings.pending-section';
 const pendingRouteStorageKey = 'echo-next.pending-route';
@@ -4233,6 +4320,12 @@ export const SettingsPage = (): JSX.Element => {
   const sidebarRouteOrder = useMemo(() => normalizeSidebarRouteOrder(appSettings?.sidebarRouteOrder), [appSettings?.sidebarRouteOrder]);
   const sidebarHiddenRouteIds = useMemo(() => normalizeSidebarHiddenRouteIds(appSettings?.sidebarHiddenRouteIds), [appSettings?.sidebarHiddenRouteIds]);
   const sidebarHiddenRouteIdSet = useMemo(() => new Set(sidebarHiddenRouteIds), [sidebarHiddenRouteIds]);
+  const hiddenPlayerBarButtonIds = useMemo(
+    () => normalizeHiddenPlayerBarButtonIdsForRenderer(appSettings?.hiddenPlayerBarButtonIds),
+    [appSettings?.hiddenPlayerBarButtonIds],
+  );
+  const hiddenPlayerBarButtonIdSet = useMemo(() => new Set(hiddenPlayerBarButtonIds), [hiddenPlayerBarButtonIds]);
+  const visiblePlayerBarButtonCount = playerBarButtonSettingsItems.length - hiddenPlayerBarButtonIds.length;
   const sidebarLayoutExpanded = appSettings?.appearanceSidebarLayoutExpanded === true;
   const sidebarLayoutSummary = sidebarHiddenRouteIds.length > 0 ? t('settings.appearance.sidebar.summary.hidden', { count: sidebarHiddenRouteIds.length }) : t('settings.appearance.sidebar.summary.allVisible');
   const sidebarSettingsGroups = useMemo(() => {
@@ -7501,6 +7594,26 @@ export const SettingsPage = (): JSX.Element => {
     });
   }, [patchAppSettings]);
 
+  const handlePlayerBarButtonVisibilityToggle = useCallback(
+    (buttonId: PlayerBarButtonId): void => {
+      const hiddenSet = new Set(hiddenPlayerBarButtonIds);
+      if (hiddenSet.has(buttonId)) {
+        hiddenSet.delete(buttonId);
+      } else {
+        hiddenSet.add(buttonId);
+      }
+
+      patchAppSettings({
+        hiddenPlayerBarButtonIds: normalizeHiddenPlayerBarButtonIdsForRenderer([...hiddenSet]),
+      });
+    },
+    [hiddenPlayerBarButtonIds, patchAppSettings],
+  );
+
+  const handlePlayerBarButtonsReset = useCallback((): void => {
+    patchAppSettings({ hiddenPlayerBarButtonIds: [...defaultHiddenPlayerBarButtonIds] });
+  }, [patchAppSettings]);
+
   const handleSidebarLayoutToggle = useCallback((): void => {
     patchAppSettings({ appearanceSidebarLayoutExpanded: !sidebarLayoutExpanded });
   }, [patchAppSettings, sidebarLayoutExpanded]);
@@ -10643,6 +10756,14 @@ export const SettingsPage = (): JSX.Element => {
     fixed: t(sidebarSettingsCopy.fixedKey),
     noItems: t(sidebarSettingsCopy.noItemsKey),
   };
+  const playerBarButtonSettingsText = {
+    title: t(playerBarButtonSettingsCopy.titleKey),
+    description: t(playerBarButtonSettingsCopy.descriptionKey),
+    count: t(playerBarButtonSettingsCopy.countKey, { count: visiblePlayerBarButtonCount }),
+    reset: t(playerBarButtonSettingsCopy.resetKey),
+    visible: t(playerBarButtonSettingsCopy.visibleKey),
+    hidden: t(playerBarButtonSettingsCopy.hiddenKey),
+  };
   const themeScheduleStatus = themeScheduleEnabled
     ? t('settings.appearance.themeSchedule.status.enabled', {
         darkAt: themeScheduleDarkAt,
@@ -13596,6 +13717,55 @@ export const SettingsPage = (): JSX.Element => {
                     })
                   }
                 />
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                id="settings-row-player-bar-buttons"
+                highlighted={highlightedSettingId === 'settings-row-player-bar-buttons'}
+                title={playerBarButtonSettingsText.title}
+                description={playerBarButtonSettingsText.description}
+              >
+                <div className="settings-sidebar-layout-editor">
+                  <div className="settings-sidebar-layout-toolbar">
+                    <span className="settings-inline-note">{playerBarButtonSettingsText.count}</span>
+                    <button className="settings-action-button" type="button" disabled={!appSettings} onClick={handlePlayerBarButtonsReset}>
+                      <RotateCcw size={15} />
+                      {playerBarButtonSettingsText.reset}
+                    </button>
+                  </div>
+                  <div className="settings-sidebar-route-list">
+                    {playerBarButtonSettingsItems.map((item) => {
+                      const label = t(item.labelKey);
+                      const isVisible = !hiddenPlayerBarButtonIdSet.has(item.id);
+                      const Icon = item.icon;
+
+                      return (
+                        <div className="settings-sidebar-route-item" data-hidden={isVisible ? undefined : 'true'} key={item.id}>
+                          <span className="settings-sidebar-route-drag-handle" aria-hidden="true">
+                            <Icon size={15} />
+                          </span>
+                          <span className="settings-sidebar-route-copy">
+                            <strong>{label}</strong>
+                            <em>{t(item.descriptionKey)}</em>
+                          </span>
+                          <span className="settings-sidebar-route-actions">
+                            <button
+                              aria-label={`${label} ${isVisible ? playerBarButtonSettingsText.visible : playerBarButtonSettingsText.hidden}`}
+                              aria-pressed={isVisible}
+                              className="settings-icon-button settings-sidebar-visibility-button"
+                              disabled={!appSettings}
+                              title={isVisible ? playerBarButtonSettingsText.visible : playerBarButtonSettingsText.hidden}
+                              type="button"
+                              onClick={() => handlePlayerBarButtonVisibilityToggle(item.id)}
+                            >
+                              {isVisible ? <Eye size={15} /> : <EyeOff size={15} />}
+                            </button>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </SettingRow>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"

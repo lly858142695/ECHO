@@ -3619,6 +3619,62 @@ describe('PlayerBar', () => {
     expect(screen.queryByText('0:59')).toBeNull();
   });
 
+  it('hides the local audio export button by default and shows it when enabled in appearance settings', async () => {
+    const track = makeTrack(22, { title: 'Local Export Visibility Track' });
+
+    const renderWithSettings = async (settings: Record<string, unknown>) => {
+      cleanup();
+      window.echo = {
+        playback: {
+          getStatus: vi.fn().mockResolvedValue({
+            state: 'playing',
+            currentTrackId: track.id,
+            positionMs: 0,
+            durationMs: track.duration * 1000,
+            filePath: track.path,
+          }),
+          playLocalFile: vi.fn(),
+          play: vi.fn(),
+          pause: vi.fn(),
+          stop: vi.fn(),
+          seek: vi.fn(),
+          openLocalAudioFile: vi.fn(),
+        },
+        audio: {
+          getStatus: vi.fn().mockResolvedValue(audioStatus(track)),
+          onStatus: vi.fn(() => vi.fn()),
+          listDevices: vi.fn(),
+          setOutput: vi.fn(),
+          exportFile: vi.fn(),
+        },
+        app: {
+          getSettings: vi.fn().mockResolvedValue(settings),
+        },
+        library: {
+          getLikedTrackIds: vi.fn().mockResolvedValue({ [track.id]: false }),
+        },
+      } as unknown as Window['echo'];
+
+      const view = render(
+        <I18nProvider>
+          <PlaybackQueueProvider>
+            <QueueSeed tracks={[track]} />
+          </PlaybackQueueProvider>
+        </I18nProvider>,
+      );
+
+      await screen.findByText('Local Export Visibility Track');
+      await waitFor(() => expect(window.echo?.app.getSettings).toHaveBeenCalled());
+      return view.container;
+    };
+
+    const defaultContainer = await renderWithSettings({ smtcEnabled: true });
+    expect(defaultContainer.querySelector('.output-status button[title*="MP3"]')).toBeNull();
+
+    const visibleContainer = await renderWithSettings({ smtcEnabled: true, hiddenPlayerBarButtonIds: [] });
+    expect(visibleContainer.querySelector('.output-status button[title*="MP3"]')).toBeTruthy();
+  });
+
   it('starts a download job from the player for the current streaming track', async () => {
     const track = makeTrack(21, {
       id: 'streaming:qqmusic:song-mid',

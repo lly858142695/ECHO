@@ -135,6 +135,8 @@ export type AppThemeCustomTheme = {
 };
 
 export type AlbumCoverShape = 'rounded' | 'square';
+export const playerBarButtonIds = ['sleepTimer', 'desktopLyrics', 'miniPlayer', 'volume', 'speed', 'streamingDownload', 'audioExport'] as const;
+export type PlayerBarButtonId = typeof playerBarButtonIds[number];
 
 export type AppearancePreferences = {
   mainFontFamily: string;
@@ -195,6 +197,7 @@ export type AppSettings = {
   appWindowAcrylicKeepWhenUnfocusedEnabled?: boolean;
   appWindowAcrylicTransparencyPercent?: number;
   appearancePreferences?: AppearancePreferences;
+  hiddenPlayerBarButtonIds?: PlayerBarButtonId[];
   sidebarRouteOrder?: SidebarRouteId[];
   sidebarHiddenRouteIds?: SidebarRouteId[];
   sidebarAutoHideEnabled?: boolean;
