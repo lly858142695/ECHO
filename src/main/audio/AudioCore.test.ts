@@ -1314,6 +1314,18 @@ describe('AudioSession stability cleanup', () => {
   });
 });
 
+describe('AudioSession event listener capacity', () => {
+  it('allows the shared status subscribers used by app integrations without Node leak warnings', () => {
+    const { session } = createSessionHarness([]);
+
+    try {
+      expect(session.getMaxListeners()).toBeGreaterThanOrEqual(64);
+    } finally {
+      session.dispose();
+    }
+  });
+});
+
 describe('Audio Core sample-rate regression guard', () => {
   it('44.1k file + exclusive requests 44100 and never defaults to 48000', async () => {
     const { bridges, session } = createSessionHarness([probe('441.flac', 44100)]);

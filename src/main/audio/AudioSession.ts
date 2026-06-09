@@ -1554,6 +1554,7 @@ export class AudioSession extends EventEmitter {
 
   constructor(dependencies: AudioSessionDependencies = {}) {
     super();
+    this.setMaxListeners(64);
     this.logger = dependencies.logger ?? defaultLogger;
     this.verboseLogger = dependencies.logger ?? (verboseAudioLogsEnabled ? defaultLogger : noopLogger);
     this.platform = dependencies.platform ?? process.platform;

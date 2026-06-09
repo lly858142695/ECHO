@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import type { Root } from 'react-dom/client';
 import { AlertTriangle, Download, FileText, Power, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import '@fontsource/outfit/400.css';
@@ -43,6 +44,12 @@ import './styles/theme-presets.css';
 import './styles/desktop-lyrics.css';
 import './styles/mini-player.css';
 import './styles/scrollbars.css';
+
+declare global {
+  interface Window {
+    __echoReactRoot?: Root;
+  }
+}
 
 const appearancePreferences = readAppearancePreferences();
 const themeMode = readThemeMode();
@@ -644,7 +651,15 @@ void appBridge?.getSettings().then(loadLyricsFontFiles).catch(() => undefined);
 const isDesktopLyricsWindow = new URLSearchParams(window.location.search).get('desktopLyrics') === '1';
 const isMiniPlayerWindow = new URLSearchParams(window.location.search).get('miniPlayer') === '1';
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error('Missing #root element');
+}
+
+const reactRoot = window.__echoReactRoot ?? ReactDOM.createRoot(rootElement);
+window.__echoReactRoot = reactRoot;
+
+reactRoot.render(
   <React.StrictMode>
     <CrashGuard label={isMiniPlayerWindow ? 'mini-player' : isDesktopLyricsWindow ? 'desktop-lyrics' : 'main-window'}>
       {isMiniPlayerWindow ? (
