@@ -759,6 +759,203 @@ describe('preload SMTC API', () => {
     expect(fakeAudioInstances[0].currentTime).toBe(0);
   });
 
+  it('guards system audio status from reporting the previous track position during a track switch', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string, request?: unknown) => {
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        const streamRequest = request as { url: string };
+        return Promise.resolve(streamRequest.url.includes('next') ? 'echo-audio://system/next-token' : 'echo-audio://system/current-token');
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+    const statuses: Array<Awaited<ReturnType<EchoApi['audio']['getStatus']>>> = [];
+    exposedApi!.audio.onStatus((status) => statuses.push(status));
+
+    await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\current.mp3',
+      trackId: 'track-current',
+      startSeconds: 59.4,
+      probe: { durationSeconds: 180 },
+    });
+    fakeAudioInstances[0].duration = 180;
+    statuses.length = 0;
+    ignoreAudioCurrentTimeWrites = true;
+
+    const status = await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\next.mp3',
+      trackId: 'track-next',
+      probe: { durationSeconds: 180 },
+    });
+
+    const nextStatuses = statuses.filter((item) => item.currentTrackId === 'track-next');
+    expect(status).toMatchObject({ currentTrackId: 'track-next', positionMs: 0 });
+    expect(nextStatuses.length).toBeGreaterThan(0);
+    expect(nextStatuses.every((item) => item.positionSeconds < 1.5)).toBe(true);
+  });
+
+  it('guards system audio status around a non-zero start position', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string, request?: unknown) => {
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        const streamRequest = request as { url: string };
+        return Promise.resolve(streamRequest.url.includes('next') ? 'echo-audio://system/next-token' : 'echo-audio://system/current-token');
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+    const statuses: Array<Awaited<ReturnType<EchoApi['audio']['getStatus']>>> = [];
+    exposedApi!.audio.onStatus((status) => statuses.push(status));
+
+    await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\current.mp3',
+      trackId: 'track-current',
+      startSeconds: 59.4,
+      probe: { durationSeconds: 180 },
+    });
+    fakeAudioInstances[0].duration = 180;
+    statuses.length = 0;
+    ignoreAudioCurrentTimeWrites = true;
+
+    const status = await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\next.mp3',
+      trackId: 'track-next',
+      startSeconds: 12.3,
+      probe: { durationSeconds: 180 },
+    });
+
+    const nextStatuses = statuses.filter((item) => item.currentTrackId === 'track-next');
+    expect(status).toMatchObject({ currentTrackId: 'track-next', positionMs: 12_300 });
+    expect(nextStatuses.length).toBeGreaterThan(0);
+    expect(nextStatuses.every((item) => Math.abs(item.positionSeconds - 12.3) < 1.5)).toBe(true);
+  });
+
+  it('expires the system audio startup position guard instead of hiding a persistent bad position', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.resetModules();
+      exposedApi = null;
+      fakeAudioInstances = [];
+      window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+      vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string, request?: unknown) => {
+        if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+          const streamRequest = request as { url: string };
+          return Promise.resolve(streamRequest.url.includes('next') ? 'echo-audio://system/next-token' : 'echo-audio://system/current-token');
+        }
+        return Promise.resolve(null);
+      });
+      await import('./index');
+      const statuses: Array<Awaited<ReturnType<EchoApi['audio']['getStatus']>>> = [];
+      exposedApi!.audio.onStatus((status) => statuses.push(status));
+
+      await exposedApi!.playback.playLocalFile({
+        filePath: 'D:\\Music\\current.mp3',
+        trackId: 'track-current',
+        startSeconds: 59.4,
+        probe: { durationSeconds: 180 },
+      });
+      statuses.length = 0;
+      ignoreAudioCurrentTimeWrites = true;
+
+      await exposedApi!.playback.playLocalFile({
+        filePath: 'D:\\Music\\next.mp3',
+        trackId: 'track-next',
+        probe: { durationSeconds: 180 },
+      });
+      expect(statuses.at(-1)).toMatchObject({ currentTrackId: 'track-next', positionSeconds: expect.any(Number) });
+      expect(statuses.at(-1)!.positionSeconds).toBeLessThan(1.5);
+
+      await vi.advanceTimersByTimeAsync(3101);
+      fakeAudioInstances[0].emit('timeupdate');
+
+      expect(statuses.at(-1)).toMatchObject({ currentTrackId: 'track-next', positionSeconds: 59.4 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the system audio startup position guard after stop', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string) => {
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        return Promise.resolve('echo-audio://system/token');
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+    const statuses: Array<Awaited<ReturnType<EchoApi['audio']['getStatus']>>> = [];
+    exposedApi!.audio.onStatus((status) => statuses.push(status));
+
+    await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\song.mp3',
+      trackId: 'track-stop',
+      probe: { durationSeconds: 180 },
+    });
+    fakeAudioInstances[0].currentTime = 59.4;
+    ignoreAudioCurrentTimeWrites = true;
+
+    const stopped = await exposedApi!.playback.stop();
+
+    expect(stopped).toMatchObject({ state: 'stopped', currentTrackId: null, positionMs: 0 });
+    expect(statuses.at(-1)).toMatchObject({
+      state: 'stopped',
+      currentTrackId: null,
+      positionSeconds: 0,
+    });
+  });
+
+  it('does not let an old system audio startup guard affect a later playback generation', async () => {
+    vi.resetModules();
+    exposedApi = null;
+    fakeAudioInstances = [];
+    window.localStorage.setItem('echo-next.audio-output-memory', JSON.stringify({ enabled: true, outputMode: 'system' }));
+    vi.mocked(ipcRenderer.invoke).mockImplementation((channel: string, request?: unknown) => {
+      if (channel === IpcChannels.AudioCreateSystemStreamUrl) {
+        const streamRequest = request as { url: string };
+        return Promise.resolve(`echo-audio://system/${streamRequest.url.includes('third') ? 'third' : 'other'}-token`);
+      }
+      return Promise.resolve(null);
+    });
+    await import('./index');
+    const statuses: Array<Awaited<ReturnType<EchoApi['audio']['getStatus']>>> = [];
+    exposedApi!.audio.onStatus((status) => statuses.push(status));
+
+    await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\current.mp3',
+      trackId: 'track-current',
+      startSeconds: 59.4,
+      probe: { durationSeconds: 180 },
+    });
+    ignoreAudioCurrentTimeWrites = true;
+    await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\next.mp3',
+      trackId: 'track-next',
+      probe: { durationSeconds: 180 },
+    });
+    statuses.length = 0;
+
+    const status = await exposedApi!.playback.playLocalFile({
+      filePath: 'D:\\Music\\third.mp3',
+      trackId: 'track-third',
+      startSeconds: 4.5,
+      probe: { durationSeconds: 180 },
+    });
+
+    const thirdStatuses = statuses.filter((item) => item.currentTrackId === 'track-third');
+    expect(status).toMatchObject({ currentTrackId: 'track-third', positionMs: 4_500 });
+    expect(thirdStatuses.length).toBeGreaterThan(0);
+    expect(thirdStatuses.every((item) => Math.abs(item.positionSeconds - 4.5) < 1.5)).toBe(true);
+  });
+
   it('routes Automix requests through native shared output instead of system HTMLAudio', async () => {
     vi.resetModules();
     exposedApi = null;

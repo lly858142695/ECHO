@@ -63,4 +63,15 @@ describe('PlayerProgress', () => {
     expect(css).not.toContain('setInterval');
     expect(css).not.toContain('requestAnimationFrame');
   });
+
+  it('keeps lyrics mini-player waveform progress frameless across theme overrides', () => {
+    const css = readFileSync('src/renderer/styles/theme-presets.css', 'utf8');
+
+    expect(css).toMatch(
+      /\.app-shell--lyrics-player-drawer \.lyrics-player-drawer-host \.progress-track\[data-waveform="true"\] \{[\s\S]*?height: 24px;[\s\S]*?border: 0 !important;[\s\S]*?background: transparent !important;[\s\S]*?box-shadow: none !important;/,
+    );
+    expect(css).toMatch(
+      /\.app-shell--lyrics-player-drawer \.lyrics-player-drawer-host \.progress-track\[data-waveform="true"\] \.progress-thumb \{[\s\S]*?width: 2px;[\s\S]*?height: 28px;[\s\S]*?border: 0 !important;/,
+    );
+  });
 });

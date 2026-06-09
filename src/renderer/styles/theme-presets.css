@@ -13551,3 +13551,28 @@ html .app-shell.app-shell--acrylic:not(.app-shell--wallpaper) :is(
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track[data-waveform="true"] {
+  height: 24px;
+  overflow: hidden;
+  border: 0 !important;
+  outline: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track[data-waveform="true"]::before,
+.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track[data-waveform="true"]::after {
+  display: none;
+}
+
+.app-shell--lyrics-player-drawer .lyrics-player-drawer-host .progress-track[data-waveform="true"] .progress-thumb {
+  width: 2px;
+  height: 28px;
+  border: 0 !important;
+  border-radius: 999px;
+  background: var(--theme-accent-solid-bg) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.46),
+    0 0 12px color-mix(in srgb, var(--theme-accent-solid-bg) 34%, transparent) !important;
+}

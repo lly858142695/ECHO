@@ -157,6 +157,14 @@ let systemAudioTransportFadeCurve: AudioTransportFadeCurve = 'smooth';
 let lastNativeAudioStatus: AudioStatus | null = null;
 let systemPlaybackGeneration = 0;
 let systemMediaPlaybackContext: SystemMediaPlaybackContext | null = null;
+type SystemAudioStartupPositionGuard = {
+  generation: number;
+  trackId: string | null;
+  filePath: string;
+  expectedStartSeconds: number;
+  startedAtMs: number;
+};
+let systemAudioStartupPositionGuard: SystemAudioStartupPositionGuard | null = null;
 let systemReplayGainEnabled = false;
 let systemReplayGainMode: ReplayGainMode = 'track';
 let systemReplayGainTargetLufs = DEFAULT_REPLAY_GAIN_TARGET_LUFS;
@@ -176,6 +184,8 @@ let systemOutputSettings: Pick<AudioStatus, 'volume' | 'playbackRate' | 'playbac
 
 const isHttpUrl = (value: string): boolean => /^https?:\/\//iu.test(value.trim());
 const systemAudioTransportFadeStepMs = 10;
+const systemAudioStartupPositionGuardMs = 3000;
+const systemAudioStartupPositionToleranceSeconds = 1.5;
 const audioTransportFadeCurves = new Set<AudioTransportFadeCurve>(['linear', 'smooth', 'equalPower']);
 const isRendererReadyUrl = (value: string): boolean => /^(?:blob|data):/iu.test(value.trim());
 const nativePreferredSystemLocalAudioExtensions = new Set(['.ape']);
@@ -515,6 +525,56 @@ const getSystemDurationSeconds = (): number => {
 
 const getSystemPositionSeconds = (): number => finiteSeconds(systemAudioElement?.currentTime) ?? 0;
 
+const getSystemStatusPositionSeconds = (): number => {
+  if (!systemAudioSource && (systemAudioState === 'idle' || systemAudioState === 'stopped')) {
+    systemAudioStartupPositionGuard = null;
+    return 0;
+  }
+
+  const actual = getSystemPositionSeconds();
+  const guard = systemAudioStartupPositionGuard;
+
+  if (!guard) {
+    return actual;
+  }
+
+  const sameGeneration = guard.generation === systemPlaybackGeneration;
+  const sameSource =
+    systemAudioSource?.trackId === guard.trackId &&
+    systemAudioSource?.filePath === guard.filePath;
+
+  if (
+    !sameGeneration ||
+    !sameSource ||
+    systemAudioState === 'idle' ||
+    systemAudioState === 'stopped' ||
+    systemAudioState === 'ended' ||
+    systemAudioState === 'error'
+  ) {
+    systemAudioStartupPositionGuard = null;
+    return actual;
+  }
+
+  const elapsedSeconds = Math.max(0, (performance.now() - guard.startedAtMs) / 1000);
+  const guardExpired = elapsedSeconds * 1000 > systemAudioStartupPositionGuardMs;
+  const expected = systemAudioState === 'playing'
+    ? guard.expectedStartSeconds + elapsedSeconds * systemOutputSettings.playbackRate
+    : guard.expectedStartSeconds;
+  const actualLooksLikeOldPosition =
+    Math.abs(actual - expected) > systemAudioStartupPositionToleranceSeconds;
+
+  if (!guardExpired && actualLooksLikeOldPosition) {
+    const duration = getSystemDurationSeconds();
+    return duration > 0 ? Math.min(expected, duration) : Math.max(0, expected);
+  }
+
+  if (!actualLooksLikeOldPosition || guardExpired) {
+    systemAudioStartupPositionGuard = null;
+  }
+
+  return actual;
+};
+
 const systemPositionMatches = (element: HTMLAudioElement, targetSeconds: number): boolean => {
   const currentSeconds = finiteSeconds(element.currentTime);
   return currentSeconds !== null && Math.abs(currentSeconds - targetSeconds) <= systemSeekToleranceSeconds;
@@ -621,7 +681,7 @@ const createSystemAudioStatus = (): AudioStatus => {
     currentTrackAlbumArtist: systemAudioSource?.metadata?.albumArtist ?? null,
     currentTrackCoverUrl: systemAudioSource?.metadata?.coverUrl ?? null,
     durationSeconds: getSystemDurationSeconds(),
-    positionSeconds: getSystemPositionSeconds(),
+    positionSeconds: getSystemStatusPositionSeconds(),
     channels: probe?.channels ?? null,
     codec: probe?.codec ?? null,
     bitDepth: probe?.bitDepth ?? null,
@@ -981,7 +1041,7 @@ const applySystemOutputSettings = (settings: Partial<AudioOutputSettings> | null
 const toSystemPlaybackStatus = (): PlaybackStatus => ({
   state: systemAudioState,
   currentTrackId: systemAudioSource?.trackId ?? null,
-  positionMs: Math.round(getSystemPositionSeconds() * 1000),
+  positionMs: Math.round(getSystemStatusPositionSeconds() * 1000),
   durationMs: Math.round(getSystemDurationSeconds() * 1000),
   filePath: systemAudioSource?.filePath ?? null,
 });
@@ -1141,6 +1201,14 @@ const playSystemSource = async (
   },
 ): Promise<PlaybackStatus> => {
   const { generation, request = null, allowRecovery = true } = options;
+  const safeStartSeconds = finiteSeconds(startSeconds) ?? 0;
+  systemAudioStartupPositionGuard = {
+    generation,
+    trackId: source.trackId ?? null,
+    filePath: source.filePath,
+    expectedStartSeconds: safeStartSeconds,
+    startedAtMs: performance.now(),
+  };
   systemAudioModeActive = true;
   systemAudioSource = source;
   systemAudioState = 'loading';
@@ -1175,14 +1243,13 @@ const playSystemSource = async (
   element.src = sourceUrl;
   applySystemElementOutput();
   element.load();
-  emitSystemAudioStatus();
 
-  const safeStartSeconds = finiteSeconds(startSeconds) ?? 0;
   try {
     element.currentTime = safeStartSeconds;
   } catch {
     // Some HTTP streams reject seeking before metadata is ready; playback can still start.
   }
+  emitSystemAudioStatus();
 
   try {
     await element.play();
@@ -1318,6 +1385,7 @@ const stopSystemPlayback = (
   emitStatus = true,
 ): PlaybackStatus => {
   nextSystemPlaybackGeneration();
+  systemAudioStartupPositionGuard = null;
   cancelSystemAudioTransportFade();
   systemMediaPlaybackContext = null;
   stopSystemStatusTimer();
