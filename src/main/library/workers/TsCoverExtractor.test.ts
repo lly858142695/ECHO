@@ -133,6 +133,35 @@ describe('TsCoverExtractor', () => {
     expect(result.sourceHash).toBe(hashBytes(folderCover));
   });
 
+  it('reuses the recent folder cover lookup for consecutive files in the same directory', async () => {
+    const root = makeTempRoot();
+    const musicRoot = join(root, 'music');
+    const cacheRoot = join(root, 'cover-cache');
+    mkdirSync(musicRoot, { recursive: true });
+    const firstPath = join(musicRoot, 'first.flac');
+    const secondPath = join(musicRoot, 'second.flac');
+    const embeddedPath = join(musicRoot, 'embedded.flac');
+    const folderCoverPath = join(musicRoot, 'folder.jpg');
+    const folderCover = await coverPng('#aa5500');
+    const embedded = await coverPng('#0055aa');
+    writeFileSync(firstPath, 'fake audio');
+    writeFileSync(secondPath, 'fake audio');
+    writeFileSync(embeddedPath, 'fake audio');
+    writeFileSync(folderCoverPath, folderCover);
+    const extractor = new TsCoverExtractor();
+
+    const first = await extractor.extract(firstPath, { cacheRoot, metadata: metadataWithCover() });
+    unlinkSync(folderCoverPath);
+    const second = await extractor.extract(secondPath, { cacheRoot, metadata: metadataWithCover() });
+    const embeddedResult = await extractor.extract(embeddedPath, { cacheRoot, metadata: metadataWithCover(embedded) });
+
+    expect(first.source).toBe('folder');
+    expect(second.source).toBe('folder');
+    expect(second.sourceHash).toBe(first.sourceHash);
+    expect(embeddedResult.source).toBe('embedded');
+    expect(embeddedResult.sourceHash).toBe(hashBytes(embedded));
+  });
+
   it('finds common case-insensitive sidecar cover names for WAV folders', async () => {
     const root = makeTempRoot();
     const musicRoot = join(root, 'music');
@@ -204,8 +233,30 @@ describe('TsCoverExtractor', () => {
     expect(first.source).toBe('default');
     expect(first.sourceHash).toBe(defaultCoverSourceHash);
     expect(second.sourceHash).toBe(defaultCoverSourceHash);
+    expect(second).toBe(first);
     expect(second.thumbPath).toBe(first.thumbPath);
     expect(existsSync(first.thumbPath)).toBe(true);
+  });
+
+  it('keeps default cover warnings when a clean default result is cached', async () => {
+    const root = makeTempRoot();
+    const cacheRoot = join(root, 'cover-cache');
+    const cleanPath = join(root, 'clean.flac');
+    const warningPath = join(root, 'warning.flac');
+    writeFileSync(cleanPath, 'fake audio');
+    writeFileSync(warningPath, 'fake audio');
+    const extractor = new TsCoverExtractor();
+
+    const clean = await extractor.extract(cleanPath, { cacheRoot, metadata: metadataWithCover() });
+    const warning = await extractor.extract(warningPath, {
+      cacheRoot,
+      metadata: metadataWithCover(Buffer.alloc(21 * 1024 * 1024)),
+    });
+
+    expect(warning).not.toBe(clean);
+    expect(warning.source).toBe('default');
+    expect(warning.thumbPath).toBe(clean.thumbPath);
+    expect(warning.warnings.join(' ')).toContain('embedded cover skipped');
   });
 
   it('generates real thumb, album, and large derivatives', async () => {

@@ -7,7 +7,8 @@ import {
   getLastDataProtectionResult,
   isProtectedLibraryAvailable,
 } from '../app/dataProtection';
-import { createDatabase, type EchoDatabase } from './createDatabase';
+import { getAppSettings } from '../app/appSettings';
+import { createDatabase, sqliteDurabilityModeFromSettings, type EchoDatabase } from './createDatabase';
 import {
   checkDatabaseHealth,
   isSqliteCorruptionMessage,
@@ -82,7 +83,9 @@ export class LibraryDatabaseManager {
   openServiceConnection(serviceName: string): LibraryDatabaseConnection {
     this.assertCanOpen(serviceName);
 
-    const database = createDatabase(this.databasePath);
+    const database = createDatabase(this.databasePath, {
+      durabilityMode: sqliteDurabilityModeFromSettings(getAppSettings()),
+    });
     const id = `${serviceName}-${Date.now()}-${++this.connectionSequence}`;
     let open = true;
     const close = (): void => {

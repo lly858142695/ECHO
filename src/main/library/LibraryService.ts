@@ -17,7 +17,7 @@ import {
   restoreProtectedLibraryDatabaseFromScanGuard,
   type LibraryDatabaseScanGuardSnapshot,
 } from '../app/dataProtection';
-import { createDatabase, type EchoDatabase } from '../database/createDatabase';
+import { createDatabase, sqliteDurabilityModeFromSettings, type EchoDatabase } from '../database/createDatabase';
 import { getLibraryDatabaseManager, type LibraryDatabaseConnection } from '../database/LibraryDatabaseManager';
 import { assertDatabaseHealthy, assertDatabaseOpenHealthy } from '../database/health';
 import {
@@ -2907,7 +2907,10 @@ export const createLibraryService = (
   dependencies: LibraryServiceDependencies = {},
 ): LibraryService => {
   const databaseConnection = dependencies.databaseConnection;
-  const database = databaseConnection?.database ?? createDatabase(databasePath);
+  const readSettings = dependencies.appSettings ?? getAppSettingsSafe;
+  const database = databaseConnection?.database ?? createDatabase(databasePath, {
+    durabilityMode: sqliteDurabilityModeFromSettings(readSettings()),
+  });
   let databaseOpen = true;
   const closeDatabase = (): void => {
     if (!databaseOpen) {
@@ -2920,7 +2923,6 @@ export const createLibraryService = (
     }
     database.close();
   };
-  const readSettings = dependencies.appSettings ?? getAppSettingsSafe;
   const store = new LibraryStore(database, () => ({
     chineseCrossScriptSearchEnabled: readSettings().chineseCrossScriptSearchEnabled !== false,
     artistMergeStrategy: readSettings().artistMergeStrategy ?? 'standard',

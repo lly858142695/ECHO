@@ -234,6 +234,7 @@ export type AppSettings = {
   liveLibraryAutoHideDeletedEnabled?: boolean;
   safeModeEnabled?: boolean;
   fastStartupEnabled?: boolean;
+  sqliteBalancedDurabilityEnabled?: boolean;
   dataProtectionDisabled?: boolean;
   autoUpdateEnabled?: boolean;
   autoUpdateSource?: AutoUpdateSource;

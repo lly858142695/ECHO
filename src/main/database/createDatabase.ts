@@ -1,32 +1,54 @@
 import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
+import type { AppSettings } from '../../shared/types/appSettings';
 import { runMigrations } from './migrations';
 import { assertDatabaseOpenHealthy, DatabaseHealthError, rememberDatabaseHealthOk } from './health';
 import { beginMainBackgroundTask } from '../diagnostics/PlaybackPerformanceDiagnostics';
 
 export type EchoDatabase = Database.Database;
 export type DatabaseCorruptionPolicy = 'throw' | 'quarantine-for-test-or-manual';
+export type SqliteDurabilityMode = 'durable' | 'balanced';
 
 type CreateDatabaseOptions = {
   corruptionPolicy?: DatabaseCorruptionPolicy;
+  durabilityMode?: SqliteDurabilityMode;
 };
 
 export const SQLITE_RUNTIME_PRAGMA_PROFILE = 'safe-performance-v1';
 
-const SQLITE_RUNTIME_PRAGMAS = [
-  'busy_timeout = 5000',
-  'journal_mode = WAL',
-  'synchronous = FULL',
-  'cache_size = -32768',
+const SQLITE_RUNTIME_PRAGMAS_AFTER_SYNC = [
   'temp_store = MEMORY',
+  'busy_timeout = 5000',
+  'cache_size = -32768',
   'mmap_size = 268435456',
 ] as const;
 
-const applyRuntimePragmas = (database: EchoDatabase): void => {
+const sqliteSyncPragmaForDurability = (mode: SqliteDurabilityMode): string =>
+  mode === 'balanced' ? 'synchronous = NORMAL' : 'synchronous = FULL';
+
+export const resolveSqliteDurabilityMode = (requested?: SqliteDurabilityMode): SqliteDurabilityMode => {
+  if (requested) {
+    return requested;
+  }
+
+  return 'durable';
+};
+
+export const sqliteDurabilityModeFromSettings = (
+  settings: Pick<AppSettings, 'sqliteBalancedDurabilityEnabled'> | null | undefined,
+): SqliteDurabilityMode => (settings?.sqliteBalancedDurabilityEnabled === true ? 'balanced' : 'durable');
+
+export const sqliteRuntimePragmas = (mode: SqliteDurabilityMode = resolveSqliteDurabilityMode()): readonly string[] => [
+  'journal_mode = WAL',
+  sqliteSyncPragmaForDurability(mode),
+  ...SQLITE_RUNTIME_PRAGMAS_AFTER_SYNC,
+];
+
+const applyRuntimePragmas = (database: EchoDatabase, durabilityMode: SqliteDurabilityMode): void => {
   database.exec('PRAGMA foreign_keys = ON');
 
-  for (const pragma of SQLITE_RUNTIME_PRAGMAS) {
+  for (const pragma of sqliteRuntimePragmas(durabilityMode)) {
     database.pragma(pragma);
   }
 };
@@ -79,6 +101,7 @@ export const quarantineCorruptDatabase = (databasePath: string): string => {
 export const createDatabase = (databasePath: string, options: CreateDatabaseOptions = {}): EchoDatabase => {
   const clearBackgroundTask = databasePath === ':memory:' ? null : beginMainBackgroundTask(`database:open:${basename(databasePath)}`);
   const corruptionPolicy = options.corruptionPolicy ?? 'throw';
+  const durabilityMode = resolveSqliteDurabilityMode(options.durabilityMode);
 
   try {
     if (databasePath !== ':memory:') {
@@ -103,7 +126,7 @@ export const createDatabase = (databasePath: string, options: CreateDatabaseOpti
     }
 
     const database = new Database(databasePath);
-    applyRuntimePragmas(database);
+    applyRuntimePragmas(database, durabilityMode);
     try {
       const migrationResult = runMigrations(database);
       if (migrationResult.appliedCount > 0) {

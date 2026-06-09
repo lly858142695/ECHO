@@ -4680,6 +4680,27 @@ export const SettingsPage = (): JSX.Element => {
         terms: [t('settings.general.fastStartup.title'), t('settings.general.fastStartup.description'), '快速启动', '快速啟動', '高速起動', '启动加速', '慢启动', 'data protection', 'startup', 'fast startup', 'quick startup', 'database snapshot', '曲库检查'],
       },
       {
+        id: 'row-sqlite-balanced-durability',
+        sectionKey: 'general',
+        targetId: 'settings-row-sqlite-balanced-durability',
+        title: t('settings.general.sqliteBalancedDurability.title'),
+        description: t('settings.general.sqliteBalancedDurability.description'),
+        terms: [
+          t('settings.general.sqliteBalancedDurability.title'),
+          t('settings.general.sqliteBalancedDurability.description'),
+          'sqlite',
+          'database',
+          'synchronous',
+          'scan write',
+          'scan performance',
+          'power loss',
+          'crash',
+          '\u626b\u63cf\u5199\u5165',
+          '\u65ad\u7535',
+          '\u5d29\u6e83',
+        ],
+      },
+      {
         id: 'row-data-protection-disabled',
         sectionKey: 'general',
         targetId: 'settings-row-data-protection-disabled',
@@ -11029,6 +11050,22 @@ export const SettingsPage = (): JSX.Element => {
                   active={appSettings?.fastStartupEnabled === true}
                   disabled={!appSettings}
                   onClick={() => patchAppSettings({ fastStartupEnabled: !(appSettings?.fastStartupEnabled ?? false) })}
+                />
+              </SettingRow>
+              <SettingRow
+                id="settings-row-sqlite-balanced-durability"
+                highlighted={highlightedSettingId === 'settings-row-sqlite-balanced-durability'}
+                title={t('settings.general.sqliteBalancedDurability.title')}
+                description={t('settings.general.sqliteBalancedDurability.description')}
+              >
+                <ToggleButton
+                  active={appSettings?.sqliteBalancedDurabilityEnabled === true}
+                  disabled={!appSettings}
+                  onClick={() =>
+                    patchAppSettings({
+                      sqliteBalancedDurabilityEnabled: !(appSettings?.sqliteBalancedDurabilityEnabled ?? false),
+                    })
+                  }
                 />
               </SettingRow>
               <SettingRow

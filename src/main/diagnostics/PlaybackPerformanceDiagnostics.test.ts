@@ -62,4 +62,38 @@ describe('PlaybackPerformanceDiagnostics', () => {
     });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('[ipc-perf] library:scan-folder 420ms SLOW'));
   });
+
+  it('uses a network-aware threshold for successful MV candidate searches', () => {
+    let now = 20_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    recordIpcMainHandlerDuration('mv:search-network-candidates', 372);
+    expect(warn).not.toHaveBeenCalled();
+
+    recordIpcMainHandlerDuration('mv:search-network-candidates', 1200);
+    now = 20_250;
+
+    expect(getPlaybackPerformanceSnapshot()).toMatchObject({
+      lastSlowIpcChannel: 'mv:search-network-candidates',
+      lastSlowIpcDurationMs: 1200,
+      lastSlowIpcAgeMs: 250,
+      lastSlowIpcFailed: false,
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[ipc-perf] mv:search-network-candidates 1200ms SLOW'));
+  });
+
+  it('keeps the default IPC threshold for failed MV candidate searches', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(30_000);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    recordIpcMainHandlerDuration('mv:search-network-candidates', 372, { failed: true });
+
+    expect(getPlaybackPerformanceSnapshot()).toMatchObject({
+      lastSlowIpcChannel: 'mv:search-network-candidates',
+      lastSlowIpcDurationMs: 372,
+      lastSlowIpcFailed: true,
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[ipc-perf] mv:search-network-candidates 372ms SLOW failed=true'));
+  });
 });

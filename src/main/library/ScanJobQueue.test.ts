@@ -4,7 +4,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AlbumService } from './AlbumService';
 import type { LibraryStore } from './LibraryStore';
-import { ScanJobQueue } from './ScanJobQueue';
+import { hasCompleteCoverCacheForScan, ScanJobQueue } from './ScanJobQueue';
 import type { FileIdentityObservation } from './FileIdentityService';
 import type {
   CoverExtractOptions,
@@ -552,6 +552,24 @@ afterEach(() => {
 });
 
 describe('ScanJobQueue progress and cover memory behavior', () => {
+  it('memoizes complete cover cache checks for tracks sharing cover paths', () => {
+    const [firstFile, secondFile] = makeFiles(makeTempRoot(), 2);
+    const sharedCoverPaths = {
+      thumbPath: 'cache/thumb.webp',
+      albumPath: 'cache/album.webp',
+      largePath: 'cache/large.webp',
+      originalRef: 'cache/original.jpg',
+    };
+    const first = coverState(firstFile, sharedCoverPaths);
+    const second = coverState(secondFile, sharedCoverPaths);
+    const memo = new Map<string, boolean>();
+    const exists = vi.fn(() => true);
+
+    expect(hasCompleteCoverCacheForScan(first, memo, exists)).toBe(true);
+    expect(hasCompleteCoverCacheForScan(second, memo, exists)).toBe(true);
+    expect(exists).toHaveBeenCalledTimes(3);
+  });
+
   it('throttles ordinary progress writes for large unchanged scans', async () => {
     const root = makeTempRoot();
     const cacheRoot = join(root, 'custom-cache');

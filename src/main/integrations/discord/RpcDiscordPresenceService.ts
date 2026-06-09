@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { basename } from 'node:path';
 import type { AudioStatus } from '../../../shared/types/audio';
 import type { LibraryTrack } from '../../../shared/types/library';
@@ -43,6 +44,10 @@ type DiscordRpcModule = {
   register?: (clientId: string) => void;
 };
 
+type NodeModuleLoader = {
+  _load?: (request: string, parent?: unknown, isMain?: boolean) => unknown;
+};
+
 type PresenceLogger = {
   info: (message: string, payload?: unknown) => void;
   warn: (message: string, payload?: unknown) => void;
@@ -61,6 +66,7 @@ type RpcDiscordPresenceServiceOptions = {
 const reconnectBackoffMs = 30_000;
 const positionUpdateThrottleMs = 15_000;
 const terminalStates = new Set<AudioStatus['state']>(['idle', 'stopped', 'ended', 'error']);
+const requireFromHere = createRequire(import.meta.url);
 
 const defaultLogger = (): PresenceLogger => ({
   info: (message: string, payload?: unknown): void => {
@@ -73,6 +79,28 @@ const defaultLogger = (): PresenceLogger => ({
 });
 
 const sanitizeError = (error: unknown): string => (error instanceof Error ? error.message : String(error)).slice(0, 300);
+
+export const loadDiscordRpcModule = async (): Promise<DiscordRpcModule> => {
+  const moduleLoader = requireFromHere('node:module') as NodeModuleLoader;
+  const originalLoad = moduleLoader._load;
+  if (typeof originalLoad !== 'function') {
+    return import('discord-rpc') as Promise<DiscordRpcModule>;
+  }
+
+  moduleLoader._load = function loadWithUserlandPunycode(request: string, parent?: unknown, isMain?: boolean): unknown {
+    if (request === 'punycode') {
+      return requireFromHere('punycode/');
+    }
+
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    return await import('discord-rpc') as DiscordRpcModule;
+  } finally {
+    moduleLoader._load = originalLoad;
+  }
+};
 
 const safeText = (value: string | null | undefined, fallback: string): string => {
   const trimmed = value?.trim();
@@ -269,7 +297,7 @@ export class RpcDiscordPresenceService implements DiscordPresenceService {
     this.clientId = options.clientId ?? DISCORD_CLIENT_ID;
     this.enabled = options.enabled ?? true;
     this.logger = options.logger ?? defaultLogger();
-    this.loadRpcModule = options.loadRpcModule ?? (async () => import('discord-rpc') as Promise<DiscordRpcModule>);
+    this.loadRpcModule = options.loadRpcModule ?? loadDiscordRpcModule;
     this.now = options.now ?? Date.now;
     this.getTrack = options.getTrack ?? ((trackId) => getLibraryService().getTrack(trackId));
     this.getNetworkCoverUrl = options.getNetworkCoverUrl ?? ((trackId) => getLibraryService().getBestNetworkCoverUrlForTrack(trackId));

@@ -68,6 +68,36 @@ type IdentityUpdateItem = {
   identity: FileIdentityObservation | null;
 };
 
+export type CoverCacheCompletenessMemo = Map<string, boolean>;
+
+const coverCacheCompletenessKey = (state: StoredTrackCoverState): string | null => {
+  if (!state.coverId || !state.thumbPath || !state.albumPath || !state.largePath) {
+    return null;
+  }
+
+  return `${state.thumbPath}\0${state.albumPath}\0${state.largePath}`;
+};
+
+export const hasCompleteCoverCacheForScan = (
+  state: StoredTrackCoverState,
+  memo: CoverCacheCompletenessMemo,
+  exists: (path: string) => boolean = existsSync,
+): boolean => {
+  const key = coverCacheCompletenessKey(state);
+  if (!key) {
+    return false;
+  }
+
+  const cached = memo.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const complete = exists(state.thumbPath!) && exists(state.albumPath!) && exists(state.largePath!);
+  memo.set(key, complete);
+  return complete;
+};
+
 type SidecarCueExpansion = {
   trackFiles: ScannedAudioFile[];
   audioPaths: string[];
@@ -412,6 +442,7 @@ export class ScanJobQueue {
   ): Promise<void> {
     const progress = this.createProgressReporter(jobId);
     const errors: string[] = [];
+    const coverCacheCompletenessMemo: CoverCacheCompletenessMemo = new Map();
 
     try {
       progress.flushNow({
@@ -458,6 +489,7 @@ export class ScanJobQueue {
         forceReducedScanPressure,
         cacheStatesByPath,
         discoveredPathsForMissing,
+        coverCacheCompletenessMemo,
       );
     } catch (error) {
       this.finishFailedOrCancelledJob(jobId, progress, errors, error, {
@@ -481,6 +513,7 @@ export class ScanJobQueue {
   ): Promise<void> {
     const progress = this.createProgressReporter(jobId);
     const errors: string[] = [];
+    const coverCacheCompletenessMemo: CoverCacheCompletenessMemo = new Map();
 
     try {
       progress.flushNow({
@@ -500,7 +533,23 @@ export class ScanJobQueue {
         totalFiles: files.length,
         errors,
       });
-      await this.runFilesJob(jobId, folder, files, mode, progress, errors, false, [], [], [], skipDeferredGroupingRefresh, forceReducedScanPressure);
+      await this.runFilesJob(
+        jobId,
+        folder,
+        files,
+        mode,
+        progress,
+        errors,
+        false,
+        [],
+        [],
+        [],
+        skipDeferredGroupingRefresh,
+        forceReducedScanPressure,
+        undefined,
+        undefined,
+        coverCacheCompletenessMemo,
+      );
     } catch (error) {
       this.finishFailedOrCancelledJob(jobId, progress, errors, error, {
         processedFiles: 0,
@@ -524,6 +573,7 @@ export class ScanJobQueue {
   ): Promise<void> {
     const progress = this.createProgressReporter(jobId);
     const errors: string[] = [];
+    const coverCacheCompletenessMemo: CoverCacheCompletenessMemo = new Map();
 
     try {
       progress.flushNow({
@@ -539,7 +589,7 @@ export class ScanJobQueue {
         () => this.collectStoredTrackRescanFiles(jobId, folder, mode, progress, errors, {
           path: storedTrackPath,
           recursive: storedTrackRecursive,
-        }),
+        }, coverCacheCompletenessMemo),
       );
       progress.flushNow({
         phase: 'discovering',
@@ -563,7 +613,23 @@ export class ScanJobQueue {
         return;
       }
 
-      await this.runFilesJob(jobId, folder, files, mode, progress, errors, false, [], [], [], skipDeferredGroupingRefresh, forceReducedScanPressure);
+      await this.runFilesJob(
+        jobId,
+        folder,
+        files,
+        mode,
+        progress,
+        errors,
+        false,
+        [],
+        [],
+        [],
+        skipDeferredGroupingRefresh,
+        forceReducedScanPressure,
+        undefined,
+        undefined,
+        coverCacheCompletenessMemo,
+      );
     } catch (error) {
       this.finishFailedOrCancelledJob(jobId, progress, errors, error, {
         processedFiles: 0,
@@ -591,6 +657,7 @@ export class ScanJobQueue {
     forceReducedScanPressure = false,
     cacheStatesOverride?: Map<string, StoredTrackCoverState>,
     markMissingDiscoveredPaths?: readonly string[],
+    coverCacheCompletenessMemo: CoverCacheCompletenessMemo = new Map(),
   ): Promise<void> {
     let processedFiles = 0;
     let skippedFiles = 0;
@@ -629,10 +696,11 @@ export class ScanJobQueue {
           const existing = cacheStatesByPath.get(resolve(file.path)) ?? null;
 
           const unchanged = existing && existing.sizeBytes === file.sizeBytes && existing.mtimeMs === file.mtimeMs;
-          const forceReadEmbeddedTags = this.shouldForceReadEmbeddedTags(mode, existing) || this.shouldBackfillPlaceholderMetadata(existing);
+          const forceReadEmbeddedTags =
+            this.shouldForceReadEmbeddedTags(mode, existing, coverCacheCompletenessMemo) || this.shouldBackfillPlaceholderMetadata(existing);
 
           if (unchanged && !forceReadEmbeddedTags) {
-            if (this.hasCompleteCoverCache(existing)) {
+            if (this.hasCompleteCoverCache(existing, coverCacheCompletenessMemo)) {
               if (!reducedScanPressure && !this.hasIdentityObservation(existing)) {
                 identityUpdateItems.push({
                   file,
@@ -1424,7 +1492,11 @@ export class ScanJobQueue {
     return SCANNABLE_AUDIO_EXTENSIONS.has(extension) || extension === '.cue';
   }
 
-  private shouldRescanStoredTrack(mode: LibraryScanMode, state: StoredTrackCoverState): boolean {
+  private shouldRescanStoredTrack(
+    mode: LibraryScanMode,
+    state: StoredTrackCoverState,
+    coverCacheCompletenessMemo: CoverCacheCompletenessMemo,
+  ): boolean {
     if (mode === 'normal') {
       return true;
     }
@@ -1433,7 +1505,7 @@ export class ScanJobQueue {
       return true;
     }
 
-    return this.needsMissingCoverOrDurationRepair(state);
+    return this.needsMissingCoverOrDurationRepair(state, coverCacheCompletenessMemo);
   }
 
   private async collectStoredTrackRescanFiles(
@@ -1443,6 +1515,7 @@ export class ScanJobQueue {
     progress: ScanProgressReporter,
     errors: string[],
     scope: { path?: string; recursive?: boolean } = {},
+    coverCacheCompletenessMemo: CoverCacheCompletenessMemo = new Map(),
   ): Promise<ScannedAudioFile[]> {
     const files: ScannedAudioFile[] = [];
     const states = scope.path
@@ -1454,7 +1527,7 @@ export class ScanJobQueue {
       this.throwIfCancelled(jobId);
       checkedFiles += 1;
 
-      if (!this.shouldRescanStoredTrack(mode, state)) {
+      if (!this.shouldRescanStoredTrack(mode, state, coverCacheCompletenessMemo)) {
         if (checkedFiles % cacheCheckYieldFileDelta === 0) {
           await yieldToMainLoop();
         }
@@ -1797,16 +1870,8 @@ export class ScanJobQueue {
     }
   }
 
-  private hasCompleteCoverCache(state: StoredTrackCoverState): boolean {
-    return Boolean(
-      state.coverId &&
-        state.thumbPath &&
-        state.albumPath &&
-        state.largePath &&
-        existsSync(state.thumbPath) &&
-        existsSync(state.albumPath) &&
-        existsSync(state.largePath),
-    );
+  private hasCompleteCoverCache(state: StoredTrackCoverState, memo: CoverCacheCompletenessMemo): boolean {
+    return hasCompleteCoverCacheForScan(state, memo);
   }
 
   private notifyScanSettled(jobId: string): void {
@@ -1942,7 +2007,11 @@ export class ScanJobQueue {
     }
   }
 
-  private shouldForceReadEmbeddedTags(mode: LibraryScanMode, state: StoredTrackCoverState | null): boolean {
+  private shouldForceReadEmbeddedTags(
+    mode: LibraryScanMode,
+    state: StoredTrackCoverState | null,
+    coverCacheCompletenessMemo: CoverCacheCompletenessMemo,
+  ): boolean {
     if (mode === 'normal') {
       return false;
     }
@@ -1951,7 +2020,7 @@ export class ScanJobQueue {
       return true;
     }
 
-    return !state || this.needsMissingCoverOrDurationRepair(state);
+    return !state || this.needsMissingCoverOrDurationRepair(state, coverCacheCompletenessMemo);
   }
 
   private shouldBackfillPlaceholderMetadata(state: StoredTrackCoverState | null): boolean {
@@ -1966,12 +2035,12 @@ export class ScanJobQueue {
     );
   }
 
-  private isMissingOrDefaultCover(state: StoredTrackCoverState): boolean {
-    return !state.coverId || state.coverSource === 'default' || !this.hasCompleteCoverCache(state);
+  private isMissingOrDefaultCover(state: StoredTrackCoverState, memo: CoverCacheCompletenessMemo): boolean {
+    return !state.coverId || state.coverSource === 'default' || !this.hasCompleteCoverCache(state, memo);
   }
 
-  private needsMissingCoverOrDurationRepair(state: StoredTrackCoverState): boolean {
-    return this.isMissingOrDefaultCover(state) || typeof state.duration === 'number' && state.duration <= 0;
+  private needsMissingCoverOrDurationRepair(state: StoredTrackCoverState, memo: CoverCacheCompletenessMemo): boolean {
+    return this.isMissingOrDefaultCover(state, memo) || (typeof state.duration === 'number' && state.duration <= 0);
   }
 
   private canRepairCoverCache(state: StoredTrackCoverState): boolean {

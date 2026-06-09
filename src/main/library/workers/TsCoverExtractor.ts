@@ -74,6 +74,11 @@ const embeddedCoverFromMetadata = (metadata: MetadataResult | ParsedTrackMetadat
 };
 
 export class TsCoverExtractor implements CoverExtractor {
+  private readonly defaultCoverResultsByCacheRoot = new Map<string, CoverResult>();
+  private lastFolderCoverDir: string | null = null;
+  private lastFolderCoverCandidate: CoverCandidate | null = null;
+  private lastFolderCoverResolved = false;
+
   async extract(filePath: string, options: CoverExtractOptions): Promise<CoverResult> {
     mkdirSync(options.cacheRoot, { recursive: true });
 
@@ -178,6 +183,14 @@ export class TsCoverExtractor implements CoverExtractor {
   }
 
   private writeDefaultCache(cacheRoot: string, warnings: string[] = [], errors: string[] = []): CoverResult {
+    const cleanResult = warnings.length === 0 && errors.length === 0;
+    if (cleanResult) {
+      const cached = this.defaultCoverResultsByCacheRoot.get(cacheRoot);
+      if (cached) {
+        return cached;
+      }
+    }
+
     const coverDirectory = join(cacheRoot, defaultCoverSourceHash.slice(0, 2), defaultCoverSourceHash);
     const defaultPath = join(coverDirectory, 'default.svg');
     const metaPath = join(coverDirectory, 'meta.json');
@@ -194,7 +207,7 @@ export class TsCoverExtractor implements CoverExtractor {
       });
     }
 
-    return {
+    const result: CoverResult = {
       source: 'default',
       thumbPath: defaultPath,
       albumPath: defaultPath,
@@ -205,6 +218,12 @@ export class TsCoverExtractor implements CoverExtractor {
       warnings,
       errors,
     };
+
+    if (cleanResult) {
+      this.defaultCoverResultsByCacheRoot.set(cacheRoot, result);
+    }
+
+    return result;
   }
 
   private resolveCoverCandidate(filePath: string, metadata: MetadataResult | ParsedTrackMetadata | undefined): CoverCandidate {
@@ -248,13 +267,19 @@ export class TsCoverExtractor implements CoverExtractor {
   }
 
   private findFolderCover(filePath: string): CoverCandidate | null {
+    const directory = dirname(filePath);
+    if (this.lastFolderCoverResolved && this.lastFolderCoverDir === directory) {
+      return this.lastFolderCoverCandidate;
+    }
+
     const candidates = this.folderCoverCandidates(filePath);
+    let result: CoverCandidate | null = null;
 
     for (const coverPath of candidates) {
       try {
         const coverSize = statSync(coverPath).size;
         if (coverSize > maxCoverCandidateBytes) {
-          return {
+          result = {
             source: 'default',
             data: defaultCoverBytes,
             mimeType: 'image/svg+xml',
@@ -262,9 +287,10 @@ export class TsCoverExtractor implements CoverExtractor {
             warnings: [`${coverPath}: sidecar cover skipped: ${coverSize} bytes exceeds ${maxCoverCandidateBytes}`],
             errors: [],
           };
+          break;
         }
 
-        return {
+        result = {
           source: 'folder',
           data: readFileSync(coverPath),
           mimeType: extensionToMimeType(extname(coverPath)),
@@ -272,8 +298,9 @@ export class TsCoverExtractor implements CoverExtractor {
           warnings: [],
           errors: [],
         };
+        break;
       } catch (error) {
-        return {
+        result = {
           source: 'default',
           data: defaultCoverBytes,
           mimeType: 'image/svg+xml',
@@ -281,10 +308,14 @@ export class TsCoverExtractor implements CoverExtractor {
           warnings: [],
           errors: [`${coverPath}: ${error instanceof Error ? error.message : String(error)}`],
         };
+        break;
       }
     }
 
-    return null;
+    this.lastFolderCoverDir = directory;
+    this.lastFolderCoverCandidate = result;
+    this.lastFolderCoverResolved = true;
+    return result;
   }
 
   private folderCoverCandidates(filePath: string): string[] {

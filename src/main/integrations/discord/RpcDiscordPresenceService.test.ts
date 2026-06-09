@@ -2,7 +2,12 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import type { AudioStatus } from '../../../shared/types/audio';
 import type { LibraryTrack } from '../../../shared/types/library';
-import { createDiscordActivity, createDiscordPresenceTrackFromStatus, RpcDiscordPresenceService } from './RpcDiscordPresenceService';
+import {
+  createDiscordActivity,
+  createDiscordPresenceTrackFromStatus,
+  loadDiscordRpcModule,
+  RpcDiscordPresenceService,
+} from './RpcDiscordPresenceService';
 
 vi.mock('../../diagnostics/CrashReportService', () => ({
   getCrashReportService: () => ({
@@ -145,6 +150,14 @@ const createService = (options: {
 };
 
 describe('RpcDiscordPresenceService', () => {
+  it('loads the real discord-rpc module without changing its public exports', async () => {
+    const rpcModule = await loadDiscordRpcModule();
+    const resolvedModule = rpcModule.default ?? rpcModule;
+
+    expect(resolvedModule.Client).toEqual(expect.any(Function));
+    expect(resolvedModule.register).toEqual(expect.any(Function));
+  });
+
   it('builds a playing activity with track metadata and timestamps', () => {
     const now = Date.UTC(2026, 0, 1, 0, 0, 0);
     const presenceTrack = createDiscordPresenceTrackFromStatus(makeStatus(), () => track);

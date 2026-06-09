@@ -49,6 +49,10 @@ const maxBreadcrumbs = 20;
 const breadcrumbTtlMs = 30_000;
 const slowPlaybackStepWarnThresholdMs = 750;
 const slowIpcWarnThresholdMs = 300;
+const slowIpcWarnThresholdByChannelMs: Record<string, number> = {
+  'mv:search-network-candidates': 1_000,
+  'mv:search-network-candidates-for-snapshot': 1_000,
+};
 const recentBackgroundTaskTtlMs = 30_000;
 const recentSlowIpcTtlMs = 30_000;
 let activeContext: PlaybackPerformanceContext | null = null;
@@ -189,11 +193,14 @@ export const recordIpcMainHandlerDuration = (
   options: { failed?: boolean } = {},
 ): void => {
   const roundedDurationMs = Math.max(0, Math.round(durationMs));
-  if (roundedDurationMs < slowIpcWarnThresholdMs) {
+  const failed = options.failed === true;
+  const warnThresholdMs = failed
+    ? slowIpcWarnThresholdMs
+    : (slowIpcWarnThresholdByChannelMs[channel] ?? slowIpcWarnThresholdMs);
+  if (roundedDurationMs < warnThresholdMs) {
     return;
   }
 
-  const failed = options.failed === true;
   lastSlowIpc = {
     channel,
     durationMs: roundedDurationMs,

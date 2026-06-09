@@ -2276,6 +2276,8 @@ export type TranslationKey =
   | 'settings.general.closeToTray'
   | 'settings.general.fastStartup.description'
   | 'settings.general.fastStartup.title'
+  | 'settings.general.sqliteBalancedDurability.description'
+  | 'settings.general.sqliteBalancedDurability.title'
   | 'settings.general.firstRunWizard.description'
   | 'settings.general.firstRunWizard.title'
   | 'settings.general.homeRandomHeroTitle.description'
@@ -5463,6 +5465,8 @@ const zhCN: TranslationMap = {
   'settings.general.touchKeyboard.description': '输入字段能够自动显示屏幕上的 Windows 键盘。此功能适用于触摸屏。',
   'settings.general.fastStartup.description': '开启后，启动时只做轻量只读曲库验证；完整数据保护快照会在窗口打开后后台完成。默认关闭。',
   'settings.general.fastStartup.title': '快速启动',
+  'settings.general.sqliteBalancedDurability.description': '默认关闭，曲库数据库使用更稳妥的 FULL 同步。开启后下次启动改用 NORMAL 同步，可降低大量扫描写入压力，但断电或系统崩溃时保护弱一些。',
+  'settings.general.sqliteBalancedDurability.title': '扫描写入性能模式',
   'settings.general.firstRunWizard.description': '打开后会重新显示第一次启动时的向导，可选择标准输出（系统音频）、WASAPI、Exclusive 或 ASIO；完成或跳过后会自动关闭这个开关。',
   'settings.general.firstRunWizard.title': '首次启动指引',
   'settings.general.language.description': '选择菜单、应用内设置与系统对话框的显示语言。',
@@ -8587,6 +8591,8 @@ const zhTW: TranslationMap = {
   'settings.general.touchKeyboard.description': '輸入欄位可自動顯示螢幕上的 Windows 鍵盤。此功能適用於觸控螢幕。',
   'settings.general.fastStartup.description': '開啟後，啟動時只做輕量唯讀曲庫驗證；完整資料保護快照會在視窗開啟後於背景完成。預設關閉。',
   'settings.general.fastStartup.title': '快速啟動',
+  'settings.general.sqliteBalancedDurability.description': '預設關閉，曲庫資料庫使用較穩妥的 FULL 同步。開啟後下次啟動改用 NORMAL 同步，可降低大量掃描寫入壓力，但斷電或系統崩潰時保護較弱。',
+  'settings.general.sqliteBalancedDurability.title': '掃描寫入效能模式',
   'settings.general.firstRunWizard.description': '開啟後會重新顯示第一次啟動時的向導，可選擇標準輸出（系統音訊）、WASAPI、Exclusive 或 ASIO；完成或略過後會自動關閉這個開關。',
   'settings.general.firstRunWizard.title': '首次啟動指引',
   'settings.general.playerWaveformProgress.description': '開啟後，底部播放列會用輕量波形樣式顯示進度；預設關閉，不解碼音訊也不增加背景分析。',
@@ -11549,6 +11555,8 @@ const jaJP: TranslationMap = {
   'settings.general.touchKeyboard.description': '入力フィールドにフォーカスすると、画面上の Windows キーボードを自動で表示します。タッチスクリーン向けの機能です。',
   'settings.general.fastStartup.description': '有効にすると、起動時は軽量な読み取り専用のライブラリ確認だけを行い、完全なデータ保護スナップショットはウィンドウ表示後にバックグラウンドで完了します。既定ではオフです。',
   'settings.general.fastStartup.title': '高速起動',
+  'settings.general.sqliteBalancedDurability.description': '既定ではオフで、ライブラリデータベースはより安全な FULL 同期を使います。オンにすると次回起動から NORMAL 同期を使い、大量スキャン時の書き込み負荷を下げますが、停電やクラッシュ時の保護は少し弱くなります。',
+  'settings.general.sqliteBalancedDurability.title': 'スキャン書き込み性能モード',
   'settings.general.firstRunWizard.description': '有効にすると初回起動時のガイドをもう一度表示し、標準出力（システムオーディオ）、WASAPI、Exclusive、ASIO を選べます。完了またはスキップ後、このスイッチは自動でオフになります。',
   'settings.general.firstRunWizard.title': '初回起動ガイド',
   'settings.general.playerWaveformProgress.description': '有効にすると、下部プレイヤーの進行表示を軽量な波形スタイルにします。既定ではオフで、音声デコードやバックグラウンド解析は行いません。',
@@ -14609,6 +14617,8 @@ const enUS: TranslationMap = {
   'settings.general.touchKeyboard.description': 'Input fields can automatically show the on-screen Windows keyboard. This is useful for touch screens.',
   'settings.general.fastStartup.description': 'When enabled, startup only runs a lightweight read-only library check; the full data protection snapshot finishes in the background after the window opens. Off by default.',
   'settings.general.fastStartup.title': 'Fast Startup',
+  'settings.general.sqliteBalancedDurability.description': 'Off by default. The library database uses safer FULL sync. Enable to use NORMAL sync after the next restart, reducing heavy scan write pressure with weaker protection during power loss or system crashes.',
+  'settings.general.sqliteBalancedDurability.title': 'Scan Write Performance Mode',
   'settings.general.firstRunWizard.description': 'Show the first-run guide again after opening. You can choose Standard Output (system audio), WASAPI, Exclusive, or ASIO; this switch turns off automatically after finishing or skipping.',
   'settings.general.firstRunWizard.title': 'First-Run Guide',
   'settings.general.playerWaveformProgress.description': 'Show a lightweight waveform-style progress bar in the bottom player. Off by default, with no audio decoding or background analysis.',
