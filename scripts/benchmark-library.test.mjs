@@ -23,6 +23,16 @@ describe('benchmark-library', () => {
     expect(result.unchangedScanSkipped).toBe(25);
     expect(result.duplicateCoverLookupCount).toBe(25);
     expect(result.upsertCoverDuplicateCount).toBeGreaterThan(0);
+    expect(result.scanMemoVisibility).toMatchObject({
+      sharedCoverTracks: 25,
+      sharedCoverGroups: 3,
+      completeCoverExistsChecksWithoutMemo: 75,
+      completeCoverExistsChecksWithMemo: 9,
+      folderCoverDirectoryLookupsWithoutRecentCache: 25,
+      folderCoverDirectoryLookupsWithRecentCache: 3,
+      defaultCoverWritesWithoutCache: 25,
+      defaultCoverWritesWithCachePerCacheRoot: 1,
+    });
     expect(result.databaseSizeBytes).toBeGreaterThan(0);
     expect(result.memory.rss).toBeGreaterThan(0);
     expect(result.memory.heapUsed).toBeGreaterThan(0);

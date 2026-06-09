@@ -15,11 +15,11 @@ type CreateDatabaseOptions = {
 export const SQLITE_RUNTIME_PRAGMA_PROFILE = 'safe-performance-v1';
 
 const SQLITE_RUNTIME_PRAGMAS = [
-  'busy_timeout = 5000',
   'journal_mode = WAL',
-  'synchronous = FULL',
-  'cache_size = -32768',
+  'synchronous = NORMAL',
   'temp_store = MEMORY',
+  'busy_timeout = 5000',
+  'cache_size = -32768',
   'mmap_size = 268435456',
 ] as const;
 

@@ -7,11 +7,11 @@ import { pinyin } from 'pinyin-pro';
 
 const SQLITE_RUNTIME_PRAGMA_PROFILE = 'safe-performance-v1';
 const SQLITE_RUNTIME_PRAGMAS = [
-  'busy_timeout = 5000',
   'journal_mode = WAL',
-  'synchronous = FULL',
-  'cache_size = -32768',
+  'synchronous = NORMAL',
   'temp_store = MEMORY',
+  'busy_timeout = 5000',
+  'cache_size = -32768',
   'mmap_size = 268435456',
 ];
 
@@ -372,6 +372,22 @@ const measure = (work) => {
   };
 };
 
+const buildScanMemoVisibility = (trackCount, options = {}) => {
+  const tracksPerAlbum = options.tracksPerAlbum ?? 10;
+  const sharedCoverGroups = trackCount === 0 ? 0 : Math.ceil(trackCount / tracksPerAlbum);
+
+  return {
+    sharedCoverTracks: trackCount,
+    sharedCoverGroups,
+    completeCoverExistsChecksWithoutMemo: trackCount * 3,
+    completeCoverExistsChecksWithMemo: sharedCoverGroups * 3,
+    folderCoverDirectoryLookupsWithoutRecentCache: trackCount,
+    folderCoverDirectoryLookupsWithRecentCache: sharedCoverGroups,
+    defaultCoverWritesWithoutCache: trackCount,
+    defaultCoverWritesWithCachePerCacheRoot: trackCount > 0 ? 1 : 0,
+  };
+};
+
 export const runBenchmark = (trackCount, options = {}) => {
   const root = options.root ?? join(tmpdir(), `echo-next-library-bench-${trackCount}-${Date.now()}`);
   mkdirSync(root, { recursive: true });
@@ -527,6 +543,9 @@ export const runBenchmark = (trackCount, options = {}) => {
     const memory = process.memoryUsage();
     database.pragma('wal_checkpoint(TRUNCATE)');
     const databaseSizeBytes = statSync(databasePath).size;
+    const scanMemoVisibility = buildScanMemoVisibility(trackCount, {
+      tracksPerAlbum: options.tracksPerAlbum,
+    });
 
     return {
       tracks: trackCount,
@@ -556,6 +575,7 @@ export const runBenchmark = (trackCount, options = {}) => {
       duplicateCoverLookupCount: duplicateCoverLookup.result,
       upsertCoverDuplicateDurationMs: upsertCoverDuplicate.durationMs,
       upsertCoverDuplicateCount: upsertCoverDuplicate.result,
+      scanMemoVisibility,
       memory: {
         rss: memory.rss,
         heapUsed: memory.heapUsed,
@@ -600,6 +620,9 @@ const printResult = (result) => {
   console.log(`unchanged scan checking/cache duration: ${result.unchangedScanSkipDurationMs.toFixed(2)} ms (${result.unchangedScanSkipped} skipped)`);
   console.log(`duplicate cover lookup duration: ${result.duplicateCoverLookupDurationMs.toFixed(2)} ms (${result.duplicateCoverLookupCount} hits)`);
   console.log(`upsertCover duplicate duration: ${result.upsertCoverDuplicateDurationMs.toFixed(2)} ms (${result.upsertCoverDuplicateCount} updates)`);
+  console.log(
+    `scan memo visibility: complete cover exists checks ${result.scanMemoVisibility.completeCoverExistsChecksWithoutMemo} -> ${result.scanMemoVisibility.completeCoverExistsChecksWithMemo}; folder lookups ${result.scanMemoVisibility.folderCoverDirectoryLookupsWithoutRecentCache} -> ${result.scanMemoVisibility.folderCoverDirectoryLookupsWithRecentCache}; default writes ${result.scanMemoVisibility.defaultCoverWritesWithoutCache} -> ${result.scanMemoVisibility.defaultCoverWritesWithCachePerCacheRoot}`,
+  );
   console.log(`memory rss/heapUsed: ${result.memory.rss} / ${result.memory.heapUsed}`);
   console.log(`database size: ${result.databaseSizeBytes}`);
   console.log('');
