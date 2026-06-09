@@ -4,11 +4,13 @@ import { getAppBridge } from '../utils/echoBridge';
 import { applyAppearancePreferences, readAppearancePreferences } from './appearancePreferences';
 
 export type EffectiveTheme = 'light' | 'dark';
+type ThemeScheduleSettings = Partial<AppSettings>;
 export type ThemeApplyOptions = {
   animate?: boolean;
   customThemeId?: string | null;
   customThemes?: AppThemeCustomTheme[];
   finalThemeUnlocked?: boolean;
+  scheduleSettings?: ThemeScheduleSettings;
 };
 type ThemePresetOptions = {
   finalThemeUnlocked?: boolean;
@@ -1029,7 +1031,30 @@ export const updateThemePresetOverrides = (
   options: ThemeApplyOptions = {},
 ): AppThemePresetOverrides => {
   const normalizedOverrides = writeThemePresetOverrides(overrides);
-  applyThemeMode(mode, preset, normalizedOverrides, options);
+  const normalizedCustomThemes = normalizeThemeCustomThemes(options.customThemes ?? readThemeCustomThemes());
+  const normalizedCustomThemeId = normalizeThemeCustomId(options.customThemeId ?? readThemeCustomId(), normalizedCustomThemes);
+
+  if (options.scheduleSettings) {
+    applyThemeSettings({
+      ...options.scheduleSettings,
+      appearanceTheme: mode,
+      appearanceThemePreset: preset,
+      appearanceThemePresetOverrides: normalizedOverrides,
+      appearanceCustomThemes: normalizedCustomThemes,
+      appearanceThemeCustomId: normalizedCustomThemeId,
+    }, {
+      ...options,
+      customThemeId: normalizedCustomThemeId,
+      customThemes: normalizedCustomThemes,
+    });
+  } else {
+    applyThemeMode(mode, preset, normalizedOverrides, {
+      ...options,
+      customThemeId: normalizedCustomThemeId,
+      customThemes: normalizedCustomThemes,
+    });
+  }
+
   return normalizedOverrides;
 };
 
@@ -1047,11 +1072,25 @@ export const updateThemePreferences = (
     Object.prototype.hasOwnProperty.call(options, 'customThemeId') ? options.customThemeId ?? null : readThemeCustomId(),
     normalizedCustomThemes,
   );
-  applyThemeMode(normalizedMode, normalizedPreset, normalizedOverrides, {
+  const applyOptions = {
     ...options,
     customThemeId: normalizedCustomThemeId,
     customThemes: normalizedCustomThemes,
-  });
+  };
+
+  if (options.scheduleSettings) {
+    applyThemeSettings({
+      ...options.scheduleSettings,
+      appearanceTheme: normalizedMode,
+      appearanceThemePreset: normalizedPreset,
+      appearanceThemePresetOverrides: normalizedOverrides,
+      appearanceCustomThemes: normalizedCustomThemes,
+      appearanceThemeCustomId: normalizedCustomThemeId,
+    }, applyOptions);
+  } else {
+    applyThemeMode(normalizedMode, normalizedPreset, normalizedOverrides, applyOptions);
+  }
+
   return normalizedMode;
 };
 

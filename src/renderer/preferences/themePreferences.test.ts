@@ -290,6 +290,41 @@ describe('theme preferences', () => {
     expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
+  it('keeps the scheduled effective theme when syncing cached preferences', () => {
+    const current = new Date();
+    const currentMinute = current.getHours() * 60 + current.getMinutes();
+    const nextMinute = (currentMinute + 1) % (24 * 60);
+    const formatMinute = (minute: number): string =>
+      `${Math.floor(minute / 60).toString().padStart(2, '0')}:${(minute % 60).toString().padStart(2, '0')}`;
+    const scheduleSettings = {
+      appearanceTheme: 'light' as const,
+      appearanceThemeScheduleEnabled: true,
+      appearanceThemeScheduleDarkAt: formatMinute(currentMinute),
+      appearanceThemeScheduleLightAt: formatMinute(nextMinute),
+    };
+
+    updateThemePreferences('light', 'mintCandy', {}, { scheduleSettings });
+
+    expect(readThemeMode()).toBe('light');
+    expect(readThemePreset()).toBe('mintCandy');
+    expect(document.documentElement.dataset.themeMode).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(document.documentElement.dataset.themePreset).toBe('mintCandy');
+
+    updateThemePresetOverrides({
+      mintCandy: {
+        dark: {
+          appBg: '#101820',
+          accent: '#66ccff',
+        },
+      },
+    }, 'light', 'mintCandy', { scheduleSettings });
+
+    expect(document.documentElement.dataset.themeMode).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(document.documentElement.style.getPropertyValue('--preset-app-bg')).toBe('#101820');
+  });
+
   it('falls back to light for invalid theme values', () => {
     applyThemeMode('sepia' as never);
 

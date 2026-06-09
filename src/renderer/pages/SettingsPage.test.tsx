@@ -1853,6 +1853,43 @@ describe('SettingsPage', () => {
     expect(document.documentElement.dataset.themeMode).toBe('system');
   });
 
+  it('keeps scheduled dark mode when unrelated settings changes broadcast full settings', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const current = new Date();
+    const currentMinute = current.getHours() * 60 + current.getMinutes();
+    const nextMinute = (currentMinute + 1) % (24 * 60);
+    const formatMinute = (minute: number): string =>
+      `${Math.floor(minute / 60).toString().padStart(2, '0')}:${(minute % 60).toString().padStart(2, '0')}`;
+    let currentSettings: AppSettings = {
+      ...settings,
+      appearanceTheme: 'light',
+      appearanceThemeScheduleEnabled: true,
+      appearanceThemeScheduleDarkAt: formatMinute(currentMinute),
+      appearanceThemeScheduleLightAt: formatMinute(nextMinute),
+      appearanceThemePresetsExpanded: false,
+    };
+    getSettingsMock.mockResolvedValue(currentSettings);
+    setSettingsMock.mockImplementation(async (patch: Partial<AppSettings>) => {
+      currentSettings = { ...currentSettings, ...patch };
+      return currentSettings;
+    });
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.appearance\\.label');
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe('dark'));
+
+    const summary = document.querySelector('.settings-theme-preset-summary') as HTMLButtonElement;
+    fireEvent.click(summary);
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ appearanceThemePresetsExpanded: true }));
+    expect(document.documentElement.dataset.themeMode).toBe('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+  });
+
   it('saves the Now Playing cover color opt-in from appearance controls', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     getSettingsMock.mockResolvedValue(settings);

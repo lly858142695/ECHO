@@ -5631,7 +5631,7 @@ export const SettingsPage = (): JSX.Element => {
         settings.appearanceTheme ?? defaultThemeMode,
         basePreset,
         settings.appearanceThemePresetOverrides ?? {},
-        { customThemeId, customThemes, finalThemeUnlocked: settingsFinalThemeUnlocked },
+        { customThemeId, customThemes, finalThemeUnlocked: settingsFinalThemeUnlocked, scheduleSettings: settings },
       );
       setThemeCustomDraft(activeCustomTheme?.light ?? settings.appearanceThemePresetOverrides?.[basePreset]?.light ?? {});
       if (settings.appearancePreferences) {
@@ -5987,6 +5987,7 @@ export const SettingsPage = (): JSX.Element => {
 
       setAppSettings((current) => {
         const nextSettings = current ? { ...current, ...appPatch } : current;
+        const themeSettings = nextSettings ?? appPatch;
         if (appPatch.appearanceCustomThemes || Object.prototype.hasOwnProperty.call(appPatch, 'appearanceThemeCustomId')) {
           const customThemes = normalizeThemeCustomThemes(nextSettings?.appearanceCustomThemes ?? appPatch.appearanceCustomThemes ?? []);
           const customThemeId = normalizeThemeCustomId(nextSettings?.appearanceThemeCustomId ?? appPatch.appearanceThemeCustomId ?? null, customThemes);
@@ -6002,6 +6003,7 @@ export const SettingsPage = (): JSX.Element => {
               customThemeId,
               customThemes,
               finalThemeUnlocked: nextSettings?.finalThemeUnlockVersion === finalThemeUnlockVersion,
+              scheduleSettings: themeSettings,
             },
           );
         } else if (appPatch.appearanceTheme || appPatch.appearanceThemePreset) {
@@ -6014,6 +6016,7 @@ export const SettingsPage = (): JSX.Element => {
               customThemeId: nextSettings?.appearanceThemeCustomId ?? null,
               customThemes: nextSettings?.appearanceCustomThemes ?? [],
               finalThemeUnlocked: nextSettings?.finalThemeUnlockVersion === finalThemeUnlockVersion,
+              scheduleSettings: themeSettings,
             },
           );
         }
@@ -6026,6 +6029,7 @@ export const SettingsPage = (): JSX.Element => {
               customThemeId: nextSettings?.appearanceThemeCustomId ?? null,
               customThemes: nextSettings?.appearanceCustomThemes ?? [],
               finalThemeUnlocked: nextSettings?.finalThemeUnlockVersion === finalThemeUnlockVersion,
+              scheduleSettings: themeSettings,
             },
           );
         }
@@ -6658,6 +6662,7 @@ export const SettingsPage = (): JSX.Element => {
       customThemes: patch.appearanceCustomThemes ?? savedThemeCustomThemes,
     });
   };
+  const getThemeScheduleSettings = (patch: Partial<AppSettings> = {}): Partial<AppSettings> => ({ ...(appSettings ?? {}), ...patch });
 
   const handleThemeModeChange = (appearanceTheme: AppThemeMode): void => {
     skipNextThemePreviewRef.current = true;
@@ -6667,6 +6672,7 @@ export const SettingsPage = (): JSX.Element => {
       customThemeId: activeThemeCustom?.id ?? null,
       customThemes: savedThemeCustomThemes,
       finalThemeUnlocked,
+      scheduleSettings: getThemeScheduleSettings({ appearanceTheme }),
     });
     applyThemeSettingsPatch({ appearanceTheme });
     setAppSettings((current) => (current ? { ...current, appearanceTheme } : current));
@@ -6697,6 +6703,7 @@ export const SettingsPage = (): JSX.Element => {
       customThemeId: nextCustomId,
       customThemes: savedThemeCustomThemes,
       finalThemeUnlocked,
+      scheduleSettings: getThemeScheduleSettings({ appearanceThemePreset, appearanceThemeCustomId: nextCustomId }),
     });
     setSelectedThemePreset(appearanceThemePreset);
     setActiveThemeCustomId(nextCustomId);
@@ -6729,6 +6736,11 @@ export const SettingsPage = (): JSX.Element => {
       animate: true,
       customThemeId: null,
       customThemes: safeCustomThemes,
+      scheduleSettings: getThemeScheduleSettings({
+        appearanceThemePreset: fallbackPreset,
+        appearanceCustomThemes: safeCustomThemes,
+        appearanceThemeCustomId: null,
+      }),
     });
     setSelectedThemePreset(fallbackPreset);
     setActiveThemeCustomId(null);
@@ -6900,6 +6912,11 @@ export const SettingsPage = (): JSX.Element => {
       customThemeId: nextThemeId,
       customThemes: nextThemes,
       finalThemeUnlocked,
+      scheduleSettings: getThemeScheduleSettings({
+        appearanceThemePreset: selectedThemePreset,
+        appearanceCustomThemes: nextThemes,
+        appearanceThemeCustomId: nextThemeId,
+      }),
     });
     setThemeCustomThemes(nextThemes);
     setActiveThemeCustomId(nextThemeId);
@@ -6933,13 +6950,21 @@ export const SettingsPage = (): JSX.Element => {
         customThemeId: activeThemeCustom.id,
         customThemes: nextThemes,
         finalThemeUnlocked,
+        scheduleSettings: getThemeScheduleSettings({ appearanceCustomThemes: nextThemes }),
       });
       setThemeCustomThemes(nextThemes);
       setAppSettings((current) => (current ? { ...current, appearanceCustomThemes: nextThemes } : current));
       patchAppSettings({ appearanceCustomThemes: nextThemes });
     } else {
       const nextOverrides = buildThemePresetOverrides(savedThemePresetOverrides, selectedThemePreset, themeCustomTone, null);
-      updateThemePresetOverrides(nextOverrides, appSettings?.appearanceTheme ?? defaultThemeMode, selectedThemePreset, { animate: true, finalThemeUnlocked });
+      updateThemePresetOverrides(nextOverrides, appSettings?.appearanceTheme ?? defaultThemeMode, selectedThemePreset, {
+        animate: true,
+        finalThemeUnlocked,
+        scheduleSettings: getThemeScheduleSettings({
+          appearanceThemePreset: selectedThemePreset,
+          appearanceThemePresetOverrides: nextOverrides,
+        }),
+      });
       setAppSettings((current) => (current ? { ...current, appearanceThemePresetOverrides: nextOverrides } : current));
       patchAppSettings({ appearanceThemePreset: selectedThemePreset, appearanceThemePresetOverrides: nextOverrides });
     }
@@ -7013,6 +7038,11 @@ export const SettingsPage = (): JSX.Element => {
             customThemeId: importedTheme.id,
             customThemes: nextThemes,
             finalThemeUnlocked,
+            scheduleSettings: getThemeScheduleSettings({
+              appearanceThemePreset: importedTheme.basePreset,
+              appearanceCustomThemes: nextThemes,
+              appearanceThemeCustomId: importedTheme.id,
+            }),
           });
           setAppSettings((current) =>
             current
@@ -7053,6 +7083,11 @@ export const SettingsPage = (): JSX.Element => {
       customThemeId: importedTheme.id,
       customThemes: nextThemes,
       finalThemeUnlocked,
+      scheduleSettings: getThemeScheduleSettings({
+        appearanceThemePreset: importedTheme.basePreset,
+        appearanceCustomThemes: nextThemes,
+        appearanceThemeCustomId: importedTheme.id,
+      }),
     });
     setThemeCustomThemes(nextThemes);
     setActiveThemeCustomId(importedTheme.id);
@@ -7090,6 +7125,11 @@ export const SettingsPage = (): JSX.Element => {
       customThemeId: nextTheme.id,
       customThemes: nextThemes,
       finalThemeUnlocked,
+      scheduleSettings: getThemeScheduleSettings({
+        appearanceThemePreset: selectedThemePreset,
+        appearanceCustomThemes: nextThemes,
+        appearanceThemeCustomId: nextTheme.id,
+      }),
     });
     setThemeCustomThemes(nextThemes);
     setActiveThemeCustomId(nextTheme.id);
@@ -7120,6 +7160,10 @@ export const SettingsPage = (): JSX.Element => {
       customThemeId: theme.id,
       customThemes: savedThemeCustomThemes,
       finalThemeUnlocked,
+      scheduleSettings: getThemeScheduleSettings({
+        appearanceThemePreset: theme.basePreset,
+        appearanceThemeCustomId: theme.id,
+      }),
     });
     setActiveThemeCustomId(theme.id);
     setSelectedThemePreset(theme.basePreset);
@@ -7168,6 +7212,11 @@ export const SettingsPage = (): JSX.Element => {
       customThemeId: nextTheme.id,
       customThemes: nextThemes,
       finalThemeUnlocked,
+      scheduleSettings: getThemeScheduleSettings({
+        appearanceThemePreset: nextTheme.basePreset,
+        appearanceCustomThemes: nextThemes,
+        appearanceThemeCustomId: nextTheme.id,
+      }),
     });
     setThemeCustomThemes(nextThemes);
     setActiveThemeCustomId(nextTheme.id);
@@ -7206,6 +7255,11 @@ export const SettingsPage = (): JSX.Element => {
       customThemeId: null,
       customThemes: nextThemes,
       finalThemeUnlocked,
+      scheduleSettings: getThemeScheduleSettings({
+        appearanceThemePreset: fallbackPreset,
+        appearanceCustomThemes: nextThemes,
+        appearanceThemeCustomId: null,
+      }),
     });
     setThemeCustomThemes(nextThemes);
     setActiveThemeCustomId(null);
@@ -7283,6 +7337,11 @@ export const SettingsPage = (): JSX.Element => {
       animate: true,
       customThemeId: null,
       customThemes: savedThemeCustomThemes,
+      scheduleSettings: {
+        ...appSettings,
+        appearanceThemePreset: fallbackPreset,
+        appearanceThemeCustomId: null,
+      },
     });
     setSelectedThemePreset(fallbackPreset);
     setActiveThemeCustomId(null);
