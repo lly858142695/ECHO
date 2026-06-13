@@ -29,6 +29,51 @@ type AlbumDetailTranslationKey =
   | 'albumDetail.count.loadedAlbums'
   | 'albumDetail.count.loadedTracks'
   | 'albumDetail.count.tracks'
+  | 'albumDetail.dna.aria'
+  | 'albumDetail.dna.artistAria'
+  | 'albumDetail.dna.artistCount'
+  | 'albumDetail.dna.artists'
+  | 'albumDetail.dna.bitDepth'
+  | 'albumDetail.dna.codecMix'
+  | 'albumDetail.dna.collapse'
+  | 'albumDetail.dna.countTracks'
+  | 'albumDetail.dna.depthProfile'
+  | 'albumDetail.dna.expand'
+  | 'albumDetail.dna.format'
+  | 'albumDetail.dna.integrity'
+  | 'albumDetail.dna.integrityComplete'
+  | 'albumDetail.dna.integrityDiscGaps'
+  | 'albumDetail.dna.integrityLoaded'
+  | 'albumDetail.dna.integrityReview'
+  | 'albumDetail.dna.integrityStatus'
+  | 'albumDetail.dna.integrityTrackGaps'
+  | 'albumDetail.dna.integrityUnnumbered'
+  | 'albumDetail.dna.kicker'
+  | 'albumDetail.dna.memory'
+  | 'albumDetail.dna.memoryEmpty'
+  | 'albumDetail.dna.memoryLiked'
+  | 'albumDetail.dna.memoryLoading'
+  | 'albumDetail.dna.memoryPlays'
+  | 'albumDetail.dna.memoryRecentTrack'
+  | 'albumDetail.dna.memorySkippedTrack'
+  | 'albumDetail.dna.memorySkips'
+  | 'albumDetail.dna.memoryStatus'
+  | 'albumDetail.dna.memoryTopTrack'
+  | 'albumDetail.dna.noArtists'
+  | 'albumDetail.dna.quality'
+  | 'albumDetail.dna.qualityMixed44148'
+  | 'albumDetail.dna.qualityMixedDepth'
+  | 'albumDetail.dna.qualityMixedRate'
+  | 'albumDetail.dna.qualityUnifiedDepth'
+  | 'albumDetail.dna.qualityUnifiedRate'
+  | 'albumDetail.dna.reading'
+  | 'albumDetail.dna.replayGain'
+  | 'albumDetail.dna.replayGainValue'
+  | 'albumDetail.dna.resampleRisk'
+  | 'albumDetail.dna.sampleRate'
+  | 'albumDetail.dna.subtitle'
+  | 'albumDetail.dna.title'
+  | 'albumDetail.dna.unknown'
   | 'albumDetail.credit.role.arrangement'
   | 'albumDetail.credit.role.composer'
   | 'albumDetail.credit.role.engineering'
@@ -5817,6 +5862,51 @@ const zhCN: TranslationMap = {
   'albumDetail.count.loadedAlbums': '{loaded}/{total} 张专辑',
   'albumDetail.count.loadedTracks': '{loaded}/{total} 首歌',
   'albumDetail.count.tracks': '{count} 首歌',
+  'albumDetail.dna.aria': '专辑声纹卡',
+  'albumDetail.dna.artistAria': '打开艺人 {artist}',
+  'albumDetail.dna.artistCount': '{count} 位相关艺人',
+  'albumDetail.dna.artists': '艺人关系',
+  'albumDetail.dna.bitDepth': '位深',
+  'albumDetail.dna.codecMix': '格式组成',
+  'albumDetail.dna.collapse': '收起声纹卡',
+  'albumDetail.dna.countTracks': '{count} 首',
+  'albumDetail.dna.depthProfile': '位深画像',
+  'albumDetail.dna.expand': '展开声纹卡',
+  'albumDetail.dna.format': '格式组成',
+  'albumDetail.dna.integrity': '完整度',
+  'albumDetail.dna.integrityComplete': '曲序完整',
+  'albumDetail.dna.integrityDiscGaps': '断裂 Disc',
+  'albumDetail.dna.integrityLoaded': '载入曲目',
+  'albumDetail.dna.integrityReview': '需要检查',
+  'albumDetail.dna.integrityStatus': '曲序状态',
+  'albumDetail.dna.integrityTrackGaps': '缺少曲号',
+  'albumDetail.dna.integrityUnnumbered': '未写曲号',
+  'albumDetail.dna.kicker': 'Album DNA',
+  'albumDetail.dna.memory': '听歌记忆',
+  'albumDetail.dna.memoryEmpty': '暂无记忆',
+  'albumDetail.dna.memoryLiked': '已收藏',
+  'albumDetail.dna.memoryLoading': '读取记忆中',
+  'albumDetail.dna.memoryPlays': '{count} 次播放',
+  'albumDetail.dna.memoryRecentTrack': '最近回潮',
+  'albumDetail.dna.memorySkippedTrack': '常跳过',
+  'albumDetail.dna.memorySkips': '{count} 次跳过',
+  'albumDetail.dna.memoryStatus': '记忆状态',
+  'albumDetail.dna.memoryTopTrack': '最常播放',
+  'albumDetail.dna.noArtists': '暂无关系',
+  'albumDetail.dna.quality': '音质画像',
+  'albumDetail.dna.qualityMixed44148': '44.1 / 48 混合',
+  'albumDetail.dna.qualityMixedDepth': '位深混合',
+  'albumDetail.dna.qualityMixedRate': '采样率混合',
+  'albumDetail.dna.qualityUnifiedDepth': '位深统一',
+  'albumDetail.dna.qualityUnifiedRate': '采样率统一',
+  'albumDetail.dna.reading': '读取中',
+  'albumDetail.dna.replayGain': 'ReplayGain',
+  'albumDetail.dna.replayGainValue': '{count}/{total}',
+  'albumDetail.dna.resampleRisk': '重采样风险',
+  'albumDetail.dna.sampleRate': '采样率',
+  'albumDetail.dna.subtitle': '{album} 的本地文件、曲序、听歌记忆和艺人入口。',
+  'albumDetail.dna.title': '专辑声纹卡',
+  'albumDetail.dna.unknown': '未知',
   'albumDetail.credit.role.arrangement': '编曲',
   'albumDetail.credit.role.composer': '作曲',
   'albumDetail.credit.role.engineering': '录音与工程',
@@ -9410,6 +9500,51 @@ const zhTW: TranslationMap = {
   'albumDetail.count.loadedAlbums': '{loaded}/{total} 張專輯',
   'albumDetail.count.loadedTracks': '{loaded}/{total} 首歌',
   'albumDetail.count.tracks': '{count} 首歌',
+  'albumDetail.dna.aria': '專輯聲紋卡',
+  'albumDetail.dna.artistAria': '開啟藝人 {artist}',
+  'albumDetail.dna.artistCount': '{count} 位相關藝人',
+  'albumDetail.dna.artists': '藝人關係',
+  'albumDetail.dna.bitDepth': '位元深度',
+  'albumDetail.dna.codecMix': '格式組成',
+  'albumDetail.dna.collapse': '收起聲紋卡',
+  'albumDetail.dna.countTracks': '{count} 首',
+  'albumDetail.dna.depthProfile': '位深画像',
+  'albumDetail.dna.expand': '展開聲紋卡',
+  'albumDetail.dna.format': '格式組成',
+  'albumDetail.dna.integrity': '完整度',
+  'albumDetail.dna.integrityComplete': '曲序完整',
+  'albumDetail.dna.integrityDiscGaps': '斷裂 Disc',
+  'albumDetail.dna.integrityLoaded': '載入曲目',
+  'albumDetail.dna.integrityReview': '需要檢查',
+  'albumDetail.dna.integrityStatus': '曲序狀態',
+  'albumDetail.dna.integrityTrackGaps': '缺少曲號',
+  'albumDetail.dna.integrityUnnumbered': '未寫曲號',
+  'albumDetail.dna.kicker': 'Album DNA',
+  'albumDetail.dna.memory': '聽歌記憶',
+  'albumDetail.dna.memoryEmpty': '暫無記憶',
+  'albumDetail.dna.memoryLiked': '已收藏',
+  'albumDetail.dna.memoryLoading': '讀取記憶中',
+  'albumDetail.dna.memoryPlays': '{count} 次播放',
+  'albumDetail.dna.memoryRecentTrack': '最近回潮',
+  'albumDetail.dna.memorySkippedTrack': '常跳過',
+  'albumDetail.dna.memorySkips': '{count} 次跳過',
+  'albumDetail.dna.memoryStatus': '記憶狀態',
+  'albumDetail.dna.memoryTopTrack': '最常播放',
+  'albumDetail.dna.noArtists': '暫無關係',
+  'albumDetail.dna.quality': '音質画像',
+  'albumDetail.dna.qualityMixed44148': '44.1 / 48 混合',
+  'albumDetail.dna.qualityMixedDepth': '位深混合',
+  'albumDetail.dna.qualityMixedRate': '取樣率混合',
+  'albumDetail.dna.qualityUnifiedDepth': '位深統一',
+  'albumDetail.dna.qualityUnifiedRate': '取樣率統一',
+  'albumDetail.dna.reading': '讀取中',
+  'albumDetail.dna.replayGain': 'ReplayGain',
+  'albumDetail.dna.replayGainValue': '{count}/{total}',
+  'albumDetail.dna.resampleRisk': '重取樣風險',
+  'albumDetail.dna.sampleRate': '取樣率',
+  'albumDetail.dna.subtitle': '{album} 的本機檔案、曲序、聽歌記憶和藝人入口。',
+  'albumDetail.dna.title': '專輯聲紋卡',
+  'albumDetail.dna.unknown': '未知',
   'albumDetail.credit.role.arrangement': '編曲',
   'albumDetail.credit.role.engineering': '錄音與工程',
   'albumDetail.credit.role.label': '發行與廠牌',
@@ -12907,6 +13042,51 @@ const jaJP: TranslationMap = {
   'albumDetail.count.loadedAlbums': '{loaded}/{total} 枚のアルバム',
   'albumDetail.count.loadedTracks': '{loaded}/{total} 曲',
   'albumDetail.count.tracks': '{count} 曲',
+  'albumDetail.dna.aria': 'アルバム DNA カード',
+  'albumDetail.dna.artistAria': 'アーティスト {artist} を開く',
+  'albumDetail.dna.artistCount': '関連アーティスト {count} 組',
+  'albumDetail.dna.artists': 'アーティスト関係',
+  'albumDetail.dna.bitDepth': 'ビット深度',
+  'albumDetail.dna.codecMix': 'フォーマット構成',
+  'albumDetail.dna.collapse': 'アルバム DNA を折りたたむ',
+  'albumDetail.dna.countTracks': '{count} 曲',
+  'albumDetail.dna.depthProfile': 'ビット深度像',
+  'albumDetail.dna.expand': 'アルバム DNA を展開',
+  'albumDetail.dna.format': 'フォーマット構成',
+  'albumDetail.dna.integrity': '完全性',
+  'albumDetail.dna.integrityComplete': '曲順は正常',
+  'albumDetail.dna.integrityDiscGaps': '欠けた Disc',
+  'albumDetail.dna.integrityLoaded': '読み込み済み曲',
+  'albumDetail.dna.integrityReview': '要確認',
+  'albumDetail.dna.integrityStatus': '曲順状態',
+  'albumDetail.dna.integrityTrackGaps': '欠けた曲番号',
+  'albumDetail.dna.integrityUnnumbered': '曲番号なし',
+  'albumDetail.dna.kicker': 'Album DNA',
+  'albumDetail.dna.memory': 'リスニング記憶',
+  'albumDetail.dna.memoryEmpty': '記憶なし',
+  'albumDetail.dna.memoryLiked': 'お気に入り',
+  'albumDetail.dna.memoryLoading': '記憶を読み込み中',
+  'albumDetail.dna.memoryPlays': '{count} 回再生',
+  'albumDetail.dna.memoryRecentTrack': '最近戻った曲',
+  'albumDetail.dna.memorySkippedTrack': 'よくスキップ',
+  'albumDetail.dna.memorySkips': '{count} 回スキップ',
+  'albumDetail.dna.memoryStatus': '記憶状態',
+  'albumDetail.dna.memoryTopTrack': '最も再生',
+  'albumDetail.dna.noArtists': '関係なし',
+  'albumDetail.dna.quality': '音質プロファイル',
+  'albumDetail.dna.qualityMixed44148': '44.1 / 48 混在',
+  'albumDetail.dna.qualityMixedDepth': 'ビット深度混在',
+  'albumDetail.dna.qualityMixedRate': 'サンプルレート混在',
+  'albumDetail.dna.qualityUnifiedDepth': 'ビット深度統一',
+  'albumDetail.dna.qualityUnifiedRate': 'サンプルレート統一',
+  'albumDetail.dna.reading': '読み込み中',
+  'albumDetail.dna.replayGain': 'ReplayGain',
+  'albumDetail.dna.replayGainValue': '{count}/{total}',
+  'albumDetail.dna.resampleRisk': 'リサンプルリスク',
+  'albumDetail.dna.sampleRate': 'サンプルレート',
+  'albumDetail.dna.subtitle': '{album} のローカルファイル、曲順、リスニング記憶、アーティスト入口。',
+  'albumDetail.dna.title': 'アルバム DNA カード',
+  'albumDetail.dna.unknown': '不明',
   'albumDetail.credit.role.arrangement': '編曲',
   'albumDetail.credit.role.composer': '作曲',
   'albumDetail.credit.role.engineering': '録音とエンジニアリング',
@@ -16302,6 +16482,51 @@ const enUS: TranslationMap = {
   'albumDetail.count.loadedAlbums': '{loaded} of {total} albums',
   'albumDetail.count.loadedTracks': '{loaded} of {total} tracks',
   'albumDetail.count.tracks': '{count} tracks',
+  'albumDetail.dna.aria': 'Album DNA',
+  'albumDetail.dna.artistAria': 'Open artist {artist}',
+  'albumDetail.dna.artistCount': '{count} related artists',
+  'albumDetail.dna.artists': 'Artist relations',
+  'albumDetail.dna.bitDepth': 'Bit depth',
+  'albumDetail.dna.codecMix': 'Format mix',
+  'albumDetail.dna.collapse': 'Collapse Album DNA',
+  'albumDetail.dna.countTracks': '{count} tracks',
+  'albumDetail.dna.depthProfile': 'Depth profile',
+  'albumDetail.dna.expand': 'Expand Album DNA',
+  'albumDetail.dna.format': 'Format mix',
+  'albumDetail.dna.integrity': 'Integrity',
+  'albumDetail.dna.integrityComplete': 'Track order intact',
+  'albumDetail.dna.integrityDiscGaps': 'Missing Disc',
+  'albumDetail.dna.integrityLoaded': 'Loaded tracks',
+  'albumDetail.dna.integrityReview': 'Needs review',
+  'albumDetail.dna.integrityStatus': 'Track order',
+  'albumDetail.dna.integrityTrackGaps': 'Missing track numbers',
+  'albumDetail.dna.integrityUnnumbered': 'Unnumbered',
+  'albumDetail.dna.kicker': 'Album DNA',
+  'albumDetail.dna.memory': 'Listening memory',
+  'albumDetail.dna.memoryEmpty': 'No memory yet',
+  'albumDetail.dna.memoryLiked': 'Liked',
+  'albumDetail.dna.memoryLoading': 'Reading memory',
+  'albumDetail.dna.memoryPlays': '{count} plays',
+  'albumDetail.dna.memoryRecentTrack': 'Recent return',
+  'albumDetail.dna.memorySkippedTrack': 'Often skipped',
+  'albumDetail.dna.memorySkips': '{count} skips',
+  'albumDetail.dna.memoryStatus': 'Memory status',
+  'albumDetail.dna.memoryTopTrack': 'Most played',
+  'albumDetail.dna.noArtists': 'No relations yet',
+  'albumDetail.dna.quality': 'Quality portrait',
+  'albumDetail.dna.qualityMixed44148': '44.1 / 48 mixed',
+  'albumDetail.dna.qualityMixedDepth': 'Mixed bit depth',
+  'albumDetail.dna.qualityMixedRate': 'Mixed sample rates',
+  'albumDetail.dna.qualityUnifiedDepth': 'Unified bit depth',
+  'albumDetail.dna.qualityUnifiedRate': 'Unified sample rate',
+  'albumDetail.dna.reading': 'Reading',
+  'albumDetail.dna.replayGain': 'ReplayGain',
+  'albumDetail.dna.replayGainValue': '{count}/{total}',
+  'albumDetail.dna.resampleRisk': 'Resample risk',
+  'albumDetail.dna.sampleRate': 'Sample rate',
+  'albumDetail.dna.subtitle': 'Local files, track order, listening memory, and artist links for {album}.',
+  'albumDetail.dna.title': 'Album DNA',
+  'albumDetail.dna.unknown': 'Unknown',
   'albumDetail.credit.role.arrangement': 'Arrangement',
   'albumDetail.credit.role.composer': 'Composition',
   'albumDetail.credit.role.engineering': 'Engineering',

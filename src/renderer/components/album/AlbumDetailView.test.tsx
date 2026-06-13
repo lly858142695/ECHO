@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AlbumOnlineInfo, LibraryAlbum, LibraryArtist, LibraryPlaylist, LibraryTrack } from '../../../shared/types/library';
+import type { AlbumOnlineInfo, LibraryAlbum, LibraryArtist, LibraryPlaylist, LibraryTrack, PlaybackHistoryEntry } from '../../../shared/types/library';
 import type { StreamingAlbum, StreamingAlbumDetail } from '../../../shared/types/streaming';
 import { AlbumDetailView } from './AlbumDetailView';
 
@@ -17,6 +17,7 @@ const queueMock = {
 };
 
 let mockAlbumTracks: LibraryTrack[] = [];
+let mockPlaybackHistoryEntries: PlaybackHistoryEntry[] = [];
 
 vi.mock('../../stores/PlaybackQueueProvider', () => ({
   usePlaybackQueue: () => queueMock,
@@ -28,6 +29,53 @@ vi.mock('../../i18n/I18nProvider', () => {
     'albumDetail.action.addToQueue': 'Add to queue',
     'albumDetail.action.more': 'More album actions',
     'albumDetail.action.showInFolder': 'Show in folder',
+    'albumDetail.count.loadedTracks': '{loaded} of {total} tracks',
+    'albumDetail.count.tracks': '{count} tracks',
+    'albumDetail.dna.aria': 'Album DNA',
+    'albumDetail.dna.artistAria': 'Open artist {artist}',
+    'albumDetail.dna.artistCount': '{count} related artists',
+    'albumDetail.dna.artists': 'Artist relations',
+    'albumDetail.dna.bitDepth': 'Bit depth',
+    'albumDetail.dna.codecMix': 'Format mix',
+    'albumDetail.dna.collapse': 'Collapse Album DNA',
+    'albumDetail.dna.countTracks': '{count} tracks',
+    'albumDetail.dna.depthProfile': 'Depth profile',
+    'albumDetail.dna.expand': 'Expand Album DNA',
+    'albumDetail.dna.format': 'Format mix',
+    'albumDetail.dna.integrity': 'Integrity',
+    'albumDetail.dna.integrityComplete': 'Track order intact',
+    'albumDetail.dna.integrityDiscGaps': 'Missing Disc',
+    'albumDetail.dna.integrityLoaded': 'Loaded tracks',
+    'albumDetail.dna.integrityReview': 'Needs review',
+    'albumDetail.dna.integrityStatus': 'Track order',
+    'albumDetail.dna.integrityTrackGaps': 'Missing track numbers',
+    'albumDetail.dna.integrityUnnumbered': 'Unnumbered',
+    'albumDetail.dna.kicker': 'Album DNA',
+    'albumDetail.dna.memory': 'Listening memory',
+    'albumDetail.dna.memoryEmpty': 'No memory yet',
+    'albumDetail.dna.memoryLiked': 'Liked',
+    'albumDetail.dna.memoryLoading': 'Reading memory',
+    'albumDetail.dna.memoryPlays': '{count} plays',
+    'albumDetail.dna.memoryRecentTrack': 'Recent return',
+    'albumDetail.dna.memorySkippedTrack': 'Often skipped',
+    'albumDetail.dna.memorySkips': '{count} skips',
+    'albumDetail.dna.memoryStatus': 'Memory status',
+    'albumDetail.dna.memoryTopTrack': 'Most played',
+    'albumDetail.dna.noArtists': 'No relations yet',
+    'albumDetail.dna.quality': 'Quality portrait',
+    'albumDetail.dna.qualityMixed44148': '44.1 / 48 mixed',
+    'albumDetail.dna.qualityMixedDepth': 'Mixed bit depth',
+    'albumDetail.dna.qualityMixedRate': 'Mixed sample rates',
+    'albumDetail.dna.qualityUnifiedDepth': 'Unified bit depth',
+    'albumDetail.dna.qualityUnifiedRate': 'Unified sample rate',
+    'albumDetail.dna.reading': 'Reading',
+    'albumDetail.dna.replayGain': 'ReplayGain',
+    'albumDetail.dna.replayGainValue': '{count}/{total}',
+    'albumDetail.dna.resampleRisk': 'Resample risk',
+    'albumDetail.dna.sampleRate': 'Sample rate',
+    'albumDetail.dna.subtitle': 'Local files, track order, listening memory, and artist links for {album}.',
+    'albumDetail.dna.title': 'Album DNA',
+    'albumDetail.dna.unknown': 'Unknown',
     'albumDetail.tracks.status.addedToPlaylist': 'Added to {playlist}.',
     'albumMenu.action.addToPlaylist': 'Add to playlist...',
     'albumMenu.playlistSubmenu.aria': 'Choose playlist',
@@ -124,6 +172,34 @@ const track = (overrides: Partial<LibraryTrack> = {}): LibraryTrack => ({
   embeddedCoverStatus: 'missing',
   networkMetadataStatus: 'none',
   fieldSources: {},
+  ...overrides,
+});
+
+const historyEntry = (overrides: Partial<PlaybackHistoryEntry> = {}): PlaybackHistoryEntry => ({
+  id: 'history-1',
+  trackId: 'track-1',
+  trackPath: 'D:\\Music\\track-1.flac',
+  mediaType: 'local',
+  provider: null,
+  providerTrackId: null,
+  stableKey: null,
+  title: 'Mock Track',
+  artist: 'Echo Unit',
+  album: 'Mock Album',
+  albumArtist: 'Echo Unit',
+  coverId: null,
+  coverThumb: null,
+  startedAt: '2026-06-13T10:00:00.000Z',
+  endedAt: '2026-06-13T10:03:00.000Z',
+  playedSeconds: 180,
+  durationSeconds: 180,
+  durationSnapshot: 180,
+  coverSnapshot: null,
+  playCount: 1,
+  completed: true,
+  sourceType: 'album',
+  sourceLabel: 'Mock Album',
+  queueId: null,
   ...overrides,
 });
 
@@ -376,6 +452,7 @@ const installLibrary = (options: { streamingAlbums?: StreamingAlbum[] } = {}): {
   getStreamingAlbum: ReturnType<typeof vi.fn>;
   addTracksToPlaylist: ReturnType<typeof vi.fn>;
   copyAlbumCover: ReturnType<typeof vi.fn>;
+  getPlaybackHistory: ReturnType<typeof vi.fn>;
 } => {
   const getAlbumOnlineInfo = vi.fn((_albumId: string, options?: { provider?: 'all' | 'musicbrainz' | 'wikipedia' }) =>
     Promise.resolve(onlineInfoForProvider(options?.provider)),
@@ -410,6 +487,13 @@ const installLibrary = (options: { streamingAlbums?: StreamingAlbum[] } = {}): {
     mvs: [],
   });
   const getStreamingAlbum = vi.fn().mockResolvedValue(streamingAlbumDetail());
+  const getPlaybackHistory = vi.fn().mockResolvedValue({
+    items: mockPlaybackHistoryEntries,
+    page: 1,
+    pageSize: 200,
+    total: mockPlaybackHistoryEntries.length,
+    hasMore: false,
+  });
   window.echo = {
     app: {
       getSettings: vi.fn().mockResolvedValue({ artistStreamingAlbumsEnabled: true, artistStreamingAlbumsProvider: 'netease' }),
@@ -432,6 +516,7 @@ const installLibrary = (options: { streamingAlbums?: StreamingAlbum[] } = {}): {
       addTrackToPlaylist: vi.fn().mockResolvedValue({ id: 'playlist-item-1' }),
       addTracksToPlaylist,
       copyAlbumCover,
+      getPlaybackHistory,
       getLikedAlbumIds: vi.fn().mockResolvedValue({}),
       openTrackInFolder: vi.fn().mockResolvedValue(undefined),
     },
@@ -452,7 +537,7 @@ const installLibrary = (options: { streamingAlbums?: StreamingAlbum[] } = {}): {
       ]),
     },
   } as unknown as Window['echo'];
-  return { getAlbumOnlineInfo, getArtists, getArtistAlbums, searchStreaming, getStreamingAlbum, addTracksToPlaylist, copyAlbumCover };
+  return { getAlbumOnlineInfo, getArtists, getArtistAlbums, searchStreaming, getStreamingAlbum, addTracksToPlaylist, copyAlbumCover, getPlaybackHistory };
 };
 
 afterEach(() => {
@@ -468,6 +553,7 @@ afterEach(() => {
   queueMock.replaceQueue.mockReset();
   queueMock.updateTrackSnapshot.mockReset();
   mockAlbumTracks = [];
+  mockPlaybackHistoryEntries = [];
 });
 
 describe('AlbumDetailView', () => {
@@ -687,7 +773,7 @@ describe('AlbumDetailView', () => {
 
     render(<AlbumDetailView album={album()} onBack={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open artist Echo Unit' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open artist Echo Unit' })[0]);
 
     await waitFor(() => expect(getArtists).toHaveBeenCalledWith({ page: 1, pageSize: 50, search: 'Echo Unit', sort: 'default' }));
     expect(navigate).toHaveBeenCalledTimes(1);
@@ -736,6 +822,59 @@ describe('AlbumDetailView', () => {
     expect(screen.getByText('This album')).toBeTruthy();
     expect(getArtists).toHaveBeenCalledWith({ page: 1, pageSize: 50, search: 'Echo Unit', sort: 'default', sourceProvider: 'local' });
     expect(getArtistAlbums).toHaveBeenCalledWith('artist-1', { page: 1, pageSize: 8, sort: 'recent' });
+  });
+
+  it('shows album DNA format, quality, integrity, memory, and artist links', async () => {
+    mockAlbumTracks = [
+      track({
+        id: 'track-1',
+        title: 'Opening',
+        artist: 'Echo Unit / Guest Singer',
+        codec: 'flac',
+        sampleRate: 44100,
+        bitDepth: 16,
+        trackNo: 1,
+      }),
+      track({
+        id: 'track-2',
+        path: 'D:\\Music\\track-2.mp3',
+        title: 'Bridge',
+        artist: 'Echo Friend',
+        codec: 'mp3',
+        sampleRate: 48000,
+        bitDepth: null,
+        bitrate: 320000,
+        trackNo: 3,
+      }),
+    ];
+    mockPlaybackHistoryEntries = [
+      historyEntry({ id: 'history-1', trackId: 'track-1', title: 'Opening', playCount: 4, completed: true, startedAt: '2026-06-13T10:00:00.000Z' }),
+      historyEntry({ id: 'history-2', trackId: 'track-2', title: 'Bridge', artist: 'Echo Friend', playCount: 1, completed: false, startedAt: '2026-06-13T11:00:00.000Z' }),
+    ];
+    const { getPlaybackHistory } = installLibrary();
+
+    render(<AlbumDetailView album={album({ trackCount: 3 })} onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Information' }));
+    expect(await screen.findByRole('heading', { name: 'Album DNA' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Expand Album DNA' }).getAttribute('aria-expanded')).toBe('false');
+    await waitFor(() => expect(getPlaybackHistory).toHaveBeenCalledWith(expect.objectContaining({
+      page: 1,
+      pageSize: 200,
+      search: 'Mock Album',
+      sort: 'recent',
+    })));
+    expect(screen.getAllByText('44.1 / 48 mixed').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Missing track numbers')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Album DNA' }));
+    expect(screen.getByRole('button', { name: 'Collapse Album DNA' }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('Missing track numbers')).toBeTruthy();
+    expect(screen.getAllByText('2').length).toBeGreaterThan(0);
+    expect(await screen.findByText('Most played')).toBeTruthy();
+    expect(screen.getByText('Opening')).toBeTruthy();
+    expect(screen.getByText('Often skipped')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open artist Guest Singer' })).toBeTruthy();
   });
 
   it('loads the streaming library from the album more menu only after the user asks', async () => {

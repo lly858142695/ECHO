@@ -1245,13 +1245,16 @@ export const PlayerBar = ({
         return;
       }
 
-      explicitDacArrivalRouteRef.current = dacArrivalRouteKey(detail.status);
+      const nextRouteKey = dacArrivalRouteKey(detail.status);
+      const previousRouteKey = dacArrivalRouteKey(outputRouteStatus ?? audioStatus) ?? lastDacArrivalRouteRef.current;
+      explicitDacArrivalRouteRef.current =
+        nextRouteKey && nextRouteKey !== previousRouteKey ? nextRouteKey : null;
       setOutputRouteStatus(detail.status);
     };
 
     window.addEventListener(audioOutputRouteStatusChangedEvent, handleOutputRouteStatusChanged);
     return () => window.removeEventListener(audioOutputRouteStatusChangedEvent, handleOutputRouteStatusChanged);
-  }, []);
+  }, [audioStatus, outputRouteStatus]);
 
   useEffect(() => {
     const ceremonyStatus = outputRouteStatus ?? audioStatus;

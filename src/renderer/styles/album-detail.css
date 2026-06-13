@@ -1193,6 +1193,363 @@
   flex: 0 0 auto;
 }
 
+.album-dna-panel {
+  display: grid;
+  gap: 0;
+  margin: 0 0 20px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--theme-panel-border-strong) 74%, transparent);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--theme-panel-bg-strong) 94%, transparent), color-mix(in srgb, var(--theme-accent-soft-bg) 46%, transparent)),
+    var(--theme-panel-bg);
+  box-shadow: 0 20px 46px color-mix(in srgb, var(--theme-panel-border-strong) 32%, transparent);
+}
+
+.album-dna-identity {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.album-dna-emblem {
+  position: relative;
+  display: grid;
+  aspect-ratio: 1;
+  overflow: hidden;
+  place-items: center;
+  width: 76px;
+  color: var(--theme-accent-text-strong);
+  border: 1px solid color-mix(in srgb, var(--theme-accent-border) 72%, transparent);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--theme-accent-soft-bg) 76%, white 24%), color-mix(in srgb, var(--theme-panel-bg-muted) 88%, transparent)),
+    var(--theme-panel-bg-muted);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, white 62%, transparent);
+}
+
+.album-dna-emblem img {
+  width: 100%;
+  height: 100%;
+  filter: saturate(1.12) contrast(1.04);
+  object-fit: cover;
+}
+
+.album-dna-emblem::after {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(145deg, transparent 24%, color-mix(in srgb, var(--theme-accent-solid-bg) 28%, transparent)),
+    linear-gradient(0deg, color-mix(in srgb, #101827 36%, transparent), transparent 58%);
+  content: '';
+  opacity: 0.72;
+}
+
+.album-dna-emblem span {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  z-index: 1;
+  padding: 3px 6px;
+  color: var(--theme-on-accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--theme-accent-solid-bg) 82%, #101827 18%);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.album-dna-copy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.album-dna-copy span,
+.album-dna-block header span,
+.album-dna-fact span,
+.album-dna-artists > div > span {
+  overflow: hidden;
+  color: var(--theme-muted-text);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.album-dna-copy h2 {
+  margin: 0;
+  color: var(--theme-heading-text);
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.1;
+}
+
+.album-dna-copy p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--theme-page-text);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.album-dna-summary {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.album-dna-summary > span {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 230px;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--theme-panel-border) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-panel-bg-muted) 70%, transparent);
+}
+
+.album-dna-summary small,
+.album-dna-summary strong {
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-dna-summary small {
+  flex: 0 0 auto;
+  color: var(--theme-muted-text);
+  font-weight: 800;
+}
+
+.album-dna-summary strong {
+  min-width: 0;
+  color: var(--theme-heading-text);
+  font-weight: 900;
+}
+
+.album-dna-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--theme-accent-text-strong);
+  border: 1px solid color-mix(in srgb, var(--theme-accent-border) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-accent-soft-bg) 68%, transparent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.album-dna-expand:hover,
+.album-dna-expand:focus-visible {
+  border-color: color-mix(in srgb, var(--theme-accent-border) 92%, transparent);
+  background: color-mix(in srgb, var(--theme-accent-soft-bg) 86%, transparent);
+  transform: translateY(-1px);
+}
+
+.album-dna-expand:focus-visible {
+  outline: 2px solid var(--theme-focus-ring);
+  outline-offset: 2px;
+}
+
+.album-dna-expand svg {
+  flex: 0 0 auto;
+  transition: transform 160ms ease;
+}
+
+.album-dna-panel[data-expanded='true'] .album-dna-expand svg {
+  transform: rotate(90deg);
+}
+
+.album-dna-content {
+  display: grid;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+.album-dna-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.album-dna-block {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--theme-panel-border) 86%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-panel-bg-strong) 76%, transparent);
+}
+
+.album-dna-block header {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.album-dna-block header strong {
+  overflow: hidden;
+  color: var(--theme-heading-text);
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-dna-fact-list {
+  display: grid;
+  gap: 8px;
+}
+
+.album-dna-fact {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.album-dna-fact strong,
+.album-dna-fact small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-dna-fact strong {
+  color: var(--theme-page-text);
+  font-size: 12px;
+  font-weight: 820;
+  line-height: 1.25;
+}
+
+.album-dna-fact small {
+  color: var(--theme-subtle-text);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.album-dna-fact[data-tone='good'] strong {
+  color: var(--theme-success-text, #2f7d5f);
+}
+
+.album-dna-fact[data-tone='warn'] strong {
+  color: var(--theme-warning-text, #996515);
+}
+
+.album-dna-artists {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.24fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--theme-panel-border) 82%, transparent);
+}
+
+.album-dna-artists > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.album-dna-artists > div > strong {
+  overflow: hidden;
+  color: var(--theme-heading-text);
+  font-size: 13px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-dna-artist-list {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.album-dna-artist {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: min(220px, 100%);
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--theme-page-text);
+  border: 1px solid color-mix(in srgb, var(--theme-panel-border-strong) 66%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-panel-bg-muted) 78%, transparent);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.album-dna-artist:hover,
+.album-dna-artist:focus-visible {
+  color: var(--theme-accent-text-strong);
+  border-color: color-mix(in srgb, var(--theme-accent-border) 82%, transparent);
+  background: color-mix(in srgb, var(--theme-accent-soft-bg) 72%, transparent);
+  transform: translateY(-1px);
+}
+
+.album-dna-artist:focus-visible {
+  outline: 2px solid var(--theme-focus-ring);
+  outline-offset: 2px;
+}
+
+.album-dna-artist span {
+  overflow: hidden;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-dna-artist small {
+  flex: 0 0 auto;
+  color: var(--theme-muted-text);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.album-dna-artist svg {
+  flex: 0 0 auto;
+}
+
 .album-track-toolbar {
   display: flex;
   align-items: center;
@@ -1587,6 +1944,49 @@ html[data-theme="dark"] .album-information-body li {
   color: var(--color-text);
 }
 
+html[data-theme="dark"] .album-dna-panel {
+  border-color: rgba(152, 135, 205, 0.24);
+  background:
+    linear-gradient(135deg, rgba(23, 27, 38, 0.9), rgba(61, 45, 91, 0.34)),
+    rgba(18, 22, 31, 0.88);
+  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme="dark"] .album-dna-block,
+html[data-theme="dark"] .album-dna-summary > span,
+html[data-theme="dark"] .album-dna-artist {
+  border-color: rgba(152, 135, 205, 0.18);
+  background: rgba(24, 30, 39, 0.66);
+}
+
+html[data-theme="dark"] .album-dna-copy h2,
+html[data-theme="dark"] .album-dna-summary strong,
+html[data-theme="dark"] .album-dna-block header strong,
+html[data-theme="dark"] .album-dna-artists > div > strong {
+  color: var(--echo-heading-text);
+}
+
+html[data-theme="dark"] .album-dna-copy p,
+html[data-theme="dark"] .album-dna-fact strong,
+html[data-theme="dark"] .album-dna-artist {
+  color: var(--color-text);
+}
+
+html[data-theme="dark"] .album-dna-copy span,
+html[data-theme="dark"] .album-dna-summary small,
+html[data-theme="dark"] .album-dna-block header span,
+html[data-theme="dark"] .album-dna-fact span,
+html[data-theme="dark"] .album-dna-fact small,
+html[data-theme="dark"] .album-dna-artists > div > span,
+html[data-theme="dark"] .album-dna-artist small {
+  color: var(--color-muted);
+}
+
+html[data-theme="dark"] .album-dna-expand {
+  border-color: rgba(152, 135, 205, 0.28);
+  background: rgba(95, 75, 150, 0.24);
+}
+
 html[data-theme="dark"] .album-detail-error {
   color: #ff9b9f;
 }
@@ -1608,6 +2008,10 @@ html[data-theme="dark"] .album-detail-error {
   .album-detail-cover {
     width: min(300px, 28vw);
     min-width: 220px;
+  }
+
+  .album-dna-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1644,6 +2048,32 @@ html[data-theme="dark"] .album-detail-error {
   }
 
   .album-detail-tabs {
+    justify-content: flex-start;
+  }
+
+  .album-dna-panel {
+    margin-bottom: 16px;
+    padding: 14px;
+  }
+
+  .album-dna-identity,
+  .album-dna-artists {
+    grid-template-columns: 1fr;
+  }
+
+  .album-dna-emblem {
+    width: 66px;
+  }
+
+  .album-dna-expand {
+    width: fit-content;
+  }
+
+  .album-dna-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .album-dna-artist-list {
     justify-content: flex-start;
   }
 

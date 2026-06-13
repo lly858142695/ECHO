@@ -332,9 +332,9 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       overflow-x: hidden;
       color: var(--text);
       background:
-        linear-gradient(120deg, rgba(255, 140, 175, 0.26), transparent 34%),
-        linear-gradient(310deg, rgba(155, 232, 244, 0.18), transparent 38%),
-        linear-gradient(18deg, rgba(255, 207, 122, 0.1), transparent 32%),
+        radial-gradient(circle at 42% 42%, rgba(255, 140, 184, 0.24), transparent 34%),
+        radial-gradient(circle at 62% 58%, rgba(155, 232, 244, 0.16), transparent 38%),
+        radial-gradient(circle at 28% 72%, rgba(255, 207, 122, 0.08), transparent 32%),
         linear-gradient(135deg, #211520 0%, #10131d 48%, #08151a 100%);
       background-size: auto;
     }
@@ -453,9 +453,9 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       user-select: none;
       perspective: 1400px;
       background:
-        linear-gradient(118deg, rgba(255, 132, 184, 0.42), transparent 42%),
-        linear-gradient(28deg, rgba(123, 222, 236, 0.32), transparent 52%),
-        linear-gradient(165deg, rgba(255, 215, 128, 0.18), transparent 38%),
+        radial-gradient(circle at 44% 43%, rgba(255, 132, 184, 0.34), transparent 36%),
+        radial-gradient(circle at 64% 58%, rgba(123, 222, 236, 0.22), transparent 42%),
+        radial-gradient(circle at 30% 74%, rgba(255, 215, 128, 0.12), transparent 36%),
         linear-gradient(135deg, #3a192b 0%, #1b1525 47%, #06191d 100%);
     }
     .stage::before {
@@ -585,9 +585,10 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       overflow: hidden;
       pointer-events: none;
       background:
-        linear-gradient(116deg, transparent 0 17%, rgba(255, 179, 214, 0.13) 17% 28%, transparent 28% 100%),
-        linear-gradient(42deg, transparent 0 54%, rgba(154, 232, 244, 0.1) 54% 64%, transparent 64% 100%),
-        linear-gradient(155deg, rgba(255,255,255,0.06), transparent 30%, rgba(255,255,255,0.035) 60%, transparent 78%);
+        radial-gradient(circle at 48% 46%, rgba(255,255,255,0.08), transparent 38%),
+        radial-gradient(circle at 36% 62%, rgba(255, 179, 214, 0.12), transparent 34%),
+        radial-gradient(circle at 66% 55%, rgba(154, 232, 244, 0.09), transparent 38%);
+      opacity: 0.86;
       filter: saturate(1.12);
     }
     .album-mural::after {
@@ -1522,11 +1523,16 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       const waveY = Math.cos(col * 1.18 + row * 0.29 + state.randomSeed * 0.07) * layout.cellH * 0.16;
       const jitterX = (seeded(index, 2) - 0.5) * Math.min(116, layout.cellW * 0.34);
       const jitterY = (seeded(index, 3) - 0.5) * Math.min(126, layout.cellH * 0.31);
-      const x = Math.round(clamp(originX + col * layout.cellW + rowStagger + waveX + jitterX, 8, world.width - size - 8));
-      const y = Math.round(clamp(originY + row * layout.cellH + columnLift + waveY + jitterY, 8, world.height - size * 1.42 - 8));
+      const rawX = originX + col * layout.cellW + rowStagger + waveX + jitterX;
+      const rawY = originY + row * layout.cellH + columnLift + waveY + jitterY;
+      const centerX = world.width / 2;
+      const centerY = world.height / 2;
+      const pull = far ? 0.96 + seeded(index, 17) * 0.06 : 0.84 + seeded(index, 17) * 0.08;
+      const x = Math.round(clamp(centerX + (rawX + size / 2 - centerX) * pull - size / 2, 8, world.width - size - 8));
+      const y = Math.round(clamp(centerY + (rawY + size * 0.71 - centerY) * (pull + 0.02) - size * 0.71, 8, world.height - size * 1.42 - 8));
       const tilt = (seeded(index, 4) - 0.5) * (far ? 7.8 : 5.2);
       const scale = far ? 0.58 + seeded(index, 6) * 0.16 : 0.78 + seeded(index, 6) * 0.15;
-      const opacity = far ? 0.32 + seeded(index, 5) * 0.18 : 0.54 + seeded(index, 5) * 0.24;
+      const opacity = far ? 0.26 + seeded(index, 5) * 0.16 : 0.46 + seeded(index, 5) * 0.22;
       const depthY = Math.round((seeded(index, 7) - 0.5) * (far ? 60 : 36));
       const depthZ = far ? -118 - Math.round(seeded(index, 13) * 92) : -34 - Math.round(seeded(index, 13) * 54);
       const z = far ? 18 + Math.round(seeded(index, 11) * 12) : 34 + Math.round(seeded(index, 11) * 20);

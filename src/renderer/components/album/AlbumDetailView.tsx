@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, ChevronRight, Disc3, ExternalLink, FolderOpen, Heart, Info, ListEnd, Loader2, MoreHorizontal, Play, Plus, RefreshCw, Star } from 'lucide-react';
 import { defaultArtistStreamingAlbumsProvider, type AppSettings, type ArtistStreamingAlbumsProvider } from '../../../shared/types/appSettings';
-import type { AlbumOnlineInfo, AlbumOnlineInfoRequestOptions, EditableTrackTags, LibraryAlbum, LibraryArtist, LibraryPlaylist, LibraryTrack } from '../../../shared/types/library';
+import type { AlbumOnlineInfo, AlbumOnlineInfoRequestOptions, EditableTrackTags, LibraryAlbum, LibraryArtist, LibraryPlaylist, LibraryTrack, PlaybackHistoryEntry } from '../../../shared/types/library';
 import type { StreamingAlbum, StreamingAlbumDetail, StreamingProviderDescriptor, StreamingTrack } from '../../../shared/types/streaming';
 import { likedAlbumsChangedEvent, likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '../../hooks/useLikedMedia';
 import { useAnimatedBackNavigation } from '../../hooks/useAnimatedBackNavigation';
@@ -366,6 +366,211 @@ const findMatchingArtist = (artists: LibraryArtist[], name: string): LibraryArti
   return artists.find((artist) => normalizeArtistName(artist.name) === normalizedName) ?? (artists.length === 1 ? artists[0] : null);
 };
 
+type AlbumDnaTone = 'neutral' | 'good' | 'warn';
+
+type AlbumDnaFact = {
+  label: string;
+  value: string;
+  detail?: string;
+  tone?: AlbumDnaTone;
+};
+
+type AlbumDnaArtist = {
+  name: string;
+  lookupName: string;
+  count: number;
+};
+
+type AlbumDnaMemoryTrack = {
+  title: string;
+  subtitle: string;
+  count: number;
+};
+
+type AlbumDnaMemoryStats = {
+  totalEvents: number;
+  topTrack: AlbumDnaMemoryTrack | null;
+  recentTrack: AlbumDnaMemoryTrack | null;
+  skippedTrack: AlbumDnaMemoryTrack | null;
+};
+
+type AlbumDnaHistoryState = {
+  loading: boolean;
+  entries: PlaybackHistoryEntry[];
+  error: string | null;
+  loadedForAlbumId: string | null;
+};
+
+const albumDnaHistoryPageSize = 200;
+
+const emptyAlbumDnaHistoryState = (): AlbumDnaHistoryState => ({
+  loading: false,
+  entries: [],
+  error: null,
+  loadedForAlbumId: null,
+});
+
+const formatAlbumDnaCountBreakdown = (items: Array<{ label: string; count: number }>, fallback: string): string =>
+  items.length > 0 ? items.slice(0, 4).map((item) => (items.length === 1 ? item.label : `${item.label} ${item.count}`)).join(' / ') : fallback;
+
+const sortCountedItems = <T extends { count: number; order: number }>(items: T[]): T[] =>
+  [...items].sort((left, right) => right.count - left.count || left.order - right.order);
+
+const countAlbumDnaLabels = (values: string[]): Array<{ label: string; count: number; order: number }> => {
+  const counts = new Map<string, { label: string; count: number; order: number }>();
+  values.forEach((value, index) => {
+    const label = value.trim();
+    if (!label) {
+      return;
+    }
+    const key = normalizeArtistName(label);
+    const current = counts.get(key);
+    if (current) {
+      counts.set(key, { ...current, count: current.count + 1 });
+    } else {
+      counts.set(key, { label, count: 1, order: index });
+    }
+  });
+  return sortCountedItems(Array.from(counts.values()));
+};
+
+const formatAlbumDnaSampleRates = (tracks: LibraryTrack[], fallback: string): string =>
+  formatAlbumDnaCountBreakdown(
+    countAlbumDnaLabels(tracks.map((track) => formatSampleRate(track.sampleRate)).filter((value): value is string => Boolean(value))),
+    fallback,
+  );
+
+const formatAlbumDnaBitDepths = (tracks: LibraryTrack[], fallback: string): string =>
+  formatAlbumDnaCountBreakdown(
+    countAlbumDnaLabels(tracks.map((track) => (track.bitDepth ? `${track.bitDepth}bit` : null)).filter((value): value is string => Boolean(value))),
+    fallback,
+  );
+
+const formatAlbumDnaCodecs = (tracks: LibraryTrack[], fallback: string): string =>
+  formatAlbumDnaCountBreakdown(
+    countAlbumDnaLabels(tracks.map((track) => track.codec?.trim().toUpperCase() ?? '').filter(Boolean)),
+    fallback,
+  );
+
+const findAlbumDnaTrackGaps = (tracks: LibraryTrack[]): string[] => {
+  const numbersByDisc = new Map<number, Set<number>>();
+  tracks.forEach((track) => {
+    if (!track.trackNo || track.trackNo <= 0) {
+      return;
+    }
+    const discNo = track.discNo && track.discNo > 0 ? track.discNo : 1;
+    const current = numbersByDisc.get(discNo) ?? new Set<number>();
+    current.add(track.trackNo);
+    numbersByDisc.set(discNo, current);
+  });
+
+  const multiDisc = numbersByDisc.size > 1;
+  return Array.from(numbersByDisc.entries())
+    .sort(([left], [right]) => left - right)
+    .flatMap(([discNo, numbers]) => {
+      const maxTrackNo = Math.max(...numbers);
+      const gaps: string[] = [];
+      for (let trackNo = 1; trackNo <= maxTrackNo; trackNo += 1) {
+        if (!numbers.has(trackNo)) {
+          gaps.push(multiDisc ? `D${discNo}-${trackNo}` : String(trackNo));
+        }
+      }
+      return gaps;
+    });
+};
+
+const findAlbumDnaDiscGaps = (tracks: LibraryTrack[]): number[] => {
+  const discs = Array.from(new Set(tracks.map((track) => track.discNo).filter((discNo): discNo is number => Boolean(discNo && discNo > 0)))).sort((left, right) => left - right);
+  if (discs.length <= 1) {
+    return [];
+  }
+  const discSet = new Set(discs);
+  const gaps: number[] = [];
+  for (let discNo = discs[0]; discNo <= discs[discs.length - 1]; discNo += 1) {
+    if (!discSet.has(discNo)) {
+      gaps.push(discNo);
+    }
+  }
+  return gaps;
+};
+
+const buildAlbumDnaArtists = (tracks: LibraryTrack[], albumArtistDisplay: AlbumArtistDisplay): AlbumDnaArtist[] => {
+  const counts = new Map<string, AlbumDnaArtist & { order: number }>();
+  let order = 0;
+  const addArtist = (artistName: string, weight: number): void => {
+    splitTrackArtistNames(artistName).forEach((token) => {
+      const key = normalizeArtistName(token);
+      if (!key) {
+        return;
+      }
+      const current = counts.get(key);
+      if (current) {
+        counts.set(key, { ...current, count: current.count + weight });
+      } else {
+        counts.set(key, { name: token, lookupName: token, count: weight, order });
+        order += 1;
+      }
+    });
+  };
+
+  if (albumArtistDisplay.label) {
+    addArtist(albumArtistDisplay.label, 2);
+  }
+  tracks.forEach((track) => addArtist(track.artist, 1));
+
+  return sortCountedItems(Array.from(counts.values())).slice(0, 6).map(({ order: _order, ...artist }) => artist);
+};
+
+const albumDnaHistoryEntryMatches = (entry: PlaybackHistoryEntry, album: LibraryAlbum, tracks: LibraryTrack[]): boolean => {
+  const trackIds = new Set(tracks.map((track) => track.id));
+  if (entry.trackId && trackIds.has(entry.trackId)) {
+    return true;
+  }
+
+  const albumTitle = normalizeArtistName(album.title);
+  const trackTitles = new Set(tracks.map((track) => normalizeArtistName(track.title)));
+  return normalizeArtistName(entry.album) === albumTitle && trackTitles.has(normalizeArtistName(entry.title));
+};
+
+const buildAlbumDnaMemoryStats = (entries: PlaybackHistoryEntry[]): AlbumDnaMemoryStats => {
+  const byTrack = new Map<string, AlbumDnaMemoryTrack & { latestAt: number; skippedCount: number; order: number }>();
+  entries.forEach((entry, index) => {
+    const key = entry.trackId ?? normalizeArtistName(`${entry.title}:${entry.artist}`);
+    const count = Math.max(1, entry.playCount || 1);
+    const latestAt = Date.parse(entry.startedAt);
+    const current = byTrack.get(key);
+    if (current) {
+      byTrack.set(key, {
+        ...current,
+        count: current.count + count,
+        latestAt: Number.isFinite(latestAt) ? Math.max(current.latestAt, latestAt) : current.latestAt,
+        skippedCount: current.skippedCount + (entry.completed ? 0 : 1),
+      });
+    } else {
+      byTrack.set(key, {
+        title: entry.title,
+        subtitle: entry.artist,
+        count,
+        latestAt: Number.isFinite(latestAt) ? latestAt : 0,
+        skippedCount: entry.completed ? 0 : 1,
+        order: index,
+      });
+    }
+  });
+
+  const tracks = Array.from(byTrack.values());
+  const topTrack = sortCountedItems(tracks)[0] ?? null;
+  const recentTrack = [...tracks].sort((left, right) => right.latestAt - left.latestAt || left.order - right.order)[0] ?? null;
+  const skippedTrack = [...tracks].filter((track) => track.skippedCount > 0).sort((left, right) => right.skippedCount - left.skippedCount || left.order - right.order)[0] ?? null;
+
+  return {
+    totalEvents: entries.reduce((total, entry) => total + Math.max(1, entry.playCount || 1), 0),
+    topTrack,
+    recentTrack,
+    skippedTrack: skippedTrack ? { ...skippedTrack, count: skippedTrack.skippedCount } : null,
+  };
+};
+
 const normalizeStreamingAlbumText = (value: string): string =>
   value.normalize('NFKC').toLocaleLowerCase().replace(/\s*\([^)]*\)|\s*（[^）]*）/gu, '').replace(/[\s._'’"-]+/gu, '');
 
@@ -644,6 +849,8 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   const [streamingAlbumDetailError, setStreamingAlbumDetailError] = useState<string | null>(null);
   const [resolvingStreamingTrackKey, setResolvingStreamingTrackKey] = useState<string | null>(null);
   const [queuedStreamingTrackKey, setQueuedStreamingTrackKey] = useState<string | null>(null);
+  const [albumDnaHistoryState, setAlbumDnaHistoryState] = useState<AlbumDnaHistoryState>(() => emptyAlbumDnaHistoryState());
+  const [isAlbumDnaExpanded, setIsAlbumDnaExpanded] = useState(false);
   const tagEditorCloseTimerRef = useRef<number | null>(null);
   const onlineInfoRequestRef = useRef(0);
   const relatedAlbumsRequestRef = useRef(0);
@@ -724,6 +931,157 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   );
   const displayAlbumArtist = albumArtistDisplay.label;
   const albumArtistLookupName = albumArtistDisplay.lookupName;
+  const albumDnaTrackKey = useMemo(
+    () => loadedTracks.map((track) => `${track.id}:${track.title}:${track.album}:${track.artist}`).join('\n'),
+    [loadedTracks],
+  );
+  const albumDnaArtists = useMemo(() => buildAlbumDnaArtists(loadedTracks, albumArtistDisplay), [albumArtistDisplay, loadedTracks]);
+  const albumDnaHistoryEntries = useMemo(
+    () => albumDnaHistoryState.entries.filter((entry) => albumDnaHistoryEntryMatches(entry, album, loadedTracks)),
+    [album, albumDnaHistoryState.entries, albumDnaTrackKey, loadedTracks],
+  );
+  const albumDnaMemoryStats = useMemo(() => buildAlbumDnaMemoryStats(albumDnaHistoryEntries), [albumDnaHistoryEntries]);
+  const albumDnaLoadedTrackTotal = loadedTotal || loadedTracks.length || album.trackCount;
+  const albumDnaKnownText = t('albumDetail.dna.unknown');
+  const albumDnaContentId = useMemo(() => `album-dna-${album.id.replace(/[^a-z0-9_-]/giu, '-') || 'detail'}`, [album.id]);
+  const albumDnaFormatFacts = useMemo<AlbumDnaFact[]>(
+    () => [
+      {
+        label: t('albumDetail.dna.codecMix'),
+        value: formatAlbumDnaCodecs(loadedTracks, albumDnaKnownText),
+        detail: albumDnaLoadedTrackTotal > 0 ? t('albumDetail.count.loadedTracks', { loaded: loadedTracks.length, total: albumDnaLoadedTrackTotal }) : undefined,
+      },
+      {
+        label: t('albumDetail.dna.bitDepth'),
+        value: formatAlbumDnaBitDepths(loadedTracks, albumDnaKnownText),
+      },
+      {
+        label: t('albumDetail.dna.sampleRate'),
+        value: formatAlbumDnaSampleRates(loadedTracks, albumDnaKnownText),
+      },
+    ],
+    [albumDnaKnownText, albumDnaLoadedTrackTotal, loadedTracks, t],
+  );
+  const albumDnaQualityFacts = useMemo<AlbumDnaFact[]>(() => {
+    const sampleRates = new Set(loadedTracks.map((track) => track.sampleRate).filter((value): value is number => Boolean(value && value > 0)));
+    const bitDepths = new Set(loadedTracks.map((track) => track.bitDepth).filter((value): value is number => Boolean(value && value > 0)));
+    const has441 = sampleRates.has(44100);
+    const has48 = sampleRates.has(48000);
+    const replayGainCount = loadedTracks.filter((track) => track.replayGainAlbumGainDb !== null || track.replayGainTrackGainDb !== null).length;
+    const sampleRateFact: AlbumDnaFact = loadedTracks.length === 0
+      ? { label: t('albumDetail.dna.resampleRisk'), value: t('albumDetail.dna.reading'), tone: 'neutral' }
+      : sampleRates.size > 1
+        ? {
+            label: t('albumDetail.dna.resampleRisk'),
+            value: has441 && has48 ? t('albumDetail.dna.qualityMixed44148') : t('albumDetail.dna.qualityMixedRate'),
+            detail: formatAlbumDnaSampleRates(loadedTracks, albumDnaKnownText),
+            tone: 'warn',
+          }
+        : {
+            label: t('albumDetail.dna.resampleRisk'),
+            value: t('albumDetail.dna.qualityUnifiedRate'),
+            detail: formatAlbumDnaSampleRates(loadedTracks, albumDnaKnownText),
+            tone: 'good',
+          };
+
+    return [
+      sampleRateFact,
+      {
+        label: t('albumDetail.dna.depthProfile'),
+        value: bitDepths.size > 1 ? t('albumDetail.dna.qualityMixedDepth') : t('albumDetail.dna.qualityUnifiedDepth'),
+        detail: formatAlbumDnaBitDepths(loadedTracks, albumDnaKnownText),
+        tone: bitDepths.size > 1 ? 'warn' : 'good',
+      },
+      {
+        label: t('albumDetail.dna.replayGain'),
+        value: loadedTracks.length > 0 ? t('albumDetail.dna.replayGainValue', { count: replayGainCount, total: loadedTracks.length }) : t('albumDetail.dna.reading'),
+        tone: replayGainCount === loadedTracks.length && loadedTracks.length > 0 ? 'good' : 'neutral',
+      },
+    ];
+  }, [albumDnaKnownText, loadedTracks, t]);
+  const albumDnaIntegrityFacts = useMemo<AlbumDnaFact[]>(() => {
+    const trackGaps = findAlbumDnaTrackGaps(loadedTracks);
+    const discGaps = findAlbumDnaDiscGaps(loadedTracks);
+    const unnumberedCount = loadedTracks.filter((track) => !track.trackNo || track.trackNo <= 0).length;
+    const expectedCount = loadedTotal || album.trackCount;
+    const facts: AlbumDnaFact[] = [
+      {
+        label: t('albumDetail.dna.integrityLoaded'),
+        value: expectedCount > 0 ? t('albumDetail.count.loadedTracks', { loaded: loadedTracks.length, total: expectedCount }) : t('albumDetail.dna.unknown'),
+        tone: expectedCount > 0 && loadedTracks.length < expectedCount ? 'warn' : 'good',
+      },
+    ];
+    if (trackGaps.length > 0) {
+      facts.push({
+        label: t('albumDetail.dna.integrityTrackGaps'),
+        value: trackGaps.slice(0, 8).join(', '),
+        tone: 'warn',
+      });
+    }
+    if (discGaps.length > 0) {
+      facts.push({
+        label: t('albumDetail.dna.integrityDiscGaps'),
+        value: discGaps.join(', '),
+        tone: 'warn',
+      });
+    }
+    if (unnumberedCount > 0) {
+      facts.push({
+        label: t('albumDetail.dna.integrityUnnumbered'),
+        value: t('albumDetail.dna.countTracks', { count: unnumberedCount }),
+        tone: 'warn',
+      });
+    }
+    if (facts.length === 1 && loadedTracks.length > 0) {
+      facts.push({
+        label: t('albumDetail.dna.integrityStatus'),
+        value: t('albumDetail.dna.integrityComplete'),
+        tone: 'good',
+      });
+    }
+    return facts;
+  }, [album.trackCount, loadedTotal, loadedTracks, t]);
+  const albumDnaMemoryFacts = useMemo<AlbumDnaFact[]>(() => {
+    const likedCount = loadedTracks.filter((track) => likedTrackIds[track.id] === true).length;
+    if (albumDnaHistoryState.loading && albumDnaHistoryState.loadedForAlbumId === album.id) {
+      return [{ label: t('albumDetail.dna.memoryStatus'), value: t('albumDetail.dna.memoryLoading'), tone: 'neutral' }];
+    }
+    const facts: AlbumDnaFact[] = [
+      {
+        label: t('albumDetail.dna.memoryLiked'),
+        value: loadedTracks.length > 0 ? t('albumDetail.dna.replayGainValue', { count: likedCount, total: loadedTracks.length }) : t('albumDetail.dna.unknown'),
+        tone: likedCount > 0 ? 'good' : 'neutral',
+      },
+    ];
+    if (albumDnaMemoryStats.totalEvents <= 0) {
+      facts.unshift({ label: t('albumDetail.dna.memoryStatus'), value: t('albumDetail.dna.memoryEmpty'), tone: 'neutral' });
+      return facts;
+    }
+    if (albumDnaMemoryStats.topTrack) {
+      facts.unshift({
+        label: t('albumDetail.dna.memoryTopTrack'),
+        value: albumDnaMemoryStats.topTrack.title,
+        detail: t('albumDetail.dna.memoryPlays', { count: albumDnaMemoryStats.topTrack.count }),
+        tone: 'good',
+      });
+    }
+    if (albumDnaMemoryStats.recentTrack) {
+      facts.push({
+        label: t('albumDetail.dna.memoryRecentTrack'),
+        value: albumDnaMemoryStats.recentTrack.title,
+        detail: albumDnaMemoryStats.recentTrack.subtitle,
+      });
+    }
+    if (albumDnaMemoryStats.skippedTrack) {
+      facts.push({
+        label: t('albumDetail.dna.memorySkippedTrack'),
+        value: albumDnaMemoryStats.skippedTrack.title,
+        detail: t('albumDetail.dna.memorySkips', { count: albumDnaMemoryStats.skippedTrack.count }),
+        tone: 'warn',
+      });
+    }
+    return facts;
+  }, [album.id, albumDnaHistoryState.loadedForAlbumId, albumDnaHistoryState.loading, albumDnaMemoryStats, likedTrackIds, loadedTracks, t]);
 
   const closeAlbumMenu = useCallback((): void => {
     setAlbumMenuPosition(null);
@@ -1036,7 +1394,61 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     setStreamingAlbumDetailError(null);
     setResolvingStreamingTrackKey(null);
     setQueuedStreamingTrackKey(null);
+    setIsAlbumDnaExpanded(false);
   }, [album.id]);
+
+  useEffect(() => {
+    const library = getLibraryBridge();
+    if (!library?.getPlaybackHistory || loadedTracks.length === 0) {
+      setAlbumDnaHistoryState({
+        loading: false,
+        entries: [],
+        error: null,
+        loadedForAlbumId: album.id,
+      });
+      return undefined;
+    }
+
+    let isCancelled = false;
+    setAlbumDnaHistoryState((current) => ({
+      loading: true,
+      entries: current.loadedForAlbumId === album.id ? current.entries : [],
+      error: null,
+      loadedForAlbumId: album.id,
+    }));
+
+    void library
+      .getPlaybackHistory({
+        page: 1,
+        pageSize: albumDnaHistoryPageSize,
+        search: album.title,
+        sort: 'recent',
+      })
+      .then((page) => {
+        if (!isCancelled) {
+          setAlbumDnaHistoryState({
+            loading: false,
+            entries: page.items,
+            error: null,
+            loadedForAlbumId: album.id,
+          });
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          setAlbumDnaHistoryState({
+            loading: false,
+            entries: [],
+            error: error instanceof Error ? error.message : String(error),
+            loadedForAlbumId: album.id,
+          });
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [album.id, album.title, albumDnaTrackKey, loadedTracks.length]);
 
   useEffect(() => {
     if (streamingAlbumsRequestedForAlbumId !== album.id) {
@@ -1575,22 +1987,35 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     setFailedThumbCover(true);
   }, [coverLarge, failedLargeCover, failedOriginalCover, originalCover]);
 
+  const openArtistNameFromAlbum = useCallback((artistName: string): void => {
+    const trimmedArtistName = artistName.trim();
+    if (!trimmedArtistName) {
+      return;
+    }
+
+    void openArtistDetailByName(trimmedArtistName, { returnTo: 'albums' })
+      .then((artist) => {
+        if (!artist) {
+          setTrackActionMessage(t('albumDetail.artist.notFound', { artist: trimmedArtistName }));
+        }
+      })
+      .catch((error) => {
+        setTrackActionMessage(error instanceof Error ? error.message : String(error));
+      });
+  }, [t]);
+
   const handleOpenAlbumArtist = useCallback((): void => {
     const artistName = albumArtistLookupName?.trim() ?? '';
     if (!artistName) {
       return;
     }
 
-    void openArtistDetailByName(artistName, { returnTo: 'albums' })
-      .then((artist) => {
-        if (!artist) {
-          setTrackActionMessage(t('albumDetail.artist.notFound', { artist: artistName }));
-        }
-      })
-      .catch((error) => {
-        setTrackActionMessage(error instanceof Error ? error.message : String(error));
-      });
-  }, [albumArtistLookupName, t]);
+    openArtistNameFromAlbum(artistName);
+  }, [albumArtistLookupName, openArtistNameFromAlbum]);
+
+  const handleOpenDnaArtist = useCallback((artistName: string): void => {
+    openArtistNameFromAlbum(artistName);
+  }, [openArtistNameFromAlbum]);
 
   const handleRelatedCoverError = useCallback((relatedAlbum: LibraryAlbum, coverUrl: string): void => {
     setFailedRelatedCoverUrls((current) => ({ ...current, [coverFailureKey(relatedAlbum.id, coverUrl)]: true }));
@@ -1743,6 +2168,142 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     }
     void openExternalUrl(url);
   }, []);
+
+  const renderAlbumDnaFacts = (facts: AlbumDnaFact[]): JSX.Element => (
+    <div className="album-dna-fact-list">
+      {facts.map((fact) => (
+        <div className="album-dna-fact" data-tone={fact.tone ?? 'neutral'} key={`${fact.label}:${fact.value}`}>
+          <span>{fact.label}</span>
+          <strong>{fact.value}</strong>
+          {fact.detail ? <small>{fact.detail}</small> : null}
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderAlbumDnaPanel = (): JSX.Element => {
+    const dnaSummaryFacts = [
+      { label: t('albumDetail.dna.format'), value: formatAlbumDnaCodecs(loadedTracks, albumDnaKnownText) },
+      { label: t('albumDetail.dna.quality'), value: albumDnaQualityFacts[0]?.value ?? t('albumDetail.dna.reading') },
+      {
+        label: t('albumDetail.dna.integrity'),
+        value: albumDnaIntegrityFacts.some((fact) => fact.tone === 'warn') ? t('albumDetail.dna.integrityReview') : t('albumDetail.dna.integrityComplete'),
+      },
+    ];
+
+    return (
+      <section className="album-dna-panel" data-expanded={isAlbumDnaExpanded} aria-label={t('albumDetail.dna.aria')}>
+        <div className="album-dna-identity">
+          <div className="album-dna-emblem" data-has-cover={Boolean(detailCoverSrc)} aria-hidden="true">
+            {detailCoverSrc ? (
+              <img
+                alt=""
+                decoding="async"
+                draggable={false}
+                height={96}
+                loading="lazy"
+                src={detailCoverSrc}
+                width={96}
+                onError={() => handleDetailCoverError(detailCoverSrc)}
+              />
+            ) : (
+              <Disc3 size={28} />
+            )}
+            <span>DNA</span>
+          </div>
+          <div className="album-dna-copy">
+            <span>{t('albumDetail.dna.kicker')}</span>
+            <h2>{t('albumDetail.dna.title')}</h2>
+            <p>{t('albumDetail.dna.subtitle', { album: album.title })}</p>
+            <div className="album-dna-summary">
+              {dnaSummaryFacts.map((fact) => (
+                <span key={fact.label}>
+                  <small>{fact.label}</small>
+                  <strong>{fact.value}</strong>
+                </span>
+              ))}
+            </div>
+          </div>
+          <button
+            className="album-dna-expand"
+            type="button"
+            aria-controls={albumDnaContentId}
+            aria-expanded={isAlbumDnaExpanded}
+            aria-label={isAlbumDnaExpanded ? t('albumDetail.dna.collapse') : t('albumDetail.dna.expand')}
+            onClick={() => setIsAlbumDnaExpanded((current) => !current)}
+          >
+            <ChevronRight size={17} />
+            <span>{isAlbumDnaExpanded ? t('albumDetail.dna.collapse') : t('albumDetail.dna.expand')}</span>
+          </button>
+        </div>
+
+        {isAlbumDnaExpanded ? (
+          <div className="album-dna-content" id={albumDnaContentId}>
+            <div className="album-dna-grid">
+              <article className="album-dna-block">
+                <header>
+                  <span>{t('albumDetail.dna.format')}</span>
+                  <strong>{formatAlbumDnaCodecs(loadedTracks, albumDnaKnownText)}</strong>
+                </header>
+                {renderAlbumDnaFacts(albumDnaFormatFacts)}
+              </article>
+              <article className="album-dna-block">
+                <header>
+                  <span>{t('albumDetail.dna.quality')}</span>
+                  <strong>{albumDnaQualityFacts[0]?.value ?? t('albumDetail.dna.reading')}</strong>
+                </header>
+                {renderAlbumDnaFacts(albumDnaQualityFacts)}
+              </article>
+              <article className="album-dna-block">
+                <header>
+                  <span>{t('albumDetail.dna.integrity')}</span>
+                  <strong>{albumDnaIntegrityFacts.some((fact) => fact.tone === 'warn') ? t('albumDetail.dna.integrityReview') : t('albumDetail.dna.integrityComplete')}</strong>
+                </header>
+                {renderAlbumDnaFacts(albumDnaIntegrityFacts)}
+              </article>
+              <article className="album-dna-block">
+                <header>
+                  <span>{t('albumDetail.dna.memory')}</span>
+                  <strong>
+                    {albumDnaHistoryState.loading && albumDnaHistoryState.loadedForAlbumId === album.id
+                      ? t('albumDetail.dna.memoryLoading')
+                      : albumDnaMemoryStats.totalEvents > 0
+                        ? t('albumDetail.dna.memoryPlays', { count: albumDnaMemoryStats.totalEvents })
+                        : t('albumDetail.dna.memoryEmpty')}
+                  </strong>
+                </header>
+                {renderAlbumDnaFacts(albumDnaMemoryFacts)}
+              </article>
+            </div>
+
+            <div className="album-dna-artists">
+              <div>
+                <span>{t('albumDetail.dna.artists')}</span>
+                <strong>{albumDnaArtists.length > 0 ? t('albumDetail.dna.artistCount', { count: albumDnaArtists.length }) : t('albumDetail.dna.noArtists')}</strong>
+              </div>
+              {albumDnaArtists.length > 0 ? (
+                <div className="album-dna-artist-list">
+                  {albumDnaArtists.map((artist) => (
+                    <button
+                      className="album-dna-artist"
+                      key={artist.lookupName}
+                      type="button"
+                      aria-label={t('albumDetail.dna.artistAria', { artist: artist.name })}
+                      onClick={() => handleOpenDnaArtist(artist.lookupName)}
+                    >
+                      <span>{artist.name}</span>
+                      <small>{artist.count}</small>
+                      <ChevronRight size={14} />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </section>
+    );
+  };
 
   const renderRelatedAlbums = (): JSX.Element | null => {
     if (!displayAlbumArtist) {
@@ -2154,7 +2715,12 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
   const renderInformation = (): JSX.Element => {
     const state = renderOnlineState('information');
     if (state) {
-      return state;
+      return (
+        <div className="album-online-panel album-information-panel">
+          {renderAlbumDnaPanel()}
+          {state}
+        </div>
+      );
     }
 
     const info = onlineInfoState.info;
@@ -2210,6 +2776,7 @@ export const AlbumDetailView = ({ album, onBack }: AlbumDetailViewProps): JSX.El
     return (
       <div className="album-online-panel album-information-panel">
         {renderOnlineHeader()}
+        {renderAlbumDnaPanel()}
         <section className="album-information-overview" aria-label={t('albumDetail.information.overviewAria')}>
           <Info size={18} />
           <div>

@@ -946,6 +946,12 @@ describe('PlayerBar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close DAC arrival card' }));
     expect(screen.queryByText('TEAC USB DAC taken over')).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(audioOutputRouteStatusChangedEvent, { detail: { status: asioStatus } }));
+    });
+
+    await waitFor(() => expect(screen.queryByText('TEAC USB DAC taken over')).toBeNull());
   });
 
   it('routes global play/pause to the active DLNA Connect session instead of local playback', async () => {
