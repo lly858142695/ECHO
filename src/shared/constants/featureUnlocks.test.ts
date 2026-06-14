@@ -1,30 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  downloadFeatureUnlockCode,
   connectDonatorHwidFileName,
   connectDonatorLicenseFileName,
   connectDonatorUnlockPluginId,
   connectDonatorUnlockVersion,
+  downloadFeatureUnlockPluginId,
+  downloadFeatureUnlockVersion,
   finalThemeUnlockVersion,
-  isDownloadFeatureUnlockCode,
   isFinalThemeUnlockCode,
   proOnlyThemePresets,
 } from './featureUnlocks';
 
 describe('feature unlock codes', () => {
-  it('accepts the existing download unlock code', () => {
-    expect(isDownloadFeatureUnlockCode(downloadFeatureUnlockCode)).toBe(true);
-  });
-
-  it('accepts the genshin impact download unlock passphrase', () => {
-    expect(isDownloadFeatureUnlockCode('genshin impact')).toBe(true);
-    expect(isDownloadFeatureUnlockCode(' Genshin Impact ')).toBe(true);
-  });
-
-  it('rejects unknown download unlock input', () => {
-    expect(isDownloadFeatureUnlockCode('zimin')).toBe(false);
-    expect(isDownloadFeatureUnlockCode('')).toBe(false);
+  it('uses a fixed plugin marker for downloads unlocks', () => {
+    expect(downloadFeatureUnlockPluginId).toBe('echo.downloads-unlock');
+    expect(downloadFeatureUnlockVersion).toBe('plugin:echo.downloads-unlock:v1');
   });
 
   it('uses the donator plugin marker for Pro theme unlocks and rejects all text keys', () => {

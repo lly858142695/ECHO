@@ -971,6 +971,11 @@ export const ArtistDetailView = ({ artist, onBack }: ArtistDetailViewProps): JSX
         )
       ) {
         applySettings(detail);
+        return;
+      }
+
+      if (!detail && !isCancelled) {
+        void window.echo?.app?.getSettings?.().then(applySettings).catch(() => undefined);
       }
     };
 

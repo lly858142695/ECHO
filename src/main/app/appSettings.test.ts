@@ -1543,6 +1543,14 @@ describe('app settings normalization', () => {
     ).toBe(true);
   });
 
+  it('can derive the downloads unlock from the plugin status instead of persisted settings', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({ downloadsFeatureUnlocked: true }).downloadsFeatureUnlocked).toBe(true);
+    expect(normalizeSettings({ downloadsFeatureUnlocked: true }, { downloadsFeatureUnlocked: false }).downloadsFeatureUnlocked).toBe(false);
+    expect(normalizeSettings({ streamingDownloadActionsEnabled: true }, { downloadsFeatureUnlocked: true }).streamingDownloadActionsEnabled).toBe(true);
+  });
+
   it('normalizes lyrics settings', async () => {
     const { normalizeSettings } = await import('./appSettings');
 

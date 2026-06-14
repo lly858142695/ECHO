@@ -48,6 +48,7 @@ import { setDiscordPresenceEnabled } from '../integrations/discord/getDiscordPre
 import { getLastFmService } from '../integrations/lastfm/getLastFmService';
 import { getPluginService } from '../plugins/PluginService';
 import { getConnectDonatorUnlockService } from '../plugins/ConnectDonatorUnlockService';
+import { getDownloadFeatureUnlockService } from '../plugins/DownloadFeatureUnlockService';
 import { applyNetworkProxySettings, testNetworkProxyConnection } from '../network/proxySettings';
 import { getMainWindow } from '../app/windowManager';
 import { applyMainWindowBackgroundMaterial } from '../app/windowBackgroundMaterial';
@@ -222,10 +223,19 @@ const hasProThemeUnlock = (): boolean => {
   }
 };
 
-const getFinalThemeSettingsOptions = (): NormalizeSettingsOptions => {
+const hasDownloadsUnlock = (): boolean => {
+  try {
+    return getDownloadFeatureUnlockService().getStatus().unlocked === true;
+  } catch {
+    return false;
+  }
+};
+
+const getFeatureSettingsOptions = (): NormalizeSettingsOptions => {
   const finalThemeUnlocked = hasProThemeUnlock();
+  const downloadsFeatureUnlocked = hasDownloadsUnlock();
   setFinalThemeUnlockAvailable(finalThemeUnlocked);
-  return { finalThemeUnlocked };
+  return { finalThemeUnlocked, downloadsFeatureUnlocked };
 };
 
 const isWindowMaximizedForChrome = (window: BrowserWindow | null): boolean =>
@@ -276,7 +286,7 @@ const readSettingsBackupFile = (filePath: string): AppSettings => {
 
 const applyAppSettingsPatch = async (
   patch: Partial<AppSettings>,
-  options: { allowCoverCacheDir?: boolean; finalThemeUnlocked?: boolean } = {},
+  options: NormalizeSettingsOptions & { allowCoverCacheDir?: boolean } = {},
 ): Promise<AppSettings> => {
   const settingsPatch = { ...patch };
   const canSetCoverCacheDir = options.allowCoverCacheDir === true && Object.prototype.hasOwnProperty.call(settingsPatch, 'coverCacheDir');
@@ -295,9 +305,10 @@ const applyAppSettingsPatch = async (
     delete settingsPatch.coverCacheDir;
   }
 
-  let settings = options.finalThemeUnlocked === true
-    ? setAppSettings(settingsPatch, { finalThemeUnlocked: true })
-    : setAppSettings(settingsPatch);
+  let settings = setAppSettings(settingsPatch, {
+    finalThemeUnlocked: options.finalThemeUnlocked,
+    downloadsFeatureUnlocked: options.downloadsFeatureUnlocked,
+  });
   ensureTray();
 
   const autoUpdateSourceChanged =
@@ -442,9 +453,9 @@ export const registerIpc = (): void => {
       app.quit();
     });
     ipcMain.handle(IpcChannels.AppGetSystemUserName, (): string | null => getSystemUserName());
-    ipcMain.handle(IpcChannels.AppGetSettings, (): AppSettings => getAppSettings(getFinalThemeSettingsOptions()));
+    ipcMain.handle(IpcChannels.AppGetSettings, (): AppSettings => getAppSettings(getFeatureSettingsOptions()));
     ipcMain.handle(IpcChannels.AppSetSettings, (_event: IpcMainInvokeEvent, patch: Partial<AppSettings>): Promise<AppSettings> =>
-      applyAppSettingsPatch(patch, getFinalThemeSettingsOptions()),
+      applyAppSettingsPatch(patch, getFeatureSettingsOptions()),
     );
     ipcMain.handle(IpcChannels.AppGetTaskbarPlaybackStatus, (): TaskbarPlaybackStatus => {
       refreshTaskbarPlaybackIntegration();

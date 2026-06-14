@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, Disc3, Folder, FolderOpen, ListMusic, ListPlus, RefreshCw, Search, UserRound } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, Clock3, Disc3, Folder, FolderOpen, ListMusic, ListPlus, Moon, RefreshCw, RotateCcw, Search, SkipForward, Snowflake, Sparkles, UserRound, Waves } from 'lucide-react';
 import type {
   LibraryInboxAlbumSummary,
   LibraryInboxBatch,
@@ -10,6 +10,9 @@ import type {
   LibraryInboxStatusFilter,
   LibraryInboxTrackItem,
   LibraryInboxTrackPage,
+  LibraryTrack,
+  PlaybackMemoryGraph,
+  PlaybackMemoryTrackInsight,
 } from '../../shared/types/library';
 import { useI18n } from '../i18n/I18nProvider';
 import { getLibraryBridge } from '../utils/echoBridge';
@@ -17,6 +20,209 @@ import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { useImeAwareDebouncedSearch } from '../utils/imeInput';
 
 const pageSize = 60;
+const smartCratePreviewLimit = 4;
+const smartCrateSamplePageSize = 160;
+
+type SmartCrateId = 'lateNight' | 'comeback' | 'coolCovers' | 'hifi441' | 'forgotten' | 'skipReview';
+type SmartCrateTone = 'violet' | 'blue' | 'cyan' | 'mint' | 'amber' | 'rose';
+
+type SmartCrateTrack = {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  coverThumb: string | null;
+  detail: string;
+  queueTrack: LibraryTrack | null;
+};
+
+type SmartCrate = {
+  id: SmartCrateId;
+  title: string;
+  kicker: string;
+  description: string;
+  metric: string;
+  tone: SmartCrateTone;
+  tracks: SmartCrateTrack[];
+  emptyText: string;
+};
+
+const smartCrateIconMap: Record<SmartCrateId, typeof Moon> = {
+  lateNight: Moon,
+  comeback: RotateCcw,
+  coolCovers: Snowflake,
+  hifi441: Waves,
+  forgotten: Archive,
+  skipReview: SkipForward,
+};
+
+const normalizeComparableText = (value: string | null | undefined): string =>
+  (value ?? '').trim().toLocaleLowerCase();
+
+const isLosslessTrack = (track: Pick<LibraryTrack, 'codec'>): boolean => {
+  const codec = normalizeComparableText(track.codec);
+  return ['flac', 'wav', 'wave', 'alac', 'aiff', 'aif', 'dsf', 'dff'].includes(codec);
+};
+
+const trackArtworkUrl = (
+  track: Pick<LibraryTrack, 'coverId' | 'coverThumb'>,
+  variant: 'album' | 'large' | 'thumb' = 'thumb',
+): string | null => {
+  const fallback = track.coverThumb ?? null;
+  if (track.coverId) {
+    return `echo-cover://${variant}/${encodeURIComponent(track.coverId)}`;
+  }
+
+  return fallback?.replace(/^echo-cover:\/\/(?:thumb|album|large|original)\//u, `echo-cover://${variant}/`) ?? fallback;
+};
+
+const smartCrateTrackFromLibraryTrack = (track: LibraryTrack, detail: string): SmartCrateTrack => ({
+  id: track.id,
+  title: track.title,
+  artist: track.artist || 'Unknown Artist',
+  album: track.album || 'Unknown Album',
+  coverThumb: trackArtworkUrl(track),
+  detail,
+  queueTrack: track,
+});
+
+const smartCrateTrackFromInsight = (
+  insight: PlaybackMemoryTrackInsight,
+  resolvedTrack: LibraryTrack | null,
+  detail: string,
+): SmartCrateTrack => ({
+  id: insight.trackId ?? insight.id,
+  title: insight.title,
+  artist: insight.artist || 'Unknown Artist',
+  album: insight.album || 'Unknown Album',
+  coverThumb: resolvedTrack ? trackArtworkUrl(resolvedTrack) : insight.coverThumb,
+  detail,
+  queueTrack: resolvedTrack,
+});
+
+const findTrackForInsight = (
+  insight: PlaybackMemoryTrackInsight | null,
+  tracks: LibraryTrack[],
+): LibraryTrack | null => {
+  if (!insight) {
+    return null;
+  }
+
+  if (insight.trackId) {
+    const exactTrack = tracks.find((track) => track.id === insight.trackId);
+    if (exactTrack) {
+      return exactTrack;
+    }
+  }
+
+  const title = normalizeComparableText(insight.title);
+  const artist = normalizeComparableText(insight.artist);
+  return tracks.find((track) =>
+    normalizeComparableText(track.title) === title && normalizeComparableText(track.artist) === artist,
+  ) ?? tracks.find((track) => normalizeComparableText(track.title) === title) ?? null;
+};
+
+const uniqueSmartCrateTracks = (tracks: SmartCrateTrack[]): SmartCrateTrack[] => {
+  const seen = new Set<string>();
+  return tracks.filter((track) => {
+    const key = track.queueTrack?.id ?? `${normalizeComparableText(track.title)}\0${normalizeComparableText(track.artist)}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
+const buildSmartCrates = (
+  memory: PlaybackMemoryGraph | null,
+  recentTracks: LibraryTrack[],
+  t: ReturnType<typeof useI18n>['t'],
+): SmartCrate[] => {
+  const lateNightInsight = memory?.lateNightTrack ?? memory?.timeBuckets.find((bucket) => bucket.id === 'lateNight')?.topTrack ?? null;
+  const comebackInsight = memory?.comebackTrack ?? null;
+  const forgottenInsight = memory?.forgottenTrack ?? null;
+  const skippedInsight = memory?.skippedTrack ?? null;
+  const hifi441Tracks = recentTracks
+    .filter((track) => track.sampleRate === 44100 && isLosslessTrack(track))
+    .slice(0, smartCratePreviewLimit)
+    .map((track) => smartCrateTrackFromLibraryTrack(track, `${track.bitDepth ?? 16}bit / 44.1kHz`));
+  const coolCoverTracks = recentTracks
+    .filter((track) => Boolean(trackArtworkUrl(track)))
+    .slice(0, smartCratePreviewLimit)
+    .map((track) => smartCrateTrackFromLibraryTrack(track, t('inboxPage.smartCrates.coolCoversDetail')));
+
+  return [
+    {
+      id: 'lateNight',
+      title: t('inboxPage.smartCrates.lateNight.title'),
+      kicker: t('inboxPage.smartCrates.memoryKicker'),
+      description: t('inboxPage.smartCrates.lateNight.description'),
+      metric: lateNightInsight ? t('inboxPage.smartCrates.playCountMetric', { count: lateNightInsight.playCount }) : t('inboxPage.smartCrates.waitingMetric'),
+      tone: 'violet',
+      tracks: lateNightInsight
+        ? [smartCrateTrackFromInsight(lateNightInsight, findTrackForInsight(lateNightInsight, recentTracks), t('inboxPage.smartCrates.lateNight.detail'))]
+        : [],
+      emptyText: t('inboxPage.smartCrates.lateNight.empty'),
+    },
+    {
+      id: 'comeback',
+      title: t('inboxPage.smartCrates.comeback.title'),
+      kicker: t('inboxPage.smartCrates.memoryKicker'),
+      description: t('inboxPage.smartCrates.comeback.description'),
+      metric: comebackInsight ? t('inboxPage.smartCrates.recentMetric') : t('inboxPage.smartCrates.waitingMetric'),
+      tone: 'blue',
+      tracks: comebackInsight
+        ? [smartCrateTrackFromInsight(comebackInsight, findTrackForInsight(comebackInsight, recentTracks), t('inboxPage.smartCrates.comeback.detail'))]
+        : [],
+      emptyText: t('inboxPage.smartCrates.comeback.empty'),
+    },
+    {
+      id: 'coolCovers',
+      title: t('inboxPage.smartCrates.coolCovers.title'),
+      kicker: t('inboxPage.smartCrates.visualKicker'),
+      description: t('inboxPage.smartCrates.coolCovers.description'),
+      metric: coolCoverTracks.length > 0 ? t('inboxPage.smartCrates.trackCountMetric', { count: coolCoverTracks.length }) : t('inboxPage.smartCrates.waitingMetric'),
+      tone: 'cyan',
+      tracks: uniqueSmartCrateTracks(coolCoverTracks),
+      emptyText: t('inboxPage.smartCrates.coolCovers.empty'),
+    },
+    {
+      id: 'hifi441',
+      title: t('inboxPage.smartCrates.hifi441.title'),
+      kicker: t('inboxPage.smartCrates.qualityKicker'),
+      description: t('inboxPage.smartCrates.hifi441.description'),
+      metric: hifi441Tracks.length > 0 ? t('inboxPage.smartCrates.trackCountMetric', { count: hifi441Tracks.length }) : t('inboxPage.smartCrates.waitingMetric'),
+      tone: 'mint',
+      tracks: uniqueSmartCrateTracks(hifi441Tracks),
+      emptyText: t('inboxPage.smartCrates.hifi441.empty'),
+    },
+    {
+      id: 'forgotten',
+      title: t('inboxPage.smartCrates.forgotten.title'),
+      kicker: t('inboxPage.smartCrates.memoryKicker'),
+      description: t('inboxPage.smartCrates.forgotten.description'),
+      metric: forgottenInsight ? t('inboxPage.smartCrates.forgottenMetric') : t('inboxPage.smartCrates.waitingMetric'),
+      tone: 'amber',
+      tracks: forgottenInsight
+        ? [smartCrateTrackFromInsight(forgottenInsight, findTrackForInsight(forgottenInsight, recentTracks), t('inboxPage.smartCrates.forgotten.detail'))]
+        : [],
+      emptyText: t('inboxPage.smartCrates.forgotten.empty'),
+    },
+    {
+      id: 'skipReview',
+      title: t('inboxPage.smartCrates.skipReview.title'),
+      kicker: t('inboxPage.smartCrates.cleanKicker'),
+      description: t('inboxPage.smartCrates.skipReview.description'),
+      metric: skippedInsight ? t('inboxPage.smartCrates.skipCountMetric', { count: skippedInsight.skippedCount }) : t('inboxPage.smartCrates.waitingMetric'),
+      tone: 'rose',
+      tracks: skippedInsight
+        ? [smartCrateTrackFromInsight(skippedInsight, findTrackForInsight(skippedInsight, recentTracks), t('inboxPage.smartCrates.skipReview.detail'))]
+        : [],
+      emptyText: t('inboxPage.smartCrates.skipReview.empty'),
+    },
+  ];
+};
 
 const emptyInboxPage = (scope: LibraryInboxScope, filter: LibraryInboxFilterKind): LibraryInboxTrackPage => ({
   items: [],
@@ -162,7 +368,7 @@ const inboxItemKey = (item: Pick<LibraryInboxTrackItem, 'batchId' | 'track'>): s
 const formatPercent = (value: number): string => `${Math.max(0, Math.min(100, Math.round(value)))}%`;
 
 export const InboxPage = (): JSX.Element => {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const queue = usePlaybackQueue();
   const [scope, setScope] = useState<LibraryInboxScope>('latest');
   const [batchId, setBatchId] = useState<string | null>(null);
@@ -186,7 +392,11 @@ export const InboxPage = (): JSX.Element => {
   const [selectedItems, setSelectedItems] = useState<Record<string, LibraryInboxTrackItem>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [smartCrates, setSmartCrates] = useState<SmartCrate[]>(() => buildSmartCrates(null, [], t));
+  const [selectedCrateId, setSelectedCrateId] = useState<SmartCrateId>('lateNight');
+  const [isLoadingSmartCrates, setIsLoadingSmartCrates] = useState(false);
   const requestIdRef = useRef(0);
+  const smartCrateRequestIdRef = useRef(0);
 
   const localizedFilterOptions = useMemo<Array<{ value: LibraryInboxFilterKind; label: string }>>(
     () => [
@@ -264,6 +474,43 @@ export const InboxPage = (): JSX.Element => {
     void loadInbox(1, 'replace');
   }, [loadInbox]);
 
+  const loadSmartCrates = useCallback(async (): Promise<void> => {
+    const library = getLibraryBridge();
+    const requestId = smartCrateRequestIdRef.current + 1;
+    smartCrateRequestIdRef.current = requestId;
+
+    if (!library?.getTracks) {
+      setSmartCrates(buildSmartCrates(null, [], t));
+      return;
+    }
+
+    setIsLoadingSmartCrates(true);
+    try {
+      const [trackPage, memoryGraph] = await Promise.all([
+        library.getTracks({ page: 1, pageSize: smartCrateSamplePageSize, sort: 'recent' }),
+        library.getPlaybackMemoryGraph?.({ page: 1, pageSize: 80, sort: 'plays' }) ?? Promise.resolve(null),
+      ]);
+
+      if (smartCrateRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setSmartCrates(buildSmartCrates(memoryGraph, trackPage.items, t));
+    } catch {
+      if (smartCrateRequestIdRef.current === requestId) {
+        setSmartCrates(buildSmartCrates(null, [], t));
+      }
+    } finally {
+      if (smartCrateRequestIdRef.current === requestId) {
+        setIsLoadingSmartCrates(false);
+      }
+    }
+  }, [locale]);
+
+  useEffect(() => {
+    void loadSmartCrates();
+  }, [loadSmartCrates]);
+
   useEffect(() => {
     setSelectedItems({});
   }, [album, artist, batchId, filter, folderId, scope, search, status]);
@@ -271,10 +518,11 @@ export const InboxPage = (): JSX.Element => {
   useEffect(() => {
     const unsubscribe = getLibraryBridge()?.onLibraryChanged?.(() => {
       void loadInbox(1, 'replace');
+      void loadSmartCrates();
     });
 
     return () => unsubscribe?.();
-  }, [loadInbox]);
+  }, [loadInbox, loadSmartCrates]);
 
   const selectedBatch = pageData.selectedBatch;
   const story = pageData.story;
@@ -310,6 +558,15 @@ export const InboxPage = (): JSX.Element => {
   }, [scope, selectedBatch, t]);
 
   const storyLine = useMemo(() => buildStoryLine(selectedScopeLabel, story, t), [selectedScopeLabel, story, t]);
+  const selectedSmartCrate = useMemo(
+    () => smartCrates.find((crate) => crate.id === selectedCrateId) ?? smartCrates[0],
+    [selectedCrateId, smartCrates],
+  );
+  const selectedCrateQueueTracks = useMemo(
+    () => selectedSmartCrate?.tracks.map((track) => track.queueTrack).filter((track): track is LibraryTrack => Boolean(track)) ?? [],
+    [selectedSmartCrate],
+  );
+  const SelectedSmartCrateIcon = selectedSmartCrate ? smartCrateIconMap[selectedSmartCrate.id] : Sparkles;
 
   const handleSelectBatch = (value: string): void => {
     setMessage(null);
@@ -392,6 +649,21 @@ export const InboxPage = (): JSX.Element => {
       setIsAddingToQueue(false);
     }
   }, [currentInboxQuery, queue, selectedItemList]);
+
+  const handleAddSmartCrateToQueue = useCallback(
+    (crate: SmartCrate | undefined): void => {
+      const queueTracks = crate?.tracks.map((track) => track.queueTrack).filter((track): track is LibraryTrack => Boolean(track)) ?? [];
+      if (!crate || queueTracks.length === 0) {
+        setError(t('inboxPage.smartCrates.queueEmpty'));
+        return;
+      }
+
+      queue.appendTracksToQueue(queueTracks, { type: 'manual', label: t('inboxPage.smartCrates.queueSource') });
+      setMessage(t('inboxPage.smartCrates.queueAdded', { title: crate.title, count: queueTracks.length }));
+      setError(null);
+    },
+    [queue, t],
+  );
 
   const handleUpdateState = useCallback(
     async (nextStatus: LibraryInboxItemStatus): Promise<void> => {
@@ -521,6 +793,111 @@ export const InboxPage = (): JSX.Element => {
           </span>
         </div>
       </header>
+
+      <section className="inbox-smart-crates" aria-label={t('inboxPage.smartCrates.aria')}>
+        <div className="inbox-smart-crates-head">
+          <div>
+            <span className="panel-kicker">{t('inboxPage.smartCrates.kicker')}</span>
+            <h2>{t('inboxPage.smartCrates.title')}</h2>
+            <p>{t('inboxPage.smartCrates.subtitle')}</p>
+          </div>
+          <button
+            className="inbox-icon-button"
+            disabled={isLoadingSmartCrates}
+            onClick={() => void loadSmartCrates()}
+            title={t('home.recommend.refresh')}
+            type="button"
+          >
+            <RefreshCw size={17} />
+          </button>
+        </div>
+
+        <div className="inbox-crate-layout">
+          <article className="inbox-crate-feature" data-tone={selectedSmartCrate?.tone ?? 'violet'}>
+            <div className="inbox-crate-feature-header">
+              <span className="inbox-crate-feature-icon">
+                <SelectedSmartCrateIcon size={24} />
+              </span>
+              <div>
+                <span className="panel-kicker">{selectedSmartCrate?.kicker ?? t('inboxPage.smartCrates.kicker')}</span>
+                <h3>{selectedSmartCrate?.title ?? t('inboxPage.smartCrates.title')}</h3>
+                <p>{selectedSmartCrate?.description ?? t('inboxPage.smartCrates.subtitle')}</p>
+              </div>
+              <strong>{isLoadingSmartCrates ? t('inboxPage.smartCrates.loading') : selectedSmartCrate?.metric}</strong>
+            </div>
+
+            {selectedSmartCrate && selectedSmartCrate.tracks.length > 0 ? (
+              <div className="inbox-crate-preview-list">
+                {selectedSmartCrate.tracks.map((track) => (
+                  <div className="inbox-crate-preview-track" key={`${selectedSmartCrate.id}:${track.id}`}>
+                    <span className="inbox-crate-cover" data-empty={!track.coverThumb ? 'true' : undefined}>
+                      {track.coverThumb ? <img alt="" loading="lazy" src={track.coverThumb} /> : <Disc3 size={18} />}
+                    </span>
+                    <span className="inbox-crate-preview-copy">
+                      <strong>{track.title}</strong>
+                      <em>{track.artist}</em>
+                    </span>
+                    <small>{track.detail}</small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="inbox-crate-empty">
+                <Sparkles size={18} />
+                <span>{selectedSmartCrate?.emptyText ?? t('inboxPage.smartCrates.previewEmpty')}</span>
+              </div>
+            )}
+
+            <div className="inbox-crate-actions">
+              <button
+                className="inbox-command-button"
+                disabled={selectedCrateQueueTracks.length === 0}
+                onClick={() => handleAddSmartCrateToQueue(selectedSmartCrate)}
+                type="button"
+              >
+                <ListMusic size={17} />
+                <span>{t('inboxPage.smartCrates.queueSelected')}</span>
+              </button>
+              <span>{t('inboxPage.smartCrates.queueable', { count: selectedCrateQueueTracks.length })}</span>
+            </div>
+          </article>
+
+          <div className="inbox-crate-rail">
+            {smartCrates.map((crate) => {
+              const CrateIcon = smartCrateIconMap[crate.id];
+              const queueableCount = crate.tracks.filter((track) => track.queueTrack).length;
+              return (
+                <button
+                  className="inbox-crate-card"
+                  data-active={selectedSmartCrate?.id === crate.id ? 'true' : undefined}
+                  data-tone={crate.tone}
+                  key={crate.id}
+                  onClick={() => setSelectedCrateId(crate.id)}
+                  type="button"
+                >
+                  <span className="inbox-crate-card-icon">
+                    <CrateIcon size={18} />
+                  </span>
+                  <span className="inbox-crate-card-copy">
+                    <strong>{crate.title}</strong>
+                    <em>{crate.metric}</em>
+                  </span>
+                  <small>{t('inboxPage.smartCrates.queueableShort', { count: queueableCount })}</small>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className="inbox-workbench" aria-label={t('inboxPage.workbench.aria')}>
+        <div className="inbox-workbench-head">
+          <div>
+            <span className="panel-kicker">{t('inboxPage.workbench.kicker')}</span>
+            <h2>{t('inboxPage.workbench.title')}</h2>
+          </div>
+          <p>{t('inboxPage.workbench.description')}</p>
+        </div>
 
       <section className="inbox-story-panel" aria-label={t('inboxPage.story.aria')}>
         <div className="inbox-story-copy">
@@ -749,6 +1126,7 @@ export const InboxPage = (): JSX.Element => {
             ))}
           </select>
         </label>
+      </section>
       </section>
 
       {albumSummaries.length > 0 ? (

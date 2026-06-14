@@ -1868,6 +1868,51 @@ export type TranslationKey =
   | 'inboxPage.quality.unknownArtistAlbum'
   | 'inboxPage.search.aria'
   | 'inboxPage.search.placeholder'
+  | 'inboxPage.smartCrates.aria'
+  | 'inboxPage.smartCrates.cleanKicker'
+  | 'inboxPage.smartCrates.comeback.description'
+  | 'inboxPage.smartCrates.comeback.detail'
+  | 'inboxPage.smartCrates.comeback.empty'
+  | 'inboxPage.smartCrates.comeback.title'
+  | 'inboxPage.smartCrates.coolCovers.description'
+  | 'inboxPage.smartCrates.coolCovers.empty'
+  | 'inboxPage.smartCrates.coolCovers.title'
+  | 'inboxPage.smartCrates.coolCoversDetail'
+  | 'inboxPage.smartCrates.forgotten.description'
+  | 'inboxPage.smartCrates.forgotten.detail'
+  | 'inboxPage.smartCrates.forgotten.empty'
+  | 'inboxPage.smartCrates.forgotten.title'
+  | 'inboxPage.smartCrates.forgottenMetric'
+  | 'inboxPage.smartCrates.hifi441.description'
+  | 'inboxPage.smartCrates.hifi441.empty'
+  | 'inboxPage.smartCrates.hifi441.title'
+  | 'inboxPage.smartCrates.kicker'
+  | 'inboxPage.smartCrates.lateNight.description'
+  | 'inboxPage.smartCrates.lateNight.detail'
+  | 'inboxPage.smartCrates.lateNight.empty'
+  | 'inboxPage.smartCrates.lateNight.title'
+  | 'inboxPage.smartCrates.loading'
+  | 'inboxPage.smartCrates.memoryKicker'
+  | 'inboxPage.smartCrates.playCountMetric'
+  | 'inboxPage.smartCrates.previewEmpty'
+  | 'inboxPage.smartCrates.qualityKicker'
+  | 'inboxPage.smartCrates.queueAdded'
+  | 'inboxPage.smartCrates.queueEmpty'
+  | 'inboxPage.smartCrates.queueSelected'
+  | 'inboxPage.smartCrates.queueSource'
+  | 'inboxPage.smartCrates.queueable'
+  | 'inboxPage.smartCrates.queueableShort'
+  | 'inboxPage.smartCrates.recentMetric'
+  | 'inboxPage.smartCrates.skipCountMetric'
+  | 'inboxPage.smartCrates.skipReview.description'
+  | 'inboxPage.smartCrates.skipReview.detail'
+  | 'inboxPage.smartCrates.skipReview.empty'
+  | 'inboxPage.smartCrates.skipReview.title'
+  | 'inboxPage.smartCrates.subtitle'
+  | 'inboxPage.smartCrates.title'
+  | 'inboxPage.smartCrates.trackCountMetric'
+  | 'inboxPage.smartCrates.visualKicker'
+  | 'inboxPage.smartCrates.waitingMetric'
   | 'inboxPage.stats.aria'
   | 'inboxPage.stats.currentResults'
   | 'inboxPage.stats.newSongs'
@@ -1891,6 +1936,10 @@ export type TranslationKey =
   | 'inboxPage.story.withWarnings'
   | 'inboxPage.toolbar.aria'
   | 'inboxPage.toolbar.batch'
+  | 'inboxPage.workbench.aria'
+  | 'inboxPage.workbench.description'
+  | 'inboxPage.workbench.kicker'
+  | 'inboxPage.workbench.title'
   | 'route.importFile.description'
   | 'route.importFile.label'
   | 'route.importFolder.description'
@@ -2496,6 +2545,8 @@ export type TranslationKey =
   | 'settings.appearance.sidebar.moveUp'
   | 'settings.appearance.sidebar.moveUpAria'
   | 'settings.appearance.sidebar.noItems'
+  | 'settings.appearance.sidebar.proLocked'
+  | 'settings.appearance.sidebar.proLockedAria'
   | 'settings.appearance.sidebar.reset'
   | 'settings.appearance.sidebar.showAria'
   | 'settings.appearance.sidebar.summary.allVisible'
@@ -5679,7 +5730,7 @@ const zhCN: TranslationMap = {
   'downloads.action.creating': '创建中',
   'downloads.action.search': '搜索',
   'downloads.action.searching': '搜索中',
-  'downloads.description': '使用内置 yt-dlp 搜索 YouTube / Bilibili，并只下载最高可用音频。',
+  'downloads.description': '搜索 YouTube / Bilibili / osu!，并只下载最高可用音频；osu! 会自动转换为可直接播放的音频。',
   'downloads.empty.noResults.description': '换个关键词再试试。',
   'downloads.empty.noResults.title': '暂无搜索结果',
   'downloads.empty.queue.description': '粘贴链接或搜索结果下载后，会在这里看到真实进度。',
@@ -5701,7 +5752,7 @@ const zhCN: TranslationMap = {
   'downloads.search.aria': '搜索下载',
   'downloads.search.downloadAudio': '下载音频',
   'downloads.search.joined': '已加入队列',
-  'downloads.search.placeholder': '搜索歌曲、艺人或视频标题',
+  'downloads.search.placeholder': '搜索歌曲、艺人、视频标题、osu! 谱面名或 id',
   'downloads.search.providerErrorItem': '{provider}：{error}',
   'downloads.search.providerErrors': '部分平台搜索失败：{errors}',
   'downloads.search.scopeAria': '搜索平台',
@@ -7235,6 +7286,51 @@ const zhCN: TranslationMap = {
   'inboxPage.quality.unknownArtistAlbum': '未知艺人 / 专辑',
   'inboxPage.search.aria': '搜索新歌收件箱',
   'inboxPage.search.placeholder': '搜索标题、艺人、专辑、路径',
+  'inboxPage.smartCrates.aria': '智能唱片箱',
+  'inboxPage.smartCrates.cleanKicker': 'CLEANUP',
+  'inboxPage.smartCrates.comeback.description': '最近重新回到播放里的曲目，适合从这里继续往下听。',
+  'inboxPage.smartCrates.comeback.detail': '最近回潮',
+  'inboxPage.smartCrates.comeback.empty': '多听几轮后，ECHO 会识别最近回潮的曲目。',
+  'inboxPage.smartCrates.comeback.title': '最近回潮',
+  'inboxPage.smartCrates.coolCovers.description': '先收集最近带封面的曲目，后续封面色彩索引可优先聚合冷色系。',
+  'inboxPage.smartCrates.coolCovers.empty': '还没有足够的封面可用于这个唱片箱。',
+  'inboxPage.smartCrates.coolCovers.title': '封面冷色系',
+  'inboxPage.smartCrates.coolCoversDetail': '封面候选',
+  'inboxPage.smartCrates.forgotten.description': '曾经播放过、最近沉下去的歌，适合重新翻出来。',
+  'inboxPage.smartCrates.forgotten.detail': '被遗忘',
+  'inboxPage.smartCrates.forgotten.empty': '历史还不够长，暂时没有被遗忘的神曲。',
+  'inboxPage.smartCrates.forgotten.title': '被遗忘的神曲',
+  'inboxPage.smartCrates.forgottenMetric': '回收候选',
+  'inboxPage.smartCrates.hifi441.description': '本地无损 44.1kHz 曲目，适合安全模式和独占输出检查。',
+  'inboxPage.smartCrates.hifi441.empty': '最近曲库样本里还没找到 44.1kHz 无损曲目。',
+  'inboxPage.smartCrates.hifi441.title': '44.1k 发烧箱',
+  'inboxPage.smartCrates.kicker': 'SMART CRATES',
+  'inboxPage.smartCrates.lateNight.description': '深夜时段反复出现的曲目，更像你的夜间抽屉。',
+  'inboxPage.smartCrates.lateNight.detail': '深夜常听',
+  'inboxPage.smartCrates.lateNight.empty': '还没有足够的深夜播放记录。',
+  'inboxPage.smartCrates.lateNight.title': '深夜常听',
+  'inboxPage.smartCrates.loading': '整理中',
+  'inboxPage.smartCrates.memoryKicker': 'LISTENING MEMORY',
+  'inboxPage.smartCrates.playCountMetric': '{count} 次播放',
+  'inboxPage.smartCrates.previewEmpty': '这个唱片箱还在等待更多本地记录。',
+  'inboxPage.smartCrates.qualityKicker': 'LOCAL QUALITY',
+  'inboxPage.smartCrates.queueAdded': '已把「{title}」的 {count} 首加入队列。',
+  'inboxPage.smartCrates.queueEmpty': '这个唱片箱暂时没有可加入队列的本地曲目。',
+  'inboxPage.smartCrates.queueSelected': '加入这个唱片箱',
+  'inboxPage.smartCrates.queueSource': '智能唱片箱',
+  'inboxPage.smartCrates.queueable': '{count} 首可加入队列',
+  'inboxPage.smartCrates.queueableShort': '{count} 首可播',
+  'inboxPage.smartCrates.recentMetric': '最近命中',
+  'inboxPage.smartCrates.skipCountMetric': '{count} 次跳过',
+  'inboxPage.smartCrates.skipReview.description': '经常被跳过的曲目，适合决定保留、修标签或移出常听。',
+  'inboxPage.smartCrates.skipReview.detail': '跳过待清理',
+  'inboxPage.smartCrates.skipReview.empty': '还没有明显的常跳过曲目。',
+  'inboxPage.smartCrates.skipReview.title': '常跳过待清理',
+  'inboxPage.smartCrates.subtitle': '把本地播放记忆、音质信息和封面线索整理成 DJ 式唱片箱。',
+  'inboxPage.smartCrates.title': '智能唱片箱',
+  'inboxPage.smartCrates.trackCountMetric': '{count} 首候选',
+  'inboxPage.smartCrates.visualKicker': 'ARTWORK',
+  'inboxPage.smartCrates.waitingMetric': '等待数据',
   'inboxPage.stats.aria': '新歌收件箱摘要',
   'inboxPage.stats.currentResults': '当前结果',
   'inboxPage.stats.newSongs': '新增歌曲',
@@ -7258,6 +7354,10 @@ const zhCN: TranslationMap = {
   'inboxPage.story.withWarnings': '{summary}。其中 {warnings}。',
   'inboxPage.toolbar.aria': '新歌收件箱筛选',
   'inboxPage.toolbar.batch': '批次',
+  'inboxPage.workbench.aria': '导入整理工作台',
+  'inboxPage.workbench.description': '新增歌曲、缺封面、资料异常和待听状态会在这里集中处理。',
+  'inboxPage.workbench.kicker': 'IMPORT WORKBENCH',
+  'inboxPage.workbench.title': '导入整理',
   'route.importFile.description': '导入单个音频文件。',
   'route.importFile.label': '导入文件',
   'route.importFolder.description': '选择本地音乐文件夹。',
@@ -7838,6 +7938,7 @@ const zhCN: TranslationMap = {
   'settings.appearance.sidebar.visible': '显示',
   'settings.appearance.sidebar.hidden': '隐藏',
   'settings.appearance.sidebar.fixed': '固定显示',
+  'settings.appearance.sidebar.proLocked': 'Pro 锁定',
   'settings.appearance.sidebar.noItems': '这一组没有可调整的入口。',
   'settings.appearance.sidebar.summary.allVisible': '全部显示',
   'settings.appearance.sidebar.summary.hidden': '已隐藏 {count} 个入口',
@@ -7848,6 +7949,7 @@ const zhCN: TranslationMap = {
   'settings.appearance.sidebar.moveDownAria': '下移 {label}',
   'settings.appearance.sidebar.hideAria': '隐藏 {label}',
   'settings.appearance.sidebar.showAria': '显示 {label}',
+  'settings.appearance.sidebar.proLockedAria': '{label} 需要 Pro 插件解锁',
   'settings.appearance.textDepth.description': '调整界面文字颜色深浅；数值越低越浅。',
   'settings.appearance.textDepth.title': '文字颜色深浅',
   'settings.appearance.typography.expand': '展开字体与排版',
@@ -9286,7 +9388,7 @@ const zhTW: TranslationMap = {
   'downloads.action.creating': '建立中',
   'downloads.action.search': '搜尋',
   'downloads.action.searching': '搜尋中',
-  'downloads.description': '使用內建 yt-dlp 搜尋 YouTube / Bilibili，並只下載最高可用音訊。',
+  'downloads.description': '搜尋 YouTube / Bilibili / osu!，並只下載最高可用音訊；osu! 會自動轉換為可直接播放的音訊。',
   'downloads.empty.noResults.description': '換個關鍵字再試試。',
   'downloads.empty.noResults.title': '暫無搜尋結果',
   'downloads.empty.queue.description': '貼上連結或從搜尋結果下載後，會在這裡看到真實進度。',
@@ -9308,7 +9410,7 @@ const zhTW: TranslationMap = {
   'downloads.search.aria': '搜尋下載',
   'downloads.search.downloadAudio': '下載音訊',
   'downloads.search.joined': '已加入佇列',
-  'downloads.search.placeholder': '搜尋歌曲、藝人或影片標題',
+  'downloads.search.placeholder': '搜尋歌曲、藝人、影片標題、osu! 譜面名或 id',
   'downloads.search.providerErrorItem': '{provider}：{error}',
   'downloads.search.providerErrors': '部分平台搜尋失敗：{errors}',
   'downloads.search.scopeAria': '搜尋平台',
@@ -10784,6 +10886,51 @@ const zhTW: TranslationMap = {
   'inboxPage.quality.unknownArtistAlbum': '未知藝人 / 專輯',
   'inboxPage.search.aria': '搜尋新歌收件箱',
   'inboxPage.search.placeholder': '搜尋標題、藝人、專輯、路徑',
+  'inboxPage.smartCrates.aria': '智慧唱片箱',
+  'inboxPage.smartCrates.cleanKicker': 'CLEANUP',
+  'inboxPage.smartCrates.comeback.description': '最近重新回到播放裡的曲目，適合從這裡繼續往下聽。',
+  'inboxPage.smartCrates.comeback.detail': '最近回潮',
+  'inboxPage.smartCrates.comeback.empty': '多聽幾輪後，ECHO 會識別最近回潮的曲目。',
+  'inboxPage.smartCrates.comeback.title': '最近回潮',
+  'inboxPage.smartCrates.coolCovers.description': '先收集最近帶封面的曲目，後續封面色彩索引可優先聚合冷色系。',
+  'inboxPage.smartCrates.coolCovers.empty': '還沒有足夠的封面可用於這個唱片箱。',
+  'inboxPage.smartCrates.coolCovers.title': '封面冷色系',
+  'inboxPage.smartCrates.coolCoversDetail': '封面候選',
+  'inboxPage.smartCrates.forgotten.description': '曾經播放過、最近沉下去的歌，適合重新翻出來。',
+  'inboxPage.smartCrates.forgotten.detail': '被遺忘',
+  'inboxPage.smartCrates.forgotten.empty': '歷史還不夠長，暫時沒有被遺忘的神曲。',
+  'inboxPage.smartCrates.forgotten.title': '被遺忘的神曲',
+  'inboxPage.smartCrates.forgottenMetric': '回收候選',
+  'inboxPage.smartCrates.hifi441.description': '本地無損 44.1kHz 曲目，適合安全模式和獨占輸出檢查。',
+  'inboxPage.smartCrates.hifi441.empty': '最近曲庫樣本裡還沒找到 44.1kHz 無損曲目。',
+  'inboxPage.smartCrates.hifi441.title': '44.1k 發燒箱',
+  'inboxPage.smartCrates.kicker': 'SMART CRATES',
+  'inboxPage.smartCrates.lateNight.description': '深夜時段反覆出現的曲目，更像你的夜間抽屜。',
+  'inboxPage.smartCrates.lateNight.detail': '深夜常聽',
+  'inboxPage.smartCrates.lateNight.empty': '還沒有足夠的深夜播放記錄。',
+  'inboxPage.smartCrates.lateNight.title': '深夜常聽',
+  'inboxPage.smartCrates.loading': '整理中',
+  'inboxPage.smartCrates.memoryKicker': 'LISTENING MEMORY',
+  'inboxPage.smartCrates.playCountMetric': '{count} 次播放',
+  'inboxPage.smartCrates.previewEmpty': '這個唱片箱還在等待更多本地記錄。',
+  'inboxPage.smartCrates.qualityKicker': 'LOCAL QUALITY',
+  'inboxPage.smartCrates.queueAdded': '已把「{title}」的 {count} 首加入佇列。',
+  'inboxPage.smartCrates.queueEmpty': '這個唱片箱暫時沒有可加入佇列的本地曲目。',
+  'inboxPage.smartCrates.queueSelected': '加入這個唱片箱',
+  'inboxPage.smartCrates.queueSource': '智慧唱片箱',
+  'inboxPage.smartCrates.queueable': '{count} 首可加入佇列',
+  'inboxPage.smartCrates.queueableShort': '{count} 首可播',
+  'inboxPage.smartCrates.recentMetric': '最近命中',
+  'inboxPage.smartCrates.skipCountMetric': '{count} 次跳過',
+  'inboxPage.smartCrates.skipReview.description': '經常被跳過的曲目，適合決定保留、修標籤或移出常聽。',
+  'inboxPage.smartCrates.skipReview.detail': '跳過待清理',
+  'inboxPage.smartCrates.skipReview.empty': '還沒有明顯的常跳過曲目。',
+  'inboxPage.smartCrates.skipReview.title': '常跳過待清理',
+  'inboxPage.smartCrates.subtitle': '把本地播放記憶、音質資訊和封面線索整理成 DJ 式唱片箱。',
+  'inboxPage.smartCrates.title': '智慧唱片箱',
+  'inboxPage.smartCrates.trackCountMetric': '{count} 首候選',
+  'inboxPage.smartCrates.visualKicker': 'ARTWORK',
+  'inboxPage.smartCrates.waitingMetric': '等待資料',
   'inboxPage.stats.aria': '新歌收件箱摘要',
   'inboxPage.stats.currentResults': '目前結果',
   'inboxPage.stats.newSongs': '新增歌曲',
@@ -10807,6 +10954,10 @@ const zhTW: TranslationMap = {
   'inboxPage.story.withWarnings': '{summary}。其中 {warnings}。',
   'inboxPage.toolbar.aria': '新歌收件箱篩選',
   'inboxPage.toolbar.batch': '批次',
+  'inboxPage.workbench.aria': '匯入整理工作台',
+  'inboxPage.workbench.description': '新增歌曲、缺封面、資料異常和待聽狀態會在這裡集中處理。',
+  'inboxPage.workbench.kicker': 'IMPORT WORKBENCH',
+  'inboxPage.workbench.title': '匯入整理',
   'route.importFile.label': '匯入檔案',
   'route.importFolder.description': '選擇本機音樂資料夾。',
   'route.importFolder.label': '匯入資料夾',
@@ -12134,6 +12285,7 @@ const zhTW: TranslationMap = {
   'settings.appearance.sidebar.visible': '顯示',
   'settings.appearance.sidebar.hidden': '隱藏',
   'settings.appearance.sidebar.fixed': '固定顯示',
+  'settings.appearance.sidebar.proLocked': 'Pro 鎖定',
   'settings.appearance.sidebar.noItems': '這一組沒有可調整的入口。',
   'settings.appearance.sidebar.summary.allVisible': '全部顯示',
   'settings.appearance.sidebar.summary.hidden': '已隱藏 {count} 個入口',
@@ -12144,6 +12296,7 @@ const zhTW: TranslationMap = {
   'settings.appearance.sidebar.moveDownAria': '下移 {label}',
   'settings.appearance.sidebar.hideAria': '隱藏 {label}',
   'settings.appearance.sidebar.showAria': '顯示 {label}',
+  'settings.appearance.sidebar.proLockedAria': '{label} 需要 Pro 外掛解鎖',
   'settings.appearance.nowPlayingCoverColor.title': '播放介面封面取色',
   'settings.appearance.nowPlayingCoverColor.description': '開啟後，正在播放頁會在閒置時從小封面取樣生成輕量背景；低負載模式會自動略過。預設關閉。',
   'settings.appearance.playerBarButtons.title': '右下角按鈕',
@@ -12645,7 +12798,7 @@ const jaJP: TranslationMap = {
   'downloads.action.creating': '作成中',
   'downloads.action.search': '検索',
   'downloads.action.searching': '検索中',
-  'downloads.description': '内蔵 yt-dlp で YouTube / Bilibili を検索し、利用可能な最高音質だけをダウンロードします。',
+  'downloads.description': 'YouTube / Bilibili / osu! を検索し、利用可能な最高音質だけをダウンロードします。osu! はそのまま再生できる音声へ自動変換します。',
   'downloads.empty.noResults.description': '別のキーワードで試してください。',
   'downloads.empty.noResults.title': '検索結果なし',
   'downloads.empty.queue.description': 'リンク貼り付けや検索結果からダウンロードすると、ここに実際の進捗が表示されます。',
@@ -12667,7 +12820,7 @@ const jaJP: TranslationMap = {
   'downloads.search.aria': '検索ダウンロード',
   'downloads.search.downloadAudio': '音声をダウンロード',
   'downloads.search.joined': 'キューに追加済み',
-  'downloads.search.placeholder': '曲、アーティスト、動画タイトルを検索',
+  'downloads.search.placeholder': '曲、アーティスト、動画タイトル、osu! 譜面名または id を検索',
   'downloads.search.providerErrorItem': '{provider}: {error}',
   'downloads.search.providerErrors': '一部プラットフォームの検索に失敗しました: {errors}',
   'downloads.search.scopeAria': '検索プラットフォーム',
@@ -14157,6 +14310,51 @@ const jaJP: TranslationMap = {
   'inboxPage.quality.unknownArtistAlbum': '不明なアーティスト / アルバム',
   'inboxPage.search.aria': '新曲受信箱を検索',
   'inboxPage.search.placeholder': 'タイトル、アーティスト、アルバム、パスを検索',
+  'inboxPage.smartCrates.aria': 'スマートクレート',
+  'inboxPage.smartCrates.cleanKicker': 'CLEANUP',
+  'inboxPage.smartCrates.comeback.description': '最近また再生され始めた曲。ここから流れを続けやすくします。',
+  'inboxPage.smartCrates.comeback.detail': '再燃中',
+  'inboxPage.smartCrates.comeback.empty': 'もう少し聴くと、ECHO が再燃中の曲を見つけます。',
+  'inboxPage.smartCrates.comeback.title': '最近の再燃',
+  'inboxPage.smartCrates.coolCovers.description': 'まず最近のカバー付き曲を集め、後からカバー色インデックスで寒色系を優先できます。',
+  'inboxPage.smartCrates.coolCovers.empty': 'このクレートに使えるカバーがまだ足りません。',
+  'inboxPage.smartCrates.coolCovers.title': '寒色カバー',
+  'inboxPage.smartCrates.coolCoversDetail': 'カバー候補',
+  'inboxPage.smartCrates.forgotten.description': '以前聴いていて最近沈んでいる曲。もう一度掘り起こす候補です。',
+  'inboxPage.smartCrates.forgotten.detail': '忘れかけ',
+  'inboxPage.smartCrates.forgotten.empty': '履歴がまだ短いため、忘れられた名曲はありません。',
+  'inboxPage.smartCrates.forgotten.title': '忘れられた名曲',
+  'inboxPage.smartCrates.forgottenMetric': '発掘候補',
+  'inboxPage.smartCrates.hifi441.description': 'ローカルのロスレス 44.1kHz 曲。安全モードや排他出力の確認に向きます。',
+  'inboxPage.smartCrates.hifi441.empty': '最近のライブラリサンプルには 44.1kHz ロスレス曲が見つかりません。',
+  'inboxPage.smartCrates.hifi441.title': '44.1k Hi-Fi箱',
+  'inboxPage.smartCrates.kicker': 'SMART CRATES',
+  'inboxPage.smartCrates.lateNight.description': '深夜帯に繰り返し現れる曲。夜用の引き出しのような箱です。',
+  'inboxPage.smartCrates.lateNight.detail': '深夜によく再生',
+  'inboxPage.smartCrates.lateNight.empty': '深夜の再生記録がまだ足りません。',
+  'inboxPage.smartCrates.lateNight.title': '深夜によく聴く',
+  'inboxPage.smartCrates.loading': '整理中',
+  'inboxPage.smartCrates.memoryKicker': 'LISTENING MEMORY',
+  'inboxPage.smartCrates.playCountMetric': '{count} 回再生',
+  'inboxPage.smartCrates.previewEmpty': 'このクレートは、もう少しローカル記録を待っています。',
+  'inboxPage.smartCrates.qualityKicker': 'LOCAL QUALITY',
+  'inboxPage.smartCrates.queueAdded': '「{title}」から {count} 曲をキューに追加しました。',
+  'inboxPage.smartCrates.queueEmpty': 'このクレートにはキューに追加できるローカル曲がまだありません。',
+  'inboxPage.smartCrates.queueSelected': 'このクレートを追加',
+  'inboxPage.smartCrates.queueSource': 'スマートクレート',
+  'inboxPage.smartCrates.queueable': '{count} 曲をキューに追加可能',
+  'inboxPage.smartCrates.queueableShort': '{count} 曲再生可',
+  'inboxPage.smartCrates.recentMetric': '最近ヒット',
+  'inboxPage.smartCrates.skipCountMetric': '{count} 回スキップ',
+  'inboxPage.smartCrates.skipReview.description': 'よくスキップされる曲。残すか、タグを直すか、常聴から外すかを見直せます。',
+  'inboxPage.smartCrates.skipReview.detail': 'スキップ整理',
+  'inboxPage.smartCrates.skipReview.empty': '目立ってよくスキップされる曲はまだありません。',
+  'inboxPage.smartCrates.skipReview.title': 'スキップ整理候補',
+  'inboxPage.smartCrates.subtitle': 'ローカル再生記憶、音質情報、カバーの手がかりを DJ 風のクレートに整理します。',
+  'inboxPage.smartCrates.title': 'スマートクレート',
+  'inboxPage.smartCrates.trackCountMetric': '{count} 曲候補',
+  'inboxPage.smartCrates.visualKicker': 'ARTWORK',
+  'inboxPage.smartCrates.waitingMetric': 'データ待ち',
   'inboxPage.stats.aria': '新曲受信箱の概要',
   'inboxPage.stats.currentResults': '現在の結果',
   'inboxPage.stats.newSongs': '新着曲',
@@ -14180,6 +14378,10 @@ const jaJP: TranslationMap = {
   'inboxPage.story.withWarnings': '{summary}。このうち {warnings}。',
   'inboxPage.toolbar.aria': '新曲受信箱フィルター',
   'inboxPage.toolbar.batch': 'バッチ',
+  'inboxPage.workbench.aria': '取り込み整理ワークベンチ',
+  'inboxPage.workbench.description': '新着曲、カバー不足、メタデータ異常、あとで聴く状態をここでまとめて扱えます。',
+  'inboxPage.workbench.kicker': 'IMPORT WORKBENCH',
+  'inboxPage.workbench.title': '取り込み整理',
   'route.importFile.description': '音声ファイルを 1 件取り込む。',
   'route.importFile.label': 'ファイルを取り込む',
   'route.importFolder.description': 'ローカル音楽フォルダを選択。',
@@ -15540,6 +15742,7 @@ const jaJP: TranslationMap = {
   'settings.appearance.sidebar.visible': '表示',
   'settings.appearance.sidebar.hidden': '非表示',
   'settings.appearance.sidebar.fixed': '固定表示',
+  'settings.appearance.sidebar.proLocked': 'Pro ロック',
   'settings.appearance.sidebar.noItems': 'このグループには調整できる項目がありません。',
   'settings.appearance.sidebar.summary.allVisible': 'すべて表示',
   'settings.appearance.sidebar.summary.hidden': '{count} 個を非表示',
@@ -15550,6 +15753,7 @@ const jaJP: TranslationMap = {
   'settings.appearance.sidebar.moveDownAria': '{label} を下へ移動',
   'settings.appearance.sidebar.hideAria': '{label} を隠す',
   'settings.appearance.sidebar.showAria': '{label} を表示',
+  'settings.appearance.sidebar.proLockedAria': '{label} は Pro プラグインでロック解除できます',
   'settings.appearance.nowPlayingCoverColor.title': '再生画面のカバー色',
   'settings.appearance.nowPlayingCoverColor.description': '有効にすると、再生中ページがアイドル時に小さなカバー画像から軽量な背景色を抽出します。低負荷モードでは自動的にスキップします。既定はオフです。',
   'settings.appearance.playerBarButtons.title': '右下ボタン',
@@ -16085,7 +16289,7 @@ const enUS: TranslationMap = {
   'downloads.action.creating': 'Creating',
   'downloads.action.search': 'Search',
   'downloads.action.searching': 'Searching',
-  'downloads.description': 'Search YouTube / Bilibili with bundled yt-dlp and download the best available audio only.',
+  'downloads.description': 'Search YouTube / Bilibili / osu! and download the best available audio only. osu! beatmaps are converted into directly playable audio.',
   'downloads.empty.noResults.description': 'Try another keyword.',
   'downloads.empty.noResults.title': 'No search results',
   'downloads.empty.queue.description': 'Paste a link or download a search result to see real progress here.',
@@ -16107,7 +16311,7 @@ const enUS: TranslationMap = {
   'downloads.search.aria': 'Search downloads',
   'downloads.search.downloadAudio': 'Download audio',
   'downloads.search.joined': 'Added to queue',
-  'downloads.search.placeholder': 'Search songs, artists, or video titles',
+  'downloads.search.placeholder': 'Search songs, artists, video titles, osu! beatmap names, or ids',
   'downloads.search.providerErrorItem': '{provider}: {error}',
   'downloads.search.providerErrors': 'Some platform searches failed: {errors}',
   'downloads.search.scopeAria': 'Search platform',
@@ -17597,6 +17801,51 @@ const enUS: TranslationMap = {
   'inboxPage.quality.unknownArtistAlbum': 'Unknown artist / album',
   'inboxPage.search.aria': 'Search library inbox',
   'inboxPage.search.placeholder': 'Search title, artist, album, path',
+  'inboxPage.smartCrates.aria': 'Smart Crates',
+  'inboxPage.smartCrates.cleanKicker': 'CLEANUP',
+  'inboxPage.smartCrates.comeback.description': 'Tracks that recently came back into rotation, ready to keep the thread going.',
+  'inboxPage.smartCrates.comeback.detail': 'Comeback',
+  'inboxPage.smartCrates.comeback.empty': 'After a few more listens, ECHO will identify comeback tracks.',
+  'inboxPage.smartCrates.comeback.title': 'Recent Comeback',
+  'inboxPage.smartCrates.coolCovers.description': 'Starts with recent tracks that have artwork; cover-color indexing can later prioritize cool palettes.',
+  'inboxPage.smartCrates.coolCovers.empty': 'Not enough artwork is available for this crate yet.',
+  'inboxPage.smartCrates.coolCovers.title': 'Cool Cover Crate',
+  'inboxPage.smartCrates.coolCoversDetail': 'Artwork candidate',
+  'inboxPage.smartCrates.forgotten.description': 'Songs you played before that have slipped out of rotation.',
+  'inboxPage.smartCrates.forgotten.detail': 'Forgotten',
+  'inboxPage.smartCrates.forgotten.empty': 'The history is not long enough to find forgotten gems yet.',
+  'inboxPage.smartCrates.forgotten.title': 'Forgotten Gems',
+  'inboxPage.smartCrates.forgottenMetric': 'Revival candidate',
+  'inboxPage.smartCrates.hifi441.description': 'Local lossless 44.1kHz tracks for safe-mode and exclusive-output checks.',
+  'inboxPage.smartCrates.hifi441.empty': 'No 44.1kHz lossless tracks were found in the recent library sample.',
+  'inboxPage.smartCrates.hifi441.title': '44.1k Hi-Fi Crate',
+  'inboxPage.smartCrates.kicker': 'SMART CRATES',
+  'inboxPage.smartCrates.lateNight.description': 'Tracks that keep appearing late at night, like a private midnight drawer.',
+  'inboxPage.smartCrates.lateNight.detail': 'Late-night favorite',
+  'inboxPage.smartCrates.lateNight.empty': 'There is not enough late-night listening history yet.',
+  'inboxPage.smartCrates.lateNight.title': 'Late-Night Staples',
+  'inboxPage.smartCrates.loading': 'Sorting',
+  'inboxPage.smartCrates.memoryKicker': 'LISTENING MEMORY',
+  'inboxPage.smartCrates.playCountMetric': '{count} plays',
+  'inboxPage.smartCrates.previewEmpty': 'This crate is waiting for more local listening records.',
+  'inboxPage.smartCrates.qualityKicker': 'LOCAL QUALITY',
+  'inboxPage.smartCrates.queueAdded': 'Added {count} tracks from “{title}” to the queue.',
+  'inboxPage.smartCrates.queueEmpty': 'This crate has no local tracks that can be queued yet.',
+  'inboxPage.smartCrates.queueSelected': 'Queue this crate',
+  'inboxPage.smartCrates.queueSource': 'Smart Crates',
+  'inboxPage.smartCrates.queueable': '{count} tracks can be queued',
+  'inboxPage.smartCrates.queueableShort': '{count} playable',
+  'inboxPage.smartCrates.recentMetric': 'Recent hit',
+  'inboxPage.smartCrates.skipCountMetric': '{count} skips',
+  'inboxPage.smartCrates.skipReview.description': 'Frequently skipped tracks for deciding what to keep, retag, or move out of rotation.',
+  'inboxPage.smartCrates.skipReview.detail': 'Skip review',
+  'inboxPage.smartCrates.skipReview.empty': 'No frequently skipped track stands out yet.',
+  'inboxPage.smartCrates.skipReview.title': 'Skip Review',
+  'inboxPage.smartCrates.subtitle': 'Local listening memory, quality hints, and artwork clues arranged like DJ record crates.',
+  'inboxPage.smartCrates.title': 'Smart Crates',
+  'inboxPage.smartCrates.trackCountMetric': '{count} candidates',
+  'inboxPage.smartCrates.visualKicker': 'ARTWORK',
+  'inboxPage.smartCrates.waitingMetric': 'Waiting for data',
   'inboxPage.stats.aria': 'Library inbox summary',
   'inboxPage.stats.currentResults': 'Current results',
   'inboxPage.stats.newSongs': 'New songs',
@@ -17620,6 +17869,10 @@ const enUS: TranslationMap = {
   'inboxPage.story.withWarnings': '{summary}. Including {warnings}.',
   'inboxPage.toolbar.aria': 'Library inbox filters',
   'inboxPage.toolbar.batch': 'Batch',
+  'inboxPage.workbench.aria': 'Import workbench',
+  'inboxPage.workbench.description': 'New tracks, missing covers, metadata issues, and listen-later states are handled here.',
+  'inboxPage.workbench.kicker': 'IMPORT WORKBENCH',
+  'inboxPage.workbench.title': 'Import Workbench',
   'route.importFile.description': 'Import a single audio file.',
   'route.importFile.label': 'Import File',
   'route.importFolder.description': 'Choose a local music folder.',
@@ -19142,6 +19395,7 @@ const enUS: TranslationMap = {
   'settings.appearance.sidebar.visible': 'Visible',
   'settings.appearance.sidebar.hidden': 'Hidden',
   'settings.appearance.sidebar.fixed': 'Always Visible',
+  'settings.appearance.sidebar.proLocked': 'Pro Locked',
   'settings.appearance.sidebar.noItems': 'There are no adjustable entries in this group.',
   'settings.appearance.sidebar.summary.allVisible': 'All Visible',
   'settings.appearance.sidebar.summary.hidden': '{count} entries hidden',
@@ -19152,6 +19406,7 @@ const enUS: TranslationMap = {
   'settings.appearance.sidebar.moveDownAria': 'Move down {label}',
   'settings.appearance.sidebar.hideAria': 'Hide {label}',
   'settings.appearance.sidebar.showAria': 'Show {label}',
+  'settings.appearance.sidebar.proLockedAria': '{label} requires the Pro plugin unlock',
   'settings.appearance.nowPlayingCoverColor.title': 'Now Playing Cover Color',
   'settings.appearance.nowPlayingCoverColor.description': 'Sample the small cover art while idle to tint the Now Playing page. Low-load playback mode skips it automatically. Off by default.',
   'settings.appearance.playerBarButtons.title': 'Bottom-Right Buttons',

@@ -624,6 +624,7 @@ let finalThemeUnlockAvailable = false;
 
 export type NormalizeSettingsOptions = {
   finalThemeUnlocked?: boolean;
+  downloadsFeatureUnlocked?: boolean;
 };
 
 const getSettingsPath = (): string => join(app.getPath('userData'), 'echo-settings.json');
@@ -1662,7 +1663,7 @@ export const normalizeSettings = (value: unknown, options: NormalizeSettingsOpti
       delete appearanceThemePresetOverrides[preset];
     }
   }
-  const downloadsFeatureUnlocked = settings.downloadsFeatureUnlocked === true;
+  const downloadsFeatureUnlocked = (options.downloadsFeatureUnlocked ?? settings.downloadsFeatureUnlocked) === true;
 
   return {
     appMemoryVersion,
@@ -2050,8 +2051,11 @@ const persistNormalizedSettings = (settings: AppSettings): void => {
   writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
 };
 
+const hasRuntimeUnlockOverride = (options: NormalizeSettingsOptions): boolean =>
+  options.finalThemeUnlocked === true || typeof options.downloadsFeatureUnlocked === 'boolean';
+
 export const getAppSettings = (options: NormalizeSettingsOptions = {}): AppSettings => {
-  if (options.finalThemeUnlocked !== true && cachedSettings) {
+  if (!hasRuntimeUnlockOverride(options) && cachedSettings) {
     return cachedSettings;
   }
 
@@ -2075,7 +2079,7 @@ export const getAppSettings = (options: NormalizeSettingsOptions = {}): AppSetti
     persistNormalizedSettings(settings);
     cachedSettingsSource = settings;
   }
-  if (options.finalThemeUnlocked !== true) {
+  if (!hasRuntimeUnlockOverride(options)) {
     cachedSettings = settings;
   }
 

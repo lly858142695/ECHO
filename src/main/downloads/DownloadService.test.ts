@@ -497,6 +497,110 @@ describe('DownloadService', () => {
     expect(response.results).toEqual([expect.objectContaining({ provider: 'bilibili', title: 'Bilibili Song' })]);
   });
 
+  it('searches osu beatmapsets when all providers are requested', async () => {
+    const ytDlpPath = makeToolPath();
+    const commandRunner = vi.fn((_command: string, args: string[]) => {
+      const searchUrl = args.at(-1);
+      const entry =
+        typeof searchUrl === 'string' && searchUrl.startsWith('ytsearch')
+          ? { id: 'yt-1', title: 'YouTube Song', url: 'https://www.youtube.com/watch?v=yt-1' }
+          : { id: 'BV1ECHO', title: 'Bilibili Song', url: 'https://www.bilibili.com/video/BV1ECHO' };
+      return {
+        promise: Promise.resolve({ stdout: JSON.stringify({ entries: [entry] }), stderr: '', exitCode: 0 }),
+        kill: vi.fn(),
+      };
+    });
+    const fetchRunner = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        beatmapsets: [
+          {
+            id: 2492872,
+            artist: 't+pazolite',
+            title: "intrO - Don't be Foolish",
+            creator: 'SspoksS',
+            covers: { card: 'https://assets.ppy.sh/beatmaps/2492872/covers/card.jpg' },
+            play_count: 5500,
+            ranked_date: '2026-05-17T13:23:21Z',
+            beatmaps: [{ total_length: 79 }],
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+    const service = new DownloadService(commandRunner, () => ytDlpPath, {
+      fetch: fetchRunner,
+      getAccountCredentials: (provider) => ({ provider }),
+    });
+
+    const response = await service.search({ query: 'intro', limitPerProvider: 1, provider: 'all' });
+
+    expect(commandRunner).toHaveBeenCalledWith(ytDlpPath, expect.arrayContaining(['ytsearch1:intro']));
+    expect(commandRunner).toHaveBeenCalledWith(ytDlpPath, expect.arrayContaining(['bilisearch1:intro']));
+    expect(fetchRunner).toHaveBeenCalledWith(
+      expect.stringContaining('https://osu.ppy.sh/beatmapsets/search'),
+      expect.objectContaining({ headers: expect.objectContaining({ referer: 'https://osu.ppy.sh/beatmapsets' }) }),
+    );
+    expect(response.errors).toEqual([]);
+    expect(response.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provider: 'youtube', title: 'YouTube Song' }),
+        expect.objectContaining({ provider: 'bilibili', title: 'Bilibili Song' }),
+        expect.objectContaining({
+          provider: 'osu',
+          id: '2492872',
+          title: "t+pazolite - intrO - Don't be Foolish",
+          uploader: 'SspoksS',
+          durationSeconds: 79,
+          thumbnailUrl:
+            'echo-image://remote/https%3A%2F%2Fassets.ppy.sh%2Fbeatmaps%2F2492872%2Fcovers%2Fcard.jpg?referer=https%3A%2F%2Fosu.ppy.sh%2F',
+          webpageUrl: 'https://osu.ppy.sh/beatmapsets/2492872',
+        }),
+      ]),
+    );
+  });
+
+  it('searches an osu beatmapset id without requiring yt-dlp', async () => {
+    const commandRunner = vi.fn();
+    const fetchRunner = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        status: 0,
+        data: {
+          sid: 2492872,
+          artist: 't+pazolite',
+          title: "intrO - Don't be Foolish",
+          creator: 'SspoksS',
+          play_count: 6400,
+          approved_date: 1778995401,
+          bid_data: [{ length: 79, playcount: 1126 }],
+        },
+      }),
+    })) as unknown as typeof fetch;
+    const service = new DownloadService(commandRunner, () => null, {
+      fetch: fetchRunner,
+      getAccountCredentials: (provider) => ({ provider }),
+    });
+
+    const response = await service.search({ query: '2492872', limitPerProvider: 1, provider: 'osu' });
+
+    expect(commandRunner).not.toHaveBeenCalled();
+    expect(fetchRunner).toHaveBeenCalledWith(
+      expect.stringContaining('https://api.sayobot.cn/v2/beatmapinfo'),
+      expect.objectContaining({ headers: expect.objectContaining({ referer: 'https://sayobot.cn/' }) }),
+    );
+    expect(response.errors).toEqual([]);
+    expect(response.results).toEqual([
+      expect.objectContaining({
+        provider: 'osu',
+        id: '2492872',
+        title: "t+pazolite - intrO - Don't be Foolish",
+        uploader: 'SspoksS',
+        durationSeconds: 79,
+        webpageUrl: 'https://osu.ppy.sh/beatmapsets/2492872',
+      }),
+    ]);
+  });
+
   it('passes manual network proxy settings to yt-dlp search commands', async () => {
     const ytDlpPath = makeToolPath();
     const commandRunner = vi.fn((_command: string, _args: string[]) => ({

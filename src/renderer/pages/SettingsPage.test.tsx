@@ -1084,8 +1084,12 @@ describe('SettingsPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: /settings\.appearance\.sidebar\.summary\.hidden/ }));
     await waitFor(() => expect(setSettingsMock).toHaveBeenLastCalledWith({ appearanceSidebarLayoutExpanded: true }));
     expect(within(row).getByText('route.dsp.label')).toBeTruthy();
-    const streamingItem = within(row).getByText('route.streaming.label').closest('.settings-sidebar-route-item') as HTMLElement;
-    expect((streamingItem.querySelector('.settings-sidebar-visibility-button') as HTMLButtonElement).disabled).toBe(true);
+    expect(within(row).queryByText('route.streaming.label')).toBeNull();
+    const connectItem = within(row).getByText('route.connect.label').closest('.settings-sidebar-route-item') as HTMLElement;
+    expect(within(connectItem).getByText('settings.appearance.sidebar.proLocked')).toBeTruthy();
+    const connectVisibilityButton = connectItem.querySelector('.settings-sidebar-visibility-button') as HTMLButtonElement;
+    expect(connectVisibilityButton.disabled).toBe(true);
+    expect(connectVisibilityButton.getAttribute('aria-label')).toBe('settings.appearance.sidebar.proLockedAria');
     const queueItem = within(row).getByText('route.queue.label').closest('.settings-sidebar-route-item') as HTMLElement;
     fireEvent.click(queueItem.querySelector('.settings-sidebar-visibility-button') as HTMLButtonElement);
 

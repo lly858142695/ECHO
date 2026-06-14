@@ -23,6 +23,7 @@ import {
   Info,
   Keyboard,
   Link2,
+  Lock,
   MessageSquare,
   Monitor,
   Palette,
@@ -56,7 +57,7 @@ import type {
   PlaybackSpeedMode,
 } from '../../shared/types/audio';
 import { QUIET_REPLAY_GAIN_TARGET_LUFS, SPOTIFY_NORMAL_REPLAY_GAIN_TARGET_LUFS } from '../../shared/constants/replayGain';
-import { finalThemeUnlockVersion, isDownloadFeatureUnlockCode, proOnlyThemePresets } from '../../shared/constants/featureUnlocks';
+import { finalThemeUnlockVersion, proOnlyThemePresets } from '../../shared/constants/featureUnlocks';
 import { defaultArtistOnlineInfoSources, defaultArtistStreamingAlbumsProvider, playerBarButtonIds } from '../../shared/types/appSettings';
 import {
   defaultSidebarHiddenRouteIds,
@@ -968,6 +969,7 @@ const sidebarSettingsCopy = {
   visibleKey: 'settings.appearance.sidebar.visible',
   hiddenKey: 'settings.appearance.sidebar.hidden',
   fixedKey: 'settings.appearance.sidebar.fixed',
+  proLockedKey: 'settings.appearance.sidebar.proLocked',
   noItemsKey: 'settings.appearance.sidebar.noItems',
 } as const satisfies Record<string, TranslationKey>;
 
@@ -4324,8 +4326,6 @@ export const SettingsPage = (): JSX.Element => {
   const [activeSection, setActiveSection] = useState<SettingsNavKey>(() => readInitialSettingsSection());
   const [settingsQuery, setSettingsQuery] = useState('');
   const [highlightedSettingId, setHighlightedSettingId] = useState<string | null>(null);
-  const [mysteriousKeyVisible, setMysteriousKeyVisible] = useState(false);
-  const mysteriousKeyUnlockNoticeShownRef = useRef(false);
   const [finalThemeUnlocked, setFinalThemeUnlocked] = useState(false);
   const [finalThemeUnlockChecked, setFinalThemeUnlockChecked] = useState(false);
   const finalThemeRelockAppliedRef = useRef(false);
@@ -4348,6 +4348,7 @@ export const SettingsPage = (): JSX.Element => {
   const hiddenPlayerBarButtonIdSet = useMemo(() => new Set(hiddenPlayerBarButtonIds), [hiddenPlayerBarButtonIds]);
   const visiblePlayerBarButtonCount = playerBarButtonSettingsItems.length - hiddenPlayerBarButtonIds.length;
   const sidebarLayoutExpanded = appSettings?.appearanceSidebarLayoutExpanded === true;
+  const connectSidebarProLocked = !finalThemeUnlocked;
   const sidebarLayoutSummary = sidebarHiddenRouteIds.length > 0 ? t('settings.appearance.sidebar.summary.hidden', { count: sidebarHiddenRouteIds.length }) : t('settings.appearance.sidebar.summary.allVisible');
   const sidebarSettingsGroups = useMemo(() => {
     const groups: Record<SidebarSettingsRouteItem['placement'], SidebarSettingsRouteItem[]> = {
@@ -4357,6 +4358,10 @@ export const SettingsPage = (): JSX.Element => {
     const includeDownloads = appSettings?.downloadsFeatureUnlocked === true;
 
     for (const routeId of sidebarRouteOrder) {
+      if (lockedHiddenSidebarRouteIdSet.has(routeId)) {
+        continue;
+      }
+
       if (routeId === 'downloads' && !includeDownloads) {
         continue;
       }
@@ -4427,8 +4432,6 @@ export const SettingsPage = (): JSX.Element => {
   const [downloadSettings, setDownloadSettings] = useState<DownloadSettings | null>(null);
   const [downloadDirectoryBusy, setDownloadDirectoryBusy] = useState(false);
   const [downloadDirectoryMessage, setDownloadDirectoryMessage] = useState<string | null>(null);
-  const [downloadUnlockInput, setDownloadUnlockInput] = useState('');
-  const [downloadUnlockMessage, setDownloadUnlockMessage] = useState<string | null>(null);
   const [pendingAlbumMergeStrategy, setPendingAlbumMergeStrategy] = useState<AlbumMergeStrategy | null>(null);
   const [pendingArtistMergeStrategy, setPendingArtistMergeStrategy] = useState<ArtistMergeStrategy | null>(null);
   const [albumGroupingBusy, setAlbumGroupingBusy] = useState(false);
@@ -5314,14 +5317,6 @@ export const SettingsPage = (): JSX.Element => {
         terms: ['专辑合并', '艺人合并', '艺术家合并', 'artist merge', 'album merge', 'metadata cleanup', 'Aiobahn', '25時'],
       },
       {
-        id: 'row-mysterious-key',
-        sectionKey: 'general',
-        targetId: 'settings-row-mysterious-key',
-        title: 'Mysterious key',
-        description: 'Enter a special key to unlock hidden capabilities.',
-        terms: ['Mysterious key', 'key', 'secret', 'unlock', 'hidden', 'zimin', '神秘钥匙', '密钥'],
-      },
-      {
         id: 'row-streaming-download-actions',
         sectionKey: 'library',
         targetId: 'settings-row-streaming-download-actions',
@@ -5364,10 +5359,6 @@ export const SettingsPage = (): JSX.Element => {
     ];
 
     const entries = [...rowEntries, ...sectionEntries].filter((entry) => {
-      if (!mysteriousKeyVisible && entry.targetId === 'settings-row-mysterious-key') {
-        return false;
-      }
-
       if (appSettings?.downloadsFeatureUnlocked !== true && entry.targetId === 'settings-row-streaming-download-actions') {
         return false;
       }
@@ -5377,23 +5368,7 @@ export const SettingsPage = (): JSX.Element => {
     return windowsIntegrationAvailable
       ? entries
       : entries.filter((entry) => entry.targetId !== 'settings-row-smtc' && entry.targetId !== 'settings-row-taskbar-playback');
-  }, [appSettings?.downloadsFeatureUnlocked, mysteriousKeyVisible, settingsNavigationItems, t, windowsIntegrationAvailable]);
-
-  const mysteriousKeySearchUnlocked = activeSection === 'general' && normalizeSettingsSearchText(settingsQuery) === 'zimin';
-
-  useEffect(() => {
-    if (!mysteriousKeySearchUnlocked) {
-      return;
-    }
-
-    setMysteriousKeyVisible(true);
-    if (mysteriousKeyUnlockNoticeShownRef.current) {
-      return;
-    }
-
-    mysteriousKeyUnlockNoticeShownRef.current = true;
-    window.dispatchEvent(new CustomEvent('app:show-chrome-notice', { detail: 'Mysterious key 已解锁。' }));
-  }, [mysteriousKeySearchUnlocked]);
+  }, [appSettings?.downloadsFeatureUnlocked, settingsNavigationItems, t, windowsIntegrationAvailable]);
 
   const settingsSearchResults = useMemo<SettingsSearchResult[]>(() => {
     const query = normalizeSettingsSearchText(settingsQuery);
@@ -6127,6 +6102,9 @@ export const SettingsPage = (): JSX.Element => {
     const handleSettingsChanged = (event: Event): void => {
       const patch = (event as CustomEvent<Partial<AppSettings> | Partial<MvSettings>>).detail;
       if (!patch || typeof patch !== 'object') {
+        void getAppBridge()?.getSettings?.()
+          .then((settings) => setAppSettings(settings))
+          .catch(() => undefined);
         return;
       }
       const appPatch = normalizeExternalAppSettingsPatch(patch);
@@ -8859,28 +8837,6 @@ export const SettingsPage = (): JSX.Element => {
   const lyricsBackfillAutoAcceptScore = appSettings?.lyricsBackfillAutoAcceptScore ?? 0.45;
   const lyricsBackfillAutoAcceptPercent = Math.round(lyricsBackfillAutoAcceptScore * 100);
 
-  const handleDownloadFeatureUnlock = (): void => {
-    if (!isDownloadFeatureUnlockCode(downloadUnlockInput)) {
-      setDownloadUnlockMessage('Key not accepted.');
-      return;
-    }
-
-    setDownloadUnlockMessage('Key accepted.');
-    setDownloadUnlockInput('');
-    patchAppSettings({ downloadsFeatureUnlocked: true });
-  };
-
-  const handleDownloadFeatureRelease = (): void => {
-    setDownloadUnlockInput('');
-    setDownloadUnlockMessage(null);
-    patchAppSettings({ downloadsFeatureUnlocked: false, streamingDownloadActionsEnabled: false });
-  };
-
-  const handleDownloadUnlockKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
-    if (!isImeComposingKeyEvent(event) && event.key === 'Enter') {
-      handleDownloadFeatureUnlock();
-    }
-  };
   const updateDownloadPercent = Math.max(0, Math.min(100, Math.round(updateStatus?.downloadPercent ?? 0)));
   const showUpdateDownloadProgress = updateStatus?.state === 'downloading' || updateStatus?.state === 'downloaded';
   const updateDownloadSizeLabel =
@@ -10868,6 +10824,7 @@ export const SettingsPage = (): JSX.Element => {
     visible: t(sidebarSettingsCopy.visibleKey),
     hidden: t(sidebarSettingsCopy.hiddenKey),
     fixed: t(sidebarSettingsCopy.fixedKey),
+    proLocked: t(sidebarSettingsCopy.proLockedKey),
     noItems: t(sidebarSettingsCopy.noItemsKey),
   };
   const playerBarButtonSettingsText = {
@@ -11315,61 +11272,6 @@ export const SettingsPage = (): JSX.Element => {
                   ))}
                 </div>
               </SettingRow>
-              {mysteriousKeyVisible ? (
-                <SettingRow
-                  id="settings-row-mysterious-key"
-                  highlighted={highlightedSettingId === 'settings-row-mysterious-key'}
-                  className="setting-row--full setting-row--compact-panel"
-                  title="Mysterious key"
-                  description="Enter a special key to unlock hidden capabilities."
-              >
-                  {downloadsFeatureUnlocked ? (
-                    <div className="settings-mysterious-key-accepted">
-                      <div className="settings-inline-toggle settings-inline-toggle--compact">
-                        <span>Accepted</span>
-                        <Check size={16} />
-                      </div>
-                      <button
-                        className="settings-action-button"
-                        type="button"
-                        disabled={!appSettings}
-                        onClick={handleDownloadFeatureRelease}
-                      >
-                        <RotateCcw size={15} />
-                        释放
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="settings-cache-panel settings-cache-panel--download">
-                      <label className="settings-input-field" htmlFor="mysterious-key">
-                        <input
-                          id="mysterious-key"
-                          type="text"
-                          value={downloadUnlockInput}
-                          onChange={(event) => {
-                            setDownloadUnlockInput(event.target.value);
-                            setDownloadUnlockMessage(null);
-                          }}
-                          onKeyDown={handleDownloadUnlockKeyDown}
-                          placeholder="Enter key"
-                        />
-                      </label>
-                      <div className="settings-chip-row settings-chip-row--left">
-                        <button
-                          className="settings-action-button"
-                          type="button"
-                          disabled={!appSettings || !downloadUnlockInput.trim()}
-                          onClick={handleDownloadFeatureUnlock}
-                        >
-                          <Check size={15} />
-                          Apply
-                        </button>
-                      </div>
-                      {downloadUnlockMessage ? <p className="settings-inline-note">{downloadUnlockMessage}</p> : null}
-                    </div>
-                  )}
-                </SettingRow>
-              ) : null}
               <SettingRow
                 id="settings-row-dev-console"
                 highlighted={highlightedSettingId === 'settings-row-dev-console'}
@@ -13263,14 +13165,22 @@ export const SettingsPage = (): JSX.Element => {
                                   const label = t(item.labelKey);
                                   const isLockedVisible = lockedVisibleSidebarRouteIdSet.has(item.id);
                                   const isLockedHidden = lockedHiddenSidebarRouteIdSet.has(item.id);
+                                  const isProLocked = item.id === 'connect' && connectSidebarProLocked;
                                   const isVisible = isLockedVisible || (!isLockedHidden && !sidebarHiddenRouteIdSet.has(item.id));
-                                  const isFixed = isLockedVisible || isLockedHidden;
+                                  const isEffectivelyVisible = isVisible && !isProLocked;
+                                  const isFixed = isLockedVisible || isLockedHidden || isProLocked;
+                                  const statusLabel = isProLocked ? sidebarSettingsText.proLocked : isFixed ? sidebarSettingsText.fixed : isVisible ? sidebarSettingsText.visible : sidebarSettingsText.hidden;
+                                  const visibilityAriaLabel = isProLocked
+                                    ? t('settings.appearance.sidebar.proLockedAria', { label })
+                                    : isVisible
+                                      ? t('settings.appearance.sidebar.hideAria', { label })
+                                      : t('settings.appearance.sidebar.showAria', { label });
 
                                   return (
                                     <div
                                       className="settings-sidebar-route-item"
                                       data-dragging={draggingSidebarRouteId === item.id ? 'true' : undefined}
-                                      data-hidden={isVisible ? undefined : 'true'}
+                                      data-hidden={isEffectivelyVisible ? undefined : 'true'}
                                       draggable={Boolean(appSettings)}
                                       key={item.id}
                                       onDragEnd={handleSidebarRouteDragEnd}
@@ -13283,19 +13193,19 @@ export const SettingsPage = (): JSX.Element => {
                                       </span>
                                       <span className="settings-sidebar-route-copy">
                                         <strong>{label}</strong>
-                                        <em>{isFixed ? sidebarSettingsText.fixed : isVisible ? sidebarSettingsText.visible : sidebarSettingsText.hidden}</em>
+                                        <em>{statusLabel}</em>
                                       </span>
                                       <span className="settings-sidebar-route-actions">
                                         <button
-                                          aria-label={isVisible ? t('settings.appearance.sidebar.hideAria', { label }) : t('settings.appearance.sidebar.showAria', { label })}
-                                          aria-pressed={isVisible}
+                                          aria-label={visibilityAriaLabel}
+                                          aria-pressed={isEffectivelyVisible}
                                           className="settings-icon-button settings-sidebar-visibility-button"
                                           disabled={!appSettings || isFixed}
-                                          title={isFixed ? sidebarSettingsText.fixed : isVisible ? sidebarSettingsText.visible : sidebarSettingsText.hidden}
+                                          title={statusLabel}
                                           type="button"
                                           onClick={() => handleSidebarRouteVisibilityToggle(item.id)}
                                         >
-                                          {isVisible ? <Eye size={15} /> : <EyeOff size={15} />}
+                                          {isProLocked ? <Lock size={15} /> : isVisible ? <Eye size={15} /> : <EyeOff size={15} />}
                                         </button>
                                       </span>
                                     </div>

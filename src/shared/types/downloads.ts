@@ -13,7 +13,7 @@ export type DownloadJobStatus =
 
 export type DownloadSourceProvider = 'youtube' | 'bilibili' | 'soundcloud' | 'osu' | 'unknown';
 
-export type DownloadSearchProvider = 'youtube' | 'bilibili';
+export type DownloadSearchProvider = 'youtube' | 'bilibili' | 'osu';
 
 export type DownloadSearchScope = DownloadSearchProvider | 'all';
 

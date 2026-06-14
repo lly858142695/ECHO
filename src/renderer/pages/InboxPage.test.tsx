@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { LibraryInboxTrackPage, LibraryTrack } from '../../shared/types/library';
+import type { LibraryInboxTrackPage, LibraryPage, LibraryTrack, PlaybackMemoryGraph, PlaybackMemoryTrackInsight } from '../../shared/types/library';
 import { translations, isLocale, localeOptions } from '../i18n/locales';
 import { InboxPage } from './InboxPage';
 
@@ -68,6 +68,59 @@ const track = (id: string, overrides: Partial<LibraryTrack> = {}): LibraryTrack 
   embeddedCoverStatus: 'missing',
   networkMetadataStatus: 'none',
   fieldSources: {},
+  ...overrides,
+});
+
+const libraryPage = <T,>(items: T[], overrides: Partial<LibraryPage<T>> = {}): LibraryPage<T> => ({
+  items,
+  page: 1,
+  pageSize: items.length,
+  total: items.length,
+  hasMore: false,
+  ...overrides,
+});
+
+const memoryInsight = (source: LibraryTrack, overrides: Partial<PlaybackMemoryTrackInsight> = {}): PlaybackMemoryTrackInsight => ({
+  id: `memory-${source.id}`,
+  trackId: source.id,
+  title: source.title,
+  artist: source.artist,
+  album: source.album,
+  coverThumb: source.coverThumb,
+  playCount: 3,
+  completedCount: 3,
+  skippedCount: 0,
+  playedSeconds: 540,
+  durationSeconds: source.duration,
+  firstPlayedAt: '2026-05-18T16:00:00.000Z',
+  lastPlayedAt: '2026-05-20T16:00:00.000Z',
+  isLiked: false,
+  ...overrides,
+});
+
+const memoryGraph = (overrides: Partial<PlaybackMemoryGraph> = {}): PlaybackMemoryGraph => ({
+  generatedAt: '2026-05-20T16:00:00.000Z',
+  totals: {
+    playCount: 0,
+    completedCount: 0,
+    skippedCount: 0,
+    playedSeconds: 0,
+    uniqueTracks: 0,
+    transitionCount: 0,
+  },
+  timeBuckets: [],
+  lateNightTrack: null,
+  comebackTrack: null,
+  forgottenTrack: null,
+  likedTrack: null,
+  skippedTrack: null,
+  transition: null,
+  recentFlow: [],
+  coverage: {
+    rawEventCount: 0,
+    likedTrackMatches: 0,
+    outputDeviceHistory: false,
+  },
   ...overrides,
 });
 
@@ -187,6 +240,41 @@ describe('InboxPage', () => {
         }),
       ),
     );
+  });
+
+  it('builds smart crates from local playback memory and queues the selected crate', async () => {
+    const nightTrack = track('night-1', {
+      title: 'Night Blue',
+      artist: 'AIRBLUE',
+      album: 'Midnight',
+      coverId: 'cover-night',
+      coverThumb: 'echo-cover://thumb/cover-night',
+    });
+    const hifiTrack = track('hifi-1', {
+      title: 'Native Clock',
+      sampleRate: 44100,
+      codec: 'flac',
+      bitDepth: 24,
+    });
+    const getLibraryInboxTracks = vi.fn().mockResolvedValue(inboxPage());
+    const getTracks = vi.fn().mockResolvedValue(libraryPage([nightTrack, hifiTrack]));
+    const getPlaybackMemoryGraph = vi.fn().mockResolvedValue(memoryGraph({
+      lateNightTrack: memoryInsight(nightTrack, { playCount: 7 }),
+    }));
+    libraryBridge = {
+      getLibraryInboxTracks,
+      getTracks,
+      getPlaybackMemoryGraph,
+      onLibraryChanged: vi.fn(),
+    };
+
+    render(<InboxPage />);
+
+    expect(await screen.findByText('Night Blue')).toBeTruthy();
+    expect(screen.getByText('44.1k 发烧箱')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /加入这个唱片箱/ }));
+
+    expect(queueMock.appendTracksToQueue).toHaveBeenCalledWith([nightTrack], { type: 'manual', label: '智能唱片箱' });
   });
 
   it('creates a playlist from the current inbox filter without touching playback APIs', async () => {

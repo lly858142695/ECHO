@@ -1044,7 +1044,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
   useEffect(() => {
     refreshConnectFeatureUnlock();
-    const handlePluginsChanged = (): void => refreshConnectFeatureUnlock();
+    const handlePluginsChanged = (): void => {
+      refreshConnectFeatureUnlock();
+      window.dispatchEvent(new Event('settings:changed'));
+    };
     window.addEventListener('plugins:changed', handlePluginsChanged);
     return () => window.removeEventListener('plugins:changed', handlePluginsChanged);
   }, [refreshConnectFeatureUnlock]);

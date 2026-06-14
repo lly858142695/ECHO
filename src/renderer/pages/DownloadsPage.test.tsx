@@ -53,6 +53,17 @@ const searchResponse: DownloadSearchResponse = {
       viewCount: null,
       publishedAt: null,
     },
+    {
+      id: '2492872',
+      provider: 'osu',
+      title: "t+pazolite - intrO - Don't be Foolish",
+      uploader: 'SspoksS',
+      durationSeconds: 79,
+      thumbnailUrl: 'echo-image://remote/https%3A%2F%2Fassets.ppy.sh%2Fbeatmaps%2F2492872%2Fcovers%2Fcard.jpg?referer=https%3A%2F%2Fosu.ppy.sh%2F',
+      webpageUrl: 'https://osu.ppy.sh/beatmapsets/2492872',
+      viewCount: 6400,
+      publishedAt: '2026-05-17T13:23:21Z',
+    },
   ],
   errors: [],
 };
@@ -228,16 +239,18 @@ describe('DownloadsPage', () => {
     expect(screen.getByText('https://www.youtube.com/watch?v=echo')).toBeTruthy();
   });
 
-  it('searches and renders merged YouTube and Bilibili results', async () => {
+  it('searches and renders merged YouTube, Bilibili, and osu results', async () => {
     render(<DownloadsPage />);
     await act(async () => {});
 
-    fireEvent.change(screen.getByPlaceholderText('搜索歌曲、艺人或视频标题'), { target: { value: 'echo' } });
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'echo' } });
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
 
     await screen.findByText('YouTube Echo Song');
     expect(downloadsBridge.search).toHaveBeenCalledWith({ query: 'echo', limitPerProvider: 10, provider: 'all' });
     expect(screen.getByText('Bilibili Echo Song')).toBeTruthy();
+    expect(screen.getByText("t+pazolite - intrO - Don't be Foolish")).toBeTruthy();
+    expect(screen.getByText('SspoksS')).toBeTruthy();
     expect(screen.getByText('1.2 万次播放 · 2026-05-14')).toBeTruthy();
   });
 
@@ -246,7 +259,7 @@ describe('DownloadsPage', () => {
     await act(async () => {});
 
     fireEvent.click(screen.getByRole('button', { name: 'Bilibili' }));
-    fireEvent.change(screen.getByPlaceholderText('搜索歌曲、艺人或视频标题'), { target: { value: 'echo' } });
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'echo' } });
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
 
     await screen.findByText('Bilibili Echo Song');
@@ -254,11 +267,40 @@ describe('DownloadsPage', () => {
     expect(screen.queryByText('YouTube Echo Song')).toBeNull();
   });
 
+  it('searches and queues osu beatmap results from the osu scope', async () => {
+    render(<DownloadsPage />);
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('button', { name: 'osu!' }));
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: '2492872' } });
+    fireEvent.click(screen.getByRole('button', { name: /搜索/ }));
+
+    await screen.findByText("t+pazolite - intrO - Don't be Foolish");
+    expect(downloadsBridge.search).toHaveBeenCalledWith({ query: '2492872', limitPerProvider: 10, provider: 'osu' });
+    expect(screen.queryByText('YouTube Echo Song')).toBeNull();
+    expect(screen.getByText('SspoksS')).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole('button', { name: /下载音频/ })[0]);
+
+    await waitFor(() =>
+      expect(downloadsBridge.createUrlJob).toHaveBeenCalledWith(
+        'https://osu.ppy.sh/beatmapsets/2492872',
+        expect.objectContaining({
+          title: "t+pazolite - intrO - Don't be Foolish",
+          coverUrl: searchResponse.results[2].thumbnailUrl,
+          webpageUrl: 'https://osu.ppy.sh/beatmapsets/2492872',
+          importToLibrary: true,
+          bindMvAfterImport: true,
+        }),
+      ),
+    );
+  });
+
   it('downloads a single search result into the queue', async () => {
     render(<DownloadsPage />);
     await act(async () => {});
 
-    fireEvent.change(screen.getByPlaceholderText('搜索歌曲、艺人或视频标题'), { target: { value: 'echo' } });
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'echo' } });
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
     await screen.findByText('YouTube Echo Song');
     fireEvent.click(screen.getAllByRole('button', { name: '下载音频' })[0]);
@@ -280,7 +322,7 @@ describe('DownloadsPage', () => {
     render(<DownloadsPage />);
     await act(async () => {});
 
-    fireEvent.change(screen.getByPlaceholderText('搜索歌曲、艺人或视频标题'), { target: { value: 'echo' } });
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'echo' } });
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
 
     expect(await screen.findByText('YouTube Echo Song')).toBeTruthy();
@@ -301,7 +343,7 @@ describe('DownloadsPage', () => {
     render(<DownloadsPage />);
     await act(async () => {});
 
-    fireEvent.change(screen.getByPlaceholderText('搜索歌曲、艺人或视频标题'), { target: { value: 'echo' } });
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'echo' } });
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
 
     expect(await screen.findByText('部分平台搜索失败：YouTube：无法读取浏览器 Cookie，已自动尝试不使用登录状态搜索。')).toBeTruthy();
@@ -313,7 +355,7 @@ describe('DownloadsPage', () => {
     render(<DownloadsPage />);
     await act(async () => {});
 
-    fireEvent.change(screen.getByPlaceholderText('搜索歌曲、艺人或视频标题'), { target: { value: 'echo' } });
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'echo' } });
     fireEvent.click(screen.getByRole('button', { name: '搜索' }));
     await screen.findByText('YouTube Echo Song');
     fireEvent.click(screen.getAllByRole('button', { name: '下载音频' })[0]);

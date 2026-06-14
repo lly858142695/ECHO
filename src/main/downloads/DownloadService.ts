@@ -61,8 +61,11 @@ const osuDownloadUserAgent = 'ECHO Next/26.5 osu downloader (https://github.com/
 const osuArchiveAccept = 'application/x-osu-beatmap-archive,application/zip,application/octet-stream,*/*';
 
 const searchProvidersForScope = (scope: DownloadSearchScope | undefined): DownloadSearchProvider[] => {
-  if (scope === 'youtube' || scope === 'bilibili') {
+  if (scope === 'youtube' || scope === 'bilibili' || scope === 'osu') {
     return [scope];
+  }
+  if (scope === 'all') {
+    return ['youtube', 'bilibili', 'osu'];
   }
 
   return ['youtube', 'bilibili'];
@@ -257,6 +260,8 @@ type YtDlpSearchResult = {
   entries?: unknown;
 };
 
+type YtDlpDownloadSearchProvider = Exclude<DownloadSearchProvider, 'osu'>;
+
 type BilibiliSearchApiEntry = {
   bvid?: unknown;
   aid?: unknown;
@@ -275,6 +280,63 @@ type BilibiliSearchApiResponse = {
   data?: {
     result?: unknown;
   };
+};
+
+type OsuBeatmapsetCovers = {
+  cover?: unknown;
+  'cover@2x'?: unknown;
+  card?: unknown;
+  'card@2x'?: unknown;
+  list?: unknown;
+  'list@2x'?: unknown;
+};
+
+type OsuOfficialBeatmap = {
+  total_length?: unknown;
+  hit_length?: unknown;
+  playcount?: unknown;
+};
+
+type OsuOfficialBeatmapset = {
+  id?: unknown;
+  artist?: unknown;
+  artist_unicode?: unknown;
+  title?: unknown;
+  title_unicode?: unknown;
+  creator?: unknown;
+  covers?: OsuBeatmapsetCovers;
+  play_count?: unknown;
+  submitted_date?: unknown;
+  ranked_date?: unknown;
+  last_updated?: unknown;
+  beatmaps?: unknown;
+};
+
+type OsuOfficialSearchResponse = {
+  beatmapsets?: unknown;
+};
+
+type SayobotBeatmapInfoResponse = {
+  status?: unknown;
+  data?: unknown;
+};
+
+type SayobotBeatmapset = {
+  sid?: unknown;
+  approved_date?: unknown;
+  lastupdate?: unknown;
+  title?: unknown;
+  titleU?: unknown;
+  artist?: unknown;
+  artistU?: unknown;
+  creator?: unknown;
+  play_count?: unknown;
+  bid_data?: unknown;
+};
+
+type SayobotBeatmap = {
+  length?: unknown;
+  playcount?: unknown;
 };
 
 type OsuDownloadSource = {
@@ -853,14 +915,21 @@ export class DownloadService extends EventEmitter {
     const rawLimit = typeof request === 'string' ? undefined : request.limitPerProvider;
     const limitPerProvider = Number.isFinite(rawLimit) ? Math.max(1, Math.min(20, Math.floor(Number(rawLimit)))) : 10;
     const ytDlpPath = this.ytDlpPathResolver();
-    if (!ytDlpPath || !existsSync(ytDlpPath)) {
-      throw new Error('yt-dlp is not installed with the application');
-    }
 
     const providers = searchProvidersForScope(typeof request === 'string' ? undefined : request.provider);
     const settled = await Promise.all(
       providers.map(async (provider) => {
         try {
+          if (provider === 'osu') {
+            return {
+              provider,
+              results: await this.searchOsuBeatmapsets(query, limitPerProvider),
+              error: null,
+            };
+          }
+          if (!ytDlpPath || !existsSync(ytDlpPath)) {
+            throw new Error('yt-dlp is not installed with the application');
+          }
           return {
             provider,
             results: await this.searchProvider(ytDlpPath, provider, query, limitPerProvider),
@@ -895,7 +964,7 @@ export class DownloadService extends EventEmitter {
 
   private async searchProvider(
     ytDlpPath: string,
-    provider: DownloadSearchProvider,
+    provider: YtDlpDownloadSearchProvider,
     query: string,
     limitPerProvider: number,
   ): Promise<DownloadSearchResult[]> {
@@ -949,7 +1018,7 @@ export class DownloadService extends EventEmitter {
     ]).promise;
   }
 
-  private accountArgs(provider: DownloadSearchProvider, tempCookiePath: string | null): string[] {
+  private accountArgs(provider: YtDlpDownloadSearchProvider, tempCookiePath: string | null): string[] {
     if (tempCookiePath) {
       return ['--cookies', tempCookiePath];
     }
@@ -963,7 +1032,7 @@ export class DownloadService extends EventEmitter {
     return browser && browser !== 'none' ? ['--cookies-from-browser', browser] : [];
   }
 
-  private writeCookieFile(provider: DownloadSearchProvider): string | null {
+  private writeCookieFile(provider: YtDlpDownloadSearchProvider): string | null {
     const credentials = this.getCredentials(provider);
     const cookie = credentials.cookie?.trim();
     if (!cookie) {
@@ -979,7 +1048,7 @@ export class DownloadService extends EventEmitter {
     return this.dependencies.getAccountCredentials?.(provider) ?? getAccountService().getCredentials(provider);
   }
 
-  private toNetscapeCookieFile(provider: DownloadSearchProvider, cookieHeader: string): string {
+  private toNetscapeCookieFile(provider: YtDlpDownloadSearchProvider, cookieHeader: string): string {
     const domain = provider === 'youtube' ? '.youtube.com' : '.bilibili.com';
     const lines = ['# Netscape HTTP Cookie File'];
     for (const part of cookieHeader.split(';')) {
@@ -1004,7 +1073,7 @@ export class DownloadService extends EventEmitter {
     }
   }
 
-  private formatSearchError(provider: DownloadSearchProvider, result: CommandResult): string {
+  private formatSearchError(provider: YtDlpDownloadSearchProvider, result: CommandResult): string {
     const rawMessage = result.stderr.trim() || result.stdout.trim() || `${provider} search failed`;
     const singleLineMessage = rawMessage.replace(/\s+/gu, ' ').trim();
     if (/could not copy .*cookie database/iu.test(singleLineMessage)) {
@@ -1154,11 +1223,172 @@ export class DownloadService extends EventEmitter {
     }
   }
 
+  private normalizeOsuImageUrl(value: unknown, beatmapsetId?: string | number | null): string | null {
+    const fallbackUrl = beatmapsetId ? `https://assets.ppy.sh/beatmaps/${encodeURIComponent(String(beatmapsetId))}/covers/card@2x.jpg` : null;
+    const rawUrl = this.cleanText(value) ?? fallbackUrl;
+    const url = rawUrl?.startsWith('//') ? `https:${rawUrl}` : rawUrl;
+    if (!url) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'http:') {
+        parsed.protocol = 'https:';
+      }
+      if (parsed.protocol === 'https:' && (parsed.hostname === 'assets.ppy.sh' || parsed.hostname.endsWith('.ppy.sh'))) {
+        return `echo-image://remote/${encodeURIComponent(parsed.toString())}?referer=${encodeURIComponent('https://osu.ppy.sh/')}`;
+      }
+
+      return parsed.toString();
+    } catch {
+      return url;
+    }
+  }
+
   private normalizeDownloadThumbnailUrl(provider: DownloadSourceProvider, value: string | null): string | null {
     return provider === 'bilibili' ? this.normalizeBilibiliImageUrl(value) : value;
   }
 
-  private parseSearchResults(provider: DownloadSearchProvider, stdout: string): DownloadSearchResult[] {
+  private async searchOsuBeatmapsets(query: string, limitPerProvider: number): Promise<DownloadSearchResult[]> {
+    const directBeatmapsetId = parseOsuBeatmapsetId(query) ?? (/^\d{3,}$/u.test(query.trim()) ? query.trim() : null);
+    if (directBeatmapsetId) {
+      return [await this.fetchSayobotBeatmapsetResult(directBeatmapsetId)].slice(0, limitPerProvider);
+    }
+
+    const fetchRunner = this.dependencies.fetch ?? fetchWithNetworkProxy;
+    if (!fetchRunner) {
+      throw new Error('fetch is not available for osu! search');
+    }
+
+    const url = new URL('https://osu.ppy.sh/beatmapsets/search');
+    url.searchParams.set('q', query);
+
+    const response = await fetchRunner(url.toString(), {
+      headers: {
+        accept: 'application/json, text/plain, */*',
+        referer: 'https://osu.ppy.sh/beatmapsets',
+        'user-agent': browserUserAgent,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`osu! search failed: HTTP ${response.status}`);
+    }
+
+    const payload = (await response.json()) as OsuOfficialSearchResponse;
+    const beatmapsets = Array.isArray(payload.beatmapsets) ? payload.beatmapsets : [];
+    return beatmapsets
+      .map((entry) => this.mapOsuOfficialBeatmapset(entry))
+      .filter((entry): entry is DownloadSearchResult => Boolean(entry))
+      .slice(0, limitPerProvider);
+  }
+
+  private async fetchSayobotBeatmapsetResult(beatmapsetId: string): Promise<DownloadSearchResult> {
+    const fetchRunner = this.dependencies.fetch ?? fetchWithNetworkProxy;
+    if (!fetchRunner) {
+      return this.fallbackOsuBeatmapsetResult(beatmapsetId);
+    }
+
+    try {
+      const url = new URL('https://api.sayobot.cn/v2/beatmapinfo');
+      url.searchParams.set('K', beatmapsetId);
+      const response = await fetchRunner(url.toString(), {
+        headers: {
+          accept: 'application/json, text/plain, */*',
+          referer: 'https://sayobot.cn/',
+          'user-agent': osuDownloadUserAgent,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = (await response.json()) as SayobotBeatmapInfoResponse;
+      const result = this.mapSayobotBeatmapset(beatmapsetId, payload.data);
+      return result ?? this.fallbackOsuBeatmapsetResult(beatmapsetId);
+    } catch {
+      return this.fallbackOsuBeatmapsetResult(beatmapsetId);
+    }
+  }
+
+  private fallbackOsuBeatmapsetResult(beatmapsetId: string): DownloadSearchResult {
+    return {
+      id: beatmapsetId,
+      provider: 'osu',
+      title: `osu! beatmapset ${beatmapsetId}`,
+      uploader: null,
+      durationSeconds: null,
+      thumbnailUrl: this.normalizeOsuImageUrl(null, beatmapsetId),
+      webpageUrl: `https://osu.ppy.sh/beatmapsets/${encodeURIComponent(beatmapsetId)}`,
+      viewCount: null,
+      publishedAt: null,
+    };
+  }
+
+  private mapSayobotBeatmapset(beatmapsetId: string, entry: unknown): DownloadSearchResult | null {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+
+    const item = entry as SayobotBeatmapset;
+    const id = this.cleanPositiveNumber(item.sid) ?? Number(beatmapsetId);
+    const artist = this.cleanSearchText(item.artistU) ?? this.cleanSearchText(item.artist);
+    const title = this.cleanSearchText(item.titleU) ?? this.cleanSearchText(item.title);
+    if (!Number.isFinite(id) || !title) {
+      return null;
+    }
+
+    const beatmaps = Array.isArray(item.bid_data) ? (item.bid_data as SayobotBeatmap[]) : [];
+    const durationSeconds = this.maxPositiveNumber(beatmaps.map((beatmap) => this.cleanPositiveNumber(beatmap.length)));
+    const viewCount = this.cleanPositiveNumber(item.play_count) ?? this.maxPositiveNumber(beatmaps.map((beatmap) => this.cleanPositiveNumber(beatmap.playcount)));
+    return {
+      id: String(id),
+      provider: 'osu',
+      title: [artist, title].filter(Boolean).join(' - ') || title,
+      uploader: this.cleanSearchText(item.creator),
+      durationSeconds,
+      thumbnailUrl: this.normalizeOsuImageUrl(null, id),
+      webpageUrl: `https://osu.ppy.sh/beatmapsets/${encodeURIComponent(String(id))}`,
+      viewCount,
+      publishedAt: this.dateFromTimestampOrIso(item.approved_date) ?? this.dateFromTimestampOrIso(item.lastupdate),
+    };
+  }
+
+  private mapOsuOfficialBeatmapset(entry: unknown): DownloadSearchResult | null {
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+
+    const item = entry as OsuOfficialBeatmapset;
+    const id = this.cleanPositiveNumber(item.id);
+    const artist = this.cleanSearchText(item.artist_unicode) ?? this.cleanSearchText(item.artist);
+    const title = this.cleanSearchText(item.title_unicode) ?? this.cleanSearchText(item.title);
+    if (!id || !title) {
+      return null;
+    }
+
+    const covers = item.covers && typeof item.covers === 'object' ? item.covers : {};
+    const beatmaps = Array.isArray(item.beatmaps) ? (item.beatmaps as OsuOfficialBeatmap[]) : [];
+    const durationSeconds = this.maxPositiveNumber(
+      beatmaps.map((beatmap) => this.cleanPositiveNumber(beatmap.total_length) ?? this.cleanPositiveNumber(beatmap.hit_length)),
+    );
+    return {
+      id: String(id),
+      provider: 'osu',
+      title: [artist, title].filter(Boolean).join(' - ') || title,
+      uploader: this.cleanSearchText(item.creator),
+      durationSeconds,
+      thumbnailUrl: this.normalizeOsuImageUrl(covers['card@2x'] ?? covers.card ?? covers['cover@2x'] ?? covers.cover ?? covers['list@2x'] ?? covers.list, id),
+      webpageUrl: `https://osu.ppy.sh/beatmapsets/${encodeURIComponent(String(id))}`,
+      viewCount: this.cleanPositiveNumber(item.play_count),
+      publishedAt:
+        this.dateFromTimestampOrIso(item.ranked_date) ??
+        this.dateFromTimestampOrIso(item.submitted_date) ??
+        this.dateFromTimestampOrIso(item.last_updated),
+    };
+  }
+
+  private parseSearchResults(provider: YtDlpDownloadSearchProvider, stdout: string): DownloadSearchResult[] {
     const parsed = JSON.parse(stdout) as YtDlpSearchResult;
     const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
 
@@ -1167,7 +1397,7 @@ export class DownloadService extends EventEmitter {
       .filter((entry): entry is DownloadSearchResult => Boolean(entry));
   }
 
-  private mapSearchEntry(provider: DownloadSearchProvider, entry: unknown): DownloadSearchResult | null {
+  private mapSearchEntry(provider: YtDlpDownloadSearchProvider, entry: unknown): DownloadSearchResult | null {
     if (!entry || typeof entry !== 'object') {
       return null;
     }
@@ -1193,7 +1423,7 @@ export class DownloadService extends EventEmitter {
     };
   }
 
-  private normalizeSearchResultUrl(provider: DownloadSearchProvider, webpageUrl: unknown, url: unknown, id: string | null): string | null {
+  private normalizeSearchResultUrl(provider: YtDlpDownloadSearchProvider, webpageUrl: unknown, url: unknown, id: string | null): string | null {
     const directUrl = this.cleanText(webpageUrl) ?? this.cleanText(url);
     if (directUrl?.startsWith('http://') || directUrl?.startsWith('https://')) {
       return directUrl;
@@ -1243,6 +1473,21 @@ export class DownloadService extends EventEmitter {
   private cleanPositiveNumber(value: unknown): number | null {
     const numberValue = Number(value);
     return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
+  }
+
+  private maxPositiveNumber(values: Array<number | null>): number | null {
+    const numbers = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0);
+    return numbers.length > 0 ? Math.max(...numbers) : null;
+  }
+
+  private dateFromTimestampOrIso(value: unknown): string | null {
+    if (typeof value === 'string' && value.trim()) {
+      const timestamp = Date.parse(value);
+      return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+    }
+
+    const seconds = this.cleanPositiveNumber(value);
+    return seconds ? new Date(seconds * 1000).toISOString() : null;
   }
 
   private startNextJob(): void {

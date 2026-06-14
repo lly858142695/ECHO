@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Download, FileAudio, FolderOpen, Link2, Search, Settings2, Square, Wrench, XCircle } from 'lucide-react';
 import type {
+  CreateDownloadUrlJobOptions,
   DownloadJob,
   DownloadJobStatus,
   DownloadSearchProvider,
@@ -47,12 +48,13 @@ const providerLabels: Record<DownloadJob['provider'], string> & Record<DownloadS
 };
 
 const searchScopeLabels: Record<DownloadSearchScope, string> = {
-  all: 'YouTube + Bilibili',
+  all: 'YouTube + Bilibili + osu!',
   youtube: 'YouTube',
   bilibili: 'Bilibili',
+  osu: 'osu!',
 };
 
-const searchScopes: DownloadSearchScope[] = ['all', 'youtube', 'bilibili'];
+const searchScopes: DownloadSearchScope[] = ['all', 'youtube', 'bilibili', 'osu'];
 
 type Translate = (key: TranslationKey, options?: Record<string, string | number>) => string;
 
@@ -300,7 +302,7 @@ export const DownloadsPage = (): JSX.Element => {
   }, [bridge, refreshJobs, refreshTools, t]);
 
   const createDownload = useCallback(
-    async (sourceUrl: string): Promise<DownloadJob | null> => {
+    async (sourceUrl: string, options: CreateDownloadUrlJobOptions = {}): Promise<DownloadJob | null> => {
       if (!bridge?.createUrlJob) {
         return null;
       }
@@ -313,6 +315,7 @@ export const DownloadsPage = (): JSX.Element => {
       }
 
       const job = await bridge.createUrlJob(sourceUrl, {
+        ...options,
         importToLibrary: settings.importToLibrary,
         bindMvAfterImport: settings.bindMvAfterImport,
       });
@@ -376,7 +379,11 @@ export const DownloadsPage = (): JSX.Element => {
       setMessage(null);
 
       try {
-        const job = await createDownload(result.webpageUrl);
+        const job = await createDownload(result.webpageUrl, {
+          title: result.title,
+          coverUrl: result.thumbnailUrl,
+          webpageUrl: result.webpageUrl,
+        });
         if (!job) {
           return;
         }

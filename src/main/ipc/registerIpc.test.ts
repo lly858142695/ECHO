@@ -25,6 +25,8 @@ type MinimalPluginSummary = {
 };
 const pluginListMock = vi.fn<() => { directory: string; plugins: MinimalPluginSummary[] }>(() => ({ directory: 'D:\\Echo\\plugins', plugins: [] }));
 const connectDonatorUnlockStatusMock = vi.fn(() => ({ unlocked: false }));
+const downloadFeatureUnlockStatusMock = vi.fn(() => ({ unlocked: false }));
+const lockedFeatureSettingsOptions = { finalThemeUnlocked: false, downloadsFeatureUnlocked: false };
 const proxyTestSessionMock = { partition: 'network-proxy-test' };
 const fromPartitionMock = vi.fn(() => proxyTestSessionMock);
 const getLibraryServiceMock = vi.fn();
@@ -261,6 +263,12 @@ vi.mock('../plugins/ConnectDonatorUnlockService', () => ({
   }),
 }));
 
+vi.mock('../plugins/DownloadFeatureUnlockService', () => ({
+  getDownloadFeatureUnlockService: () => ({
+    getStatus: downloadFeatureUnlockStatusMock,
+  }),
+}));
+
 vi.mock('./lastFmIpc', () => ({
   registerLastFmIpc: vi.fn(),
 }));
@@ -303,6 +311,8 @@ describe('app IPC cover cache directory', () => {
     pluginListMock.mockReturnValue({ directory: 'D:\\Echo\\plugins', plugins: [] });
     connectDonatorUnlockStatusMock.mockReset();
     connectDonatorUnlockStatusMock.mockReturnValue({ unlocked: false });
+    downloadFeatureUnlockStatusMock.mockReset();
+    downloadFeatureUnlockStatusMock.mockReturnValue({ unlocked: false });
     getLibraryServiceMock.mockReset();
     ensureCoverCacheDirectoryMock.mockReset();
     ensureTrayMock.mockClear();
@@ -422,7 +432,7 @@ describe('app IPC cover cache directory', () => {
 
     await handlers[IpcChannels.AppSetSettings]!(null, { hideToTrayOnClose: false });
 
-    expect(setAppSettingsMock).toHaveBeenCalledWith({ hideToTrayOnClose: false });
+    expect(setAppSettingsMock).toHaveBeenCalledWith({ hideToTrayOnClose: false }, lockedFeatureSettingsOptions);
     expect(ensureTrayMock).toHaveBeenCalledTimes(1);
     expect(destroyTrayMock).not.toHaveBeenCalled();
   });
@@ -433,10 +443,13 @@ describe('app IPC cover cache directory', () => {
       finalThemeUnlockVersion,
     });
 
-    expect(setAppSettingsMock).toHaveBeenCalledWith({
-      appearanceThemePreset: 'nyanCat',
-      finalThemeUnlockVersion,
-    });
+    expect(setAppSettingsMock).toHaveBeenCalledWith(
+      {
+        appearanceThemePreset: 'nyanCat',
+        finalThemeUnlockVersion,
+      },
+      lockedFeatureSettingsOptions,
+    );
   });
 
   it('allows Pro theme settings only when the donator machine license is valid', async () => {
@@ -452,8 +465,16 @@ describe('app IPC cover cache directory', () => {
         appearanceThemePreset: 'FINAL',
         finalThemeUnlockVersion,
       },
-      { finalThemeUnlocked: true },
+      { finalThemeUnlocked: true, downloadsFeatureUnlocked: false },
     );
+  });
+
+  it('derives downloads unlock settings from the downloads unlock plugin', () => {
+    downloadFeatureUnlockStatusMock.mockReturnValue({ unlocked: true });
+
+    handlers[IpcChannels.AppGetSettings]!();
+
+    expect(getAppSettingsMock).toHaveBeenCalledWith({ finalThemeUnlocked: false, downloadsFeatureUnlocked: true });
   });
 
   it('uses an image-only picker for lyrics wallpaper selection', async () => {
@@ -626,7 +647,7 @@ describe('app IPC cover cache directory', () => {
 
     expect(result.settings.locale).toBe('en-US');
     expect(existsSync(result.backupPath)).toBe(true);
-    expect(setAppSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en-US' }));
+    expect(setAppSettingsMock).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en-US' }), lockedFeatureSettingsOptions);
     expect(service.setCoverCacheDir).toHaveBeenCalledWith('D:\\Echo\\cover-cache');
     rmSync(tempRoot, { recursive: true, force: true });
   });
@@ -706,13 +727,16 @@ describe('app IPC cover cache directory', () => {
     };
 
     expect(importEchoUserDataBackupMock).toHaveBeenCalledWith('D:\\EchoBackups\\backup.zip');
-    expect(setAppSettingsMock).toHaveBeenCalledWith(expect.objectContaining({
-      locale: 'en-US',
-      autoDataBackupEnabled: true,
-      autoDataBackupDirectory: 'D:\\CurrentBackups',
-      autoDataBackupIntervalDays: 3,
-      autoDataBackupLastPath: 'D:\\CurrentBackups\\last.zip',
-    }));
+    expect(setAppSettingsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        locale: 'en-US',
+        autoDataBackupEnabled: true,
+        autoDataBackupDirectory: 'D:\\CurrentBackups',
+        autoDataBackupIntervalDays: 3,
+        autoDataBackupLastPath: 'D:\\CurrentBackups\\last.zip',
+      }),
+      lockedFeatureSettingsOptions,
+    );
     expect(result.settings.locale).toBe('en-US');
     expect(result.settings.autoDataBackupDirectory).toBe('D:\\CurrentBackups');
     expect(result.warnings).toContain('已保留当前设备的自动备份目录，未使用备份文件里的旧目录。');
@@ -729,7 +753,7 @@ describe('app IPC cover cache directory', () => {
 
     await handlers[IpcChannels.AppSetSettings]!(null, shortcutPatch);
 
-    expect(setAppSettingsMock).toHaveBeenCalledWith(shortcutPatch);
+    expect(setAppSettingsMock).toHaveBeenCalledWith(shortcutPatch, lockedFeatureSettingsOptions);
     expect(refreshGlobalShortcutRegistrationMock).toHaveBeenCalledTimes(1);
   });
 
@@ -750,7 +774,7 @@ describe('app IPC cover cache directory', () => {
 
     await handlers[IpcChannels.AppSetSettings]!(null, proxyPatch);
 
-    expect(setAppSettingsMock).toHaveBeenCalledWith(proxyPatch);
+    expect(setAppSettingsMock).toHaveBeenCalledWith(proxyPatch, lockedFeatureSettingsOptions);
     expect(applyNetworkProxySettingsMock).toHaveBeenCalledWith(expect.objectContaining(proxyPatch));
   });
 
