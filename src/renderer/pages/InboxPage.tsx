@@ -18,10 +18,18 @@ import { useI18n } from '../i18n/I18nProvider';
 import { getLibraryBridge } from '../utils/echoBridge';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { useImeAwareDebouncedSearch } from '../utils/imeInput';
+import {
+  coverIntelligenceSourceKey,
+  readCoverIntelligenceEnabled,
+  tryAnalyzeCoverImage,
+  writeCoverIntelligenceEnabled,
+  type CoverIntelligenceResult,
+} from '../utils/coverIntelligence';
 
 const pageSize = 60;
 const smartCratePreviewLimit = 4;
 const smartCrateSamplePageSize = 160;
+const coverIntelligenceAnalysisLimit = 18;
 
 type SmartCrateId = 'lateNight' | 'comeback' | 'coolCovers' | 'hifi441' | 'forgotten' | 'skipReview';
 type SmartCrateTone = 'violet' | 'blue' | 'cyan' | 'mint' | 'amber' | 'rose';
@@ -45,6 +53,11 @@ type SmartCrate = {
   tone: SmartCrateTone;
   tracks: SmartCrateTrack[];
   emptyText: string;
+};
+
+type BuildSmartCratesOptions = {
+  coverIntelligenceEnabled: boolean;
+  coolCoverTracks: SmartCrateTrack[];
 };
 
 const smartCrateIconMap: Record<SmartCrateId, typeof Moon> = {
@@ -85,6 +98,37 @@ const smartCrateTrackFromLibraryTrack = (track: LibraryTrack, detail: string): S
   detail,
   queueTrack: track,
 });
+
+const coverIntelligenceDetail = (
+  result: CoverIntelligenceResult,
+  t: ReturnType<typeof useI18n>['t'],
+): string => t('inboxPage.coverIntelligence.coolDetail', { score: Math.round(result.coolScore * 100) });
+
+const buildCoolCoverTracks = async (
+  tracks: LibraryTrack[],
+  t: ReturnType<typeof useI18n>['t'],
+): Promise<SmartCrateTrack[]> => {
+  const candidates = tracks
+    .map((track) => ({
+      track,
+      artworkUrl: trackArtworkUrl(track),
+      sourceKey: coverIntelligenceSourceKey(track),
+    }))
+    .filter((candidate): candidate is { track: LibraryTrack; artworkUrl: string; sourceKey: string } =>
+      Boolean(candidate.artworkUrl && candidate.sourceKey),
+    )
+    .slice(0, coverIntelligenceAnalysisLimit);
+
+  const analyzed = await Promise.all(candidates.map(async ({ track, artworkUrl, sourceKey }) => {
+    const result = await tryAnalyzeCoverImage(artworkUrl, sourceKey);
+    if (!result || result.temperature !== 'cool') {
+      return null;
+    }
+    return smartCrateTrackFromLibraryTrack(track, coverIntelligenceDetail(result, t));
+  }));
+
+  return uniqueSmartCrateTracks(analyzed.filter((track): track is SmartCrateTrack => Boolean(track))).slice(0, smartCratePreviewLimit);
+};
 
 const smartCrateTrackFromInsight = (
   insight: PlaybackMemoryTrackInsight,
@@ -138,6 +182,7 @@ const buildSmartCrates = (
   memory: PlaybackMemoryGraph | null,
   recentTracks: LibraryTrack[],
   t: ReturnType<typeof useI18n>['t'],
+  options: BuildSmartCratesOptions,
 ): SmartCrate[] => {
   const lateNightInsight = memory?.lateNightTrack ?? memory?.timeBuckets.find((bucket) => bucket.id === 'lateNight')?.topTrack ?? null;
   const comebackInsight = memory?.comebackTrack ?? null;
@@ -147,10 +192,7 @@ const buildSmartCrates = (
     .filter((track) => track.sampleRate === 44100 && isLosslessTrack(track))
     .slice(0, smartCratePreviewLimit)
     .map((track) => smartCrateTrackFromLibraryTrack(track, `${track.bitDepth ?? 16}bit / 44.1kHz`));
-  const coolCoverTracks = recentTracks
-    .filter((track) => Boolean(trackArtworkUrl(track)))
-    .slice(0, smartCratePreviewLimit)
-    .map((track) => smartCrateTrackFromLibraryTrack(track, t('inboxPage.smartCrates.coolCoversDetail')));
+  const coolCoverTracks = options.coverIntelligenceEnabled ? options.coolCoverTracks : [];
 
   return [
     {
@@ -181,11 +223,19 @@ const buildSmartCrates = (
       id: 'coolCovers',
       title: t('inboxPage.smartCrates.coolCovers.title'),
       kicker: t('inboxPage.smartCrates.visualKicker'),
-      description: t('inboxPage.smartCrates.coolCovers.description'),
-      metric: coolCoverTracks.length > 0 ? t('inboxPage.smartCrates.trackCountMetric', { count: coolCoverTracks.length }) : t('inboxPage.smartCrates.waitingMetric'),
+      description: options.coverIntelligenceEnabled
+        ? t('inboxPage.smartCrates.coolCovers.description')
+        : t('inboxPage.coverIntelligence.disabledDescription'),
+      metric: !options.coverIntelligenceEnabled
+        ? t('inboxPage.coverIntelligence.offMetric')
+        : coolCoverTracks.length > 0
+          ? t('inboxPage.smartCrates.trackCountMetric', { count: coolCoverTracks.length })
+          : t('inboxPage.smartCrates.waitingMetric'),
       tone: 'cyan',
       tracks: uniqueSmartCrateTracks(coolCoverTracks),
-      emptyText: t('inboxPage.smartCrates.coolCovers.empty'),
+      emptyText: options.coverIntelligenceEnabled
+        ? t('inboxPage.smartCrates.coolCovers.empty')
+        : t('inboxPage.coverIntelligence.disabledEmpty'),
     },
     {
       id: 'hifi441',
@@ -392,7 +442,10 @@ export const InboxPage = (): JSX.Element => {
   const [selectedItems, setSelectedItems] = useState<Record<string, LibraryInboxTrackItem>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [smartCrates, setSmartCrates] = useState<SmartCrate[]>(() => buildSmartCrates(null, [], t));
+  const [coverIntelligenceEnabled, setCoverIntelligenceEnabled] = useState(() => readCoverIntelligenceEnabled());
+  const [smartCrates, setSmartCrates] = useState<SmartCrate[]>(() =>
+    buildSmartCrates(null, [], t, { coverIntelligenceEnabled: readCoverIntelligenceEnabled(), coolCoverTracks: [] }),
+  );
   const [selectedCrateId, setSelectedCrateId] = useState<SmartCrateId>('lateNight');
   const [isLoadingSmartCrates, setIsLoadingSmartCrates] = useState(false);
   const requestIdRef = useRef(0);
@@ -480,7 +533,7 @@ export const InboxPage = (): JSX.Element => {
     smartCrateRequestIdRef.current = requestId;
 
     if (!library?.getTracks) {
-      setSmartCrates(buildSmartCrates(null, [], t));
+      setSmartCrates(buildSmartCrates(null, [], t, { coverIntelligenceEnabled, coolCoverTracks: [] }));
       return;
     }
 
@@ -490,22 +543,23 @@ export const InboxPage = (): JSX.Element => {
         library.getTracks({ page: 1, pageSize: smartCrateSamplePageSize, sort: 'recent' }),
         library.getPlaybackMemoryGraph?.({ page: 1, pageSize: 80, sort: 'plays' }) ?? Promise.resolve(null),
       ]);
+      const coolCoverTracks = coverIntelligenceEnabled ? await buildCoolCoverTracks(trackPage.items, t) : [];
 
       if (smartCrateRequestIdRef.current !== requestId) {
         return;
       }
 
-      setSmartCrates(buildSmartCrates(memoryGraph, trackPage.items, t));
+      setSmartCrates(buildSmartCrates(memoryGraph, trackPage.items, t, { coverIntelligenceEnabled, coolCoverTracks }));
     } catch {
       if (smartCrateRequestIdRef.current === requestId) {
-        setSmartCrates(buildSmartCrates(null, [], t));
+        setSmartCrates(buildSmartCrates(null, [], t, { coverIntelligenceEnabled, coolCoverTracks: [] }));
       }
     } finally {
       if (smartCrateRequestIdRef.current === requestId) {
         setIsLoadingSmartCrates(false);
       }
     }
-  }, [locale]);
+  }, [coverIntelligenceEnabled, locale]);
 
   useEffect(() => {
     void loadSmartCrates();
@@ -587,6 +641,13 @@ export const InboxPage = (): JSX.Element => {
 
     setScope('batch');
     setBatchId(value);
+  };
+
+  const handleCoverIntelligenceToggle = (enabled: boolean): void => {
+    writeCoverIntelligenceEnabled(enabled);
+    setCoverIntelligenceEnabled(enabled);
+    setMessage(t(enabled ? 'inboxPage.coverIntelligence.enabledMessage' : 'inboxPage.coverIntelligence.disabledMessage'));
+    setError(null);
   };
 
   const handleCreatePlaylist = useCallback(async (): Promise<void> => {
@@ -801,15 +862,37 @@ export const InboxPage = (): JSX.Element => {
             <h2>{t('inboxPage.smartCrates.title')}</h2>
             <p>{t('inboxPage.smartCrates.subtitle')}</p>
           </div>
-          <button
-            className="inbox-icon-button"
-            disabled={isLoadingSmartCrates}
-            onClick={() => void loadSmartCrates()}
-            title={t('home.recommend.refresh')}
-            type="button"
-          >
-            <RefreshCw size={17} />
-          </button>
+          <div className="inbox-smart-crates-controls">
+            <label className="inbox-cover-intelligence-toggle">
+              <span className="inbox-cover-intelligence-copy">
+                <Sparkles size={16} />
+                <span>
+                  <strong>{t('inboxPage.coverIntelligence.toggle')}</strong>
+                  <em>
+                    {coverIntelligenceEnabled
+                      ? t('inboxPage.coverIntelligence.statusEnabled')
+                      : t('inboxPage.coverIntelligence.statusDisabled')}
+                  </em>
+                </span>
+              </span>
+              <input
+                aria-label={t('inboxPage.coverIntelligence.toggle')}
+                checked={coverIntelligenceEnabled}
+                onChange={(event) => handleCoverIntelligenceToggle(event.currentTarget.checked)}
+                type="checkbox"
+              />
+              <span className="inbox-cover-intelligence-switch" />
+            </label>
+            <button
+              className="inbox-icon-button"
+              disabled={isLoadingSmartCrates}
+              onClick={() => void loadSmartCrates()}
+              title={t('home.recommend.refresh')}
+              type="button"
+            >
+              <RefreshCw size={17} />
+            </button>
+          </div>
         </div>
 
         <div className="inbox-crate-layout">

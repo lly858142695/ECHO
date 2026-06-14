@@ -12,7 +12,7 @@ export type RemoteCoverLoadPerformanceMode = 'low' | 'balanced' | 'aggressive' |
 export type LyricsBackgroundMode = 'theme' | 'cover' | 'coverColor' | 'customWallpaper';
 export type LyricsTextDirection = 'horizontal' | 'vertical';
 export type LyricsMiniPlayerColorMode = 'default' | 'custom' | 'cover';
-export type DesktopLyricsColorMode = 'theme' | 'custom';
+export type DesktopLyricsColorMode = 'theme' | 'custom' | 'gradient';
 export type AppWallpaperMediaType = 'image' | 'video';
 export type AppVideoWallpaperPauseMode = 'smart' | 'minimized' | 'never';
 export type AppLocale = 'zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP';
@@ -241,6 +241,7 @@ export type AppSettings = {
   autoUpdateCustomUrl?: string | null;
   autoAccountCheckOnStartup?: boolean;
   suppressAccountExpiryNotices?: boolean;
+  notificationsDisabled?: boolean;
   spotifyAutoLaunchOfficialPlayer?: boolean;
   spotifyClientId?: string | null;
   spotifyRedirectUri?: string | null;
@@ -354,6 +355,8 @@ export type AppSettings = {
   desktopLyricsColorMode?: DesktopLyricsColorMode;
   desktopLyricsColor?: string;
   desktopLyricsStrokeColor?: string;
+  desktopLyricsGradientStartColor?: string;
+  desktopLyricsGradientEndColor?: string;
   desktopLyricsOpacityPercent?: number;
   desktopLyricsTextDirection?: LyricsTextDirection;
   desktopLyricsRomanizationEnabled?: boolean;

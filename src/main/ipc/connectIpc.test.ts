@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => {
   const handle = vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
     handlers[channel] = handler;
   });
+  const showOpenDialog = vi.fn();
   const connectService = {
     connect: vi.fn(),
     disconnect: vi.fn(),
@@ -29,6 +30,8 @@ const mocks = vi.hoisted(() => {
     getServerStatus: vi.fn(() => ({})),
     setEnabled: vi.fn(async () => ({})),
     rotateToken: vi.fn(() => ({})),
+    setWebBackground: vi.fn(() => ({})),
+    setLocalWebBackgroundImage: vi.fn(() => ({ webBackground: { type: 'image', url: '/echo-link/v1/background/bg-token' } })),
   };
   const airPlayReceiverService = {
     getStatus: vi.fn(),
@@ -54,6 +57,7 @@ const mocks = vi.hoisted(() => {
     handlers,
     receiverService,
     settings,
+    showOpenDialog,
     unlockService,
   };
 });
@@ -61,6 +65,9 @@ const mocks = vi.hoisted(() => {
 vi.mock('electron', () => ({
   BrowserWindow: {
     getAllWindows: () => [],
+  },
+  dialog: {
+    showOpenDialog: mocks.showOpenDialog,
   },
   ipcMain: {
     handle: mocks.handle,
@@ -103,6 +110,7 @@ describe('connect IPC receiver autostart', () => {
     };
     mocks.unlockService.assertUnlocked.mockImplementation(() => undefined);
     mocks.unlockService.getStatus.mockReturnValue({ unlocked: true });
+    mocks.showOpenDialog.mockReset();
   });
 
   it('leaves receivers off when startup autostart is disabled', async () => {
@@ -139,5 +147,32 @@ describe('connect IPC receiver autostart', () => {
     expect(mocks.handlers[IpcChannels.ConnectGetDonatorUnlockStatus]!(null)).toEqual({ unlocked: true });
     expect(() => mocks.handlers[IpcChannels.ConnectListDevices]!(null)).toThrow('connect_donator_unlock_required');
     expect(mocks.connectService.listDevices).not.toHaveBeenCalled();
+  });
+
+  it('routes Echo Link web background changes through the main service', async () => {
+    const { registerConnectIpc } = await import('./connectIpc');
+
+    registerConnectIpc();
+    const background = { type: 'video', url: 'https://example.test/background.webm' };
+    const result = mocks.handlers[IpcChannels.EchoLinkSetWebBackground]!(null, background);
+
+    expect(result).toEqual({});
+    expect(mocks.unlockService.assertUnlocked).toHaveBeenCalled();
+    expect(mocks.echoLinkService.setWebBackground).toHaveBeenCalledWith(background);
+  });
+
+  it('chooses a local Echo Link web background image through the main service', async () => {
+    mocks.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: ['D:\\Pictures\\album-sea.png'] });
+    const { registerConnectIpc } = await import('./connectIpc');
+
+    registerConnectIpc();
+    const result = await mocks.handlers[IpcChannels.EchoLinkChooseWebBackgroundImage]!(null);
+
+    expect(result).toEqual({ webBackground: { type: 'image', url: '/echo-link/v1/background/bg-token' } });
+    expect(mocks.showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
+      filters: [{ name: 'Images', extensions: ['avif', 'gif', 'jpeg', 'jpg', 'png', 'webp'] }],
+      properties: ['openFile'],
+    }));
+    expect(mocks.echoLinkService.setLocalWebBackgroundImage).toHaveBeenCalledWith('D:\\Pictures\\album-sea.png');
   });
 });

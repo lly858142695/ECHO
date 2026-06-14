@@ -125,6 +125,20 @@ describe('CoverCacheManager', () => {
     expect(result.skippedFiles).toBe(1);
   });
 
+  it('warns when the source cache directory was already deleted', async () => {
+    const root = makeTempRoot();
+    const oldDir = join(root, 'deleted-cache');
+    const newDir = join(root, 'new-cache');
+
+    const result = await migrateCoverCache({ oldDir, newDir });
+
+    expect(result.errors).toEqual([]);
+    expect(result.copiedFiles).toBe(0);
+    expect(result.updatedCoverRows).toBe(0);
+    expect(result.warnings[0]).toContain('source cache directory is missing');
+    expect(existsSync(newDir)).toBe(true);
+  });
+
   it('leaves missing database cache paths unchanged and records a warning', () => {
     const root = makeTempRoot();
     const oldDir = join(root, 'old-cache');

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import { CalendarDays, Check, ChevronDown, Download, ExternalLink, FilePlus2, GripVertical, Heart, ImagePlus, Link, ListPlus, Loader2, MoreHorizontal, Music2, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, Share2, SlidersHorizontal, Sparkles, Trash2, Upload, WifiOff, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import type { AppSettings } from '../../shared/types/appSettings';
 import type { DownloadJob, DownloadJobStatus } from '../../shared/types/downloads';
 import type { LibraryPage, LibraryPlaylist, LibraryPlaylistItem, LibraryTrack, PlaylistExportFormat, PlaylistSortMode } from '../../shared/types/library';
@@ -11,6 +12,7 @@ import { likedChangedEvent, likedTracksChangedEvent, useLikedTrackIds } from '..
 import { useI18n } from '../i18n/I18nProvider';
 import { readStreamingQualityPreference, writeStreamingQualityPreference } from '../preferences/streamingQualityPreference';
 import { isPlaybackCancellationError, usePlaybackQueue } from '../stores/PlaybackQueueProvider';
+import { panelTransition, panelVariants, springFast } from '../ui/motion/presets';
 import { resolvePlaylistForTrackAdd } from '../utils/appPrompt';
 import { getDownloadsBridge, getStreamingBridge } from '../utils/echoBridge';
 
@@ -2450,15 +2452,26 @@ export const PlaylistsPage = (): JSX.Element => {
 
         <div className="playlist-view-switch" role="tablist" aria-label={t('playlistsPage.view.aria')}>
           <button type="button" role="tab" aria-selected={playlistPanelView === 'local'} data-active={playlistPanelView === 'local'} onClick={() => setPlaylistPanelView('local')}>
-            {t('playlistsPage.view.local')}
+            {playlistPanelView === 'local' ? <motion.span className="playlist-switch-indicator" layoutId="playlist-view-switch-indicator" transition={springFast} /> : null}
+            <span className="playlist-switch-label">{t('playlistsPage.view.local')}</span>
           </button>
           <button type="button" role="tab" aria-selected={playlistPanelView === 'streamingFavorites'} data-active={playlistPanelView === 'streamingFavorites'} onClick={() => setPlaylistPanelView('streamingFavorites')}>
-            {t('playlistsPage.view.streamingFavorites')}
+            {playlistPanelView === 'streamingFavorites' ? <motion.span className="playlist-switch-indicator" layoutId="playlist-view-switch-indicator" transition={springFast} /> : null}
+            <span className="playlist-switch-label">{t('playlistsPage.view.streamingFavorites')}</span>
           </button>
         </div>
 
-        {playlistPanelView === 'local' ? (
-          <>
+        <AnimatePresence mode="wait" initial={false}>
+          {playlistPanelView === 'local' ? (
+            <motion.div
+              animate="active"
+              className="playlist-sidebar-panel"
+              exit="exit"
+              initial="enter"
+              key="local-playlists"
+              transition={panelTransition}
+              variants={panelVariants}
+            >
             <button
               className="playlist-daily-recommend"
               type="button"
@@ -2487,13 +2500,16 @@ export const PlaylistsPage = (): JSX.Element => {
 
             <div className="playlist-source-filter" role="group" aria-label="歌单来源筛选">
               <button type="button" data-active={playlistSourceFilter === 'all'} onClick={() => setPlaylistSourceFilter('all')}>
-                全部
+                {playlistSourceFilter === 'all' ? <motion.span className="playlist-filter-indicator" layoutId="playlist-source-filter-indicator" transition={springFast} /> : null}
+                <span>全部</span>
               </button>
               <button type="button" data-active={playlistSourceFilter === 'local'} onClick={() => setPlaylistSourceFilter('local')}>
-                本地
+                {playlistSourceFilter === 'local' ? <motion.span className="playlist-filter-indicator" layoutId="playlist-source-filter-indicator" transition={springFast} /> : null}
+                <span>本地</span>
               </button>
               <button type="button" data-active={playlistSourceFilter === 'streaming'} onClick={() => setPlaylistSourceFilter('streaming')}>
-                流媒体
+                {playlistSourceFilter === 'streaming' ? <motion.span className="playlist-filter-indicator" layoutId="playlist-source-filter-indicator" transition={springFast} /> : null}
+                <span>流媒体</span>
               </button>
             </div>
 
@@ -2502,19 +2518,23 @@ export const PlaylistsPage = (): JSX.Element => {
                 const sourceLabel = playlistSourceProviderLabel(playlist);
 
                 return (
-                  <button
+                  <motion.button
+                    animate={{ opacity: 1, y: 0 }}
                     className="playlist-list-item"
                     data-active={playlist.id === selectedPlaylist?.id ? 'true' : undefined}
                     data-dragging={draggedPlaylistId === playlist.id ? 'true' : undefined}
                     data-drop-target={dropTargetPlaylistId === playlist.id ? 'true' : undefined}
                     data-reorderable={canReorderPlaylistList ? 'true' : undefined}
                     draggable={canReorderPlaylistList}
+                    initial={{ opacity: 0, y: 6 }}
                     key={playlist.id}
+                    layout
+                    transition={panelTransition}
                     type="button"
-                    onDragEnd={handlePlaylistListDragEnd}
-                    onDragOver={(event) => handlePlaylistListDragOver(event, playlist)}
-                    onDragStart={(event) => handlePlaylistListDragStart(event, playlist)}
-                    onDrop={(event) => handlePlaylistListDrop(event, playlist)}
+                    onDragEnd={() => handlePlaylistListDragEnd()}
+                    onDragOver={(event) => handlePlaylistListDragOver(event as unknown as DragEvent<HTMLButtonElement>, playlist)}
+                    onDragStart={(event) => handlePlaylistListDragStart(event as unknown as DragEvent<HTMLButtonElement>, playlist)}
+                    onDrop={(event) => handlePlaylistListDrop(event as unknown as DragEvent<HTMLButtonElement>, playlist)}
                     onClick={() => setSelectedPlaylistId(playlist.id)}
                   >
                     <GripVertical className="playlist-list-drag-handle" size={15} aria-hidden="true" />
@@ -2525,7 +2545,7 @@ export const PlaylistsPage = (): JSX.Element => {
                       </strong>
                       <small>{t('albumMenu.playlistSubmenu.itemCount', { count: playlist.itemCount })}</small>
                     </span>
-                  </button>
+                  </motion.button>
                 );
               })}
               {filteredOrderedPlaylists.length === 0 ? (
@@ -2578,9 +2598,17 @@ export const PlaylistsPage = (): JSX.Element => {
                 <em>需登录</em>
               </div>
             </div>
-          </>
-        ) : (
-          <>
+            </motion.div>
+          ) : (
+            <motion.div
+              animate="active"
+              className="playlist-sidebar-panel"
+              exit="exit"
+              initial="enter"
+              key="streaming-favorites"
+              transition={panelTransition}
+              variants={panelVariants}
+            >
             <form
               className="streaming-section playlist-import-box"
               onSubmit={(event) => {
@@ -2607,19 +2635,23 @@ export const PlaylistsPage = (): JSX.Element => {
             <div className="playlist-list playlist-list--favorites">
               {orderedFavoriteListEntries.map((entry) => {
                 return (
-                  <button
+                  <motion.button
+                    animate={{ opacity: 1, y: 0 }}
                     className="playlist-list-item"
                     data-active={entry.id === selectedFavoriteListId ? 'true' : undefined}
                     data-dragging={draggedFavoriteListId === entry.id ? 'true' : undefined}
                     data-drop-target={dropTargetFavoriteListId === entry.id ? 'true' : undefined}
                     data-reorderable={canReorderFavoriteList ? 'true' : undefined}
                     draggable={canReorderFavoriteList}
+                    initial={{ opacity: 0, y: 6 }}
                     key={entry.id}
+                    layout
+                    transition={panelTransition}
                     type="button"
-                    onDragEnd={handleFavoriteListDragEnd}
-                    onDragOver={(event) => handleFavoriteListDragOver(event, entry)}
-                    onDragStart={(event) => handleFavoriteListDragStart(event, entry)}
-                    onDrop={(event) => handleFavoriteListDrop(event, entry)}
+                    onDragEnd={() => handleFavoriteListDragEnd()}
+                    onDragOver={(event) => handleFavoriteListDragOver(event as unknown as DragEvent<HTMLButtonElement>, entry)}
+                    onDragStart={(event) => handleFavoriteListDragStart(event as unknown as DragEvent<HTMLButtonElement>, entry)}
+                    onDrop={(event) => handleFavoriteListDrop(event as unknown as DragEvent<HTMLButtonElement>, entry)}
                     onClick={() => setSelectedFavoriteListId(entry.id)}
                   >
                     <GripVertical className="playlist-list-drag-handle" size={15} aria-hidden="true" />
@@ -2630,17 +2662,27 @@ export const PlaylistsPage = (): JSX.Element => {
                       </strong>
                       <small>{entry.count} favorites</small>
                     </span>
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>
-          </>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </aside>
 
       <section className="playlist-detail">
-        {playlistPanelView === 'streamingFavorites' ? (
-          <>
+        <>
+          {playlistPanelView === 'streamingFavorites' ? (
+            <motion.div
+              animate="active"
+              className="playlist-detail-panel"
+              exit="exit"
+              initial="enter"
+              key={`favorites-${selectedFavoriteListId}`}
+              transition={panelTransition}
+              variants={panelVariants}
+            >
             <header className="playlist-detail-header">
               <div className="playlist-cover" data-empty={favoriteDisplayTracks.length === 0}>
                 {favoriteDisplayTracks[0]?.coverThumb ? <img alt="" src={favoriteDisplayTracks[0].coverThumb} /> : <Heart size={34} />}
@@ -2736,9 +2778,17 @@ export const PlaylistsPage = (): JSX.Element => {
               onTrackDragEnd={() => undefined}
               onPlay={handleTrackPlay}
             />
-          </>
-        ) : selectedPlaylist ? (
-          <>
+            </motion.div>
+          ) : selectedPlaylist ? (
+            <motion.div
+              animate="active"
+              className="playlist-detail-panel"
+              exit="exit"
+              initial="enter"
+              key={`playlist-${selectedPlaylist.id}`}
+              transition={panelTransition}
+              variants={panelVariants}
+            >
             <header className="playlist-detail-header">
               <div className="playlist-cover" data-empty={!selectedPlaylist.coverThumb}>
                 {selectedPlaylist.coverThumb ? <img alt="" src={selectedPlaylist.coverThumb} /> : <Music2 size={34} />}
@@ -2994,17 +3044,28 @@ export const PlaylistsPage = (): JSX.Element => {
               onOpenTrackMenu={handleOpenTrackMenu}
               onPlay={handleTrackPlay}
             />
-          </>
-        ) : (
-          <div className="playlist-start">
-            <Music2 size={36} />
-            <strong>{t('playlistsPage.empty.createFirst')}</strong>
-            <button className="primary-action" type="button" onClick={() => void handleCreatePlaylist()}>
-              <Plus size={16} />
-              <span>{t('playlistsPage.empty.create')}</span>
-            </button>
-          </div>
-        )}
+            </motion.div>
+          ) : (
+            <motion.div
+              animate="active"
+              className="playlist-detail-panel playlist-detail-panel--empty"
+              exit="exit"
+              initial="enter"
+              key="playlist-empty"
+              transition={panelTransition}
+              variants={panelVariants}
+            >
+              <div className="playlist-start">
+                <Music2 size={36} />
+                <strong>{t('playlistsPage.empty.createFirst')}</strong>
+                <button className="primary-action" type="button" onClick={() => void handleCreatePlaylist()}>
+                  <Plus size={16} />
+                  <span>{t('playlistsPage.empty.create')}</span>
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </>
 
         {error || statusMessage || isLoading ? (
           <div className="list-footer">

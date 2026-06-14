@@ -37,6 +37,7 @@ import { registerAppearanceFontFile } from '../../preferences/appearancePreferen
 import { translateFallback, useOptionalI18n } from '../../i18n/I18nProvider';
 import type { TranslationKey } from '../../i18n/locales';
 import { useOptionalPlaybackQueue } from '../../stores/PlaybackQueueProvider';
+import { DrawerSmartSearch } from '../common/DrawerSmartSearch';
 import {
   recordLyricsSourceQualityCandidates,
   recordLyricsSourceQualityOutcome,
@@ -257,6 +258,13 @@ const dispatchSettingsChanged = (patch?: Partial<AppSettings> | Partial<MvSettin
 
 const dispatchLyricsDisplaySettingsChanged = (patch: Partial<AppSettings>): void => {
   window.dispatchEvent(new CustomEvent('lyrics:display-settings-changed', { detail: patch }));
+};
+
+const getRangeProgressPercent = (value: number, min: number, max: number): number => {
+  if (max <= min) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
 };
 
 const desktopLyricsFontPanelOpenStorageKey = 'echo-next.lyrics.desktop-font-panel-open';
@@ -783,6 +791,8 @@ export const LyricsSettingsPanel = ({ className, currentTrackTools, variant = 'd
     desktopLyricsState?.settings.desktopLyricsSecondaryFontSizePx ??
     effectiveSettings.desktopLyricsSecondaryFontSizePx ??
     Math.round(desktopLyricsFontSizePx * 0.56);
+  const desktopLyricsPrimarySizeProgress = getRangeProgressPercent(desktopLyricsFontSizePx, 18, 72);
+  const desktopLyricsSecondarySizeProgress = getRangeProgressPercent(desktopLyricsSecondaryFontSizePx, 12, 48);
   const desktopLyricsOpacityPercent =
     desktopLyricsState?.settings.desktopLyricsOpacityPercent ??
     effectiveSettings.desktopLyricsOpacityPercent ??
@@ -2096,47 +2106,51 @@ export const LyricsSettingsPanel = ({ className, currentTrackTools, variant = 'd
                 ))}
               </div>
 
-              <label className="mv-threshold-control lyrics-desktop-primary-size-control">
-                <span className="mv-threshold-copy">
-                  <strong>{t('lyricsSettings.display.desktopPrimaryFontSize')}</strong>
-                  <em>{t('lyricsSettings.display.desktopPrimaryFontSizeDescription', { size: desktopLyricsFontSizePx })}</em>
-                </span>
-                <span className="mv-threshold-slider">
-                  <input
-                    type="range"
-                    min="18"
-                    max="72"
-                    step="1"
-                    value={desktopLyricsFontSizePx}
-                    aria-label={t('lyricsSettings.display.desktopPrimaryFontSize')}
-                    disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
-                    onChange={(event) =>
-                      patchDesktopLyricsStyle({ desktopLyricsFontSizePx: Number(event.currentTarget.value) })}
-                  />
-                  <output>{desktopLyricsFontSizePx}px</output>
-                </span>
-              </label>
+              <div className="lyrics-desktop-size-controls">
+                <label className="mv-threshold-control lyrics-desktop-primary-size-control">
+                  <span className="mv-threshold-copy">
+                    <strong>{t('lyricsSettings.display.desktopPrimaryFontSize')}</strong>
+                    <em>{t('lyricsSettings.display.desktopPrimaryFontSizeDescription', { size: desktopLyricsFontSizePx })}</em>
+                  </span>
+                  <span className="mv-threshold-slider">
+                    <input
+                      type="range"
+                      min="18"
+                      max="72"
+                      step="1"
+                      value={desktopLyricsFontSizePx}
+                      aria-label={t('lyricsSettings.display.desktopPrimaryFontSize')}
+                      disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
+                      style={{ '--lyrics-desktop-size-progress': `${desktopLyricsPrimarySizeProgress}%` } as CSSProperties}
+                      onChange={(event) =>
+                        patchDesktopLyricsStyle({ desktopLyricsFontSizePx: Number(event.currentTarget.value) })}
+                    />
+                    <output>{desktopLyricsFontSizePx}px</output>
+                  </span>
+                </label>
 
-              <label className="mv-threshold-control lyrics-desktop-secondary-size-control">
-                <span className="mv-threshold-copy">
-                  <strong>{t('lyricsSettings.display.desktopSecondaryFontSize')}</strong>
-                  <em>{t('lyricsSettings.display.desktopSecondaryFontSizeDescription', { size: desktopLyricsSecondaryFontSizePx })}</em>
-                </span>
-                <span className="mv-threshold-slider">
-                  <input
-                    type="range"
-                    min="12"
-                    max="48"
-                    step="1"
-                    value={desktopLyricsSecondaryFontSizePx}
-                    aria-label={t('lyricsSettings.display.desktopSecondaryFontSize')}
-                    disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
-                    onChange={(event) =>
-                      patchDesktopLyricsStyle({ desktopLyricsSecondaryFontSizePx: Number(event.currentTarget.value) })}
-                  />
-                  <output>{desktopLyricsSecondaryFontSizePx}px</output>
-                </span>
-              </label>
+                <label className="mv-threshold-control lyrics-desktop-secondary-size-control">
+                  <span className="mv-threshold-copy">
+                    <strong>{t('lyricsSettings.display.desktopSecondaryFontSize')}</strong>
+                    <em>{t('lyricsSettings.display.desktopSecondaryFontSizeDescription', { size: desktopLyricsSecondaryFontSizePx })}</em>
+                  </span>
+                  <span className="mv-threshold-slider">
+                    <input
+                      type="range"
+                      min="12"
+                      max="48"
+                      step="1"
+                      value={desktopLyricsSecondaryFontSizePx}
+                      aria-label={t('lyricsSettings.display.desktopSecondaryFontSize')}
+                      disabled={isBusy || isDesktopLyricsBusy || !hasDesktopLyricsBridge}
+                      style={{ '--lyrics-desktop-size-progress': `${desktopLyricsSecondarySizeProgress}%` } as CSSProperties}
+                      onChange={(event) =>
+                        patchDesktopLyricsStyle({ desktopLyricsSecondaryFontSizePx: Number(event.currentTarget.value) })}
+                    />
+                    <output>{desktopLyricsSecondaryFontSizePx}px</output>
+                  </span>
+                </label>
+              </div>
 
               <label className="mv-threshold-control lyrics-desktop-opacity-control">
                 <span className="mv-threshold-copy">
@@ -3287,8 +3301,13 @@ export const LyricsSettingsPanel = ({ className, currentTrackTools, variant = 'd
 
 export const LyricsSettingsDrawer = ({ currentTrackTools, isOpen, onClose }: LyricsSettingsDrawerProps): JSX.Element | null => {
   const t = useOptionalI18n()?.t ?? translateFallback;
+  const drawerScrollRef = useRef<HTMLDivElement | null>(null);
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [isMotionOpen, setIsMotionOpen] = useState(false);
+  const drawerSearchHints = useMemo(
+    () => ['歌词源', '桌面歌词', '逐字', '罗马音', '偏移', '字体'],
+    [],
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -3336,7 +3355,7 @@ export const LyricsSettingsDrawer = ({ currentTrackTools, isOpen, onClose }: Lyr
     <div className="audio-drawer-root lyrics-settings-drawer-root no-drag" role="presentation" data-open={isMotionOpen}>
       <button className="audio-drawer-scrim" type="button" aria-label={t('lyricsSettings.drawer.close')} onClick={onClose} />
       <aside className="audio-drawer lyrics-settings-drawer" aria-label={t('lyricsSettings.drawer.aria')}>
-        <div className="audio-drawer-scroll">
+        <div className="audio-drawer-scroll" ref={drawerScrollRef}>
           <header className="audio-drawer-header">
           <div>
             <SlidersHorizontal size={18} />
@@ -3346,6 +3365,19 @@ export const LyricsSettingsDrawer = ({ currentTrackTools, isOpen, onClose }: Lyr
             <X size={20} />
           </button>
           </header>
+          <DrawerSmartSearch
+            rootRef={drawerScrollRef}
+            label={t('drawerSearch.label')}
+            placeholder={t('drawerSearch.placeholder')}
+            clearLabel={t('drawerSearch.clear')}
+            noResultsLabel={t('drawerSearch.noResults')}
+            resultCountLabel={(count) => t('drawerSearch.resultCount', { count })}
+            nextLabel={t('drawerSearch.next')}
+            previousLabel={t('drawerSearch.previous')}
+            resultLabel={(result) => t('drawerSearch.resultLabel', { result })}
+            shortcutHint={t('drawerSearch.shortcutHint')}
+            hints={drawerSearchHints}
+          />
           <LyricsSettingsPanel currentTrackTools={currentTrackTools} />
         </div>
       </aside>

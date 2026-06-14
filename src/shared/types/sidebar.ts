@@ -28,7 +28,6 @@ export const defaultSidebarRouteOrder: SidebarRouteId[] = [...sidebarRouteIds];
 export const defaultSidebarHiddenRouteIds: SidebarRouteId[] = [
   'streaming',
   'inbox',
-  'plugins',
   'import-folder',
   'lyrics-settings',
   'import-file',

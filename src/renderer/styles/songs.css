@@ -1016,6 +1016,14 @@
   border-right: 0;
 }
 
+.playlist-sidebar-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .playlist-sidebar-header {
   display: flex;
   align-items: center;
@@ -1051,20 +1059,51 @@
 }
 
 .playlist-view-switch button {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
   min-height: 34px;
   padding: 0 10px;
+  overflow: hidden;
   color: var(--theme-muted-text);
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
   font-size: 12px;
   font-weight: 820;
+  transition:
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.playlist-view-switch button:hover {
+  color: var(--theme-accent-text);
 }
 
 .playlist-view-switch button[data-active="true"] {
   color: var(--theme-accent-text);
-  border-color: var(--theme-accent-border);
+}
+
+.playlist-switch-indicator,
+.playlist-filter-indicator {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 1px solid var(--theme-accent-border);
+  border-radius: inherit;
   background: var(--theme-accent-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34);
+}
+
+.playlist-switch-label,
+.playlist-source-filter button > span:not(.playlist-filter-indicator) {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .playlist-source-filter {
@@ -1074,6 +1113,10 @@
 }
 
 .playlist-source-filter button {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
   min-width: 0;
   min-height: 31px;
   padding: 0 8px;
@@ -1086,13 +1129,23 @@
   font-weight: 820;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease,
+    transform 150ms ease;
 }
 
-.playlist-source-filter button:hover,
-.playlist-source-filter button[data-active="true"] {
+.playlist-source-filter button:hover {
   color: var(--theme-accent-text);
   border-color: var(--theme-accent-border);
   background: var(--theme-accent-bg);
+}
+
+.playlist-source-filter button[data-active="true"] {
+  color: var(--theme-accent-text);
+  border-color: transparent;
+  background: transparent;
 }
 
 .playlist-list--favorites .playlist-list-item {
@@ -1184,6 +1237,13 @@
   border-radius: 8px;
   background: transparent;
   text-align: left;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+  will-change: transform, opacity;
 }
 
 .playlist-list-item[data-reorderable="true"] {
@@ -1259,6 +1319,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .playlist-view-switch button,
+  .playlist-source-filter button,
+  .playlist-list-item {
+    transition: none;
+  }
 }
 
 .playlist-create-form {
@@ -1442,18 +1510,30 @@
 }
 
 .playlist-detail {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 18px;
 }
 
-.playlist-detail > .track-list-shell {
+.playlist-detail-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 18px;
+}
+
+.playlist-detail-panel--empty {
+  place-items: center;
+}
+
+.playlist-detail-panel > .track-list-shell {
   grid-row: 3;
   min-height: 0;
 }
 
 .playlist-detail > .list-footer {
-  grid-row: 4;
+  flex: 0 0 auto;
 }
 
 .playlist-detail-header {
@@ -6945,6 +7025,109 @@ html[data-theme="dark"] .streaming-download-progress[data-status="failed"] {
   min-width: 0;
 }
 
+.inbox-smart-crates-controls {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.inbox-cover-intelligence-toggle {
+  display: inline-grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  min-width: 240px;
+  padding: 7px 8px 7px 10px;
+  border: 1px solid var(--theme-legacy-border-soft);
+  border-radius: 8px;
+  background: var(--theme-legacy-surface-a62);
+  color: var(--theme-page-text);
+  cursor: pointer;
+}
+
+.inbox-cover-intelligence-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inbox-cover-intelligence-copy > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.inbox-cover-intelligence-copy strong,
+.inbox-cover-intelligence-copy em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-cover-intelligence-copy strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.inbox-cover-intelligence-copy em {
+  color: var(--theme-muted-text);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.inbox-cover-intelligence-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.inbox-cover-intelligence-switch {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border: 1px solid var(--theme-legacy-border-soft);
+  border-radius: 999px;
+  background: var(--theme-control-bg);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.inbox-cover-intelligence-switch::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--theme-button-bg-hover);
+  box-shadow: var(--theme-shadow-panel);
+  content: "";
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.inbox-cover-intelligence-toggle:hover {
+  border-color: var(--theme-accent-border);
+  background: var(--theme-legacy-surface-a78);
+}
+
+.inbox-cover-intelligence-toggle input:checked + .inbox-cover-intelligence-switch {
+  border-color: var(--theme-accent-border);
+  background: var(--theme-accent-bg-strong);
+}
+
+.inbox-cover-intelligence-toggle input:checked + .inbox-cover-intelligence-switch::after {
+  transform: translateX(18px);
+  background: var(--theme-accent-solid-bg);
+}
+
 .inbox-smart-crates-head h2,
 .inbox-workbench-head h2,
 .inbox-crate-feature-header h3 {
@@ -7764,6 +7947,15 @@ html[data-theme="dark"] .streaming-download-progress[data-status="failed"] {
   .inbox-workbench-head {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .inbox-smart-crates-controls,
+  .inbox-cover-intelligence-toggle {
+    width: 100%;
+  }
+
+  .inbox-smart-crates-controls {
+    justify-content: flex-start;
   }
 
   .inbox-workbench-head p {

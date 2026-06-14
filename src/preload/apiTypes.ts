@@ -23,7 +23,7 @@ import type { UpdateStatus } from '../shared/types/updates';
 import type { AccountBrowser, AccountLoginStartResult, AccountProvider, AccountStatus, YouTubeBrowser } from '../shared/types/accounts';
 import type { AppCacheInventory, CoverCacheMigrationResult, SetCoverCacheDirectoryRequest } from '../shared/types/coverCache';
 import type { AirPlayReceiverStatus, ConnectDevice, ConnectReceiverStatus, ConnectSessionStatus, ConnectStartRequest } from '../shared/types/connect';
-import type { EchoLinkServerStatus } from '../shared/types/echoLink';
+import type { EchoLinkServerStatus, EchoLinkWebBackground } from '../shared/types/echoLink';
 import type {
   OpraHeadphoneCorrectionApplyRequest,
   OpraHeadphoneCorrectionApplyResult,
@@ -345,12 +345,14 @@ export type EchoApi = {
     setLocked: (locked: boolean) => Promise<DesktopLyricsState>;
     setStyle: (patch: DesktopLyricsStylePatch) => Promise<DesktopLyricsState>;
     resetBounds: () => Promise<DesktopLyricsState>;
+    revealMenu: () => Promise<DesktopLyricsState>;
     setMousePassthrough: (passthrough: boolean) => void;
     publishAudioStatus: (status: AudioStatus) => void;
     publishPlaybackStatus: (status: PlaybackStatus) => void;
     getLastAudioStatus: () => Promise<AudioStatus | null>;
     getLastPlaybackStatus: () => Promise<PlaybackStatus | null>;
     onStateChanged: (handler: (state: DesktopLyricsState) => void) => () => void;
+    onRevealMenu: (handler: () => void) => () => void;
     onAudioStatus: (handler: (status: AudioStatus) => void) => () => void;
     onPlaybackStatus: (handler: (status: PlaybackStatus) => void) => () => void;
   };
@@ -622,6 +624,8 @@ export type EchoApi = {
     getEchoLinkStatus: () => Promise<EchoLinkServerStatus>;
     setEchoLinkEnabled: (enabled: boolean) => Promise<EchoLinkServerStatus>;
     rotateEchoLinkToken: () => Promise<EchoLinkServerStatus>;
+    setEchoLinkWebBackground: (background: Partial<EchoLinkWebBackground>) => Promise<EchoLinkServerStatus>;
+    chooseEchoLinkWebBackgroundImage: () => Promise<EchoLinkServerStatus | null>;
     onStatus: (handler: (status: ConnectSessionStatus) => void) => () => void;
     getReceiverStatus: () => Promise<ConnectReceiverStatus>;
     setReceiverEnabled: (enabled: boolean) => Promise<ConnectReceiverStatus>;

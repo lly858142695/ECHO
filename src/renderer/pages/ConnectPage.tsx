@@ -8,6 +8,8 @@ import {
   Copy,
   Eye,
   EyeOff,
+  FolderOpen,
+  Image,
   Loader2,
   LockKeyhole,
   PackagePlus,
@@ -17,11 +19,13 @@ import {
   Plus,
   Radio,
   RefreshCw,
+  Save,
   Server,
   SlidersHorizontal,
   Smartphone,
   Square,
   Trash2,
+  Video,
   Unplug,
   Volume2,
 } from 'lucide-react';
@@ -37,7 +41,7 @@ import {
 } from '../../shared/constants/featureUnlocks';
 import { hqPlayerConnectDeviceId } from '../../shared/types/connect';
 import type { AirPlayReceiverStatus, ConnectDevice, ConnectReceiverStatus, ConnectSessionStatus } from '../../shared/types/connect';
-import type { EchoLinkServerStatus } from '../../shared/types/echoLink';
+import type { EchoLinkServerStatus, EchoLinkWebBackground } from '../../shared/types/echoLink';
 import type {
   HqPlayerConnectionMode,
   HqPlayerConnectionTestResult,
@@ -108,6 +112,8 @@ const defaultAirPlayReceiverStatus: AirPlayReceiverStatus = {
   updatedAt: new Date(0).toISOString(),
 };
 
+const defaultEchoLinkWebBackground: EchoLinkWebBackground = { type: 'none', url: '' };
+
 const defaultEchoLinkStatus: EchoLinkServerStatus = {
   enabled: false,
   running: false,
@@ -119,6 +125,7 @@ const defaultEchoLinkStatus: EchoLinkServerStatus = {
   token: '',
   deviceName: 'PC ECHO',
   deviceId: '',
+  webBackground: defaultEchoLinkWebBackground,
   activeMediaTokens: 0,
   activeArtworkTokens: 0,
   mdns: {
@@ -998,11 +1005,14 @@ export const ConnectPage = (): JSX.Element => {
   const [isAirPlayReceiverBusy, setIsAirPlayReceiverBusy] = useState(false);
   const [echoLinkStatus, setEchoLinkStatus] = useState<EchoLinkServerStatus>(defaultEchoLinkStatus);
   const [isEchoLinkBusy, setIsEchoLinkBusy] = useState(false);
+  const [isEchoLinkBackgroundBusy, setIsEchoLinkBackgroundBusy] = useState(false);
   const [copiedEchoLinkPairing, setCopiedEchoLinkPairing] = useState(false);
   const [copiedEchoLinkWebControl, setCopiedEchoLinkWebControl] = useState(false);
+  const [savedEchoLinkBackground, setSavedEchoLinkBackground] = useState(false);
   const [showEchoLinkToken, setShowEchoLinkToken] = useState(false);
   const [selectedEchoLinkHost, setSelectedEchoLinkHost] = useState<string | null>(null);
   const [echoLinkQrDataUrl, setEchoLinkQrDataUrl] = useState<string | null>(null);
+  const [echoLinkWebBackgroundDraft, setEchoLinkWebBackgroundDraft] = useState<EchoLinkWebBackground>(defaultEchoLinkWebBackground);
   const [wallpaperEngineBridgeStatus, setWallpaperEngineBridgeStatus] = useState<WallpaperEngineBridgeStatus>(defaultWallpaperEngineBridgeStatus);
   const [copiedAirPlayDebug, setCopiedAirPlayDebug] = useState(false);
   const [isAutoStartBusy, setIsAutoStartBusy] = useState(false);
@@ -1179,6 +1189,9 @@ export const ConnectPage = (): JSX.Element => {
   const hqPlayerOutputCount = visibleDevices.filter((device) => device.protocol === 'hqplayer').length;
   const echoLinkStatusLabel = echoLinkStatus.running ? t('connectPage.echoLink.state.running') : echoLinkStatus.error ? t('connectPage.echoLink.state.error') : echoLinkStatus.enabled ? t('connectPage.echoLink.state.starting') : t('connectPage.common.disabled');
   const echoLinkWebStatusLabel = echoLinkWebControlUrl ? t('connectPage.echoLink.webReady') : t('connectPage.echoLink.webWaiting');
+  const echoLinkWebBackground = echoLinkStatus.webBackground ?? defaultEchoLinkWebBackground;
+  const echoLinkWebBackgroundConfigured = echoLinkWebBackground.type !== 'none' && echoLinkWebBackground.url.trim().length > 0;
+  const echoLinkWebBackgroundSaveDisabled = isEchoLinkBackgroundBusy || (echoLinkWebBackgroundDraft.type !== 'none' && echoLinkWebBackgroundDraft.url.trim().length === 0);
   const receiverCommandLabel = receiverStatus.enabled ? t(receiverStateLabel[receiverStatus.state]) : t('connectPage.common.disabled');
   const airPlayCommandLabel = airPlayReceiverStatus.enabled ? t(airPlayStateLabel[airPlayReceiverStatus.state]) : t('connectPage.common.disabled');
   const latestEchoLinkHttpError = echoLinkStatus.diagnostics.recentHttpErrors[0] ?? null;
@@ -1424,6 +1437,13 @@ export const ConnectPage = (): JSX.Element => {
     }
     setSelectedEchoLinkHost(null);
   }, [echoLinkHosts, selectedEchoLinkHost]);
+
+  useEffect(() => {
+    setEchoLinkWebBackgroundDraft({
+      type: echoLinkWebBackground.type,
+      url: echoLinkWebBackground.url,
+    });
+  }, [echoLinkWebBackground.type, echoLinkWebBackground.url]);
 
   useEffect(() => {
     if (!echoLinkPairingUri) {
@@ -1707,6 +1727,61 @@ export const ConnectPage = (): JSX.Element => {
     }
     await window.echo?.app?.openExternalUrl?.(value);
   }, [echoLinkWebControlUrl]);
+
+  const applyEchoLinkWebBackground = useCallback(async (background: EchoLinkWebBackground): Promise<void> => {
+    const connect = window.echo?.connect;
+    if (!connect?.setEchoLinkWebBackground) {
+      setError(t('connectPage.error.desktopBridgeEchoLink'));
+      return;
+    }
+
+    setIsEchoLinkBackgroundBusy(true);
+    setError(null);
+    try {
+      const nextStatus = await connect.setEchoLinkWebBackground(background);
+      setEchoLinkStatus(nextStatus);
+      setSavedEchoLinkBackground(true);
+      window.setTimeout(() => setSavedEchoLinkBackground(false), 1400);
+    } catch (backgroundError) {
+      setError(backgroundError instanceof Error ? backgroundError.message : String(backgroundError));
+    } finally {
+      setIsEchoLinkBackgroundBusy(false);
+    }
+  }, [t]);
+
+  const saveEchoLinkWebBackground = useCallback(async (): Promise<void> => {
+    await applyEchoLinkWebBackground({
+      type: echoLinkWebBackgroundDraft.type,
+      url: echoLinkWebBackgroundDraft.url.trim(),
+    });
+  }, [applyEchoLinkWebBackground, echoLinkWebBackgroundDraft.type, echoLinkWebBackgroundDraft.url]);
+
+  const clearEchoLinkWebBackground = useCallback(async (): Promise<void> => {
+    await applyEchoLinkWebBackground(defaultEchoLinkWebBackground);
+  }, [applyEchoLinkWebBackground]);
+
+  const chooseEchoLinkWebBackgroundImage = useCallback(async (): Promise<void> => {
+    const connect = window.echo?.connect;
+    if (!connect?.chooseEchoLinkWebBackgroundImage) {
+      setError(t('connectPage.error.desktopBridgeEchoLink'));
+      return;
+    }
+
+    setIsEchoLinkBackgroundBusy(true);
+    setError(null);
+    try {
+      const nextStatus = await connect.chooseEchoLinkWebBackgroundImage();
+      if (nextStatus) {
+        setEchoLinkStatus(nextStatus);
+        setSavedEchoLinkBackground(true);
+        window.setTimeout(() => setSavedEchoLinkBackground(false), 1400);
+      }
+    } catch (backgroundError) {
+      setError(backgroundError instanceof Error ? backgroundError.message : String(backgroundError));
+    } finally {
+      setIsEchoLinkBackgroundBusy(false);
+    }
+  }, [t]);
 
   const rotateEchoLinkToken = useCallback(async (): Promise<void> => {
     const connect = window.echo?.connect;
@@ -2462,7 +2537,7 @@ export const ConnectPage = (): JSX.Element => {
         >
           <div className="connect-section-title">
             <div>
-              <span>Android ECHO Link</span>
+              <span>ECHO Link</span>
               <h2>{t('connectPage.echoLink.title')}</h2>
             </div>
             <div className="connect-section-actions">
@@ -2579,6 +2654,59 @@ export const ConnectPage = (): JSX.Element => {
               </button>
             </div>
           </div>
+          <form className="connect-echo-link-background" onSubmit={(event) => {
+            event.preventDefault();
+            void saveEchoLinkWebBackground();
+          }}>
+            <div className="connect-echo-link-background__intro">
+              <span>
+                {echoLinkWebBackgroundDraft.type === 'video' ? <Video size={15} /> : <Image size={15} />}
+                {t('connectPage.echoLink.backgroundTitle')}
+              </span>
+              <small>{t('connectPage.echoLink.backgroundHint')}</small>
+            </div>
+            <label className="connect-echo-link-background__mode">
+              <small>{t('connectPage.echoLink.backgroundType')}</small>
+              <select
+                value={echoLinkWebBackgroundDraft.type}
+                onChange={(event) => {
+                  const type = event.currentTarget.value as EchoLinkWebBackground['type'];
+                  setEchoLinkWebBackgroundDraft((current) => ({ ...current, type }));
+                }}
+              >
+                <option value="none">{t('connectPage.echoLink.backgroundNone')}</option>
+                <option value="image">{t('connectPage.echoLink.backgroundImage')}</option>
+                <option value="video">{t('connectPage.echoLink.backgroundVideo')}</option>
+              </select>
+            </label>
+            <label className="connect-echo-link-background__url">
+              <small>{t('connectPage.echoLink.backgroundUrl')}</small>
+              <input
+                type="text"
+                value={echoLinkWebBackgroundDraft.url}
+                placeholder={t('connectPage.echoLink.backgroundUrlPlaceholder')}
+                disabled={echoLinkWebBackgroundDraft.type === 'none'}
+                onChange={(event) => {
+                  const url = event.currentTarget.value;
+                  setEchoLinkWebBackgroundDraft((current) => ({ ...current, url }));
+                }}
+              />
+            </label>
+            <div className="connect-echo-link-background__actions">
+              <button className="settings-action-button" type="button" onClick={() => void chooseEchoLinkWebBackgroundImage()} disabled={isEchoLinkBackgroundBusy}>
+                <FolderOpen size={15} />
+                {t('connectPage.echoLink.backgroundChooseImage')}
+              </button>
+              <button className="settings-action-button" type="submit" disabled={echoLinkWebBackgroundSaveDisabled}>
+                {isEchoLinkBackgroundBusy ? <Loader2 className="spinning-icon" size={15} /> : savedEchoLinkBackground ? <Check size={15} /> : <Save size={15} />}
+                {savedEchoLinkBackground ? t('connectPage.echoLink.backgroundSaved') : t('connectPage.echoLink.backgroundSave')}
+              </button>
+              <button className="settings-action-button" type="button" onClick={() => void clearEchoLinkWebBackground()} disabled={isEchoLinkBackgroundBusy || (!echoLinkWebBackgroundConfigured && echoLinkWebBackgroundDraft.type === 'none')}>
+                <Trash2 size={15} />
+                {t('connectPage.echoLink.backgroundClear')}
+              </button>
+            </div>
+          </form>
           {echoLinkStatus.error ? (
             <div className="connect-alert connect-alert--inline" role="alert">
               <AlertTriangle size={16} />

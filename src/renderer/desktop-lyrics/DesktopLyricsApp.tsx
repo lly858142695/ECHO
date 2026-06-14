@@ -31,6 +31,8 @@ type DesktopLyricsSettings = Required<Pick<
   | 'desktopLyricsColorMode'
   | 'desktopLyricsColor'
   | 'desktopLyricsStrokeColor'
+  | 'desktopLyricsGradientStartColor'
+  | 'desktopLyricsGradientEndColor'
   | 'desktopLyricsOpacityPercent'
   | 'desktopLyricsTextDirection'
   | 'desktopLyricsRomanizationEnabled'
@@ -79,6 +81,8 @@ const fallbackSettings: DesktopLyricsSettings = {
   desktopLyricsColorMode: 'theme',
   desktopLyricsColor: '#FFFFFF',
   desktopLyricsStrokeColor: '#111827',
+  desktopLyricsGradientStartColor: '#4F46E5',
+  desktopLyricsGradientEndColor: '#EC4899',
   desktopLyricsOpacityPercent: 96,
   desktopLyricsTextDirection: 'horizontal',
   desktopLyricsRomanizationEnabled: true,
@@ -88,6 +92,11 @@ const fallbackSettings: DesktopLyricsSettings = {
 };
 
 const colorSwatches = ['#FFFFFF', '#FFD166', '#6EE7B7', '#7DD3FC', '#F0ABFC', '#FB7185'];
+const gradientPresets = [
+  { start: '#4F46E5', end: '#EC4899' },
+  { start: '#06B6D4', end: '#8B5CF6' },
+  { start: '#F97316', end: '#FACC15' },
+];
 const forwardedStatusMaxAgeMs = 45_000;
 const desktopLyricsClockPollIntervalMs = 700;
 const enhancedLowLoadClockPollIntervalMs = 1800;
@@ -100,7 +109,8 @@ const desktopLyricsHorizontalMinFitScale = 0.62;
 const desktopLyricsPlaybackCommandPriorityMs = 1400;
 const desktopLyricsMenuRevealSelector = '.desktop-lyrics-lines, .desktop-lyrics-menu';
 const desktopLyricsMouseInteractiveSelector = '.desktop-lyrics-lines, .desktop-lyrics-menu';
-const desktopLyricsMenuHideDelayMs = 420;
+const desktopLyricsMenuHideDelayMs = 320;
+const desktopLyricsMenuIdleHideDelayMs = 1800;
 const desktopLyricsPointerHitPaddingPx = 12;
 
 const readEnhancedLowLoadPlaybackActive = (settings: Partial<AppSettings> | null | undefined): boolean =>
@@ -287,11 +297,15 @@ const pickDesktopLyricsSettings = (settings: Partial<AppSettings> | null | undef
   desktopLyricsFontFamily: settings?.desktopLyricsFontFamily ?? fallbackSettings.desktopLyricsFontFamily,
   desktopLyricsFontFilePath: settings?.desktopLyricsFontFilePath ?? fallbackSettings.desktopLyricsFontFilePath,
   desktopLyricsColorMode:
-    settings?.desktopLyricsColorMode === 'custom' || settings?.desktopLyricsColorMode === 'theme'
+    settings?.desktopLyricsColorMode === 'custom' ||
+    settings?.desktopLyricsColorMode === 'theme' ||
+    settings?.desktopLyricsColorMode === 'gradient'
       ? settings.desktopLyricsColorMode
       : fallbackSettings.desktopLyricsColorMode,
   desktopLyricsColor: settings?.desktopLyricsColor ?? fallbackSettings.desktopLyricsColor,
   desktopLyricsStrokeColor: settings?.desktopLyricsStrokeColor ?? fallbackSettings.desktopLyricsStrokeColor,
+  desktopLyricsGradientStartColor: settings?.desktopLyricsGradientStartColor ?? fallbackSettings.desktopLyricsGradientStartColor,
+  desktopLyricsGradientEndColor: settings?.desktopLyricsGradientEndColor ?? fallbackSettings.desktopLyricsGradientEndColor,
   desktopLyricsOpacityPercent: settings?.desktopLyricsOpacityPercent ?? fallbackSettings.desktopLyricsOpacityPercent,
   desktopLyricsTextDirection: settings?.desktopLyricsTextDirection ?? fallbackSettings.desktopLyricsTextDirection,
   desktopLyricsRomanizationEnabled: settings?.desktopLyricsRomanizationEnabled ?? fallbackSettings.desktopLyricsRomanizationEnabled,
@@ -725,6 +739,7 @@ export const DesktopLyricsApp = (): JSX.Element => {
   const animationFrameRef = useRef<number | null>(null);
   const lastActiveClockLogRef = useRef<{ key: string; positionMs: number } | null>(null);
   const lineTextRef = useRef<HTMLDivElement | null>(null);
+  const externalRevealHideTimerRef = useRef<number | null>(null);
 
   const activeClock = useMemo(
     () => selectDesktopLyricsActiveClock({
@@ -920,19 +935,35 @@ export const DesktopLyricsApp = (): JSX.Element => {
     }
 
     let hideMenuTimer: number | null = null;
+    let idleHideMenuTimer: number | null = null;
     const clearHideMenuTimer = (): void => {
       if (hideMenuTimer !== null) {
         window.clearTimeout(hideMenuTimer);
         hideMenuTimer = null;
       }
     };
+    const clearIdleHideMenuTimer = (): void => {
+      if (idleHideMenuTimer !== null) {
+        window.clearTimeout(idleHideMenuTimer);
+        idleHideMenuTimer = null;
+      }
+    };
+    const scheduleIdleHideMenu = (): void => {
+      clearIdleHideMenuTimer();
+      idleHideMenuTimer = window.setTimeout(() => {
+        idleHideMenuTimer = null;
+        setMenuVisible(false);
+      }, desktopLyricsMenuIdleHideDelayMs);
+    };
     const updateMenuVisible = (visible: boolean, delayed = false): void => {
       if (visible) {
         clearHideMenuTimer();
+        scheduleIdleHideMenu();
         setMenuVisible((current) => (current ? current : true));
         return;
       }
 
+      clearIdleHideMenuTimer();
       if (delayed) {
         if (hideMenuTimer === null) {
           hideMenuTimer = window.setTimeout(() => {
@@ -980,11 +1011,44 @@ export const DesktopLyricsApp = (): JSX.Element => {
 
     return () => {
       clearHideMenuTimer();
+      clearIdleHideMenuTimer();
       window.removeEventListener('mousemove', updatePassthrough);
       window.removeEventListener('mouseleave', passthroughOnLeave);
       window.removeEventListener('blur', passthroughOnLeave);
       document.removeEventListener('visibilitychange', passthroughOnLeave);
       desktopLyrics.setMousePassthrough(false);
+    };
+  }, [settings.desktopLyricsLocked]);
+
+  useEffect(() => {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics?.onRevealMenu) {
+      return undefined;
+    }
+
+    const clearExternalRevealHideTimer = (): void => {
+      if (externalRevealHideTimerRef.current !== null) {
+        window.clearTimeout(externalRevealHideTimerRef.current);
+        externalRevealHideTimerRef.current = null;
+      }
+    };
+    const unsubscribe = desktopLyrics.onRevealMenu(() => {
+      if (settings.desktopLyricsLocked) {
+        return;
+      }
+
+      clearExternalRevealHideTimer();
+      setMenuVisible(true);
+      desktopLyrics.setMousePassthrough?.(false);
+      externalRevealHideTimerRef.current = window.setTimeout(() => {
+        externalRevealHideTimerRef.current = null;
+        setMenuVisible(false);
+      }, desktopLyricsMenuIdleHideDelayMs);
+    });
+
+    return () => {
+      clearExternalRevealHideTimer();
+      unsubscribe();
     };
   }, [settings.desktopLyricsLocked]);
 
@@ -1510,11 +1574,14 @@ export const DesktopLyricsApp = (): JSX.Element => {
   const desktopLyricsColor =
     settings.desktopLyricsColorMode === 'custom'
       ? settings.desktopLyricsColor
-      : 'var(--desktop-lyrics-theme-color)';
+      : settings.desktopLyricsColorMode === 'gradient'
+        ? settings.desktopLyricsGradientStartColor
+        : 'var(--desktop-lyrics-theme-color)';
   const desktopLyricsStrokeColor =
     settings.desktopLyricsColorMode === 'custom'
       ? settings.desktopLyricsStrokeColor
       : 'var(--desktop-lyrics-theme-stroke-color)';
+  const desktopLyricsGradient = `linear-gradient(92deg, ${settings.desktopLyricsGradientStartColor} 0%, color-mix(in srgb, ${settings.desktopLyricsGradientStartColor} 42%, ${settings.desktopLyricsGradientEndColor} 58%) 48%, ${settings.desktopLyricsGradientEndColor} 100%)`;
   const shouldUseDesktopMusicReactiveVisuals =
     settings.lyricsMusicReactiveVisualsEnabled === true &&
     enhancedLowLoadPlaybackActive !== true;
@@ -1553,6 +1620,7 @@ export const DesktopLyricsApp = (): JSX.Element => {
     '--desktop-lyrics-font-family': desktopLyricsFontFamily,
     '--desktop-lyrics-color': desktopLyricsColor,
     '--desktop-lyrics-stroke-color': desktopLyricsStrokeColor,
+    '--desktop-lyrics-custom-gradient': desktopLyricsGradient,
     '--desktop-lyrics-opacity': (settings.desktopLyricsOpacityPercent / 100).toFixed(2),
     ...(shouldUseDesktopMusicReactiveVisuals ? musicReactiveCssVars : {}),
   } as CSSProperties;
@@ -1575,25 +1643,26 @@ export const DesktopLyricsApp = (): JSX.Element => {
     >
       {shouldUseDesktopMusicReactiveVisuals ? <div className="desktop-lyrics-reactive-backdrop" aria-hidden="true" /> : null}
       <section className="desktop-lyrics-stage" aria-label={t('desktopLyrics.aria.stage')}>
-        <div className="desktop-lyrics-lines" onContextMenu={(event) => void unlockFromContextMenu(event)}>
-          <div className="desktop-lyrics-line-text" ref={lineTextRef} style={lineTextStyle}>
-            <strong aria-label={isVerticalText ? primaryText : undefined}>
-              {renderDesktopLyricsText(primaryText, isVerticalText)}
-            </strong>
-            {visibleFittingSecondaryTexts.map(({ kind, text }, index) => (
-              <span
-                data-secondary-kind={kind}
-                key={`${kind}-${index}-${text}`}
-                aria-label={isVerticalText ? text : undefined}
-              >
-                {renderDesktopLyricsText(text, isVerticalText, kind)}
-              </span>
-            ))}
+        <div className="desktop-lyrics-cluster">
+          <div className="desktop-lyrics-lines" onContextMenu={(event) => void unlockFromContextMenu(event)}>
+            <div className="desktop-lyrics-line-text" ref={lineTextRef} style={lineTextStyle}>
+              <strong aria-label={isVerticalText ? primaryText : undefined}>
+                {renderDesktopLyricsText(primaryText, isVerticalText)}
+              </strong>
+              {visibleFittingSecondaryTexts.map(({ kind, text }, index) => (
+                <span
+                  data-secondary-kind={kind}
+                  key={`${kind}-${index}-${text}`}
+                  aria-label={isVerticalText ? text : undefined}
+                >
+                  {renderDesktopLyricsText(text, isVerticalText, kind)}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {!settings.desktopLyricsLocked ? (
-          <div className="desktop-lyrics-menu" onBlur={handleMenuBlur} onFocus={handleMenuFocus}>
+          {!settings.desktopLyricsLocked ? (
+            <div className="desktop-lyrics-menu" onBlur={handleMenuBlur} onFocus={handleMenuFocus}>
             <button
               type="button"
               title={t(activeClock?.state === 'playing' ? 'desktopLyrics.control.pause' : 'desktopLyrics.control.play')}
@@ -1674,6 +1743,29 @@ export const DesktopLyricsApp = (): JSX.Element => {
                 type="button"
                 onClick={() => void patchStyle({ desktopLyricsColorMode: 'theme' })}
               />
+              {gradientPresets.map((preset) => (
+                <button
+                  aria-label={`渐变色 ${preset.start} 到 ${preset.end}`}
+                  aria-pressed={
+                    settings.desktopLyricsColorMode === 'gradient' &&
+                    settings.desktopLyricsGradientStartColor.toUpperCase() === preset.start &&
+                    settings.desktopLyricsGradientEndColor.toUpperCase() === preset.end
+                  }
+                  className="desktop-lyrics-gradient-swatch"
+                  key={`${preset.start}-${preset.end}`}
+                  style={{
+                    background: `linear-gradient(135deg, ${preset.start}, ${preset.end})`,
+                  }}
+                  title={`渐变色 ${preset.start} -> ${preset.end}`}
+                  type="button"
+                  onClick={() =>
+                    void patchStyle({
+                      desktopLyricsColorMode: 'gradient',
+                      desktopLyricsGradientStartColor: preset.start,
+                      desktopLyricsGradientEndColor: preset.end,
+                    })}
+                />
+              ))}
               {colorSwatches.map((color) => (
                 <button
                   aria-label={t('desktopLyrics.control.colorSwatch', { color })}
@@ -1696,6 +1788,30 @@ export const DesktopLyricsApp = (): JSX.Element => {
               value={settings.desktopLyricsColor}
               onChange={(event) =>
                 void patchStyle({ desktopLyricsColorMode: 'custom', desktopLyricsColor: event.currentTarget.value })}
+            />
+            <input
+              aria-label="渐变起始色"
+              className="desktop-lyrics-gradient-picker"
+              title="渐变起始色"
+              type="color"
+              value={settings.desktopLyricsGradientStartColor}
+              onChange={(event) =>
+                void patchStyle({
+                  desktopLyricsColorMode: 'gradient',
+                  desktopLyricsGradientStartColor: event.currentTarget.value,
+                })}
+            />
+            <input
+              aria-label="渐变结束色"
+              className="desktop-lyrics-gradient-picker"
+              title="渐变结束色"
+              type="color"
+              value={settings.desktopLyricsGradientEndColor}
+              onChange={(event) =>
+                void patchStyle({
+                  desktopLyricsColorMode: 'gradient',
+                  desktopLyricsGradientEndColor: event.currentTarget.value,
+                })}
             />
             <button
               className="desktop-lyrics-menu-toggle"
@@ -1730,8 +1846,9 @@ export const DesktopLyricsApp = (): JSX.Element => {
             <button type="button" title={t('desktopLyrics.control.close')} aria-label={t('desktopLyrics.control.close')} onClick={hideWindow}>
               <X size={14} />
             </button>
-          </div>
-        ) : null}
+            </div>
+          ) : null}
+        </div>
       </section>
     </main>
   );

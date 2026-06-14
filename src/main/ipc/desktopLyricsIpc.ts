@@ -8,6 +8,7 @@ import {
   hideDesktopLyricsWindow,
   receiveDesktopLyricsRendererAudioStatus,
   receiveDesktopLyricsRendererPlaybackStatus,
+  revealDesktopLyricsMenu,
   resetDesktopLyricsBounds,
   setDesktopLyricsLocked,
   setDesktopLyricsMousePassthrough,
@@ -31,11 +32,17 @@ const normalizeStylePatch = (value: unknown): DesktopLyricsStylePatch => {
     ...(typeof input.desktopLyricsFontFilePath === 'string' || input.desktopLyricsFontFilePath === null
       ? { desktopLyricsFontFilePath: input.desktopLyricsFontFilePath }
       : {}),
-    ...(input.desktopLyricsColorMode === 'theme' || input.desktopLyricsColorMode === 'custom'
+    ...(input.desktopLyricsColorMode === 'theme' || input.desktopLyricsColorMode === 'custom' || input.desktopLyricsColorMode === 'gradient'
       ? { desktopLyricsColorMode: input.desktopLyricsColorMode }
       : {}),
     ...(typeof input.desktopLyricsColor === 'string' ? { desktopLyricsColor: input.desktopLyricsColor } : {}),
     ...(typeof input.desktopLyricsStrokeColor === 'string' ? { desktopLyricsStrokeColor: input.desktopLyricsStrokeColor } : {}),
+    ...(typeof input.desktopLyricsGradientStartColor === 'string'
+      ? { desktopLyricsGradientStartColor: input.desktopLyricsGradientStartColor }
+      : {}),
+    ...(typeof input.desktopLyricsGradientEndColor === 'string'
+      ? { desktopLyricsGradientEndColor: input.desktopLyricsGradientEndColor }
+      : {}),
     ...(input.desktopLyricsOpacityPercent !== undefined ? { desktopLyricsOpacityPercent: Number(input.desktopLyricsOpacityPercent) } : {}),
     ...(input.desktopLyricsTextDirection === 'horizontal' || input.desktopLyricsTextDirection === 'vertical'
       ? { desktopLyricsTextDirection: input.desktopLyricsTextDirection }
@@ -56,6 +63,7 @@ export const registerDesktopLyricsIpc = (): void => {
   ipcMain.handle(IpcChannels.DesktopLyricsSetLocked, (_event, locked: unknown) => setDesktopLyricsLocked(locked === true));
   ipcMain.handle(IpcChannels.DesktopLyricsSetStyle, (_event, patch: unknown) => setDesktopLyricsStyle(normalizeStylePatch(patch)));
   ipcMain.handle(IpcChannels.DesktopLyricsResetBounds, () => resetDesktopLyricsBounds());
+  ipcMain.handle(IpcChannels.DesktopLyricsRevealMenu, () => revealDesktopLyricsMenu());
   ipcMain.handle(IpcChannels.DesktopLyricsGetLastAudioStatus, () => getLastDesktopLyricsAudioStatus());
   ipcMain.handle(IpcChannels.DesktopLyricsGetLastPlaybackStatus, () => getLastDesktopLyricsPlaybackStatus());
   ipcMain.on(IpcChannels.DesktopLyricsRendererAudioStatus, receiveDesktopLyricsRendererAudioStatus);

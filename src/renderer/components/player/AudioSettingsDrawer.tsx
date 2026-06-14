@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import {
   AudioLines,
@@ -39,6 +39,7 @@ import { isHiResAudioSpec } from '../../../shared/utils/audioQuality';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { TranslationKey } from '../../i18n/locales';
 import { dispatchAudioOutputRouteStatusChanged } from '../../utils/audioOutputRouteEvents';
+import { DrawerSmartSearch } from '../common/DrawerSmartSearch';
 import { createOutputSettings, normalizeSharedBackend, readRememberedAudioOutput, resolveSupportedLatencyProfile, writeRememberedAudioOutput } from './audioOutputMemory';
 import { AudioProfessionalStatusPanel } from './AudioProfessionalStatusPanel';
 import { formatAudioDiagnostics } from './audioDiagnosticsFormat';
@@ -767,6 +768,7 @@ export const AudioSettingsDrawer = ({
   onStatusChange,
 }: AudioSettingsDrawerProps): JSX.Element | null => {
   const { t } = useI18n();
+  const drawerScrollRef = useRef<HTMLDivElement | null>(null);
   const copy = useMemo<AudioDrawerCopy>(
     () => ({
       asioDriver: t('audioDrawer.device.asioDriver'),
@@ -811,6 +813,10 @@ export const AudioSettingsDrawer = ({
       systemDefaultOutput: t('audioDrawer.device.systemDefaultOutput'),
     }),
     [t],
+  );
+  const drawerSearchHints = useMemo(
+    () => ['ASIO', 'WASAPI', 'DSD', '缓冲', '低负载', 'HQPlayer'],
+    [],
   );
   const [devices, setDevices] = useState<AudioDeviceInfo[]>([]);
   const [outputMode, setOutputMode] = useState<AudioOutputMode>(status?.outputMode ?? 'shared');
@@ -1836,7 +1842,7 @@ export const AudioSettingsDrawer = ({
     <div className="audio-drawer-root no-drag" role="presentation" data-open={isMotionOpen}>
       <button className="audio-drawer-scrim" type="button" aria-label={copy.close} onClick={onClose} />
       <aside className="audio-drawer" aria-label={t('audioDrawer.title')}>
-        <div className="audio-drawer-scroll">
+        <div className="audio-drawer-scroll" ref={drawerScrollRef}>
           <header className="audio-drawer-header">
             <div>
               <SlidersHorizontal size={18} />
@@ -1846,6 +1852,20 @@ export const AudioSettingsDrawer = ({
               <X size={20} />
             </button>
           </header>
+
+          <DrawerSmartSearch
+            rootRef={drawerScrollRef}
+            label={t('drawerSearch.label')}
+            placeholder={t('drawerSearch.placeholder')}
+            clearLabel={t('drawerSearch.clear')}
+            noResultsLabel={t('drawerSearch.noResults')}
+            resultCountLabel={(count) => t('drawerSearch.resultCount', { count })}
+            nextLabel={t('drawerSearch.next')}
+            previousLabel={t('drawerSearch.previous')}
+            resultLabel={(result) => t('drawerSearch.resultLabel', { result })}
+            shortcutHint={t('drawerSearch.shortcutHint')}
+            hints={drawerSearchHints}
+          />
 
         <section
           className={['audio-engine-meter', isAudioEngineMeterOpen ? 'audio-engine-meter--open' : ''].filter(Boolean).join(' ')}
@@ -2147,7 +2167,10 @@ export const AudioSettingsDrawer = ({
           </section>
         ) : null}
 
-        <section className={`audio-drawer-section audio-drawer-options${isAdvancedOutputOpen ? ' audio-drawer-options--open' : ''}`}>
+        <section
+          className={`audio-drawer-section audio-drawer-options${isAdvancedOutputOpen ? ' audio-drawer-options--open' : ''}`}
+          data-search-keywords="advanced output engine juce native decode ffmpeg dsd dop asio native dsd volume lock exclusive pause fallback soxr directsound shared backend latency buffer fixed volume remember output bit-perfect"
+        >
           <button
             className="audio-drawer-options-toggle"
             type="button"

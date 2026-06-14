@@ -374,6 +374,8 @@ describe('EchoLinkService', () => {
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(body).toContain('ECHO Web Control');
     expect(body).toContain('/echo-link/v1/library/albums');
+    expect(body).toContain('/echo-link/v1/settings');
+    expect(body).toContain('customBackground');
     expect(body).toContain("pageSize: '500'");
     expect(body).toContain("addEventListener('dblclick'");
     expect(body).toContain("addEventListener('pointerdown'");
@@ -399,6 +401,45 @@ describe('EchoLinkService', () => {
     expect(body).toContain('prefers-reduced-motion: reduce');
     expect(body).toContain('没有找到专辑');
     expect(body).toContain('}, 650)');
+  });
+
+  it('exposes custom web background settings for Album Sea', async () => {
+    expect(service.getServerStatus().webBackground).toEqual({ type: 'none', url: '' });
+
+    const nextStatus = service.setWebBackground({
+      type: 'video',
+      url: 'https://example.test/background.webm',
+    });
+    const response = await fetch(`${baseUrl()}/echo-link/v1/settings`, { headers: authHeaders() });
+    const body = await response.json();
+
+    expect(nextStatus.webBackground).toEqual({ type: 'video', url: 'https://example.test/background.webm' });
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      webBackground: { type: 'video', url: 'https://example.test/background.webm' },
+    });
+    expect(() => service.setWebBackground({ type: 'image', url: 'ftp://example.test/bg.png' })).toThrow('background_url_must_be_http_or_data');
+  });
+
+  it('serves a local custom web background image through an internal URL', async () => {
+    const imagePath = join(tempRoot, 'album-sea-bg.png');
+    writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]));
+
+    const nextStatus = service.setLocalWebBackgroundImage(imagePath);
+    const settingsResponse = await fetch(`${baseUrl()}/echo-link/v1/settings`, { headers: authHeaders() });
+    const settingsBody = await settingsResponse.json();
+    const imageResponse = await fetch(`${baseUrl()}${nextStatus.webBackground.url}`);
+    const imageBody = await imageResponse.arrayBuffer();
+
+    expect(nextStatus.webBackground).toMatchObject({ type: 'image' });
+    expect(nextStatus.webBackground.url).toMatch(/^\/echo-link\/v1\/background\/[A-Za-z0-9_-]+$/u);
+    expect(settingsBody).toEqual({ webBackground: nextStatus.webBackground });
+    expect(imageResponse.status).toBe(200);
+    expect(imageResponse.headers.get('content-type')).toContain('image/png');
+    expect(imageBody.byteLength).toBe(6);
+
+    service.setWebBackground(nextStatus.webBackground);
+    await expect(fetch(`${baseUrl()}${nextStatus.webBackground.url}`)).resolves.toMatchObject({ status: 200 });
   });
 
   it('generates and rotates pairing tokens', () => {

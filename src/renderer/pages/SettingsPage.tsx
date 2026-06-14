@@ -4683,6 +4683,24 @@ export const SettingsPage = (): JSX.Element => {
         ],
       },
       {
+        id: 'row-notifications-disabled',
+        sectionKey: 'general',
+        targetId: 'settings-row-notifications-disabled',
+        title: t('settings.general.notificationsDisabled.title'),
+        description: t('settings.general.notificationsDisabled.description'),
+        terms: [
+          t('settings.general.notificationsDisabled.title'),
+          t('settings.general.notificationsDisabled.description'),
+          '\u5173\u95ed\u6240\u6709\u901a\u77e5',
+          '\u7981\u7528\u901a\u77e5',
+          '\u9759\u97f3\u63d0\u9192',
+          'disable notifications',
+          'mute notifications',
+          'notifications',
+          'notices',
+        ],
+      },
+      {
         id: 'row-track-context-menu-extra-actions',
         sectionKey: 'general',
         targetId: 'settings-row-track-context-menu-extra-actions',
@@ -9038,7 +9056,14 @@ export const SettingsPage = (): JSX.Element => {
       setAppSettings(settings);
       await refreshCacheInventory();
       setPendingCacheDirectory(undefined);
-      setCacheDirectoryMessage(migrate ? '缓存目录已切换，封面缓存路径已更新。' : '缓存目录已切换，后续扫描会按需重新生成封面缓存。');
+      const migratedNothing = migrate && result && result.copiedFiles === 0 && result.skippedFiles === 0 && result.updatedCoverRows === 0;
+      setCacheDirectoryMessage(
+        migratedNothing
+          ? '缓存目录已切换；旧缓存不可用或没有可迁移文件，请点击上方“重扫缺失封面的歌曲”重新生成封面。'
+          : migrate
+            ? '缓存目录已切换，封面缓存路径已更新。'
+            : '缓存目录已切换，后续扫描会按需重新生成封面缓存。',
+      );
       window.dispatchEvent(new Event('library:changed'));
     } catch (cacheError) {
       setError(cacheError instanceof Error ? cacheError.message : String(cacheError));
@@ -11113,6 +11138,18 @@ export const SettingsPage = (): JSX.Element => {
                   active={appSettings?.featureCommentsHidden === true}
                   disabled={!appSettings}
                   onClick={() => patchAppSettings({ featureCommentsHidden: !(appSettings?.featureCommentsHidden ?? false) })}
+                />
+              </SettingRow>
+              <SettingRow
+                id="settings-row-notifications-disabled"
+                highlighted={highlightedSettingId === 'settings-row-notifications-disabled'}
+                title={t('settings.general.notificationsDisabled.title')}
+                description={t('settings.general.notificationsDisabled.description')}
+              >
+                <ToggleButton
+                  active={appSettings?.notificationsDisabled === true}
+                  disabled={!appSettings}
+                  onClick={() => patchAppSettings({ notificationsDisabled: !(appSettings?.notificationsDisabled ?? false) })}
                 />
               </SettingRow>
               <SettingRow
@@ -14667,6 +14704,7 @@ export const SettingsPage = (): JSX.Element => {
                     <em>{t('mediaLibrary.settings.coverCache.current')}</em>
                     <strong title={currentCacheDirectoryLabel}>{currentCacheDirectoryLabel}</strong>
                   </div>
+                  <p className="settings-inline-note">{t('mediaLibrary.settings.coverCache.echoDirectoryWarning')}</p>
                   <div className="settings-chip-row settings-chip-row--left">
                     <button className="settings-action-button" type="button" onClick={() => void refreshCacheInventory()} disabled={cacheInventoryBusy}>
                       <RefreshCw className={cacheInventoryBusy ? 'spinning-icon' : undefined} size={15} />
@@ -14846,10 +14884,13 @@ export const SettingsPage = (): JSX.Element => {
               <SettingRow title={t('settings.about.version.title')} description={t('settings.about.version.description')}>
                 <StatusText tone={appVersion ? 'neutral' : 'muted'}>{appVersion ?? t('common.checking')}</StatusText>
               </SettingRow>
-              <SettingRow title={t('settings.about.pro.title')} description={t('settings.about.pro.description')}>
+              <SettingRow
+                title={t('settings.about.pro.title')}
+                description={t(finalThemeUnlocked ? 'settings.about.pro.descriptionUnlocked' : 'settings.about.pro.description')}
+              >
                 <button className="settings-action-button" type="button" onClick={() => void handleOpenExternalUrl(afdianSponsorUrl)}>
-                  <ExternalLink size={15} />
-                  {t('settings.about.pro.action')}
+                  {finalThemeUnlocked ? <Check size={15} /> : <ExternalLink size={15} />}
+                  {t(finalThemeUnlocked ? 'settings.about.pro.actionUnlocked' : 'settings.about.pro.action')}
                 </button>
               </SettingRow>
               <SettingRow

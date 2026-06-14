@@ -245,6 +245,7 @@ export const migrateCoverCache = async (options: CoverCacheMigrationOptions): Pr
       return result;
     }
   } catch {
+    result.warnings.push(`${oldDir}: source cache directory is missing; cache files must be regenerated`);
     return result;
   }
 

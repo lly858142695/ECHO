@@ -208,6 +208,7 @@ const inboxPage = (overrides: Partial<LibraryInboxTrackPage> = {}): LibraryInbox
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   libraryBridge = null;
   queueMock.appendTracksToQueue.mockReset();
   vi.restoreAllMocks();
@@ -362,7 +363,7 @@ describe('InboxPage', () => {
     render(<InboxPage />);
 
     await screen.findByText('Song track-1');
-    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getAllByRole('checkbox')[1]);
     fireEvent.click(screen.getByRole('button', { name: '标记已处理' }));
 
     await waitFor(() =>

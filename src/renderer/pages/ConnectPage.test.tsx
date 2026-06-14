@@ -287,6 +287,7 @@ const echoLinkServerStatus: EchoLinkServerStatus = {
   token: 'pair-token-1234567890',
   deviceName: 'PC ECHO',
   deviceId: 'pc-echo',
+  webBackground: { type: 'none', url: '' },
   activeMediaTokens: 1,
   activeArtworkTokens: 0,
   mdns: {
@@ -395,6 +396,14 @@ const installEchoBridge = (
       }),
       getEchoLinkStatus: vi.fn().mockResolvedValue(echoLinkServerStatus),
       setEchoLinkEnabled: vi.fn().mockResolvedValue(echoLinkServerStatus),
+      setEchoLinkWebBackground: vi.fn().mockResolvedValue({
+        ...echoLinkServerStatus,
+        webBackground: { type: 'video', url: 'https://example.test/background.webm' },
+      }),
+      chooseEchoLinkWebBackgroundImage: vi.fn().mockResolvedValue({
+        ...echoLinkServerStatus,
+        webBackground: { type: 'image', url: '/echo-link/v1/background/local-bg-token' },
+      }),
       rotateEchoLinkToken: vi.fn().mockResolvedValue({
         ...echoLinkServerStatus,
         token: 'rotated-token-1234567890',
@@ -502,7 +511,37 @@ describe('ConnectPage HQPlayer controls', () => {
     expect(screen.getByText('最近没有连接失败')).toBeTruthy();
   });
 
-  it('remembers the Command Center and Android ECHO Link collapsed states', async () => {
+  it('saves the Echo Link web Album Sea background', async () => {
+    const bridge = installEchoBridge(hqStatus('available'), hqSettings, dlnaConnectStatus, [dlnaDevice, hqPlayerDevice]);
+    renderConnectPage();
+
+    expect(await screen.findByText('网页背景')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('类型'), { target: { value: 'video' } });
+    fireEvent.change(screen.getByLabelText('媒体 URL'), { target: { value: 'https://example.test/background.webm' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存背景' }));
+
+    await waitFor(() => {
+      expect(bridge.connect.setEchoLinkWebBackground).toHaveBeenCalledWith({
+        type: 'video',
+        url: 'https://example.test/background.webm',
+      });
+    });
+  });
+
+  it('chooses a local image for the Echo Link web Album Sea background', async () => {
+    const bridge = installEchoBridge(hqStatus('available'), hqSettings, dlnaConnectStatus, [dlnaDevice, hqPlayerDevice]);
+    renderConnectPage();
+
+    expect(await screen.findByText('网页背景')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '选择图片' }));
+
+    await waitFor(() => {
+      expect(bridge.connect.chooseEchoLinkWebBackgroundImage).toHaveBeenCalled();
+    });
+    expect((screen.getByLabelText('媒体 URL') as HTMLInputElement).value).toBe('/echo-link/v1/background/local-bg-token');
+  });
+
+  it('remembers the Command Center and ECHO Link collapsed states', async () => {
     installEchoBridge(hqStatus('available'), hqSettings, dlnaConnectStatus, [dlnaDevice, hqPlayerDevice]);
     const { container, unmount } = renderConnectPage();
 
@@ -512,7 +551,7 @@ describe('ConnectPage HQPlayer controls', () => {
     expect(echoLinkPanel?.getAttribute('data-collapsed')).toBeNull();
 
     fireEvent.click(within(commandCenter).getByRole('button', { name: '折叠 Connect Command Center' }));
-    fireEvent.click(within(echoLinkPanel as HTMLElement).getByRole('button', { name: '折叠手机连接' }));
+    fireEvent.click(within(echoLinkPanel as HTMLElement).getByRole('button', { name: '折叠 ECHO Link' }));
 
     expect(commandCenter.getAttribute('data-collapsed')).toBe('true');
     expect(echoLinkPanel?.getAttribute('data-collapsed')).toBe('true');
@@ -527,7 +566,7 @@ describe('ConnectPage HQPlayer controls', () => {
     expect(restoredCommandCenter.getAttribute('data-collapsed')).toBe('true');
     expect(restoredEchoLinkPanel?.getAttribute('data-collapsed')).toBe('true');
     fireEvent.click(within(restoredCommandCenter).getByRole('button', { name: '展开 Connect Command Center' }));
-    fireEvent.click(within(restoredEchoLinkPanel as HTMLElement).getByRole('button', { name: '展开手机连接' }));
+    fireEvent.click(within(restoredEchoLinkPanel as HTMLElement).getByRole('button', { name: '展开 ECHO Link' }));
     expect(restoredCommandCenter.getAttribute('data-collapsed')).toBeNull();
     expect(restoredEchoLinkPanel?.getAttribute('data-collapsed')).toBeNull();
   });

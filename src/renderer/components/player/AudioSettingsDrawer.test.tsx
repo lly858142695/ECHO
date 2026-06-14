@@ -7,6 +7,15 @@ import type { AudioDeviceInfo, AudioStatus } from '../../../shared/types/audio';
 import { audioOutputRouteStatusChangedEvent } from '../../utils/audioOutputRouteEvents';
 
 const testTranslations: Record<string, string> = {
+  'drawerSearch.clear': 'Clear search',
+  'drawerSearch.label': 'Search drawer controls',
+  'drawerSearch.next': 'Next match',
+  'drawerSearch.noResults': 'No matches',
+  'drawerSearch.placeholder': 'Search settings, devices, toggles, or keywords',
+  'drawerSearch.previous': 'Previous match',
+  'drawerSearch.resultCount': '{count} matches',
+  'drawerSearch.resultLabel': 'Jump to {result}',
+  'drawerSearch.shortcutHint': 'Ctrl+F to focus / Enter to jump',
   'audioDrawer.buffer.asio': 'ASIO buffer',
   'audioDrawer.buffer.auto': 'Auto',
   'audioDrawer.buffer.default': 'Default',
@@ -332,6 +341,32 @@ afterEach(() => {
 });
 
 describe('AudioSettingsDrawer ASIO buffer controls', () => {
+  it('filters drawer sections from titles, descriptions, and hidden search keywords', async () => {
+    renderDrawer(baseStatus);
+
+    const searchInput = await screen.findByRole('textbox', { name: 'Search drawer controls' });
+    const lowLoadSection = screen.getByText('Low-Load Playback Mode').closest('.audio-drawer-section') as HTMLElement;
+    const currentOutputSection = screen.getByRole('heading', { name: 'currentOutput' }).closest('.audio-drawer-section') as HTMLElement;
+
+    fireEvent.change(searchInput, { target: { value: 'low load' } });
+
+    await waitFor(() => expect(lowLoadSection.dataset.drawerSearchHidden).toBe('false'));
+    expect(currentOutputSection.dataset.drawerSearchHidden).toBe('true');
+
+    fireEvent.change(searchInput, { target: { value: 'dsd' } });
+
+    const advancedSection = screen.getByRole('button', { name: /advancedOutput/ }).closest('.audio-drawer-section') as HTMLElement;
+    await waitFor(() => expect(advancedSection.dataset.drawerSearchHidden).toBe('false'));
+
+    fireEvent.change(searchInput, { target: { value: '卡顿' } });
+
+    await waitFor(() => expect(lowLoadSection.dataset.drawerSearchHidden).toBe('false'));
+
+    fireEvent.change(searchInput, { target: { value: 'bitperfect' } });
+
+    await waitFor(() => expect(advancedSection.dataset.drawerSearchHidden).toBe('false'));
+  });
+
   it('shows low latency while WASAPI exclusive mode is selected', () => {
     renderDrawer({
       ...baseStatus,

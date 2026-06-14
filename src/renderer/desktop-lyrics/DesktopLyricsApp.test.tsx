@@ -28,6 +28,8 @@ const makeDesktopLyricsSettingsBase = (locked: boolean) => ({
   desktopLyricsColorMode: 'theme',
   desktopLyricsColor: '#FFFFFF',
   desktopLyricsStrokeColor: '#111827',
+  desktopLyricsGradientStartColor: '#4F46E5',
+  desktopLyricsGradientEndColor: '#EC4899',
   desktopLyricsOpacityPercent: 96,
   desktopLyricsRomanizationEnabled: true,
   desktopLyricsTranslationEnabled: true,
@@ -169,6 +171,7 @@ const renderDesktopLyricsApp = (
   playbackPlay: ReturnType<typeof vi.fn>;
   setMousePassthrough: ReturnType<typeof vi.fn>;
   setStyle: ReturnType<typeof vi.fn>;
+  triggerRevealMenu: () => void;
 } => {
   const settings = makeDesktopLyricsSettings(locked, options.settings);
   const track = options.track ?? null;
@@ -186,6 +189,7 @@ const renderDesktopLyricsApp = (
   const playbackPlay = vi.fn().mockResolvedValue({ ...playbackStatus, state: 'playing' });
   const playbackPause = vi.fn().mockResolvedValue({ ...playbackStatus, state: 'paused' });
   const setMousePassthrough = vi.fn();
+  const revealMenuHandlers: Array<() => void> = [];
   const setStyle = vi.fn((patch: Partial<ReturnType<typeof makeDesktopLyricsSettingsBase>>) =>
     Promise.resolve({
       visible: true,
@@ -218,6 +222,15 @@ const renderDesktopLyricsApp = (
         settings,
       }),
       onAudioStatus: vi.fn(() => () => undefined),
+      onRevealMenu: vi.fn((handler: () => void) => {
+        revealMenuHandlers.push(handler);
+        return () => {
+          const index = revealMenuHandlers.indexOf(handler);
+          if (index >= 0) {
+            revealMenuHandlers.splice(index, 1);
+          }
+        };
+      }),
       onStateChanged: vi.fn(() => () => undefined),
       setMousePassthrough,
       setStyle,
@@ -241,11 +254,21 @@ const renderDesktopLyricsApp = (
 
   const { container } = render(<DesktopLyricsApp />);
 
-  return { container, connectPause, connectPlay, playbackPause, playbackPlay, setMousePassthrough, setStyle };
+  return {
+    container,
+    connectPause,
+    connectPlay,
+    playbackPause,
+    playbackPlay,
+    setMousePassthrough,
+    setStyle,
+    triggerRevealMenu: () => revealMenuHandlers.forEach((handler) => handler()),
+  };
 };
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   Reflect.deleteProperty(document, 'elementFromPoint');
   Reflect.deleteProperty(window, 'echo');
@@ -1018,6 +1041,66 @@ describe('desktop lyrics text fitting', () => {
     expect(setMousePassthrough).toHaveBeenCalledWith(false);
   });
 
+  it('auto-hides the desktop lyrics menu after hover idle without a mouse leave event', async () => {
+    const { container, setMousePassthrough } = renderDesktopLyricsApp(false);
+    const app = container.querySelector<HTMLElement>('.desktop-lyrics-app');
+    const primaryText = container.querySelector<HTMLElement>('.desktop-lyrics-lines strong');
+
+    expect(app).toBeTruthy();
+    expect(primaryText).toBeTruthy();
+    await waitFor(() => expect(setMousePassthrough).toHaveBeenCalledWith(true));
+    setMousePassthrough.mockClear();
+
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => primaryText),
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 120, clientY: 40 }));
+    });
+
+    expect(app?.getAttribute('data-menu-visible')).toBe('true');
+    expect(setMousePassthrough).toHaveBeenCalledWith(false);
+
+    act(() => {
+      vi.advanceTimersByTime(1799);
+    });
+    expect(app?.getAttribute('data-menu-visible')).toBe('true');
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(app?.getAttribute('data-menu-visible')).toBe('false');
+    expect(setMousePassthrough).not.toHaveBeenCalledWith(true);
+
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => app),
+    });
+    act(() => {
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: 12, clientY: 12 }));
+    });
+    expect(setMousePassthrough).toHaveBeenCalledWith(true);
+  });
+
+  it('reveals the desktop lyrics menu from the host reveal event', async () => {
+    const { container, setMousePassthrough, triggerRevealMenu } = renderDesktopLyricsApp(false);
+    const app = container.querySelector<HTMLElement>('.desktop-lyrics-app');
+
+    expect(app).toBeTruthy();
+    await waitFor(() => expect(setMousePassthrough).toHaveBeenCalledWith(true));
+    setMousePassthrough.mockClear();
+
+    act(() => {
+      triggerRevealMenu();
+    });
+
+    expect(app?.getAttribute('data-menu-visible')).toBe('true');
+    expect(setMousePassthrough).toHaveBeenCalledWith(false);
+  });
+
   it('reveals the desktop lyrics menu over the whole unlocked lyrics container', async () => {
     const { container, setMousePassthrough } = renderDesktopLyricsApp(false);
     const app = container.querySelector<HTMLElement>('.desktop-lyrics-app');
@@ -1356,6 +1439,22 @@ describe('desktop lyrics text fitting', () => {
     await waitFor(() => expect(setStyle).toHaveBeenCalledWith({
       desktopLyricsColorMode: 'custom',
       desktopLyricsColor: '#FFD166',
+    }));
+  });
+
+  it('switches desktop lyrics to a custom gradient from the floating menu', async () => {
+    const { container, setStyle } = renderDesktopLyricsApp(false);
+
+    fireEvent.click(await waitFor(() => {
+      const swatch = container.querySelector<HTMLButtonElement>('.desktop-lyrics-gradient-swatch');
+      expect(swatch).toBeTruthy();
+      return swatch!;
+    }));
+
+    await waitFor(() => expect(setStyle).toHaveBeenCalledWith({
+      desktopLyricsColorMode: 'gradient',
+      desktopLyricsGradientStartColor: '#4F46E5',
+      desktopLyricsGradientEndColor: '#EC4899',
     }));
   });
 });

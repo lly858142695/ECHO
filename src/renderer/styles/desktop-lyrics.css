@@ -29,6 +29,7 @@ body:has(.desktop-lyrics-app),
     --echo-lyrics-active-shadow,
     0 8px 24px rgb(36 39 48 / 0.16)
   );
+  --desktop-lyrics-custom-gradient: linear-gradient(92deg, #4f46e5 0%, #a855f7 48%, #ec4899 100%);
   --desktop-lyrics-theme-stroke-color: rgb(var(--preset-shadow-rgb, 36 39 48) / 0.7);
   --desktop-lyrics-reactive-energy: 0;
   --desktop-lyrics-reactive-transient: 0;
@@ -107,6 +108,14 @@ html[data-theme-preset="darkSideMoon"] .desktop-lyrics-app[data-color-mode="them
   padding: 10px 18px;
   pointer-events: none;
   -webkit-app-region: no-drag;
+}
+
+.desktop-lyrics-cluster {
+  position: relative;
+  display: grid;
+  justify-self: center;
+  justify-items: center;
+  pointer-events: none;
 }
 
 .desktop-lyrics-lines {
@@ -336,8 +345,18 @@ html[data-theme-preset="darkSideMoon"] .desktop-lyrics-app[data-color-mode="them
   -webkit-text-fill-color: transparent;
 }
 
-.desktop-lyrics-app[data-text-direction="vertical"][data-color-mode="theme"] .desktop-lyrics-lines strong {
-  color: var(--desktop-lyrics-theme-color);
+.desktop-lyrics-app[data-color-mode="gradient"] .desktop-lyrics-lines strong {
+  color: var(--desktop-lyrics-color);
+  background-image: var(--desktop-lyrics-custom-gradient);
+  background-clip: text;
+  text-shadow: var(--desktop-lyrics-theme-shadow);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.desktop-lyrics-app[data-text-direction="vertical"][data-color-mode="theme"] .desktop-lyrics-lines strong,
+.desktop-lyrics-app[data-text-direction="vertical"][data-color-mode="gradient"] .desktop-lyrics-lines strong {
+  color: var(--desktop-lyrics-color);
   background-image: none;
   background-clip: border-box;
   text-shadow: var(--desktop-lyrics-theme-shadow);
@@ -359,10 +378,11 @@ html[data-theme-preset="darkSideMoon"] .desktop-lyrics-app[data-color-mode="them
 
 .desktop-lyrics-menu {
   position: absolute;
-  right: 12px;
-  bottom: 8px;
+  top: calc(100% + 4px);
+  left: 50%;
   display: flex;
-  max-width: calc(100% - 24px);
+  width: max-content;
+  max-width: calc(100vw - 24px);
   align-items: center;
   gap: 5px;
   overflow-x: auto;
@@ -375,16 +395,29 @@ html[data-theme-preset="darkSideMoon"] .desktop-lyrics-app[data-color-mode="them
   backdrop-filter: blur(18px);
   opacity: 0;
   pointer-events: none;
-  transform: translateY(4px);
+  transform: translate(-50%, 3px);
   transition:
     opacity 0.16s ease,
     transform 0.16s ease;
   -webkit-app-region: no-drag;
 }
 
+.desktop-lyrics-app[data-text-direction="vertical"] .desktop-lyrics-menu {
+  top: auto;
+  right: 12px;
+  bottom: 8px;
+  left: auto;
+  max-width: calc(100vw - 24px);
+  transform: translateY(3px);
+}
+
 .desktop-lyrics-app[data-menu-visible="true"] .desktop-lyrics-menu {
   opacity: 1;
   pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.desktop-lyrics-app[data-text-direction="vertical"][data-menu-visible="true"] .desktop-lyrics-menu {
   transform: translateY(0);
 }
 
@@ -458,6 +491,10 @@ html[data-theme-preset="darkSideMoon"] .desktop-lyrics-app[data-color-mode="them
 
 .desktop-lyrics-swatches .desktop-lyrics-theme-swatch {
   background: var(--desktop-lyrics-theme-gradient);
+}
+
+.desktop-lyrics-swatches .desktop-lyrics-gradient-swatch {
+  border-radius: 6px;
 }
 
 .desktop-lyrics-swatches button[aria-pressed="true"] {

@@ -1721,6 +1721,7 @@ const echoApi: EchoApi = {
     setLocked: (locked) => ipcRenderer.invoke(IpcChannels.DesktopLyricsSetLocked, locked),
     setStyle: (patch) => ipcRenderer.invoke(IpcChannels.DesktopLyricsSetStyle, patch),
     resetBounds: () => ipcRenderer.invoke(IpcChannels.DesktopLyricsResetBounds),
+    revealMenu: () => ipcRenderer.invoke(IpcChannels.DesktopLyricsRevealMenu),
     setMousePassthrough: (passthrough) => {
       ipcRenderer.send(IpcChannels.DesktopLyricsSetMousePassthrough, passthrough);
     },
@@ -1738,6 +1739,13 @@ const echoApi: EchoApi = {
       };
       ipcRenderer.on(IpcChannels.DesktopLyricsStateChanged, listener);
       return () => ipcRenderer.off(IpcChannels.DesktopLyricsStateChanged, listener);
+    },
+    onRevealMenu: (handler) => {
+      const listener = (): void => {
+        handler();
+      };
+      ipcRenderer.on(IpcChannels.DesktopLyricsRevealMenu, listener);
+      return () => ipcRenderer.off(IpcChannels.DesktopLyricsRevealMenu, listener);
     },
     onAudioStatus: (handler) => {
       const listener = (_event: Electron.IpcRendererEvent, status: unknown): void => {
@@ -2208,6 +2216,8 @@ const echoApi: EchoApi = {
     getEchoLinkStatus: () => ipcRenderer.invoke(IpcChannels.EchoLinkGetStatus),
     setEchoLinkEnabled: (enabled) => ipcRenderer.invoke(IpcChannels.EchoLinkSetEnabled, enabled),
     rotateEchoLinkToken: () => ipcRenderer.invoke(IpcChannels.EchoLinkRotateToken),
+    setEchoLinkWebBackground: (background) => ipcRenderer.invoke(IpcChannels.EchoLinkSetWebBackground, background),
+    chooseEchoLinkWebBackgroundImage: () => ipcRenderer.invoke(IpcChannels.EchoLinkChooseWebBackgroundImage),
     onStatus: (handler) => {
       const listener = (_event: Electron.IpcRendererEvent, status: unknown): void => {
         handler(status as Awaited<ReturnType<EchoApi['connect']['getStatus']>>);

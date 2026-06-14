@@ -35,8 +35,9 @@ const visualSpectrumMinFrequencyHz = 40;
 const visualSpectrumMaxFrequencyHz = 18000;
 const visualWarmupSnapshotCount = 8;
 const visualSpectrumComputeIntervalMs = 250;
-const hardClipThreshold = 1;
-const hardClipReleaseThreshold = 0.999;
+const hardClipThreshold = 1.01;
+const hardClipReleaseThreshold = 1;
+const hardClipEventCooldownSeconds = 0.5;
 const emptyBuffer = Buffer.alloc(0);
 const emptyVisualSpectrum = (): number[] => Array.from({ length: visualSpectrumBucketCount }, () => 0);
 const roundCostMs = (value: number): number => (Number.isFinite(value) ? Math.round(Math.max(0, value) * 1000) / 1000 : 0);
@@ -210,6 +211,7 @@ const dbFromLinear = (value: number): number | null => {
 
   return Math.round(20 * Math.log10(value) * 10) / 10;
 };
+const hardClipThresholdDb = dbFromLinear(hardClipThreshold) ?? 0.1;
 
 const linearGainToDb = (value: number): number => {
   if (!Number.isFinite(value) || value <= 0) {
@@ -261,6 +263,7 @@ export const createAudioLevelTelemetry = (
   const estimatedGainDb = computeDspEstimatedGainDb(eqState, channelBalanceState, dspModuleActive);
   const estimatedOutputPeakDb = addDb(snapshot.inputPeakDb, estimatedGainDb);
   const estimatedOutputRmsDb = addDb(snapshot.inputRmsDb, estimatedGainDb);
+  const outputHardClipped = snapshot.clipCount > 0 && estimatedOutputPeakDb !== null && estimatedOutputPeakDb >= hardClipThresholdDb;
 
   return {
     inputPeakDb: snapshot.inputPeakDb,
@@ -275,8 +278,8 @@ export const createAudioLevelTelemetry = (
     levelMeterObserveCostMs: snapshot.levelMeterObserveCostMs,
     visualSpectrumComputeCostMs: snapshot.visualSpectrumComputeCostMs,
     headroomDb: estimatedOutputPeakDb === null ? null : Math.round(-estimatedOutputPeakDb * 10) / 10,
-    clipCount: snapshot.clipCount,
-    lastClipAt: snapshot.lastClipAt,
+    clipCount: outputHardClipped ? snapshot.clipCount : 0,
+    lastClipAt: outputHardClipped ? snapshot.lastClipAt : null,
     meterSource,
   };
 };
@@ -292,7 +295,9 @@ export class PcmLevelMeterTransform extends Transform {
   private sampleCount = 0;
   private clipCount = 0;
   private hardClipActive = false;
+  private lastHardClipEventSample = Number.NEGATIVE_INFINITY;
   private lastClipAt: string | null = null;
+  private processedSampleCount = 0;
   private lastEmitAt = 0;
   private readonly sampleRateHz: number;
   private readonly channels: number;
@@ -387,7 +392,9 @@ export class PcmLevelMeterTransform extends Transform {
     this.sampleCount = 0;
     this.clipCount = 0;
     this.hardClipActive = false;
+    this.lastHardClipEventSample = Number.NEGATIVE_INFINITY;
     this.lastClipAt = null;
+    this.processedSampleCount = 0;
     this.lastEmitAt = 0;
     this.lastObserveCostMs = 0;
     this.lastVisualSpectrumComputeCostMs = 0;
@@ -442,15 +449,18 @@ export class PcmLevelMeterTransform extends Transform {
       return;
     }
 
+    const baseSampleIndex = this.processedSampleCount;
     if (totalSamples <= this.maxObservedSamplesPerChunk) {
       for (let index = 0; index < totalSamples; index += 1) {
-        this.observeSample(input, index * 4);
+        this.observeSample(input, index * 4, baseSampleIndex + index);
       }
+      this.processedSampleCount += totalSamples;
       return;
     }
 
     if (this.maxObservedSamplesPerChunk === 1) {
-      this.observeSample(input, 0);
+      this.observeSample(input, 0, baseSampleIndex);
+      this.processedSampleCount += totalSamples;
       return;
     }
 
@@ -462,11 +472,12 @@ export class PcmLevelMeterTransform extends Transform {
         continue;
       }
       previousIndex = sampleIndex;
-      this.observeSample(input, sampleIndex * 4);
+      this.observeSample(input, sampleIndex * 4, baseSampleIndex + sampleIndex);
     }
+    this.processedSampleCount += totalSamples;
   }
 
-  private observeSample(input: Buffer, offset: number): void {
+  private observeSample(input: Buffer, offset: number, absoluteSampleIndex: number): void {
     const sample = input.readFloatLE(offset) * this.gain;
 
     if (!Number.isFinite(sample)) {
@@ -479,8 +490,10 @@ export class PcmLevelMeterTransform extends Transform {
     this.sampleCount += 1;
 
     if (absSample > hardClipThreshold) {
-      if (!this.hardClipActive) {
+      const clipCooldownSamples = Math.max(1, Math.round(this.sampleRateHz * this.channels * hardClipEventCooldownSeconds));
+      if (!this.hardClipActive && absoluteSampleIndex - this.lastHardClipEventSample >= clipCooldownSamples) {
         this.clipCount += 1;
+        this.lastHardClipEventSample = absoluteSampleIndex;
         this.lastClipAt = new Date().toISOString();
       }
       this.hardClipActive = true;

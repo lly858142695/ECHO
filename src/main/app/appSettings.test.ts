@@ -180,6 +180,8 @@ describe('app settings normalization', () => {
     expect(settings.desktopLyricsFontFamily).toBe('Microsoft YaHei');
     expect(settings.desktopLyricsFontFilePath).toBeNull();
     expect(settings.desktopLyricsColorMode).toBe('theme');
+    expect(settings.desktopLyricsGradientStartColor).toBe('#4F46E5');
+    expect(settings.desktopLyricsGradientEndColor).toBe('#EC4899');
     expect(settings.desktopLyricsTextDirection).toBe('horizontal');
     expect(settings.desktopLyricsRomanizationEnabled).toBe(true);
     expect(settings.desktopLyricsTranslationEnabled).toBe(true);
@@ -827,6 +829,15 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ suppressAccountExpiryNotices: true }).suppressAccountExpiryNotices).toBe(true);
     expect(normalizeSettings({ suppressAccountExpiryNotices: false }).suppressAccountExpiryNotices).toBe(false);
     expect(normalizeSettings({ suppressAccountExpiryNotices: 'yes' as never }).suppressAccountExpiryNotices).toBe(true);
+  });
+
+  it('keeps the global notification mute disabled unless explicitly enabled', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({}).notificationsDisabled).toBe(false);
+    expect(normalizeSettings({ notificationsDisabled: true }).notificationsDisabled).toBe(true);
+    expect(normalizeSettings({ notificationsDisabled: false }).notificationsDisabled).toBe(false);
+    expect(normalizeSettings({ notificationsDisabled: 'yes' as never }).notificationsDisabled).toBe(false);
   });
 
   it('keeps Spotify official player auto launch enabled unless explicitly disabled', async () => {
@@ -1695,6 +1706,8 @@ describe('app settings normalization', () => {
         lyricsBackgroundScalePercent: 55,
         desktopLyricsColorMode: 'custom',
         desktopLyricsColor: '#ff8a80',
+        desktopLyricsGradientStartColor: '#4f46e5',
+        desktopLyricsGradientEndColor: '#ec4899',
         desktopLyricsTextDirection: 'vertical',
       }),
     ).toMatchObject({
@@ -1725,6 +1738,8 @@ describe('app settings normalization', () => {
       lyricsBackgroundScalePercent: 70,
       desktopLyricsColorMode: 'custom',
       desktopLyricsColor: '#FF8A80',
+      desktopLyricsGradientStartColor: '#4F46E5',
+      desktopLyricsGradientEndColor: '#EC4899',
       desktopLyricsTextDirection: 'vertical',
       lyricsRomanizationEnabled: true,
       lyricsTranslationEnabled: true,
@@ -1744,6 +1759,20 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ desktopLyricsColor: '#ffd166' })).toMatchObject({
       desktopLyricsColorMode: 'custom',
       desktopLyricsColor: '#FFD166',
+    });
+  });
+
+  it('normalizes custom desktop lyrics gradient colors', async () => {
+    const { normalizeSettings } = await import('./appSettings');
+
+    expect(normalizeSettings({
+      desktopLyricsColorMode: 'gradient',
+      desktopLyricsGradientStartColor: '#06b6d4',
+      desktopLyricsGradientEndColor: '#8b5cf6',
+    })).toMatchObject({
+      desktopLyricsColorMode: 'gradient',
+      desktopLyricsGradientStartColor: '#06B6D4',
+      desktopLyricsGradientEndColor: '#8B5CF6',
     });
   });
 

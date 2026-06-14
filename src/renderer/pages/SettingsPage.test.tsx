@@ -27,6 +27,7 @@ const settings: AppSettings = {
   artistWallAlbumFallbackForMissingAvatars: false,
   autoAccountCheckOnStartup: true,
   suppressAccountExpiryNotices: false,
+  notificationsDisabled: false,
   coverCacheDir: null,
   hideToTrayOnClose: false,
   touchOnScreenKeyboardEnabled: false,
@@ -1230,6 +1231,23 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(openExternalUrlMock).toHaveBeenCalledWith('https://github.com/moekotori/echo/releases'));
     expect(openExternalUrlMock).toHaveBeenCalledWith('https://qm.qq.com/q/KrJE8PIqSQ');
     expect(openExternalUrlMock).toHaveBeenCalledWith('https://discord.gg/g7v4WMRq3K');
+  });
+
+  it('thanks users in About when ECHO Pro is already unlocked', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getDonatorUnlockStatusMock.mockResolvedValue({ unlocked: true });
+    getSettingsMock.mockResolvedValue(settings);
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    clickSettingsNav('settings\\.nav\\.about\\.label');
+
+    expect(await screen.findByText('settings.about.pro.descriptionUnlocked')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /settings\.about\.pro\.actionUnlocked/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /settings\.about\.pro\.action$/ })).toBeNull();
   });
 
   it('renders GitHub HTML release notes without exposing raw tags', async () => {
@@ -3245,6 +3263,26 @@ describe('SettingsPage', () => {
     fireEvent.click(within(row).getByRole('button'));
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ suppressAccountExpiryNotices: true }));
+  });
+
+  it('saves the global notification mute setting from Settings General', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    getSettingsMock.mockResolvedValue(settings);
+    setSettingsMock.mockResolvedValue({ ...settings, notificationsDisabled: true });
+    resetSettingsMock.mockResolvedValue(settings);
+    clearCacheMock.mockResolvedValue({ scannedCount: 0, removedCount: 0, deletedCoverCacheFiles: 0, freedCoverCacheBytes: 0 });
+
+    const { container } = render(<SettingsPage />);
+
+    await screen.findByText('route.settings.label');
+    const row = await waitFor(() => {
+      const element = container.querySelector('#settings-row-notifications-disabled') as HTMLElement | null;
+      expect(element).toBeTruthy();
+      return element as HTMLElement;
+    });
+    fireEvent.click(within(row).getByRole('button'));
+
+    await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ notificationsDisabled: true }));
   });
 
   it('shows app wallpaper controls only after choosing a custom background', async () => {

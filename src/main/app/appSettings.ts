@@ -74,6 +74,8 @@ const appWallpaperExtensions = new Set([...imageWallpaperExtensions, ...videoWal
 const defaultLyricsColor = '#314054';
 const defaultDesktopLyricsColor = '#FFFFFF';
 const defaultDesktopLyricsStrokeColor = '#111827';
+const defaultDesktopLyricsGradientStartColor = '#4F46E5';
+const defaultDesktopLyricsGradientEndColor = '#EC4899';
 const defaultDesktopLyricsFontFamily = 'Microsoft YaHei';
 const defaultLyricsMiniPlayerColor = '#232120';
 const mvNetworkProviders: NetworkMvProviderId[] = ['bilibili', 'youtube'];
@@ -423,6 +425,7 @@ export const defaultSettings: AppSettings = {
   autoUpdateCustomUrl: null,
   autoAccountCheckOnStartup: true,
   suppressAccountExpiryNotices: true,
+  notificationsDisabled: false,
   spotifyAutoLaunchOfficialPlayer: true,
   spotifyClientId: null,
   spotifyRedirectUri: null,
@@ -536,6 +539,8 @@ export const defaultSettings: AppSettings = {
   desktopLyricsColorMode: 'theme',
   desktopLyricsColor: defaultDesktopLyricsColor,
   desktopLyricsStrokeColor: defaultDesktopLyricsStrokeColor,
+  desktopLyricsGradientStartColor: defaultDesktopLyricsGradientStartColor,
+  desktopLyricsGradientEndColor: defaultDesktopLyricsGradientEndColor,
   desktopLyricsOpacityPercent: 96,
   desktopLyricsTextDirection: 'horizontal',
   desktopLyricsRomanizationEnabled: true,
@@ -1292,7 +1297,7 @@ const normalizeLyricsMiniPlayerColorMode = (value: unknown): LyricsMiniPlayerCol
   value === 'custom' || value === 'cover' || value === 'default' ? value : defaultSettings.lyricsPlayerBarDrawerColorMode ?? 'default';
 
 const normalizeDesktopLyricsColorMode = (value: unknown, legacyColor: unknown): DesktopLyricsColorMode => {
-  if (value === 'theme' || value === 'custom') {
+  if (value === 'theme' || value === 'custom' || value === 'gradient') {
     return value;
   }
 
@@ -1734,6 +1739,7 @@ export const normalizeSettings = (value: unknown, options: NormalizeSettingsOpti
     autoUpdateCustomUrl: normalizeAutoUpdateCustomUrl(settings.autoUpdateCustomUrl),
     autoAccountCheckOnStartup: settings.autoAccountCheckOnStartup !== false,
     suppressAccountExpiryNotices: settings.suppressAccountExpiryNotices !== false,
+    notificationsDisabled: settings.notificationsDisabled === true,
     spotifyAutoLaunchOfficialPlayer: settings.spotifyAutoLaunchOfficialPlayer !== false,
     spotifyClientId: normalizeSpotifyClientId(settings.spotifyClientId),
     spotifyRedirectUri: normalizeSpotifyRedirectUri(settings.spotifyRedirectUri),
@@ -1900,6 +1906,8 @@ export const normalizeSettings = (value: unknown, options: NormalizeSettingsOpti
     desktopLyricsColorMode: normalizeDesktopLyricsColorMode(settings.desktopLyricsColorMode, settings.desktopLyricsColor),
     desktopLyricsColor: normalizeHexColor(settings.desktopLyricsColor, defaultDesktopLyricsColor),
     desktopLyricsStrokeColor: normalizeHexColor(settings.desktopLyricsStrokeColor, defaultDesktopLyricsStrokeColor),
+    desktopLyricsGradientStartColor: normalizeHexColor(settings.desktopLyricsGradientStartColor, defaultDesktopLyricsGradientStartColor),
+    desktopLyricsGradientEndColor: normalizeHexColor(settings.desktopLyricsGradientEndColor, defaultDesktopLyricsGradientEndColor),
     desktopLyricsOpacityPercent: Number.isFinite(desktopLyricsOpacityPercent)
       ? Math.round(clamp(desktopLyricsOpacityPercent, 35, 100))
       : defaultSettings.desktopLyricsOpacityPercent,

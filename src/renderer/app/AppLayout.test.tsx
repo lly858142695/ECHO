@@ -479,6 +479,33 @@ describe('AppLayout standalone routes', () => {
     );
   });
 
+  it('suppresses upper-left notices when all notifications are disabled', async () => {
+    const getSettings = vi.fn().mockResolvedValue({
+      lyricsPlayerBarDrawerEnabled: false,
+      notificationsDisabled: true,
+      smtcEnabled: true,
+    });
+    window.echo = {
+      app: {
+        getSettings,
+      },
+      diagnostics: {
+        getLastCrashSummary: vi.fn().mockResolvedValue(null),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+    window.dispatchEvent(new CustomEvent('app:show-chrome-notice', { detail: 'This should stay hidden' }));
+
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+  });
+
   it('shows an upper-left thank-you notice when the donator unlock is verified', async () => {
     window.echo = {
       app: {

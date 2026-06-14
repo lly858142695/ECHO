@@ -350,9 +350,13 @@ const settingsSectionNavigationEvent = 'app:navigate:settings-section';
 const lyricsMiniPlayerAutoHideDistancePx = 150;
 const lyricsMiniPlayerAutoHideRevealBandPx = 164;
 const lyricsMiniPlayerAutoHideDelayMs = 280;
+const defaultChromeNoticeAutoHideMs = 5000;
+const quickAudioNoticeAutoHideMs = 1800;
 const temporarilyBlockedRouteIds = new Set<AppRouteId>(['streaming']);
 const readSuppressAccountExpiryNotices = (settings: Partial<AppSettings> | null | undefined): boolean =>
   settings?.suppressAccountExpiryNotices === true;
+const readNotificationsDisabled = (settings: Partial<AppSettings> | null | undefined): boolean =>
+  settings?.notificationsDisabled === true;
 
 const trimRateTrailingZero = (value: string): string => value.replace(/\.0$/u, '');
 
@@ -443,10 +447,13 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const playbackStatusSnapshot = useSharedPlaybackStatus();
   const [activeRouteId, setActiveRouteId] = useState<AppRouteId>(() => readInitialRouteId(routes));
   const [chromeNotice, setChromeNotice] = useState<string | null>(null);
+  const [chromeNoticeAutoHideMs, setChromeNoticeAutoHideMs] = useState(defaultChromeNoticeAutoHideMs);
   const [availableUpdateStatus, setAvailableUpdateStatus] = useState<UpdateStatus | null>(null);
   const [isChromeNoticeVisible, setIsChromeNoticeVisible] = useState(false);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const suppressAccountExpiryNoticesRef = useRef(false);
+  const [notificationsDisabled, setNotificationsDisabled] = useState(false);
+  const notificationsDisabledRef = useRef(false);
   const [audioErrorNotice, setAudioErrorNotice] = useState<{ message: string } | null>(null);
   const [diagnosticsNotice, setDiagnosticsNotice] = useState(false);
   const [firstRunSettings, setFirstRunSettings] = useState<AppSettings | null>(null);
@@ -585,7 +592,12 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       .then((status) => {
         const unlocked = status.unlocked === true;
         setConnectDonatorUnlocked(unlocked);
-        if (unlocked && !proUnlockNoticeShownRef.current && shouldShowProUnlockNotice(status)) {
+        if (
+          unlocked
+          && !notificationsDisabledRef.current
+          && !proUnlockNoticeShownRef.current
+          && shouldShowProUnlockNotice(status)
+        ) {
           proUnlockNoticeShownRef.current = true;
           setChromeNotice('Pro 已解锁，感谢你的赞助。');
         }
@@ -1355,6 +1367,23 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     setIsChromeNoticeVisible(false);
   }, []);
 
+  const clearNotificationNotices = useCallback((): void => {
+    setChromeNotice(null);
+    setIsChromeNoticeVisible(false);
+    setAccountNotice(null);
+    setAudioErrorNotice(null);
+    setDiagnosticsNotice(false);
+  }, []);
+
+  const showChromeNotice = useCallback((message: string, autoHideMs = defaultChromeNoticeAutoHideMs): void => {
+    if (notificationsDisabledRef.current) {
+      return;
+    }
+
+    setChromeNoticeAutoHideMs(autoHideMs);
+    setChromeNotice((current) => (current === message ? current : message));
+  }, []);
+
   useEffect(() => {
     if (!persistentRouteIds.has(activeRouteId)) {
       return;
@@ -1377,12 +1406,16 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   useEffect(() => {
     void window.echo?.diagnostics
       ?.getLastCrashSummary()
-      .then((summary) => setDiagnosticsNotice(Boolean(summary)))
+      .then((summary) => {
+        if (!notificationsDisabledRef.current) {
+          setDiagnosticsNotice(Boolean(summary));
+        }
+      })
       .catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    if (!chromeNotice) {
+    if (!chromeNotice || notificationsDisabled) {
       return undefined;
     }
 
@@ -1390,10 +1423,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
     const timer = window.setTimeout(() => {
       setIsChromeNoticeVisible(false);
-    }, 5000);
+    }, chromeNoticeAutoHideMs);
 
     return () => window.clearTimeout(timer);
-  }, [chromeNotice]);
+  }, [chromeNotice, chromeNoticeAutoHideMs, notificationsDisabled]);
 
   useEffect(() => {
     if (!chromeNotice || isChromeNoticeVisible) {
@@ -1411,13 +1444,13 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     const handleShowChromeNotice = (event: Event): void => {
       const message = (event as CustomEvent<string>).detail;
       if (typeof message === 'string' && message.trim()) {
-        setChromeNotice((current) => (current === message ? current : message));
+        showChromeNotice(message);
       }
     };
 
     window.addEventListener(showChromeNoticeEvent, handleShowChromeNotice);
     return () => window.removeEventListener(showChromeNoticeEvent, handleShowChromeNotice);
-  }, []);
+  }, [showChromeNotice]);
 
   useEffect(() => {
     if (!accountNotice) {
@@ -1435,14 +1468,25 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     let cancelled = false;
 
     const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
-      if (!settings || !Object.prototype.hasOwnProperty.call(settings, 'suppressAccountExpiryNotices')) {
+      if (!settings) {
         return;
       }
 
-      const suppressed = readSuppressAccountExpiryNotices(settings);
-      suppressAccountExpiryNoticesRef.current = suppressed;
-      if (suppressed) {
-        setAccountNotice(null);
+      if (Object.prototype.hasOwnProperty.call(settings, 'suppressAccountExpiryNotices')) {
+        const suppressed = readSuppressAccountExpiryNotices(settings);
+        suppressAccountExpiryNoticesRef.current = suppressed;
+        if (suppressed) {
+          setAccountNotice(null);
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(settings, 'notificationsDisabled')) {
+        const disabled = readNotificationsDisabled(settings);
+        notificationsDisabledRef.current = disabled;
+        setNotificationsDisabled(disabled);
+        if (disabled) {
+          clearNotificationNotices();
+        }
       }
     };
 
@@ -1472,11 +1516,11 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       cancelled = true;
       window.removeEventListener('settings:changed', handleSettingsChanged);
     };
-  }, []);
+  }, [clearNotificationNotices]);
 
   useEffect(() => {
     const unsubscribe = window.echo?.accounts?.onStatusesChanged?.((statuses: AccountStatus[]) => {
-      if (suppressAccountExpiryNoticesRef.current) {
+      if (notificationsDisabledRef.current || suppressAccountExpiryNoticesRef.current) {
         return;
       }
 
@@ -1494,6 +1538,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [t]);
 
   useEffect(() => {
+    if (notificationsDisabledRef.current) {
+      return;
+    }
+
     const rawError = playbackStatusSnapshot.audioStatus?.error ?? playbackStatusSnapshot.error;
 
     if (!rawError || rawError === 'Desktop bridge unavailable') {
@@ -1519,6 +1567,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [playbackStatusSnapshot.audioStatus?.error, playbackStatusSnapshot.error]);
 
   useEffect(() => {
+    if (notificationsDisabledRef.current) {
+      return;
+    }
+
     const rate = getWindowsAudioDefaultFormatWarningRate(playbackStatusSnapshot.audioStatus?.warnings);
     if (!rate || !Number.isFinite(rate)) {
       return;
@@ -1530,8 +1582,8 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     }
 
     notifiedWindowsAudioDefaultFormatKeysRef.current.add(noticeKey);
-    setChromeNotice(t('notice.audioDefaultFormatWarning', { rate: formatAudioNoticeRate(rate) }));
-  }, [playbackStatusSnapshot.audioStatus?.warnings, t]);
+    showChromeNotice(t('notice.audioDefaultFormatWarning', { rate: formatAudioNoticeRate(rate) }), quickAudioNoticeAutoHideMs);
+  }, [playbackStatusSnapshot.audioStatus?.warnings, showChromeNotice, t]);
 
   useEffect(() => {
     const rawError = playbackStatusSnapshot.audioStatus?.error ?? playbackStatusSnapshot.error;
@@ -1601,6 +1653,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         return;
       }
 
+      if (notificationsDisabledRef.current) {
+        return;
+      }
+
       const version = status.latestVersion ?? status.releaseName ?? '';
       const noticeKey = `${status.state}:${version || status.checkedAt || 'unknown'}`;
       if (notifiedUpdateKeysRef.current.has(noticeKey)) {
@@ -1609,18 +1665,18 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
       notifiedUpdateKeysRef.current.add(noticeKey);
       if (status.state === 'downloaded') {
-        setChromeNotice(version ? t('notice.updateDownloadedVersion', { version }) : t('notice.updateDownloaded'));
+        showChromeNotice(version ? t('notice.updateDownloadedVersion', { version }) : t('notice.updateDownloaded'));
         return;
       }
 
-      setChromeNotice(version ? t('notice.updateAvailableVersion', { version }) : t('notice.updateAvailable'));
+      showChromeNotice(version ? t('notice.updateAvailableVersion', { version }) : t('notice.updateAvailable'));
     };
 
     const unsubscribe = window.echo?.app?.onUpdateStatus?.(notifyUpdateStatus);
     void window.echo?.app?.getUpdateStatus?.().then(notifyUpdateStatus).catch(() => undefined);
 
     return () => unsubscribe?.();
-  }, [t]);
+  }, [showChromeNotice, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2172,7 +2228,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
     if (!library) {
       folderInputRef.current?.click();
-      setChromeNotice(t('notice.browserFolderPicker'));
+      showChromeNotice(t('notice.browserFolderPicker'));
       return;
     }
 
@@ -2189,7 +2245,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     } catch (error) {
       console.error('Failed to import folder from app chrome', error);
     }
-  }, [notifyLibraryChanged, t]);
+  }, [notifyLibraryChanged, showChromeNotice, t]);
 
   const handleImportFile = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
@@ -2197,7 +2253,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
     if (!library?.chooseImportFiles && !playback) {
       fileInputRef.current?.click();
-      setChromeNotice(t('notice.browserFolderPicker'));
+      showChromeNotice(t('notice.browserFolderPicker'));
       return;
     }
 
@@ -2225,19 +2281,19 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
           result.skippedCount > 0 ? t('notice.importFiles.skipped', { count: result.skippedCount }) : null,
           result.failedCount > 0 ? t('notice.importFiles.failed', { count: result.failedCount }) : null,
         ].filter(Boolean).join(t('punctuation.clauseSeparator'));
-        setChromeNotice(details || t('notice.importFiles.empty'));
+        showChromeNotice(details || t('notice.importFiles.empty'));
         return;
       }
 
       const result = await playbackQueue.openTemporaryLocalFiles(filePaths);
       navigateRoute('queue');
       if (result.rejected.length > 0) {
-        setChromeNotice(t('notice.openFiles.partial', { opened: result.tracks.length, rejected: result.rejected.length }));
+        showChromeNotice(t('notice.openFiles.partial', { opened: result.tracks.length, rejected: result.rejected.length }));
       }
     } catch (error) {
       console.error('Failed to open local audio file from app chrome', error);
     }
-  }, [navigateRoute, notifyLibraryChanged, playbackQueue, t]);
+  }, [navigateRoute, notifyLibraryChanged, playbackQueue, showChromeNotice, t]);
 
   useEffect(() => {
     const handleAppImportFile = (): void => {
@@ -2259,7 +2315,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         .then((result) => {
           navigateRoute('queue');
           if (result.rejected.length > 0) {
-            setChromeNotice(t('notice.openFiles.partial', { opened: result.tracks.length, rejected: result.rejected.length }));
+            showChromeNotice(t('notice.openFiles.partial', { opened: result.tracks.length, rejected: result.rejected.length }));
           }
         })
         .catch((error) => {
@@ -2268,14 +2324,14 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     });
 
     return () => unsubscribe?.();
-  }, [navigateRoute, playbackQueue, t]);
+  }, [navigateRoute, playbackQueue, showChromeNotice, t]);
 
   const handleWindowAction = useCallback(
     async (action: 'minimize' | 'toggleMaximize' | 'toggleFullscreen' | 'close'): Promise<void> => {
       const appApi = window.echo?.app;
 
       if (!appApi) {
-        setChromeNotice(t('notice.windowControlsDesktop'));
+        showChromeNotice(t('notice.windowControlsDesktop'));
         return;
       }
 
@@ -2294,7 +2350,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
           .catch(() => undefined);
       }
     },
-    [isWindowFullscreen, startWindowFullscreenTransition, t],
+    [isWindowFullscreen, showChromeNotice, startWindowFullscreenTransition, t],
   );
 
   const handleOpenUpdateSettings = useCallback((): void => {
@@ -2316,11 +2372,11 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     try {
       const reportPath = await window.echo?.diagnostics.openCrashReport();
       setDiagnosticsNotice(false);
-      setChromeNotice(reportPath ? t('notice.reportOpenedPath', { path: reportPath }) : t('notice.reportOpened'));
+      showChromeNotice(reportPath ? t('notice.reportOpenedPath', { path: reportPath }) : t('notice.reportOpened'));
     } catch (error) {
-      setChromeNotice(error instanceof Error ? error.message : String(error));
+      showChromeNotice(error instanceof Error ? error.message : String(error));
     }
-  }, [t]);
+  }, [showChromeNotice, t]);
 
   const handleDismissDiagnosticsNotice = useCallback(async (): Promise<void> => {
     setDiagnosticsNotice(false);
@@ -2331,9 +2387,9 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     try {
       await window.echo?.diagnostics.openAudioCrashReport();
     } catch (error) {
-      setChromeNotice(error instanceof Error ? error.message : String(error));
+      showChromeNotice(error instanceof Error ? error.message : String(error));
     }
-  }, []);
+  }, [showChromeNotice]);
 
   const handleCloseAudioIssueDiagnosticsWindow = useCallback((): void => {
     setAudioIssueDiagnosticsWindowEnabled(false);
@@ -2349,7 +2405,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       return;
     }
 
-    setChromeNotice(t('notice.browserFilePicker', { name: `${files.length} file(s)` }));
+    showChromeNotice(t('notice.browserFilePicker', { name: `${files.length} file(s)` }));
   };
 
   const handleBrowserFilePicked = (files: FileList | null): void => {
@@ -2359,7 +2415,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       return;
     }
 
-    setChromeNotice(t('notice.browserFilePicker', { name: `"${file.name}"` }));
+    showChromeNotice(t('notice.browserFilePicker', { name: `"${file.name}"` }));
   };
 
   const handleToggleDesktopLyrics = useCallback(async (): Promise<void> => {
@@ -2389,6 +2445,28 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       setDesktopLyricsVisible(state.visible === true);
       setDesktopLyricsLocked(state.locked === true);
     } catch {
+      setDesktopLyricsLocked((current) => current);
+    }
+  }, [desktopLyricsLocked]);
+
+  const handleRevealDesktopLyricsMenu = useCallback(async (): Promise<void> => {
+    const desktopLyrics = window.echo?.desktopLyrics;
+    if (!desktopLyrics?.revealMenu) {
+      return;
+    }
+
+    try {
+      if (desktopLyricsLocked) {
+        const unlockedState = await desktopLyrics.setLocked(false);
+        setDesktopLyricsVisible(unlockedState.visible === true);
+        setDesktopLyricsLocked(unlockedState.locked === true);
+      }
+
+      const state = await desktopLyrics.revealMenu();
+      setDesktopLyricsVisible(state.visible === true);
+      setDesktopLyricsLocked(state.locked === true);
+    } catch {
+      setDesktopLyricsVisible((current) => current);
       setDesktopLyricsLocked((current) => current);
     }
   }, [desktopLyricsLocked]);
@@ -2561,7 +2639,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         <AudioIssueDiagnosticsWindow onClose={handleCloseAudioIssueDiagnosticsWindow} />
       ) : null}
 
-      {chromeNotice ? (
+      {!notificationsDisabled && chromeNotice ? (
         <div className={`chrome-notice ${isChromeNoticeVisible ? 'is-visible' : 'is-hiding'}`} role="status">
           <span className="chrome-notice-message">{chromeNotice}</span>
           <button className="chrome-notice-close" type="button" aria-label={t('notice.action.closeNotice')} title={t('notice.action.closeNotice')} onClick={dismissChromeNotice}>
@@ -2570,7 +2648,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         </div>
       ) : null}
 
-      {diagnosticsNotice ? (
+      {!notificationsDisabled && diagnosticsNotice ? (
         <div className="chrome-notice chrome-notice--diagnostics" role="status">
           <span>{t('notice.diagnosticsCrash.description')}</span>
           <div className="chrome-notice-actions">
@@ -2584,14 +2662,14 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         </div>
       ) : null}
 
-      {accountNotice ? (
+      {!notificationsDisabled && accountNotice ? (
         <div className="chrome-notice chrome-notice--account" role="alert">
           <strong>{t('notice.accountExpired.title')}</strong>
           <span>{accountNotice}</span>
         </div>
       ) : null}
 
-      {audioErrorNotice ? (
+      {!notificationsDisabled && audioErrorNotice ? (
         <div className="chrome-notice chrome-notice--audio-error" role="alert">
           <strong>{t('notice.audioError.title')}</strong>
           <span>{audioErrorNotice.message}</span>
@@ -2657,6 +2735,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
             onOpenQueue={isLyricsRoute ? handleOpenLyricsQueueDrawer : handleOpenShellQueue}
             showQueueButton={true}
             showSignalPathControl={!isLyricsRoute && signalPathControlEnabled}
+            onRevealDesktopLyricsMenu={() => void handleRevealDesktopLyricsMenu()}
             onToggleDesktopLyrics={handleToggleDesktopLyrics}
             onUnlockDesktopLyrics={handleUnlockDesktopLyrics}
           />

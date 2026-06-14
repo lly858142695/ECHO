@@ -236,15 +236,30 @@ describe('AudioLevelMeter', () => {
     expect(maxAdjacentDelta).toBeLessThanOrEqual(0.085);
   });
 
-  it('tracks hard clipping events and last clip timestamp', async () => {
+  it('tracks debounced hard clipping events and last clip timestamp', async () => {
     const result = await runMeter([1, -1.1, -1.2, 0.998, 1.05]);
 
-    expect(result.snapshot.clipCount).toBe(2);
+    expect(result.snapshot.clipCount).toBe(1);
     expect(result.snapshot.lastClipAt).toEqual(expect.any(String));
+  });
+
+  it('counts clearly separated hard clipping events without counting every waveform cycle', async () => {
+    const separatedClips = [1.08, ...Array.from({ length: 24000 }, () => 0), -1.09];
+    const result = await runMeter(separatedClips, { channels: 1 });
+
+    expect(result.snapshot.clipCount).toBe(2);
   });
 
   it('treats full-scale peaks as headroom pressure without counting them as hard clips', async () => {
     const result = await runMeter([0.4, 1, -1, 0.6]);
+
+    expect(result.snapshot.inputPeakDb).toBe(0);
+    expect(result.snapshot.clipCount).toBe(0);
+    expect(result.snapshot.lastClipAt).toBeNull();
+  });
+
+  it('treats tiny decoder overshoots as headroom pressure without counting hard clips', async () => {
+    const result = await runMeter([0.4, 1.005, -1.004, 0.6]);
 
     expect(result.snapshot.inputPeakDb).toBe(0);
     expect(result.snapshot.clipCount).toBe(0);
@@ -332,6 +347,34 @@ describe('AudioLevelMeter', () => {
       headroomDb: 1,
       visualSpectrumVersion: 2,
       visualTelemetryState: 'fallback',
+    });
+  });
+
+  it('suppresses hard clip counts when DSP headroom keeps estimated output below the hard-clip threshold', () => {
+    const eq = eqState({ enabled: true, dspHeadroomDb: -6 });
+
+    expect(
+      createAudioLevelTelemetry(
+        {
+          inputPeakDb: 0.8,
+          inputRmsDb: -12,
+          visualSpectrum: [],
+          visualSpectrumVersion: 2,
+          visualEnergy: 0,
+          visualTransient: 0,
+          visualTelemetryState: 'fallback',
+          clipCount: 4,
+          lastClipAt: '2026-06-14T00:00:00.000Z',
+          levelMeterObserveCostMs: 0,
+          visualSpectrumComputeCostMs: 0,
+        },
+        eq,
+        channelBalanceState(),
+      ),
+    ).toMatchObject({
+      estimatedOutputPeakDb: -5.2,
+      clipCount: 0,
+      lastClipAt: null,
     });
   });
 

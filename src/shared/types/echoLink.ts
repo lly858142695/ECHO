@@ -65,6 +65,17 @@ export type EchoLinkLibraryAlbumTracksResponse = {
   totalCount: number;
 };
 
+export type EchoLinkWebBackgroundType = 'none' | 'image' | 'video';
+
+export type EchoLinkWebBackground = {
+  type: EchoLinkWebBackgroundType;
+  url: string;
+};
+
+export type EchoLinkSettingsResponse = {
+  webBackground: EchoLinkWebBackground;
+};
+
 export type EchoLinkStreamResponse = {
   streamUrl: string;
   expiresAtEpochMs: number;
@@ -82,6 +93,7 @@ export type EchoLinkServerStatus = {
   token: string;
   deviceName: string;
   deviceId: string;
+  webBackground: EchoLinkWebBackground;
   activeMediaTokens: number;
   activeArtworkTokens: number;
   mdns: {

@@ -239,6 +239,45 @@ afterEach(() => {
 });
 
 describe('PlayerBar', () => {
+  it('reveals the desktop lyrics floating menu from the footer icon context menu', async () => {
+    const revealDesktopLyricsMenu = vi.fn();
+
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ hiddenPlayerBarButtonIds: ['sleepTimer'] }),
+      },
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'stopped',
+          currentTrackId: null,
+          positionMs: 0,
+          durationMs: 0,
+          filePath: null,
+        }),
+      },
+      library: {
+        getLikedTrackIds: vi.fn().mockResolvedValue({}),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <I18nProvider>
+        <PlaybackQueueProvider>
+          <PlayerBar
+            hasDesktopLyricsBridge={true}
+            onRevealDesktopLyricsMenu={revealDesktopLyricsMenu}
+            onToggleDesktopLyrics={vi.fn()}
+          />
+        </PlaybackQueueProvider>
+      </I18nProvider>,
+    );
+
+    const button = await screen.findByRole('button', { name: /桌面歌词/u });
+    fireEvent.contextMenu(button);
+
+    expect(revealDesktopLyricsMenu).toHaveBeenCalledTimes(1);
+  });
+
   it('routes footer play to the active DLNA Connect session instead of local playback', async () => {
     const track = makeTrack(31, { title: 'Matrix Route Track' });
     const pausedConnectStatus = dlnaConnectStatus(track, 'paused');
@@ -946,6 +985,113 @@ describe('PlayerBar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close DAC arrival card' }));
     expect(screen.queryByText('TEAC USB DAC taken over')).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(audioOutputRouteStatusChangedEvent, {
+        detail: {
+          status: {
+            ...asioStatus,
+            currentTrackId: 'track-41',
+            currentFilePath: 'D:\\Music\\song-41.flac',
+            outputBackend: 'asio-session-refresh',
+            activeOutputBackendImpl: 'asio-host-refresh',
+          },
+        },
+      }));
+    });
+
+    await waitFor(() => expect(screen.queryByText('TEAC USB DAC taken over')).toBeNull());
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(audioOutputRouteStatusChangedEvent, { detail: { status: asioStatus } }));
+    });
+
+    await waitFor(() => expect(screen.queryByText('TEAC USB DAC taken over')).toBeNull());
+  });
+
+  it('suppresses DAC arrival ceremony when all notifications are disabled', async () => {
+    window.localStorage.setItem('echo-next.locale', 'en-US');
+    const track = makeTrack(41, { title: 'Muted Arrival Track', sampleRate: 96000, bitDepth: 24 });
+    const statusHandlers: Array<(status: AudioStatus) => void> = [];
+    const sharedStatus = {
+      ...audioStatus(track),
+      state: 'idle' as const,
+      currentFilePath: null,
+      currentTrackId: null,
+      outputDeviceName: 'Speakers',
+      outputMode: 'shared' as const,
+      outputBackend: 'wasapi-shared',
+      actualDeviceSampleRate: 48000,
+      requestedOutputSampleRate: 48000,
+      sharedDeviceSampleRate: 48000,
+    };
+    const asioStatus = {
+      ...audioStatus(track),
+      state: 'idle' as const,
+      currentFilePath: null,
+      currentTrackId: null,
+      outputDeviceId: 'teac-asio',
+      outputDeviceName: 'TEAC USB DAC',
+      outputMode: 'asio' as const,
+      outputBackend: 'asio',
+      actualDeviceSampleRate: 96000,
+      requestedOutputSampleRate: 96000,
+      sharedDeviceSampleRate: null,
+      bitPerfectCandidate: true,
+    };
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 4000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(sharedStatus),
+        onStatus: vi.fn(subscribeAudioStatusHandlers(statusHandlers)),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getTrack: vi.fn().mockResolvedValue(track),
+        getLikedTrackIds: vi.fn().mockResolvedValue({ [track.id]: false }),
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({
+          appMemoryVersion: 1,
+          locale: 'en-US',
+          notificationsDisabled: true,
+          smtcEnabled: true,
+        }),
+        setSettings: vi.fn().mockResolvedValue({
+          appMemoryVersion: 1,
+          locale: 'en-US',
+          notificationsDisabled: true,
+          smtcEnabled: true,
+        }),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <I18nProvider>
+        <PlaybackQueueProvider>
+          <QueueSeed tracks={[track]} />
+        </PlaybackQueueProvider>
+      </I18nProvider>,
+    );
+
+    await screen.findByText('Muted Arrival Track');
+    await waitFor(() => expect(window.echo?.app?.getSettings).toHaveBeenCalled());
 
     act(() => {
       window.dispatchEvent(new CustomEvent(audioOutputRouteStatusChangedEvent, { detail: { status: asioStatus } }));

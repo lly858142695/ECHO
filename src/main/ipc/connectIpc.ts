@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
 import type { AirPlayReceiverStatus, ConnectDevice, ConnectReceiverStatus, ConnectSessionStatus } from '../../shared/types/connect';
 import { getAppSettings } from '../app/appSettings';
@@ -6,7 +6,7 @@ import { getAirPlayReceiverSpikeService } from '../connect/AirPlayReceiverSpikeS
 import { getConnectReceiverService } from '../connect/ConnectReceiverService';
 import { getConnectService, normalizeConnectStartRequest } from '../connect/ConnectService';
 import { getEchoLinkService } from '../connect/EchoLinkService';
-import type { EchoLinkServerStatus } from '../../shared/types/echoLink';
+import type { EchoLinkServerStatus, EchoLinkWebBackground } from '../../shared/types/echoLink';
 import { getWallpaperEngineBridgeService } from '../integrations/wallpaperEngine/getWallpaperEngineBridgeService';
 import { getConnectDonatorUnlockService } from '../plugins/ConnectDonatorUnlockService';
 
@@ -43,6 +43,10 @@ const normalizeVolume = (value: unknown): number => {
   const next = Number(value);
   return Number.isFinite(next) ? Math.max(0, Math.min(100, next)) : 100;
 };
+
+const webBackgroundImageFilters = [
+  { name: 'Images', extensions: ['avif', 'gif', 'jpeg', 'jpg', 'png', 'webp'] },
+];
 
 const startConfiguredReceivers = (
   receiverService: ReturnType<typeof getConnectReceiverService>,
@@ -128,6 +132,22 @@ export const registerConnectIpc = (): void => {
   ipcMain.handle(IpcChannels.EchoLinkRotateToken, (): EchoLinkServerStatus => {
     requireConnectDonatorUnlock();
     return echoLinkService.rotateToken();
+  });
+  ipcMain.handle(IpcChannels.EchoLinkSetWebBackground, (_event, background: unknown): EchoLinkServerStatus => {
+    requireConnectDonatorUnlock();
+    return echoLinkService.setWebBackground(background as Partial<EchoLinkWebBackground>);
+  });
+  ipcMain.handle(IpcChannels.EchoLinkChooseWebBackgroundImage, async (): Promise<EchoLinkServerStatus | null> => {
+    requireConnectDonatorUnlock();
+    const result = await dialog.showOpenDialog({
+      title: 'Choose Album Sea background image',
+      properties: ['openFile'],
+      filters: webBackgroundImageFilters,
+    });
+    if (result.canceled || !result.filePaths[0]) {
+      return null;
+    }
+    return echoLinkService.setLocalWebBackgroundImage(result.filePaths[0]);
   });
   ipcMain.handle(IpcChannels.ConnectReceiverGetStatus, (): ConnectReceiverStatus => {
     requireConnectDonatorUnlock();

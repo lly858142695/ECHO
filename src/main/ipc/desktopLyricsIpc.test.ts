@@ -7,6 +7,7 @@ const handleMock = vi.fn((channel: string, handler: (...args: unknown[]) => unkn
   handlers[channel] = handler;
 });
 const onMock = vi.fn();
+const revealDesktopLyricsMenuMock = vi.fn();
 const setDesktopLyricsMousePassthroughMock = vi.fn();
 const setDesktopLyricsStyleMock = vi.fn((patch: DesktopLyricsStylePatch) => ({
   settings: patch,
@@ -29,6 +30,7 @@ vi.mock('../app/desktopLyricsWindow', () => ({
   hideDesktopLyricsWindow: vi.fn(),
   receiveDesktopLyricsRendererAudioStatus: vi.fn(),
   receiveDesktopLyricsRendererPlaybackStatus: vi.fn(),
+  revealDesktopLyricsMenu: revealDesktopLyricsMenuMock,
   resetDesktopLyricsBounds: vi.fn(),
   setDesktopLyricsLocked: vi.fn(),
   setDesktopLyricsMousePassthrough: setDesktopLyricsMousePassthroughMock,
@@ -47,6 +49,7 @@ describe('desktop lyrics IPC', () => {
     resetHandlers();
     handleMock.mockClear();
     onMock.mockClear();
+    revealDesktopLyricsMenuMock.mockClear();
     setDesktopLyricsMousePassthroughMock.mockClear();
     setDesktopLyricsStyleMock.mockClear();
     vi.resetModules();
@@ -59,7 +62,9 @@ describe('desktop lyrics IPC', () => {
       desktopLyricsRomanizationEnabled: false,
       desktopLyricsTranslationEnabled: false,
       desktopLyricsSecondaryFontSizePx: '24',
-      desktopLyricsColorMode: 'custom',
+      desktopLyricsColorMode: 'gradient',
+      desktopLyricsGradientStartColor: '#4f46e5',
+      desktopLyricsGradientEndColor: '#ec4899',
       ignored: true,
     });
 
@@ -67,7 +72,9 @@ describe('desktop lyrics IPC', () => {
       desktopLyricsRomanizationEnabled: false,
       desktopLyricsTranslationEnabled: false,
       desktopLyricsSecondaryFontSizePx: 24,
-      desktopLyricsColorMode: 'custom',
+      desktopLyricsColorMode: 'gradient',
+      desktopLyricsGradientStartColor: '#4f46e5',
+      desktopLyricsGradientEndColor: '#ec4899',
     });
   });
 
@@ -76,5 +83,11 @@ describe('desktop lyrics IPC', () => {
       IpcChannels.DesktopLyricsSetMousePassthrough,
       setDesktopLyricsMousePassthroughMock,
     );
+  });
+
+  it('registers the desktop lyrics reveal menu channel', () => {
+    handlers[IpcChannels.DesktopLyricsRevealMenu]!();
+
+    expect(revealDesktopLyricsMenuMock).toHaveBeenCalledTimes(1);
   });
 });

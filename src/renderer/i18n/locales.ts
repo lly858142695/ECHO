@@ -658,6 +658,18 @@ export type TranslationKey =
   | 'connectPage.echoLink.webHint'
   | 'connectPage.echoLink.webAvailableAfterEnable'
   | 'connectPage.echoLink.webAlbumSeaReady'
+  | 'connectPage.echoLink.backgroundTitle'
+  | 'connectPage.echoLink.backgroundHint'
+  | 'connectPage.echoLink.backgroundType'
+  | 'connectPage.echoLink.backgroundNone'
+  | 'connectPage.echoLink.backgroundImage'
+  | 'connectPage.echoLink.backgroundVideo'
+  | 'connectPage.echoLink.backgroundUrl'
+  | 'connectPage.echoLink.backgroundUrlPlaceholder'
+  | 'connectPage.echoLink.backgroundChooseImage'
+  | 'connectPage.echoLink.backgroundSave'
+  | 'connectPage.echoLink.backgroundSaved'
+  | 'connectPage.echoLink.backgroundClear'
   | 'connectPage.echoLink.title'
   | 'connectPage.echoLink.tempStreams'
   | 'connectPage.echoLink.state.starting'
@@ -1128,6 +1140,15 @@ export type TranslationKey =
   | 'audioDrawer.status.sampleRatePending'
   | 'audioDrawer.title'
   | 'audioDrawer.warning.highOutputSampleRate'
+  | 'drawerSearch.clear'
+  | 'drawerSearch.label'
+  | 'drawerSearch.next'
+  | 'drawerSearch.noResults'
+  | 'drawerSearch.placeholder'
+  | 'drawerSearch.previous'
+  | 'drawerSearch.resultCount'
+  | 'drawerSearch.resultLabel'
+  | 'drawerSearch.shortcutHint'
   | 'audioSignalPath.closeLabel'
   | 'audioSignalPath.closeTitle'
   | 'audioSignalPath.control.openLabel'
@@ -1840,6 +1861,15 @@ export type TranslationKey =
   | 'inboxPage.batch.latest'
   | 'inboxPage.batch.recentAll'
   | 'inboxPage.batch.selected'
+  | 'inboxPage.coverIntelligence.coolDetail'
+  | 'inboxPage.coverIntelligence.disabledDescription'
+  | 'inboxPage.coverIntelligence.disabledEmpty'
+  | 'inboxPage.coverIntelligence.disabledMessage'
+  | 'inboxPage.coverIntelligence.enabledMessage'
+  | 'inboxPage.coverIntelligence.offMetric'
+  | 'inboxPage.coverIntelligence.statusDisabled'
+  | 'inboxPage.coverIntelligence.statusEnabled'
+  | 'inboxPage.coverIntelligence.toggle'
   | 'inboxPage.date.none'
   | 'inboxPage.empty.description'
   | 'inboxPage.empty.noMatch'
@@ -2420,7 +2450,9 @@ export type TranslationKey =
   | 'settings.about.nativeSqlite.description'
   | 'settings.about.nativeSqlite.title'
   | 'settings.about.pro.action'
+  | 'settings.about.pro.actionUnlocked'
   | 'settings.about.pro.description'
+  | 'settings.about.pro.descriptionUnlocked'
   | 'settings.about.pro.title'
   | 'settings.about.updates.action.afdian'
   | 'settings.about.updates.action.check'
@@ -2893,6 +2925,8 @@ export type TranslationKey =
   | 'settings.general.settingsOptionalSections.title'
   | 'settings.general.featureCommentsHidden.description'
   | 'settings.general.featureCommentsHidden.title'
+  | 'settings.general.notificationsDisabled.description'
+  | 'settings.general.notificationsDisabled.title'
   | 'settings.general.trackContextMenuExtraActions.description'
   | 'settings.general.trackContextMenuExtraActions.title'
   | 'settings.general.touchKeyboard.description'
@@ -4034,6 +4068,7 @@ const mediaLibraryZhCN = {
   'mediaLibrary.settings.download.streamingActions.hidden': '已隐藏',
   'mediaLibrary.settings.coverCache.title': '封面缓存目录',
   'mediaLibrary.settings.coverCache.description': '迁移只会复制缓存，不会移动或删除你的音乐文件。',
+  'mediaLibrary.settings.coverCache.echoDirectoryWarning': '不要把封面缓存目录设置到 ECHO 程序目录或项目目录内；如果已经因重装丢失封面，先恢复默认或选一个外部缓存目录，再点上方“重扫缺失封面的歌曲”重新生成。',
   'mediaLibrary.settings.coverCache.defaultPath': '默认：{path}',
   'mediaLibrary.settings.coverCache.defaultLoading': '默认目录读取中',
   'mediaLibrary.settings.coverCache.total': '缓存合计',
@@ -4324,6 +4359,7 @@ const mediaLibraryEnUS = {
   'mediaLibrary.settings.download.streamingActions.hidden': 'Hidden',
   'mediaLibrary.settings.coverCache.title': 'Cover Cache Directory',
   'mediaLibrary.settings.coverCache.description': 'Migration only copies cache files. It will not move or delete your music files.',
+  'mediaLibrary.settings.coverCache.echoDirectoryWarning': 'Do not put the cover cache inside the ECHO app or project directory. If covers disappeared after reinstalling, restore the default or choose an external cache directory, then use "Rescan tracks missing covers" above to regenerate them.',
   'mediaLibrary.settings.coverCache.defaultPath': 'Default: {path}',
   'mediaLibrary.settings.coverCache.defaultLoading': 'Loading default directory',
   'mediaLibrary.settings.coverCache.total': 'Cache total',
@@ -6209,6 +6245,15 @@ const zhCN: TranslationMap = {
   'audioDrawer.status.ratePending': '采样率待定',
   'audioDrawer.status.sampleRatePending': '采样率待定',
   'audioDrawer.title': '音频设置',
+  'drawerSearch.clear': '清空搜索',
+  'drawerSearch.label': '搜索抽屉功能',
+  'drawerSearch.next': '下一项',
+  'drawerSearch.noResults': '没有匹配项',
+  'drawerSearch.placeholder': '搜索设置、设备、开关或关键词',
+  'drawerSearch.previous': '上一项',
+  'drawerSearch.resultCount': '{count} 项命中',
+  'drawerSearch.resultLabel': '跳到 {result}',
+  'drawerSearch.shortcutHint': 'Ctrl+F 聚焦 / Enter 跳转',
   'audioDrawer.warning.highOutputSampleRate': '当前音频设备采样率过高，可能导致播放速度异常，建议改为 48 kHz。',
   'audioSignalPath.closeLabel': '关闭信号路径',
   'audioSignalPath.closeTitle': '关闭',
@@ -6904,14 +6949,26 @@ const zhCN: TranslationMap = {
   'connectPage.devices.lastSeen': '最后发现 {time}',
   'connectPage.devices.reconnect': '重新投送',
   'connectPage.echoLink.address': '地址',
-  'connectPage.echoLink.aria': 'Android ECHO Link',
+  'connectPage.echoLink.aria': 'ECHO Link',
   'connectPage.echoLink.authFailures': '认证失败',
-  'connectPage.echoLink.collapse': '折叠手机连接',
+  'connectPage.echoLink.backgroundClear': '清除',
+  'connectPage.echoLink.backgroundChooseImage': '选择图片',
+  'connectPage.echoLink.backgroundHint': '给 Album Sea 网页端换一张图片或一个静音循环视频背景。',
+  'connectPage.echoLink.backgroundImage': '图片',
+  'connectPage.echoLink.backgroundNone': '默认',
+  'connectPage.echoLink.backgroundSave': '保存背景',
+  'connectPage.echoLink.backgroundSaved': '已保存',
+  'connectPage.echoLink.backgroundTitle': '网页背景',
+  'connectPage.echoLink.backgroundType': '类型',
+  'connectPage.echoLink.backgroundUrl': '媒体 URL',
+  'connectPage.echoLink.backgroundUrlPlaceholder': 'https://example.com/background.webm',
+  'connectPage.echoLink.backgroundVideo': '视频',
+  'connectPage.echoLink.collapse': '折叠 ECHO Link',
   'connectPage.echoLink.copyWeb': '复制网页',
   'connectPage.echoLink.device': '设备',
   'connectPage.echoLink.diagnostics': 'ECHO Link 诊断',
   'connectPage.echoLink.discovery': '发现',
-  'connectPage.echoLink.expand': '展开手机连接',
+  'connectPage.echoLink.expand': '展开 ECHO Link',
   'connectPage.echoLink.hideToken': '隐藏 Token',
   'connectPage.echoLink.lanAddress': 'LAN 地址',
   'connectPage.echoLink.lastRange': '最后 Range',
@@ -6927,7 +6984,7 @@ const zhCN: TranslationMap = {
   'connectPage.echoLink.state.running': '运行中',
   'connectPage.echoLink.state.starting': '启动中',
   'connectPage.echoLink.tempStreams': '临时流',
-  'connectPage.echoLink.title': '手机连接',
+  'connectPage.echoLink.title': 'ECHO Link',
   'connectPage.echoLink.webAlbumSeaReady': 'Album Sea 已就绪',
   'connectPage.echoLink.webAvailableAfterEnable': '开启 ECHO Link 后可用',
   'connectPage.echoLink.webHint': '浏览器打开后可控制播放，并用专辑墙选择专辑。',
@@ -7258,6 +7315,15 @@ const zhCN: TranslationMap = {
   'inboxPage.batch.latest': '最新扫描',
   'inboxPage.batch.recentAll': '最近全部扫描',
   'inboxPage.batch.selected': '指定扫描',
+  'inboxPage.coverIntelligence.coolDetail': '冷色 {score}%',
+  'inboxPage.coverIntelligence.disabledDescription': '默认关闭。开启后 ECHO 才会分析封面主色，并把冷色封面归入这个唱片箱。',
+  'inboxPage.coverIntelligence.disabledEmpty': '封面色彩引擎默认关闭，开启后才会生成真实冷色封面箱。',
+  'inboxPage.coverIntelligence.disabledMessage': '已关闭封面色彩引擎，不会继续分析封面。',
+  'inboxPage.coverIntelligence.enabledMessage': '已开启封面色彩引擎，ECHO 会轻量分析最近封面并写入本地缓存。',
+  'inboxPage.coverIntelligence.offMetric': '默认关闭',
+  'inboxPage.coverIntelligence.statusDisabled': '默认关闭',
+  'inboxPage.coverIntelligence.statusEnabled': '已开启',
+  'inboxPage.coverIntelligence.toggle': '封面色彩引擎',
   'inboxPage.date.none': '尚无记录',
   'inboxPage.empty.description': '完成一次曲库扫描后，这里会出现新增歌曲。',
   'inboxPage.empty.noMatch': '没有匹配的新歌',
@@ -7841,7 +7907,9 @@ const zhCN: TranslationMap = {
   'settings.about.version.description': '当前安装的 ECHO Next 版本。',
   'settings.about.pro.title': 'ECHO Pro',
   'settings.about.pro.description': '赞助后可获得 ECHO Pro，解锁连接功能（HQPlayer / AirPlay / 广播），并获得最新支持。',
+  'settings.about.pro.descriptionUnlocked': '已解锁 ECHO Pro，感谢你支持 ECHO Next。连接功能（HQPlayer / AirPlay / 广播）已为你开放。',
   'settings.about.pro.action': '赞助 / 解锁 ECHO Pro',
+  'settings.about.pro.actionUnlocked': '已解锁，感谢支持',
   'settings.about.updates.title': '自动更新',
   'settings.about.updates.description': '启动后自动检查 GitHub Release，下载完成后自动重启安装。',
   'settings.about.updates.currentVersion': '当前版本',
@@ -8291,6 +8359,8 @@ const zhCN: TranslationMap = {
   'settings.general.settingsOptionalSections.description': '默认隐藏。开启后在设置栏目中显示插件、网盘 / 远程和 EQ；功能入口仍保留在侧栏。',
   'settings.general.featureCommentsHidden.title': '关闭功能注释',
   'settings.general.featureCommentsHidden.description': '开启后收起设置、抽屉和导航里的解释性说明，只保留标题、控件与状态。默认关闭。',
+  'settings.general.notificationsDisabled.title': '关闭所有通知',
+  'settings.general.notificationsDisabled.description': '开启后禁用 ECHO 内的提醒卡片、左上角通知和播放栏通知。默认关闭。',
   'settings.general.trackContextMenuExtraActions.title': '右键菜单扩展动作',
   'settings.general.trackContextMenuExtraActions.description': '开启后在曲目右键菜单中显示 osu! Timing、使用系统默认应用打开、复制/保存歌曲卡片图片。默认隐藏以保持菜单精简。',
   'settings.general.touchKeyboard.title': '启用屏幕键盘',
@@ -10069,6 +10139,15 @@ const zhTW: TranslationMap = {
   'audioDrawer.status.ratePending': '取樣率待定',
   'audioDrawer.status.sampleRatePending': '取樣率待定',
   'audioDrawer.title': '音訊設定',
+  'drawerSearch.clear': '清空搜尋',
+  'drawerSearch.label': '搜尋抽屜功能',
+  'drawerSearch.next': '下一項',
+  'drawerSearch.noResults': '沒有符合項目',
+  'drawerSearch.placeholder': '搜尋設定、裝置、開關或關鍵字',
+  'drawerSearch.previous': '上一項',
+  'drawerSearch.resultCount': '{count} 項命中',
+  'drawerSearch.resultLabel': '跳到 {result}',
+  'drawerSearch.shortcutHint': 'Ctrl+F 聚焦 / Enter 跳轉',
   'audioDrawer.warning.highOutputSampleRate': '目前音訊裝置取樣率過高，可能導致播放速度異常，建議改為 48 kHz。',
   'audioSignalPath.closeLabel': '關閉訊號路徑',
   'audioSignalPath.closeTitle': '關閉',
@@ -10507,14 +10586,26 @@ const zhTW: TranslationMap = {
   'connectPage.devices.lastSeen': '最后发现 {time}',
   'connectPage.devices.reconnect': '重新投送',
   'connectPage.echoLink.address': '地址',
-  'connectPage.echoLink.aria': 'Android ECHO Link',
+  'connectPage.echoLink.aria': 'ECHO Link',
   'connectPage.echoLink.authFailures': '认证失败',
-  'connectPage.echoLink.collapse': '折叠手机连接',
+  'connectPage.echoLink.backgroundClear': '清除',
+  'connectPage.echoLink.backgroundChooseImage': '选择图片',
+  'connectPage.echoLink.backgroundHint': '给 Album Sea 网页端换一张图片或一个静音循环视频背景。',
+  'connectPage.echoLink.backgroundImage': '图片',
+  'connectPage.echoLink.backgroundNone': '默认',
+  'connectPage.echoLink.backgroundSave': '保存背景',
+  'connectPage.echoLink.backgroundSaved': '已保存',
+  'connectPage.echoLink.backgroundTitle': '网页背景',
+  'connectPage.echoLink.backgroundType': '类型',
+  'connectPage.echoLink.backgroundUrl': '媒体 URL',
+  'connectPage.echoLink.backgroundUrlPlaceholder': 'https://example.com/background.webm',
+  'connectPage.echoLink.backgroundVideo': '视频',
+  'connectPage.echoLink.collapse': '折叠 ECHO Link',
   'connectPage.echoLink.copyWeb': '复制网页',
   'connectPage.echoLink.device': '设备',
   'connectPage.echoLink.diagnostics': 'ECHO Link 诊断',
   'connectPage.echoLink.discovery': '发现',
-  'connectPage.echoLink.expand': '展开手机连接',
+  'connectPage.echoLink.expand': '展开 ECHO Link',
   'connectPage.echoLink.hideToken': '隐藏 Token',
   'connectPage.echoLink.lanAddress': 'LAN 地址',
   'connectPage.echoLink.lastRange': '最后 Range',
@@ -10530,7 +10621,7 @@ const zhTW: TranslationMap = {
   'connectPage.echoLink.state.running': '运行中',
   'connectPage.echoLink.state.starting': '启动中',
   'connectPage.echoLink.tempStreams': '临时流',
-  'connectPage.echoLink.title': '手机连接',
+  'connectPage.echoLink.title': 'ECHO Link',
   'connectPage.echoLink.webAlbumSeaReady': 'Album Sea 已就绪',
   'connectPage.echoLink.webAvailableAfterEnable': '开启 ECHO Link 后可用',
   'connectPage.echoLink.webHint': '浏览器打开后可控制播放，并用专辑墙选择专辑。',
@@ -10858,6 +10949,15 @@ const zhTW: TranslationMap = {
   'inboxPage.batch.latest': '最新掃描',
   'inboxPage.batch.recentAll': '最近全部掃描',
   'inboxPage.batch.selected': '指定掃描',
+  'inboxPage.coverIntelligence.coolDetail': '冷色 {score}%',
+  'inboxPage.coverIntelligence.disabledDescription': '預設關閉。開啟後 ECHO 才會分析封面主色，並把冷色封面歸入這個唱片箱。',
+  'inboxPage.coverIntelligence.disabledEmpty': '封面色彩引擎預設關閉，開啟後才會生成真實冷色封面箱。',
+  'inboxPage.coverIntelligence.disabledMessage': '已關閉封面色彩引擎，不會繼續分析封面。',
+  'inboxPage.coverIntelligence.enabledMessage': '已開啟封面色彩引擎，ECHO 會輕量分析最近封面並寫入本地快取。',
+  'inboxPage.coverIntelligence.offMetric': '預設關閉',
+  'inboxPage.coverIntelligence.statusDisabled': '預設關閉',
+  'inboxPage.coverIntelligence.statusEnabled': '已開啟',
+  'inboxPage.coverIntelligence.toggle': '封面色彩引擎',
   'inboxPage.date.none': '尚無記錄',
   'inboxPage.empty.description': '完成一次曲庫掃描後，這裡會出現新增歌曲。',
   'inboxPage.empty.noMatch': '沒有符合的新歌',
@@ -11472,7 +11572,9 @@ const zhTW: TranslationMap = {
   'settings.about.version.description': '目前安裝的 ECHO Next 版本。',
   'settings.about.pro.title': 'ECHO Pro',
   'settings.about.pro.description': '贊助後可獲得 ECHO Pro，解鎖連接功能（HQPlayer / AirPlay / 廣播），並獲得最新支援。',
+  'settings.about.pro.descriptionUnlocked': '已解鎖 ECHO Pro，感謝你支持 ECHO Next。連接功能（HQPlayer / AirPlay / 廣播）已為你開放。',
   'settings.about.pro.action': '贊助 / 解鎖 ECHO Pro',
+  'settings.about.pro.actionUnlocked': '已解鎖，感謝支持',
   'settings.about.updates.title': '自動更新',
   'settings.about.updates.description': '啟動後自動檢查 GitHub Release，下載完成後自動重新啟動安裝。',
   'settings.about.updates.currentVersion': '目前版本',
@@ -11916,6 +12018,8 @@ const zhTW: TranslationMap = {
   'settings.general.settingsOptionalSections.description': '預設隱藏。開啟後在設定欄目中顯示外掛、網路硬碟 / 遠端和 EQ；功能入口仍保留在側邊欄。',
   'settings.general.featureCommentsHidden.title': '關閉功能註釋',
   'settings.general.featureCommentsHidden.description': '開啟後收起設定、抽屜和導覽裡的解釋性說明，只保留標題、控制項與狀態。預設關閉。',
+  'settings.general.notificationsDisabled.title': '關閉所有通知',
+  'settings.general.notificationsDisabled.description': '開啟後停用 ECHO 內的提醒卡片、左上角通知和播放列通知。預設關閉。',
   'settings.general.trackContextMenuExtraActions.title': '右鍵選單擴充操作',
   'settings.general.trackContextMenuExtraActions.description': '開啟後在曲目右鍵選單中顯示 osu! Timing、使用系統預設應用程式打開、複製/儲存歌曲卡片圖片。預設隱藏以保持選單精簡。',
   'settings.general.touchKeyboard.title': '啟用螢幕鍵盤',
@@ -13491,6 +13595,15 @@ const jaJP: TranslationMap = {
   'audioDrawer.status.ratePending': 'レート未確定',
   'audioDrawer.status.sampleRatePending': 'サンプルレート未確定',
   'audioDrawer.title': '音声設定',
+  'drawerSearch.clear': '検索をクリア',
+  'drawerSearch.label': 'ドロワー内を検索',
+  'drawerSearch.next': '次の項目',
+  'drawerSearch.noResults': '一致する項目はありません',
+  'drawerSearch.placeholder': '設定、デバイス、スイッチ、キーワードを検索',
+  'drawerSearch.previous': '前の項目',
+  'drawerSearch.resultCount': '{count} 件ヒット',
+  'drawerSearch.resultLabel': '{result} へ移動',
+  'drawerSearch.shortcutHint': 'Ctrl+F でフォーカス / Enter で移動',
   'audioDrawer.warning.highOutputSampleRate': '現在のオーディオデバイスのサンプルレートが高すぎるため、再生速度が異常になる可能性があります。48 kHz への変更をおすすめします。',
   'audioSignalPath.closeLabel': '信号パスを閉じる',
   'audioSignalPath.closeTitle': '閉じる',
@@ -13928,14 +14041,26 @@ const jaJP: TranslationMap = {
   'connectPage.devices.lastSeen': 'Last Seen',
   'connectPage.devices.reconnect': 'Reconnect',
   'connectPage.echoLink.address': 'Address',
-  'connectPage.echoLink.aria': 'Aria',
+  'connectPage.echoLink.aria': 'ECHO Link',
   'connectPage.echoLink.authFailures': 'Auth Failures',
-  'connectPage.echoLink.collapse': 'Collapse',
+  'connectPage.echoLink.backgroundClear': 'Clear',
+  'connectPage.echoLink.backgroundChooseImage': 'Choose Image',
+  'connectPage.echoLink.backgroundHint': 'Use an image or muted looping video as the Album Sea web background.',
+  'connectPage.echoLink.backgroundImage': 'Image',
+  'connectPage.echoLink.backgroundNone': 'Default',
+  'connectPage.echoLink.backgroundSave': 'Save Background',
+  'connectPage.echoLink.backgroundSaved': 'Saved',
+  'connectPage.echoLink.backgroundTitle': 'Web Background',
+  'connectPage.echoLink.backgroundType': 'Type',
+  'connectPage.echoLink.backgroundUrl': 'Media URL',
+  'connectPage.echoLink.backgroundUrlPlaceholder': 'https://example.com/background.webm',
+  'connectPage.echoLink.backgroundVideo': 'Video',
+  'connectPage.echoLink.collapse': 'Collapse ECHO Link',
   'connectPage.echoLink.copyWeb': 'Copy Web',
   'connectPage.echoLink.device': 'Device',
   'connectPage.echoLink.diagnostics': 'Diagnostics',
   'connectPage.echoLink.discovery': 'Discovery',
-  'connectPage.echoLink.expand': 'Expand',
+  'connectPage.echoLink.expand': 'Expand ECHO Link',
   'connectPage.echoLink.hideToken': 'Hide Token',
   'connectPage.echoLink.lanAddress': 'Lan Address',
   'connectPage.echoLink.lastRange': 'Last Range',
@@ -13951,7 +14076,7 @@ const jaJP: TranslationMap = {
   'connectPage.echoLink.state.running': 'Running',
   'connectPage.echoLink.state.starting': 'Starting',
   'connectPage.echoLink.tempStreams': 'Temp Streams',
-  'connectPage.echoLink.title': 'Title',
+  'connectPage.echoLink.title': 'ECHO Link',
   'connectPage.echoLink.webAlbumSeaReady': 'Web Album Sea Ready',
   'connectPage.echoLink.webAvailableAfterEnable': 'Web Available After Enable',
   'connectPage.echoLink.webHint': 'Web Hint',
@@ -14282,6 +14407,15 @@ const jaJP: TranslationMap = {
   'inboxPage.batch.latest': '最新スキャン',
   'inboxPage.batch.recentAll': '最近の全スキャン',
   'inboxPage.batch.selected': '指定したスキャン',
+  'inboxPage.coverIntelligence.coolDetail': '寒色 {score}%',
+  'inboxPage.coverIntelligence.disabledDescription': '既定ではオフです。オンにすると ECHO がカバーの主色を分析し、寒色系のカバーをこのクレートに集めます。',
+  'inboxPage.coverIntelligence.disabledEmpty': 'カバー色エンジンは既定でオフです。オンにすると本当の寒色カバークレートを生成します。',
+  'inboxPage.coverIntelligence.disabledMessage': 'カバー色エンジンをオフにしました。これ以上カバーを分析しません。',
+  'inboxPage.coverIntelligence.enabledMessage': 'カバー色エンジンをオンにしました。ECHO は最近のカバーを軽く分析してローカルにキャッシュします。',
+  'inboxPage.coverIntelligence.offMetric': '既定でオフ',
+  'inboxPage.coverIntelligence.statusDisabled': '既定でオフ',
+  'inboxPage.coverIntelligence.statusEnabled': 'オン',
+  'inboxPage.coverIntelligence.toggle': 'カバー色エンジン',
   'inboxPage.date.none': 'まだ記録はありません',
   'inboxPage.empty.description': 'ライブラリを一度スキャンすると、ここに新しく追加された曲が表示されます。',
   'inboxPage.empty.noMatch': '一致する新着曲はありません',
@@ -15376,6 +15510,8 @@ const jaJP: TranslationMap = {
   'settings.general.settingsOptionalSections.description': '既定では非表示です。有効にすると設定にプラグイン、クラウド / リモート、EQ を表示します。機能入口はサイドバーにも残ります。',
   'settings.general.featureCommentsHidden.title': '機能注釈を非表示',
   'settings.general.featureCommentsHidden.description': '有効にすると、設定、ドロワー、ナビゲーションの説明文を畳み、タイトル、操作、状態だけを残します。既定ではオフです。',
+  'settings.general.notificationsDisabled.title': 'すべての通知をオフ',
+  'settings.general.notificationsDisabled.description': '有効にすると、ECHO の通知カード、左上の通知、プレイヤーバー通知を表示しません。既定ではオフです。',
   'settings.general.trackContextMenuExtraActions.title': '右クリックメニューの追加操作',
   'settings.general.trackContextMenuExtraActions.description': '有効にすると、曲目の右クリックメニューに osu! Timing、システム既定アプリで開く、曲カード画像のコピー/保存を表示します。メニューを短く保つため既定では非表示です。',
   'settings.general.touchKeyboard.title': 'スクリーンキーボードを有効化',
@@ -16008,7 +16144,9 @@ const jaJP: TranslationMap = {
   'settings.about.version.description': '現在インストールされている ECHO Next のバージョンです。',
   'settings.about.pro.title': 'ECHO Pro',
   'settings.about.pro.description': 'スポンサーになると ECHO Pro を入手でき、接続機能（HQPlayer / AirPlay / Broadcast）を解除し、最新サポートを受けられます。',
+  'settings.about.pro.descriptionUnlocked': 'ECHO Pro は解除済みです。ECHO Next を支えてくれてありがとうございます。接続機能（HQPlayer / AirPlay / Broadcast）が利用できます。',
   'settings.about.pro.action': 'スポンサー / ECHO Pro を解除',
+  'settings.about.pro.actionUnlocked': '解除済み、サポートに感謝',
   'settings.about.updates.title': '自動更新',
   'settings.about.updates.description': '起動後に GitHub Release を自動確認し、ダウンロード完了後は自動で再起動してインストールします。',
   'settings.about.updates.currentVersion': '現在のバージョン',
@@ -16982,6 +17120,15 @@ const enUS: TranslationMap = {
   'audioDrawer.status.ratePending': 'Rate pending',
   'audioDrawer.status.sampleRatePending': 'Sample rate pending',
   'audioDrawer.title': 'Audio Settings',
+  'drawerSearch.clear': 'Clear search',
+  'drawerSearch.label': 'Search drawer controls',
+  'drawerSearch.next': 'Next match',
+  'drawerSearch.noResults': 'No matches',
+  'drawerSearch.placeholder': 'Search settings, devices, toggles, or keywords',
+  'drawerSearch.previous': 'Previous match',
+  'drawerSearch.resultCount': '{count} matches',
+  'drawerSearch.resultLabel': 'Jump to {result}',
+  'drawerSearch.shortcutHint': 'Ctrl+F to focus / Enter to jump',
   'audioDrawer.warning.highOutputSampleRate': 'The current audio device sample rate is too high and may cause playback speed problems. 48 kHz is recommended.',
   'audioSignalPath.closeLabel': 'Close signal path',
   'audioSignalPath.closeTitle': 'Close',
@@ -17419,14 +17566,26 @@ const enUS: TranslationMap = {
   'connectPage.devices.lastSeen': 'Last Seen',
   'connectPage.devices.reconnect': 'Reconnect',
   'connectPage.echoLink.address': 'Address',
-  'connectPage.echoLink.aria': 'Aria',
+  'connectPage.echoLink.aria': 'ECHO Link',
   'connectPage.echoLink.authFailures': 'Auth Failures',
-  'connectPage.echoLink.collapse': 'Collapse',
+  'connectPage.echoLink.backgroundClear': 'Clear',
+  'connectPage.echoLink.backgroundChooseImage': 'Choose Image',
+  'connectPage.echoLink.backgroundHint': 'Use an image or muted looping video as the Album Sea web background.',
+  'connectPage.echoLink.backgroundImage': 'Image',
+  'connectPage.echoLink.backgroundNone': 'Default',
+  'connectPage.echoLink.backgroundSave': 'Save Background',
+  'connectPage.echoLink.backgroundSaved': 'Saved',
+  'connectPage.echoLink.backgroundTitle': 'Web Background',
+  'connectPage.echoLink.backgroundType': 'Type',
+  'connectPage.echoLink.backgroundUrl': 'Media URL',
+  'connectPage.echoLink.backgroundUrlPlaceholder': 'https://example.com/background.webm',
+  'connectPage.echoLink.backgroundVideo': 'Video',
+  'connectPage.echoLink.collapse': 'Collapse ECHO Link',
   'connectPage.echoLink.copyWeb': 'Copy Web',
   'connectPage.echoLink.device': 'Device',
   'connectPage.echoLink.diagnostics': 'Diagnostics',
   'connectPage.echoLink.discovery': 'Discovery',
-  'connectPage.echoLink.expand': 'Expand',
+  'connectPage.echoLink.expand': 'Expand ECHO Link',
   'connectPage.echoLink.hideToken': 'Hide Token',
   'connectPage.echoLink.lanAddress': 'Lan Address',
   'connectPage.echoLink.lastRange': 'Last Range',
@@ -17442,7 +17601,7 @@ const enUS: TranslationMap = {
   'connectPage.echoLink.state.running': 'Running',
   'connectPage.echoLink.state.starting': 'Starting',
   'connectPage.echoLink.tempStreams': 'Temp Streams',
-  'connectPage.echoLink.title': 'Title',
+  'connectPage.echoLink.title': 'ECHO Link',
   'connectPage.echoLink.webAlbumSeaReady': 'Web Album Sea Ready',
   'connectPage.echoLink.webAvailableAfterEnable': 'Web Available After Enable',
   'connectPage.echoLink.webHint': 'Web Hint',
@@ -17773,6 +17932,15 @@ const enUS: TranslationMap = {
   'inboxPage.batch.latest': 'Latest scan',
   'inboxPage.batch.recentAll': 'Recent all scans',
   'inboxPage.batch.selected': 'Selected scan',
+  'inboxPage.coverIntelligence.coolDetail': 'Cool {score}%',
+  'inboxPage.coverIntelligence.disabledDescription': 'Off by default. When enabled, ECHO analyzes cover dominant colors and puts cool palettes into this crate.',
+  'inboxPage.coverIntelligence.disabledEmpty': 'Cover Intelligence is off by default; enable it to build a real cool-cover crate.',
+  'inboxPage.coverIntelligence.disabledMessage': 'Cover Intelligence is off. ECHO will not keep analyzing covers.',
+  'inboxPage.coverIntelligence.enabledMessage': 'Cover Intelligence is on. ECHO will lightly analyze recent covers and cache the results locally.',
+  'inboxPage.coverIntelligence.offMetric': 'Off by default',
+  'inboxPage.coverIntelligence.statusDisabled': 'Off by default',
+  'inboxPage.coverIntelligence.statusEnabled': 'Enabled',
+  'inboxPage.coverIntelligence.toggle': 'Cover Intelligence',
   'inboxPage.date.none': 'No record yet',
   'inboxPage.empty.description': 'After one library scan, newly added songs will appear here.',
   'inboxPage.empty.noMatch': 'No matching new songs',
@@ -18937,6 +19105,8 @@ const enUS: TranslationMap = {
   'settings.general.settingsOptionalSections.description': 'Hidden by default. Turn on to show Plugins, Cloud / Remote, and EQ in Settings; their feature entries stay in the sidebar.',
   'settings.general.featureCommentsHidden.title': 'Hide Feature Comments',
   'settings.general.featureCommentsHidden.description': 'Hide explanatory notes in settings, drawers, and navigation, leaving titles, controls, and status text. Off by default.',
+  'settings.general.notificationsDisabled.title': 'Disable All Notifications',
+  'settings.general.notificationsDisabled.description': 'Hide ECHO reminder cards, upper-left notices, and player-bar notifications. Off by default.',
   'settings.general.trackContextMenuExtraActions.title': 'Context Menu Extra Actions',
   'settings.general.trackContextMenuExtraActions.description': 'Show osu! Timing, open with the system default app, and copy/save song card image in the track context menu. Hidden by default to keep the menu compact.',
   'settings.general.touchKeyboard.title': 'Enable On-Screen Keyboard',
@@ -19679,7 +19849,9 @@ const enUS: TranslationMap = {
   'settings.about.version.description': 'The currently installed ECHO Next version.',
   'settings.about.pro.title': 'ECHO Pro',
   'settings.about.pro.description': 'Sponsor to receive ECHO Pro, unlock Connect features (HQPlayer / AirPlay / Broadcast), and get the latest support.',
+  'settings.about.pro.descriptionUnlocked': 'ECHO Pro is unlocked. Thank you for supporting ECHO Next. Connect features (HQPlayer / AirPlay / Broadcast) are available for you.',
   'settings.about.pro.action': 'Sponsor / Unlock ECHO Pro',
+  'settings.about.pro.actionUnlocked': 'Unlocked, thank you',
   'settings.about.updates.title': 'Automatic Updates',
   'settings.about.updates.description': 'Check GitHub Release automatically after launch, then restart and install after the download completes.',
   'settings.about.updates.currentVersion': 'Current Version',

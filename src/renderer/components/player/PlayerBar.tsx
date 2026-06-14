@@ -7,7 +7,7 @@ import { audioExportFormats, type AudioExportFormat, type AudioOutputMode, type 
 import { isReliableBpmAnalysis } from '../../../shared/constants/audioAnalysis';
 import type { AirPlayReceiverStatus, ConnectMetadata, ConnectReceiverStatus, ConnectSessionStatus } from '../../../shared/types/connect';
 import type { DownloadJob, DownloadJobStatus } from '../../../shared/types/downloads';
-import { playerBarButtonIds, type PlayerBarButtonId } from '../../../shared/types/appSettings';
+import { playerBarButtonIds, type AppSettings, type PlayerBarButtonId } from '../../../shared/types/appSettings';
 import type { LibraryTrack } from '../../../shared/types/library';
 import type { PlaybackStatus } from '../../../shared/types/playback';
 import type { MiniPlayerState } from '../../../shared/types/miniPlayer';
@@ -52,6 +52,7 @@ type PlayerBarProps = {
   showQueueButton?: boolean;
   showSignalPathControl?: boolean;
   onToggleDesktopLyrics?: () => void;
+  onRevealDesktopLyricsMenu?: () => void;
   onUnlockDesktopLyrics?: () => void;
 };
 
@@ -407,7 +408,7 @@ const shouldUseDirectAudioDownload = (source: {
 
 const clampDownloadProgress = (progress: number): number => Math.max(0, Math.min(100, Math.round(progress)));
 
-const dacArrivalAutoHideMs = 6200;
+const dacArrivalAutoHideMs = 2600;
 const dacArrivalOutputModes = new Set<AudioOutputMode>(['exclusive', 'asio']);
 
 const sanitizeDacArrivalText = (value: string | null | undefined): string | null => {
@@ -486,12 +487,7 @@ const dacArrivalRouteKey = (status: AudioStatus | null): string | null => {
     ?? sanitizeDacArrivalText(status.outputBackend)
     ?? 'default';
 
-  return [
-    status.outputMode,
-    device.toLocaleLowerCase(),
-    status.outputBackend ?? '',
-    status.activeOutputBackendImpl ?? '',
-  ].join('|');
+  return [status.outputMode, device.toLocaleLowerCase()].join('|');
 };
 
 const isDacArrivalCandidateStatus = (status: AudioStatus | null): status is AudioStatus =>
@@ -768,6 +764,7 @@ export const PlayerBar = ({
   showQueueButton = false,
   showSignalPathControl = false,
   onToggleDesktopLyrics,
+  onRevealDesktopLyricsMenu,
   onUnlockDesktopLyrics,
 }: PlayerBarProps): JSX.Element => {
   const t = useOptionalI18n()?.t ?? translateFallback;
@@ -803,6 +800,7 @@ export const PlayerBar = ({
   const [streamingDownloadJobId, setStreamingDownloadJobId] = useState<string | null>(null);
   const [streamingDownloadNotice, setStreamingDownloadNotice] = useState<PlayerDownloadNotice | null>(null);
   const [dacArrivalNotice, setDacArrivalNotice] = useState<DacArrivalCeremonyNotice | null>(null);
+  const [notificationsDisabled, setNotificationsDisabled] = useState(false);
   const [isStreamingDownloadResolving, setIsStreamingDownloadResolving] = useState(false);
   const signalPathAnchorRef = useRef<HTMLDivElement | null>(null);
   const handledEndedTrackRef = useRef<string | null>(null);
@@ -813,6 +811,7 @@ export const PlayerBar = ({
   const streamingDownloadTitleRef = useRef<string | null>(null);
   const streamingDownloadNoticeTimerRef = useRef<number | null>(null);
   const dacArrivalNoticeTimerRef = useRef<number | null>(null);
+  const notificationsDisabledRef = useRef(false);
   const lastDacArrivalRouteRef = useRef<string | null>(null);
   const explicitDacArrivalRouteRef = useRef<string | null>(null);
   const mvPreloadTrackRef = useRef<string | null>(null);
@@ -1198,6 +1197,10 @@ export const PlayerBar = ({
 
   const showStreamingDownloadNotice = useCallback(
     (notice: PlayerDownloadNotice, autoHideMs?: number): void => {
+      if (notificationsDisabledRef.current) {
+        return;
+      }
+
       clearStreamingDownloadNoticeTimer();
       setStreamingDownloadNotice(notice);
 
@@ -1220,6 +1223,10 @@ export const PlayerBar = ({
 
   const showDacArrivalNotice = useCallback(
     (notice: DacArrivalCeremonyNotice): void => {
+      if (notificationsDisabledRef.current) {
+        return;
+      }
+
       clearDacArrivalNoticeTimer();
       setDacArrivalNotice(notice);
       dacArrivalNoticeTimerRef.current = window.setTimeout(() => {
@@ -1234,6 +1241,54 @@ export const PlayerBar = ({
     clearDacArrivalNoticeTimer();
     setDacArrivalNotice(null);
   }, [clearDacArrivalNoticeTimer]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
+      if (!settings || !Object.prototype.hasOwnProperty.call(settings, 'notificationsDisabled')) {
+        return;
+      }
+
+      const disabled = settings.notificationsDisabled === true;
+      notificationsDisabledRef.current = disabled;
+      setNotificationsDisabled(disabled);
+
+      if (disabled) {
+        clearStreamingDownloadNoticeTimer();
+        clearDacArrivalNoticeTimer();
+        setStreamingDownloadNotice(null);
+        setDacArrivalNotice(null);
+      }
+    };
+
+    const refreshSettings = (): void => {
+      void window.echo?.app?.getSettings?.().then((settings) => {
+        if (!cancelled) {
+          applySettings(settings);
+        }
+      }).catch(() => undefined);
+    };
+
+    refreshSettings();
+
+    const handleSettingsChanged = (event: Event): void => {
+      if (event instanceof CustomEvent) {
+        applySettings(event.detail as Partial<AppSettings> | null | undefined);
+        return;
+      }
+
+      if (!cancelled) {
+        refreshSettings();
+      }
+    };
+
+    window.addEventListener('settings:changed', handleSettingsChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('settings:changed', handleSettingsChanged);
+    };
+  }, [clearDacArrivalNoticeTimer, clearStreamingDownloadNoticeTimer]);
 
   useEffect(() => () => clearStreamingDownloadNoticeTimer(), [clearStreamingDownloadNoticeTimer]);
   useEffect(() => () => clearDacArrivalNoticeTimer(), [clearDacArrivalNoticeTimer]);
@@ -1259,10 +1314,14 @@ export const PlayerBar = ({
   useEffect(() => {
     const ceremonyStatus = outputRouteStatus ?? audioStatus;
     recordAudioRouteFlightObservation(ceremonyStatus, currentTrack);
-    const profile = recordDacCapabilityObservation(ceremonyStatus, currentTrack) ?? getDacCapabilityAtlasProfile(ceremonyStatus);
+    recordDacCapabilityObservation(ceremonyStatus, currentTrack);
+  }, [audioStatus, currentTrack, outputRouteStatus]);
+
+  useEffect(() => {
+    const ceremonyStatus = outputRouteStatus ?? audioStatus;
+    const profile = getDacCapabilityAtlasProfile(ceremonyStatus);
     const routeKey = dacArrivalRouteKey(ceremonyStatus);
     if (!routeKey) {
-      lastDacArrivalRouteRef.current = null;
       explicitDacArrivalRouteRef.current = null;
       return;
     }
@@ -1293,7 +1352,7 @@ export const PlayerBar = ({
     if (notice) {
       showDacArrivalNotice(notice);
     }
-  }, [audioStatus, currentTrack, outputRouteStatus, showDacArrivalNotice, t]);
+  }, [audioStatus, outputRouteStatus, showDacArrivalNotice, t]);
 
   useEffect(() => {
     const downloads = window.echo?.downloads;
@@ -2837,7 +2896,7 @@ export const PlayerBar = ({
     [applyConnectPlaybackStatus, currentTrack, durationSeconds, filePath, isSpotifyCurrentTrack, refreshStatus, trackId],
   );
 
-  const dacArrivalCeremony = dacArrivalNotice && typeof document !== 'undefined'
+  const dacArrivalCeremony = !notificationsDisabled && dacArrivalNotice && typeof document !== 'undefined'
     ? createPortal(
         <div className="dac-arrival-ceremony" data-tone={dacArrivalNotice.tone} role="status" aria-live="polite">
           <span className="dac-arrival-ceremony__icon" aria-hidden="true">
@@ -2894,7 +2953,7 @@ export const PlayerBar = ({
         layout="position"
         transition={miniPlayerTransition}
       >
-      {streamingDownloadNotice ? (
+      {!notificationsDisabled && streamingDownloadNotice ? (
         <div className={`player-download-notice player-download-notice--${streamingDownloadNotice.tone}`} role="status" aria-live="polite">
           <div className="player-download-notice-copy">
             <strong>{streamingDownloadNotice.title}</strong>
@@ -3009,15 +3068,20 @@ export const PlayerBar = ({
             className={`icon-button ${desktopLyricsVisible ? 'is-soft-active' : ''}`}
             type="button"
             aria-label={desktopLyricsVisible ? '隐藏桌面歌词' : '显示桌面歌词'}
-            title={desktopLyricsLocked ? '右键解除桌面歌词锁定' : desktopLyricsVisible ? '隐藏桌面歌词' : '显示桌面歌词'}
+            title={desktopLyricsLocked ? '右键解锁并显示桌面歌词设置栏' : desktopLyricsVisible ? '隐藏桌面歌词，右键显示设置栏' : '显示桌面歌词，右键显示设置栏'}
             aria-pressed={desktopLyricsVisible}
             onClick={() => onToggleDesktopLyrics?.()}
             onContextMenu={(event) => {
-              if (!desktopLyricsLocked) {
+              if (!onRevealDesktopLyricsMenu && !desktopLyricsLocked) {
                 return;
               }
 
               event.preventDefault();
+              if (onRevealDesktopLyricsMenu) {
+                onRevealDesktopLyricsMenu();
+                return;
+              }
+
               onUnlockDesktopLyrics?.();
             }}
           >

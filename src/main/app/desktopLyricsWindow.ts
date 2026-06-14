@@ -30,6 +30,7 @@ const verticalDesktopLyricsReadableMinimumSize = {
 } as const;
 const rememberBoundsDebounceMs = 300;
 const forwardedAudioStatusMaxAgeMs = 30_000;
+const desktopLyricsRevealMenuRetryDelaysMs = [0, 80, 220] as const;
 
 let desktopLyricsWindow: BrowserWindow | null = null;
 let rememberBoundsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -50,6 +51,8 @@ const toDesktopLyricsSettings = (): DesktopLyricsState['settings'] => {
     desktopLyricsColorMode: settings.desktopLyricsColorMode,
     desktopLyricsColor: settings.desktopLyricsColor,
     desktopLyricsStrokeColor: settings.desktopLyricsStrokeColor,
+    desktopLyricsGradientStartColor: settings.desktopLyricsGradientStartColor,
+    desktopLyricsGradientEndColor: settings.desktopLyricsGradientEndColor,
     desktopLyricsOpacityPercent: settings.desktopLyricsOpacityPercent,
     desktopLyricsTextDirection: settings.desktopLyricsTextDirection,
     desktopLyricsRomanizationEnabled: settings.desktopLyricsRomanizationEnabled,
@@ -312,6 +315,23 @@ export const hideDesktopLyricsWindow = (): DesktopLyricsState => {
   }
   emitDesktopLyricsStateChanged();
   return getDesktopLyricsState();
+};
+
+export const revealDesktopLyricsMenu = (): DesktopLyricsState => {
+  const state = showDesktopLyricsWindow();
+  const window = desktopLyricsWindow;
+
+  if (window && !window.isDestroyed()) {
+    for (const delayMs of desktopLyricsRevealMenuRetryDelaysMs) {
+      setTimeout(() => {
+        if (!window.isDestroyed()) {
+          window.webContents.send(IpcChannels.DesktopLyricsRevealMenu);
+        }
+      }, delayMs);
+    }
+  }
+
+  return state;
 };
 
 export const closeDesktopLyricsWindow = (): void => {

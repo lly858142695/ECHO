@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, realpathSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { networkInterfaces } from 'node:os';
 import { extname } from 'node:path';
@@ -13,10 +13,12 @@ import type {
   EchoLinkPlayback,
   EchoLinkPlaybackCommand,
   EchoLinkPlaybackState,
+  EchoLinkSettingsResponse,
   EchoLinkServerStatus,
   EchoLinkStatusResponse,
   EchoLinkStreamResponse,
   EchoLinkTrackPreview,
+  EchoLinkWebBackground,
 } from '../../shared/types/echoLink';
 import type { AudioStatus } from '../../shared/types/audio';
 import type { LibraryAlbum, LibraryPage, LibraryPageQuery, LibraryTrack } from '../../shared/types/library';
@@ -89,6 +91,12 @@ type ArtworkTokenRecord = {
   expiresAtEpochMs: number;
 };
 
+type WebBackgroundAssetRecord = {
+  token: string;
+  filePath: string;
+  mimeType: string;
+};
+
 type HttpErrorEvent = {
   at: string;
   path: string;
@@ -117,6 +125,10 @@ const artworkTokenTtlMs = 30 * 60 * 1000;
 const maxLibraryPageSize = 500;
 const maxJsonBodyBytes = 2 * 1024 * 1024;
 const defaultDeviceName = 'PC ECHO';
+const defaultWebBackground: EchoLinkWebBackground = { type: 'none', url: '' };
+const internalWebBackgroundPathPrefix = '/echo-link/v1/background/';
+const internalWebBackgroundUrlPattern = /^\/echo-link\/v1\/background\/[A-Za-z0-9_-]+$/u;
+const webBackgroundImageExtensions = new Set(['.avif', '.gif', '.jpeg', '.jpg', '.png', '.webp']);
 
 const safeHeader = (value: string | string[] | undefined): string | undefined => (typeof value === 'string' ? value : undefined);
 
@@ -171,6 +183,10 @@ const mimeTypeForAudioPath = (filePath: string): string => {
 
 const mimeTypeForImagePath = (filePath: string): string => {
   switch (extname(filePath).toLowerCase()) {
+    case '.avif':
+      return 'image/avif';
+    case '.gif':
+      return 'image/gif';
     case '.webp':
       return 'image/webp';
     case '.jpg':
@@ -241,6 +257,47 @@ const webSafeArtworkUrl = (value: string | null | undefined): string | null => {
   return trimmed && /^(https?:|data:)/iu.test(trimmed) ? trimmed : null;
 };
 
+class HttpError extends Error {
+  constructor(readonly statusCode: number, message: string) {
+    super(message);
+  }
+}
+
+const normalizeWebBackground = (value: unknown): EchoLinkWebBackground => {
+  const input = value && typeof value === 'object' ? value as { type?: unknown; url?: unknown } : {};
+  const type: EchoLinkWebBackground['type'] = input.type === 'image' || input.type === 'video' ? input.type : 'none';
+  const url = typeof input.url === 'string' ? input.url.trim() : '';
+  if (type === 'none' || !url) {
+    return { ...defaultWebBackground };
+  }
+  if (url.length > 4096) {
+    throw new HttpError(400, 'background_url_too_long');
+  }
+  if (!/^https?:\/\//iu.test(url) && !/^data:(image|video)\//iu.test(url) && !internalWebBackgroundUrlPattern.test(url)) {
+    throw new HttpError(400, 'background_url_must_be_http_or_data');
+  }
+  return { type, url };
+};
+
+const normalizeLocalWebBackgroundImage = (value: unknown): { filePath: string; mimeType: string } => {
+  const inputPath = typeof value === 'string' ? value.trim() : '';
+  if (!inputPath) {
+    throw new HttpError(400, 'background_image_file_required');
+  }
+  if (!existsSync(inputPath)) {
+    throw new HttpError(404, 'background_image_file_missing');
+  }
+  const filePath = realpathSync(inputPath);
+  const fileStat = statSync(filePath);
+  if (!fileStat.isFile()) {
+    throw new HttpError(400, 'background_image_must_be_file');
+  }
+  if (!webBackgroundImageExtensions.has(extname(filePath).toLowerCase())) {
+    throw new HttpError(400, 'background_image_type_not_supported');
+  }
+  return { filePath, mimeType: mimeTypeForImagePath(filePath) };
+};
+
 const formatLrcTimestamp = (timeMs: number): string => {
   const safe = Math.max(0, Math.floor(timeMs));
   const minutes = Math.floor(safe / 60000);
@@ -263,12 +320,6 @@ const lyricsToAndroidText = (lyrics: TrackLyrics): string | null => {
     .map((line) => (line.timeMs >= 0 ? `${formatLrcTimestamp(line.timeMs)}${line.text}` : line.text));
   return lines.length > 0 ? lines.join('\n') : null;
 };
-
-class HttpError extends Error {
-  constructor(readonly statusCode: number, message: string) {
-    super(message);
-  }
-}
 
 const writeJson = (response: ServerResponse, statusCode: number, body: unknown): void => {
   const payload = Buffer.from(`${JSON.stringify(body)}\n`, 'utf8');
@@ -591,6 +642,39 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       opacity: 0.86;
       filter: saturate(1.12);
     }
+    .custom-background {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 280ms ease;
+    }
+    .custom-background[data-active="true"] {
+      opacity: 1;
+    }
+    .custom-background img,
+    .custom-background video {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+      filter: saturate(1.08) brightness(0.76);
+      transform: scale(1.018);
+    }
+    .custom-background::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 48% 46%, rgba(255,255,255,0.08), transparent 38%),
+        linear-gradient(180deg, rgba(0,0,0,0.04), rgba(0,0,0,0.5)),
+        linear-gradient(90deg, rgba(0,0,0,0.22), transparent 22%, transparent 78%, rgba(0,0,0,0.3));
+    }
+    .stage[data-custom-background="true"] .album-mural {
+      opacity: 0.18;
+    }
     .album-mural::after {
       content: "";
       position: absolute;
@@ -634,8 +718,8 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       overflow: hidden;
       padding: 0;
       border: 0;
-      border-radius: 18px;
-      background: rgba(0,0,0,0.1);
+      border-radius: 13px;
+      background: rgba(10, 10, 14, 0.28);
       box-shadow: 0 15px 42px rgba(0,0,0,var(--card-shadow, 0.32));
       transform: translate3d(var(--focus-x, 0px), calc(var(--depth-y, 0px) + var(--focus-y, 0px)), var(--focus-z, 0px)) rotateX(var(--display-pitch, var(--pitch, 0deg))) rotateY(var(--display-yaw, var(--yaw, 0deg))) rotate(var(--tilt, 0deg)) scale(var(--display-scale, var(--card-scale, 1)));
       opacity: var(--display-opacity, var(--opacity, 1));
@@ -643,6 +727,9 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       contain: layout paint style;
       transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, opacity 180ms ease, filter 180ms ease;
       backface-visibility: hidden;
+      content-visibility: auto;
+      contain-intrinsic-size: 150px 214px;
+      transform-origin: center center;
     }
     .album-card::before {
       content: "";
@@ -702,6 +789,9 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
     .album-card[data-focused="true"] .album-copy,
     .album-card[data-focused="true"] .album-mini-controls {
       opacity: 1;
+    }
+    .album-card[data-spotlight="true"] {
+      box-shadow: 0 32px 86px rgba(0,0,0,0.48), 0 0 0 1px rgba(255,255,255,0.12);
     }
     .album-card button {
       position: relative;
@@ -765,14 +855,14 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       right: 0;
       bottom: 0;
       z-index: 2;
-      min-height: 84px;
+      min-height: 78px;
       margin: 0;
-      padding: 14px 12px 42px;
+      padding: 12px 10px 39px;
       border: 0;
       border-radius: 0;
-      background: rgba(0,0,0,0.65);
-      backdrop-filter: blur(14px);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+      background: rgba(10, 9, 13, 0.72);
+      backdrop-filter: blur(18px) saturate(1.08);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.045);
     }
     .album-copy strong, .album-copy span {
       display: -webkit-box;
@@ -781,22 +871,22 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
     }
     .album-copy strong {
       -webkit-line-clamp: 2;
-      padding-right: 28px;
+      padding-right: 26px;
       color: var(--text);
-      font-size: 13px;
+      font-size: 12.8px;
       line-height: 1.18;
       text-shadow: 0 2px 12px rgba(0,0,0,0.5);
     }
     .album-copy span {
-      margin-top: 5px;
+      margin-top: 4px;
       -webkit-line-clamp: 1;
       color: var(--muted);
       font-size: 11.5px;
     }
     .album-more {
       position: absolute;
-      top: 10px;
-      right: 10px;
+      top: 9px;
+      right: 9px;
       display: grid;
       width: 22px;
       height: 22px;
@@ -816,23 +906,23 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
     }
     .album-mini-controls {
       position: absolute;
-      left: 9px;
-      right: 9px;
-      bottom: 9px;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
       z-index: 4;
       display: grid;
       grid-template-columns: 1fr 1.18fr 1fr 1fr;
       align-items: center;
       justify-items: center;
-      gap: 6px;
+      gap: 5px;
       margin-top: 0;
     }
     .album-mini-controls i,
     .album-mini-controls em {
       display: grid;
       width: 100%;
-      max-width: 30px;
-      height: 30px;
+      max-width: 28px;
+      height: 28px;
       place-items: center;
       border: 0;
       border-radius: 999px;
@@ -843,14 +933,14 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       font-weight: 900;
     }
     .album-mini-controls i {
-      width: 34px;
-      max-width: 34px;
-      height: 34px;
+      width: 32px;
+      max-width: 32px;
+      height: 32px;
       color: rgba(248, 245, 239, 0.9);
       border-color: transparent;
-      background: rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.13);
       pointer-events: auto;
-      box-shadow: 0 8px 18px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.09);
+      box-shadow: 0 7px 16px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.08);
       font-size: 13px;
       transform: translateY(-1px);
     }
@@ -871,9 +961,12 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
     }
     .stage[data-dragging="true"] .album-card {
       transition: none;
-      will-change: transform;
+      will-change: transform, opacity;
       filter: saturate(var(--display-sat, var(--card-sat, 1.05))) brightness(var(--display-bright, var(--card-bright, 1)));
       box-shadow: 0 8px 22px rgba(0,0,0,0.24);
+    }
+    .stage[data-dragging="true"] .album-card[data-spotlight="true"] {
+      box-shadow: 0 28px 72px rgba(0,0,0,0.42), 0 0 0 1px rgba(255,255,255,0.1);
     }
     .stage[data-dragging="true"] .album-card::before,
     .stage[data-dragging="true"] .album-card::after {
@@ -1122,6 +1215,7 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       </div>
     </header>
     <main class="stage">
+      <div class="custom-background" id="customBackground" aria-hidden="true"></div>
       <div class="album-mural" id="albumMural" aria-hidden="true"></div>
       <aside class="now">
         <div class="now-art"><img id="nowArt" alt="" hidden></div>
@@ -1185,10 +1279,11 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       albumTracks: new Map(),
       renderedCards: [],
       statusBusy: false,
+      webBackground: { type: 'none', url: '' },
     };
     const $ = (id) => document.getElementById(id);
     const stage = document.querySelector('.stage');
-    const maxRenderedAlbums = 260;
+    const maxRenderedAlbums = 220;
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     const fmt = (ms) => {
       const safe = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
@@ -1207,16 +1302,50 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
         state.clickTimer = 0;
       }
     };
-    const albumFromPoint = (x, y) => {
+    const cardFromPoint = (x, y) => {
       const target = document.elementFromPoint(x, y);
       const card = target?.closest?.('.album-card');
-      if (!card) {
-        return null;
+      if (card) {
+        return card;
       }
-      return state.albums.find((album) => album.id === card.dataset.albumId) || null;
+      let bestCard = null;
+      let bestScore = -Infinity;
+      document.querySelectorAll('.album-card').forEach((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+          return;
+        }
+        const style = getComputedStyle(candidate);
+        const opacity = Number(style.opacity || '0');
+        if (opacity <= 0.12) {
+          return;
+        }
+        const centerDistance = Math.hypot(x - rect.left - rect.width / 2, y - rect.top - rect.height / 2);
+        const z = Number(style.zIndex || '0');
+        const score = z - centerDistance * 0.01;
+        if (score > bestScore) {
+          bestScore = score;
+          bestCard = candidate;
+        }
+      });
+      return bestCard;
+    };
+    const albumFromPoint = (x, y) => {
+      const card = cardFromPoint(x, y);
+      return card ? state.albums.find((album) => album.id === card.dataset.albumId) || null : null;
     };
     const playHitFromPoint = (x, y) => {
-      return document.elementFromPoint(x, y)?.closest?.('.album-play-hit') || null;
+      const direct = document.elementFromPoint(x, y)?.closest?.('.album-play-hit');
+      if (direct) {
+        return direct;
+      }
+      const card = cardFromPoint(x, y);
+      const playHit = card?.querySelector?.('.album-play-hit') || null;
+      if (!playHit) {
+        return null;
+      }
+      const rect = playHit.getBoundingClientRect();
+      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom ? playHit : null;
     };
     const handleAlbumTap = (album, x, y) => {
       const now = Date.now();
@@ -1270,6 +1399,62 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
         throw new Error((await response.json().catch(() => ({}))).message || 'HTTP ' + response.status);
       }
       return response.json();
+    };
+    const clearWebBackground = () => {
+      const el = $('customBackground');
+      el.replaceChildren();
+      delete el.dataset.active;
+      state.webBackground = { type: 'none', url: '' };
+      if (stage) {
+        delete stage.dataset.customBackground;
+      }
+    };
+    const applyWebBackground = (background) => {
+      const type = background?.type === 'video' ? 'video' : background?.type === 'image' ? 'image' : 'none';
+      const url = typeof background?.url === 'string' ? background.url.trim() : '';
+      const el = $('customBackground');
+      const alreadyActive = state.webBackground.type === type && state.webBackground.url === url && (type === 'none' || el.dataset.active === 'true');
+      if (alreadyActive) {
+        return;
+      }
+      state.webBackground = { type, url };
+      if (type === 'none' || !url) {
+        clearWebBackground();
+        return;
+      }
+
+      const media = document.createElement(type === 'video' ? 'video' : 'img');
+      media.src = url;
+      media.addEventListener('error', () => {
+        clearWebBackground();
+        toast('背景加载失败');
+      }, { once: true });
+      if (type === 'video') {
+        media.muted = true;
+        media.autoplay = true;
+        media.loop = true;
+        media.playsInline = true;
+        media.preload = 'auto';
+        media.setAttribute('playsinline', '');
+      } else {
+        media.alt = '';
+      }
+      el.replaceChildren(media);
+      el.dataset.active = 'true';
+      if (stage) {
+        stage.dataset.customBackground = 'true';
+      }
+      if (type === 'video') {
+        media.play?.().catch(() => undefined);
+      }
+    };
+    const loadSettings = async () => {
+      try {
+        const settings = await api('/echo-link/v1/settings');
+        applyWebBackground(settings.webBackground);
+      } catch {
+        clearWebBackground();
+      }
     };
     const command = async (body) => {
       state.commandBusy += 1;
@@ -1407,14 +1592,14 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       const count = Math.max(1, Math.min(maxRenderedAlbums, state.albums.length));
       const wide = window.innerWidth >= 760;
       const aspect = Math.max(0.72, Math.min(2.2, window.innerWidth / Math.max(1, window.innerHeight)));
-      layout.cellW = wide ? 138 : 108;
-      layout.cellH = wide ? 190 : 154;
+      layout.cellW = wide ? 148 : 112;
+      layout.cellH = wide ? 202 : 158;
       layout.cols = wide
-        ? Math.max(10, Math.ceil(Math.sqrt(count * aspect * 0.96)))
-        : Math.max(6, Math.ceil(Math.sqrt(count * aspect * 0.56)));
+        ? Math.max(12, Math.ceil(Math.sqrt(count * aspect * 1.18)))
+        : Math.max(7, Math.ceil(Math.sqrt(count * aspect * 0.7)));
       layout.rows = Math.max(wide ? 6 : 7, Math.ceil(count / layout.cols));
-      world.width = Math.max(Math.ceil(window.innerWidth * 1.48), layout.cols * layout.cellW + 260);
-      world.height = Math.max(Math.ceil(window.innerHeight * 1.5), layout.rows * layout.cellH + 250);
+      world.width = Math.max(Math.ceil(window.innerWidth * 1.34), layout.cols * layout.cellW + 220);
+      world.height = Math.max(Math.ceil(window.innerHeight * 1.38), layout.rows * layout.cellH + 220);
       const sea = $('albumSea');
       sea.style.width = world.width + 'px';
       sea.style.height = world.height + 'px';
@@ -1453,12 +1638,19 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       const ratio = readStyleNumber(card, '--card-ratio', 1.42);
       const scale = readStyleNumber(card, '--card-scale', 1);
       const layer = card.dataset.layer || 'back';
+      const x = readStyleNumber(card, '--card-x', 0);
+      const y = readStyleNumber(card, '--card-y', 0);
+      const wide = window.innerWidth >= 760;
+      const reserveRadius = Math.max(280, Math.min(window.innerWidth, window.innerHeight) * (wide ? 0.54 : 0.62));
+      const reserveNear = 1 - clamp(Math.hypot(x + w / 2 + state.panX, y + (w * ratio) / 2 + state.panY) / reserveRadius, 0, 1);
+      const reserveFocus = reserveNear * reserveNear * (3 - 2 * reserveNear);
+      const focusedScale = Math.min(layer === 'front' ? 1.24 : 1.18, scale * (1 + reserveFocus * (layer === 'front' ? 0.24 : 0.34)));
       return {
         card,
         index,
         layer,
-        x: readStyleNumber(card, '--card-x', 0),
-        y: readStyleNumber(card, '--card-y', 0),
+        x,
+        y,
         w,
         h: w * ratio,
         ratio,
@@ -1470,25 +1662,33 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
         baseSat: readStyleNumber(card, '--card-sat', 1),
         basePitch: readStyleNumber(card, '--pitch', 0),
         baseYaw: readStyleNumber(card, '--yaw', 0),
-        collisionScale: scale * (layer === 'front' ? 1.18 : 1.2),
+        depthY: readStyleNumber(card, '--depth-y', 0),
+        collisionScale: Math.max(scale, focusedScale) * (layer === 'front' ? 1.5 : 1.58),
       };
     };
     const applyAlbumPlan = (plan) => {
       plan.card.style.setProperty('--card-x', Math.round(plan.x) + 'px');
       plan.card.style.setProperty('--card-y', Math.round(plan.y) + 'px');
     };
+    const setStyleVar = (element, name, value) => {
+      if (element.style.getPropertyValue(name) !== value) {
+        element.style.setProperty(name, value);
+      }
+    };
+    const planCenterX = (plan) => plan.x + plan.w / 2;
+    const planCenterY = (plan) => plan.y + plan.depthY + plan.h / 2;
     const settleAlbumPlan = (plan, placed) => {
-      const gap = plan.layer === 'front' ? 26 : 16;
+      const gap = plan.layer === 'front' ? 32 : 22;
       const pad = 10;
-      for (let attempt = 0; attempt < 10; attempt += 1) {
+      for (let attempt = 0; attempt < 18; attempt += 1) {
         let moved = false;
         const width = plan.w * plan.collisionScale;
         const height = plan.h * plan.collisionScale;
         for (const other of placed) {
           const otherWidth = other.w * other.collisionScale;
           const otherHeight = other.h * other.collisionScale;
-          const dx = plan.x + plan.w / 2 - other.x - other.w / 2;
-          const dy = plan.y + plan.h / 2 - other.y - other.h / 2;
+          const dx = planCenterX(plan) - planCenterX(other);
+          const dy = planCenterY(plan) - planCenterY(other);
           const overlapX = (width + otherWidth) / 2 + gap - Math.abs(dx);
           const overlapY = (height + otherHeight) / 2 + gap - Math.abs(dy);
           if (overlapX <= 0 || overlapY <= 0) {
@@ -1497,9 +1697,9 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
           const signX = dx === 0 ? (seeded(plan.index, 24) > 0.5 ? 1 : -1) : Math.sign(dx);
           const signY = dy === 0 ? (seeded(plan.index, 25) > 0.5 ? 1 : -1) : Math.sign(dy);
           if (overlapX < overlapY) {
-            plan.x += signX * Math.min(overlapX, layout.cellW * 0.55);
+            plan.x += signX * Math.min(overlapX, layout.cellW * 0.9);
           } else {
-            plan.y += signY * Math.min(overlapY, layout.cellH * 0.55);
+            plan.y += signY * Math.min(overlapY, layout.cellH * 0.9);
           }
           moved = true;
         }
@@ -1510,40 +1710,285 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
         }
       }
     };
+    const relaxAlbumPlans = (plans) => {
+      if (plans.length < 2) {
+        return;
+      }
+      const pad = 10;
+      const passes = window.innerWidth >= 760 ? 7 : 4;
+      for (let pass = 0; pass < passes; pass += 1) {
+        let moved = false;
+        for (let i = 0; i < plans.length - 1; i += 1) {
+          const a = plans[i];
+          const aWidth = a.w * a.collisionScale;
+          const aHeight = a.h * a.collisionScale;
+          const aPinned = a.layer === 'front' && a.index < 3;
+          for (let j = i + 1; j < plans.length; j += 1) {
+            const b = plans[j];
+            const bWidth = b.w * b.collisionScale;
+            const bHeight = b.h * b.collisionScale;
+            const gap = Math.max(a.layer === 'front' ? 30 : 22, b.layer === 'front' ? 30 : 22);
+            const dx = planCenterX(b) - planCenterX(a);
+            const dy = planCenterY(b) - planCenterY(a);
+            const overlapX = (aWidth + bWidth) / 2 + gap - Math.abs(dx);
+            const overlapY = (aHeight + bHeight) / 2 + gap - Math.abs(dy);
+            if (overlapX <= 0 || overlapY <= 0) {
+              continue;
+            }
+            const signX = dx === 0 ? (seeded(b.index, 28) > 0.5 ? 1 : -1) : Math.sign(dx);
+            const signY = dy === 0 ? (seeded(b.index, 29) > 0.5 ? 1 : -1) : Math.sign(dy);
+            const bPinned = b.layer === 'front' && b.index < 3;
+            const aWeight = aPinned ? 0.18 : (a.layer === 'front' ? 0.34 : 0.62);
+            const bWeight = bPinned ? 0.18 : (b.layer === 'front' ? 0.34 : 0.62);
+            const total = aWeight + bWeight;
+            const push = Math.min((overlapX < overlapY ? overlapX : overlapY) + 2, overlapX < overlapY ? layout.cellW * 0.72 : layout.cellH * 0.72);
+            const aPush = (push * aWeight) / total;
+            const bPush = (push * bWeight) / total;
+            if (overlapX < overlapY) {
+              a.x -= signX * aPush;
+              b.x += signX * bPush;
+            } else {
+              a.y -= signY * aPush;
+              b.y += signY * bPush;
+            }
+            a.x = clamp(a.x, pad, world.width - a.w - pad);
+            a.y = clamp(a.y, pad, world.height - a.h - pad);
+            b.x = clamp(b.x, pad, world.width - b.w - pad);
+            b.y = clamp(b.y, pad, world.height - b.h - pad);
+            moved = true;
+          }
+        }
+        if (!moved) {
+          break;
+        }
+      }
+    };
+    const protectPrimaryAlbumPlans = (plans) => {
+      const primary = plans.filter((plan) => plan.layer === 'front');
+      if (!primary.length) {
+        return;
+      }
+      const pad = 10;
+      for (let pass = 0; pass < 8; pass += 1) {
+        let moved = false;
+        for (const anchor of primary) {
+          const anchorWidth = anchor.w * anchor.collisionScale;
+          const anchorHeight = anchor.h * anchor.collisionScale;
+          for (const plan of plans) {
+            if (plan === anchor) {
+              continue;
+            }
+            const gap = plan.layer === 'front' ? 26 : (anchor.index < 3 ? 38 : 32);
+            const width = plan.w * plan.collisionScale;
+            const height = plan.h * plan.collisionScale;
+            const dx = planCenterX(plan) - planCenterX(anchor);
+            const dy = planCenterY(plan) - planCenterY(anchor);
+            const overlapX = (anchorWidth + width) / 2 + gap - Math.abs(dx);
+            const overlapY = (anchorHeight + height) / 2 + gap - Math.abs(dy);
+            if (overlapX <= 0 || overlapY <= 0) {
+              continue;
+            }
+            const signX = dx === 0 ? (seeded(plan.index, 30) > 0.5 ? 1 : -1) : Math.sign(dx);
+            const signY = dy === 0 ? (seeded(plan.index, 31) > 0.5 ? 1 : -1) : Math.sign(dy);
+            if (overlapX < overlapY) {
+              plan.x += signX * Math.min(overlapX + 8, layout.cellW * 0.92);
+            } else {
+              plan.y += signY * Math.min(overlapY + 8, layout.cellH * 0.92);
+            }
+            plan.x = clamp(plan.x, pad, world.width - plan.w - pad);
+            plan.y = clamp(plan.y, pad, world.height - plan.h - pad);
+            moved = true;
+          }
+        }
+        if (!moved) {
+          break;
+        }
+      }
+    };
+    const planFocusInfo = (plan) => {
+      const wide = window.innerWidth >= 760;
+      const focusRadius = Math.max(300, Math.min(window.innerWidth, window.innerHeight) * (wide ? 0.5 : 0.58));
+      const focusX = -state.panX;
+      const focusY = -state.panY;
+      const dx = plan.x + plan.w / 2 - focusX;
+      const dy = plan.y + plan.h / 2 - focusY;
+      const near = 1 - clamp(Math.hypot(dx, dy) / focusRadius, 0, 1);
+      const focus = near * near * (3 - 2 * near);
+      return {
+        focus,
+        scale: Math.min(plan.layer === 'front' ? 1.24 : 1.18, plan.baseScale * (1 + focus * (plan.layer === 'front' ? 0.24 : 0.34))),
+        focusY: -Math.round(focus * 22),
+      };
+    };
+    const planVisualBox = (plan) => {
+      const focusInfo = planFocusInfo(plan);
+      const width = plan.w * focusInfo.scale;
+      const height = plan.h * focusInfo.scale;
+      const centerX = plan.x + plan.w / 2;
+      const centerY = plan.y + plan.depthY + focusInfo.focusY + plan.h / 2;
+      return {
+        x: centerX - width / 2,
+        y: centerY - height / 2,
+        width,
+        height,
+      };
+    };
+    const resolveVisibleAlbumPlans = (plans) => {
+      if (plans.length < 2) {
+        return;
+      }
+      const pad = 10;
+      for (let pass = 0; pass < 16; pass += 1) {
+        let moved = false;
+        for (let i = 0; i < plans.length - 1; i += 1) {
+          const a = plans[i];
+          const aBox = planVisualBox(a);
+          const aPinned = a.layer === 'front';
+          for (let j = i + 1; j < plans.length; j += 1) {
+            const b = plans[j];
+            const bBox = planVisualBox(b);
+            const gap = Math.max(a.layer === 'front' ? 24 : 14, b.layer === 'front' ? 24 : 14);
+            const dx = (bBox.x + bBox.width / 2) - (aBox.x + aBox.width / 2);
+            const dy = (bBox.y + bBox.height / 2) - (aBox.y + aBox.height / 2);
+            const overlapX = (aBox.width + bBox.width) / 2 + gap - Math.abs(dx);
+            const overlapY = (aBox.height + bBox.height) / 2 + gap - Math.abs(dy);
+            if (overlapX <= 0 || overlapY <= 0) {
+              continue;
+            }
+            const bPinned = b.layer === 'front';
+            const signX = dx === 0 ? (seeded(b.index, 34) > 0.5 ? 1 : -1) : Math.sign(dx);
+            const signY = dy === 0 ? (seeded(b.index, 35) > 0.5 ? 1 : -1) : Math.sign(dy);
+            const aWeight = aPinned ? 0.16 : 0.84;
+            const bWeight = bPinned ? 0.16 : 0.84;
+            const total = aWeight + bWeight;
+            const push = Math.min((overlapX < overlapY ? overlapX : overlapY) + 3, overlapX < overlapY ? layout.cellW * 0.82 : layout.cellH * 0.82);
+            const aPush = (push * aWeight) / total;
+            const bPush = (push * bWeight) / total;
+            if (overlapX < overlapY) {
+              a.x -= signX * aPush;
+              b.x += signX * bPush;
+            } else {
+              a.y -= signY * aPush;
+              b.y += signY * bPush;
+            }
+            a.x = clamp(a.x, pad, world.width - a.w - pad);
+            a.y = clamp(a.y, pad, world.height - a.h - pad);
+            b.x = clamp(b.x, pad, world.width - b.w - pad);
+            b.y = clamp(b.y, pad, world.height - b.h - pad);
+            moved = true;
+          }
+        }
+        if (!moved) {
+          break;
+        }
+      }
+    };
+    const settleBackgroundAlbumPlans = (plans) => {
+      const movable = plans.filter((plan) => plan.layer === 'back');
+      if (!movable.length) {
+        return;
+      }
+      const pad = 10;
+      for (let pass = 0; pass < 10; pass += 1) {
+        let moved = false;
+        for (const plan of movable) {
+          const width = plan.w * plan.collisionScale;
+          const height = plan.h * plan.collisionScale;
+          for (const other of plans) {
+            if (plan === other) {
+              continue;
+            }
+            const otherWidth = other.w * other.collisionScale;
+            const otherHeight = other.h * other.collisionScale;
+            const gap = other.layer === 'front' ? 34 : 24;
+            const dx = planCenterX(plan) - planCenterX(other);
+            const dy = planCenterY(plan) - planCenterY(other);
+            const overlapX = (width + otherWidth) / 2 + gap - Math.abs(dx);
+            const overlapY = (height + otherHeight) / 2 + gap - Math.abs(dy);
+            if (overlapX <= 0 || overlapY <= 0) {
+              continue;
+            }
+            const signX = dx === 0 ? (seeded(plan.index, 32) > 0.5 ? 1 : -1) : Math.sign(dx);
+            const signY = dy === 0 ? (seeded(plan.index, 33) > 0.5 ? 1 : -1) : Math.sign(dy);
+            if (overlapX < overlapY) {
+              plan.x += signX * Math.min(overlapX + 6, layout.cellW * 0.82);
+            } else {
+              plan.y += signY * Math.min(overlapY + 6, layout.cellH * 0.82);
+            }
+            plan.x = clamp(plan.x, pad, world.width - plan.w - pad);
+            plan.y = clamp(plan.y, pad, world.height - plan.h - pad);
+            moved = true;
+          }
+        }
+        if (!moved) {
+          break;
+        }
+      }
+    };
     const updateAlbumFocus = () => {
       if (!state.renderedCards.length) {
         return;
       }
       const wide = window.innerWidth >= 760;
-      const focusRadius = Math.max(260, Math.min(window.innerWidth, window.innerHeight) * (wide ? 0.46 : 0.54));
-      const softRadius = focusRadius * 1.45;
+      const focusRadius = Math.max(300, Math.min(window.innerWidth, window.innerHeight) * (wide ? 0.5 : 0.58));
+      const softRadius = focusRadius * 1.7;
       const focusX = -state.panX;
       const focusY = -state.panY;
+      const viewPad = wide ? 420 : 260;
+      const viewLeft = -state.panX - viewPad;
+      const viewTop = -state.panY - viewPad;
+      const viewRight = -state.panX + window.innerWidth + viewPad;
+      const viewBottom = -state.panY + window.innerHeight + viewPad;
+      const dragging = Boolean(state.drag);
+      const visible = [];
       for (const meta of state.renderedCards) {
+        if (meta.x > viewRight || meta.x + meta.w < viewLeft || meta.y > viewBottom || meta.y + meta.h < viewTop) {
+          if (meta.card.dataset.focused === 'true') {
+            meta.card.dataset.focused = 'false';
+          }
+          if (meta.card.dataset.spotlight === 'true') {
+            meta.card.dataset.spotlight = 'false';
+          }
+          continue;
+        }
         const dx = meta.x + meta.w / 2 - focusX;
         const dy = meta.y + meta.h / 2 - focusY;
         const distance = Math.hypot(dx, dy);
         const near = 1 - clamp(distance / focusRadius, 0, 1);
         const halo = 1 - clamp(distance / softRadius, 0, 1);
         const focus = near * near * (3 - 2 * near);
-        const displayScale = meta.baseScale * (1 + focus * (meta.layer === 'front' ? 0.12 : 0.3));
-        const displayOpacity = clamp(meta.baseOpacity + halo * (1 - meta.baseOpacity) * 0.72 + focus * 0.08, 0.12, 1);
+        visible.push({ meta, focus, halo, distance });
+      }
+      const spotlight = visible
+        .filter((item) => item.focus > 0.18)
+        .sort((a, b) => (b.focus + (b.meta.layer === 'front' ? 0.08 : 0)) - (a.focus + (a.meta.layer === 'front' ? 0.08 : 0)))[0] ?? null;
+      for (const item of visible) {
+        const meta = item.meta;
+        const focus = item.focus;
+        const halo = item.halo;
+        const isSpotlight = spotlight?.meta === meta;
+        const spotlightBoost = isSpotlight ? (dragging ? 0.24 : 0.18) : 0;
+        const displayScale = Math.min(meta.layer === 'front' ? 1.36 : 1.26, meta.baseScale * (1 + focus * (meta.layer === 'front' ? 0.28 : 0.38) + spotlightBoost));
+        const displayOpacity = clamp(meta.baseOpacity + halo * (1 - meta.baseOpacity) * 0.82 + focus * 0.12, 0.12, 1);
         const displayBlur = Math.max(0, meta.baseBlur - focus * (meta.baseBlur + 0.35));
-        const displayZ = Math.round(meta.baseZ + focus * 240 + halo * 28);
-        const displayBright = Math.min(1.12, meta.baseBright + focus * 0.14);
-        const displaySat = Math.min(1.16, meta.baseSat + focus * 0.12);
-        const flatten = 1 - focus * 0.82;
-        meta.card.style.setProperty('--display-scale', displayScale.toFixed(3));
-        meta.card.style.setProperty('--display-opacity', displayOpacity.toFixed(3));
-        meta.card.style.setProperty('--display-blur', displayBlur.toFixed(2) + 'px');
-        meta.card.style.setProperty('--display-z', String(displayZ));
-        meta.card.style.setProperty('--display-bright', displayBright.toFixed(2));
-        meta.card.style.setProperty('--display-sat', displaySat.toFixed(2));
-        meta.card.style.setProperty('--focus-y', -Math.round(focus * 14) + 'px');
-        meta.card.style.setProperty('--focus-z', Math.round(focus * 120) + 'px');
-        meta.card.style.setProperty('--display-pitch', (meta.basePitch * flatten).toFixed(2) + 'deg');
-        meta.card.style.setProperty('--display-yaw', (meta.baseYaw * flatten).toFixed(2) + 'deg');
+        const displayZ = Math.round(meta.baseZ + focus * 360 + halo * 32 + (isSpotlight ? 260 : 0));
+        const displayBright = Math.min(1.16, meta.baseBright + focus * 0.16 + (isSpotlight ? 0.04 : 0));
+        const displaySat = Math.min(1.18, meta.baseSat + focus * 0.12);
+        const flatten = 1 - focus * 0.92;
+        setStyleVar(meta.card, '--display-scale', displayScale.toFixed(3));
+        setStyleVar(meta.card, '--display-opacity', displayOpacity.toFixed(3));
+        setStyleVar(meta.card, '--display-z', String(displayZ));
+        setStyleVar(meta.card, '--focus-y', -Math.round(focus * (isSpotlight ? 30 : 22)) + 'px');
+        setStyleVar(meta.card, '--focus-z', Math.round(focus * (isSpotlight ? 220 : 150)) + 'px');
+        setStyleVar(meta.card, '--display-pitch', (isSpotlight ? 0 : meta.basePitch * flatten).toFixed(2) + 'deg');
+        setStyleVar(meta.card, '--display-yaw', (isSpotlight ? 0 : meta.baseYaw * flatten).toFixed(2) + 'deg');
+        if (!dragging) {
+          setStyleVar(meta.card, '--display-blur', displayBlur.toFixed(2) + 'px');
+          setStyleVar(meta.card, '--display-bright', displayBright.toFixed(2));
+          setStyleVar(meta.card, '--display-sat', displaySat.toFixed(2));
+        }
         meta.card.dataset.focused = focus > 0.62 ? 'true' : 'false';
+        meta.card.dataset.spotlight = isSpotlight ? 'true' : 'false';
       }
     };
     const frontSlots = () => {
@@ -1552,22 +1997,21 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       const viewportH = Math.max(480, window.innerHeight);
       const safeTop = wide ? 112 : 94;
       const safeBottom = wide ? 42 : 112;
-      const baseW = wide ? clamp(Math.round(viewportW / 8.9), 118, 150) : clamp(Math.round(viewportW / 3.8), 88, 112);
+      const baseW = wide ? clamp(Math.round(viewportW / 8.2), 124, 164) : clamp(Math.round(viewportW / 3.65), 90, 116);
       const cardRatio = wide ? 1.42 : 1.46;
       const desktop = [
-        [0.52, 0.51, 1.02, 1.00], [0.37, 0.56, 0.94, 0.94], [0.45, 0.31, 0.86, 0.82],
-        [0.65, 0.42, 0.84, 0.76], [0.68, 0.67, 0.70, 0.62], [0.27, 0.35, 0.66, 0.52],
-        [0.25, 0.72, 0.64, 0.50], [0.50, 0.80, 0.60, 0.42], [0.77, 0.28, 0.58, 0.36],
-        [0.20, 0.50, 0.56, 0.29], [0.85, 0.56, 0.52, 0.29], [0.14, 0.23, 0.48, 0.24],
-        [0.84, 0.83, 0.48, 0.24], [0.34, 0.88, 0.48, 0.22], [0.06, 0.70, 0.44, 0.18],
-        [0.94, 0.22, 0.44, 0.18],
+        [0.50, 0.52, 1.06, 1.00], [0.40, 0.58, 0.98, 0.94], [0.56, 0.39, 0.92, 0.86],
+        [0.63, 0.57, 0.9, 0.82], [0.46, 0.34, 0.82, 0.72], [0.34, 0.42, 0.74, 0.58],
+        [0.69, 0.34, 0.72, 0.54], [0.31, 0.72, 0.68, 0.52], [0.58, 0.75, 0.66, 0.48],
+        [0.76, 0.64, 0.62, 0.42], [0.23, 0.54, 0.58, 0.34], [0.80, 0.44, 0.56, 0.34],
+        [0.18, 0.30, 0.52, 0.28], [0.84, 0.78, 0.5, 0.26], [0.43, 0.88, 0.48, 0.24],
       ];
       const mobile = [
         [0.50, 0.42, 1.06, 1.00], [0.30, 0.56, 0.88, 0.74], [0.71, 0.57, 0.86, 0.72],
         [0.50, 0.74, 0.80, 0.60], [0.24, 0.28, 0.66, 0.38], [0.76, 0.30, 0.66, 0.38],
         [0.50, 0.17, 0.58, 0.30],
       ];
-      return (wide ? desktop : mobile).filter((slot) => slot[3] >= (wide ? 0.18 : 0.3)).map((slot, index) => {
+      return (wide ? desktop : mobile).filter((slot) => slot[3] >= (wide ? 0.29 : 0.3)).map((slot, index) => {
         const size = Math.round(baseW * slot[2] + (seeded(index, 1) - 0.5) * (wide ? 12 : 8));
         const ratio = cardRatio - (slot[3] < 0.55 ? 0.04 : 0);
         const cardH = size * ratio;
@@ -1617,7 +2061,7 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       const frontCount = frontAlbumCount();
       const backIndex = index - frontCount;
       const far = depth < 0.46;
-      const baseSize = far ? (wide ? 82 : 62) : (wide ? 108 : 82);
+      const baseSize = far ? (wide ? 88 : 66) : (wide ? 116 : 86);
       const size = Math.round(baseSize + seeded(index, 1) * (wide ? 28 : 18));
       const slotCount = Math.max(1, layout.cols * layout.rows);
       const slot = (backIndex * albumSlotStride(slotCount) + Math.floor((state.randomSeed % 997) / 997 * slotCount)) % slotCount;
@@ -1625,17 +2069,17 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       const row = Math.floor(slot / layout.cols);
       const originX = Math.round((world.width - layout.cols * layout.cellW) / 2 + (wide ? 8 : 6));
       const originY = Math.round((world.height - layout.rows * layout.cellH) / 2 + (wide ? 10 : 8));
-      const rowStagger = (row % 2 === 1 ? layout.cellW * 0.46 : 0) + Math.sin(row * 0.67 + state.randomSeed * 0.05) * layout.cellW * 0.16;
-      const columnLift = Math.cos(col * 0.73 + state.randomSeed * 0.04) * layout.cellH * 0.14;
-      const waveX = Math.sin(row * 1.42 + col * 0.37 + state.randomSeed * 0.09) * layout.cellW * 0.24;
-      const waveY = Math.cos(col * 1.18 + row * 0.29 + state.randomSeed * 0.07) * layout.cellH * 0.16;
-      const jitterX = (seeded(index, 2) - 0.5) * Math.min(116, layout.cellW * 0.34);
-      const jitterY = (seeded(index, 3) - 0.5) * Math.min(126, layout.cellH * 0.31);
+      const rowStagger = (row % 2 === 1 ? layout.cellW * 0.34 : 0) + Math.sin(row * 0.67 + state.randomSeed * 0.05) * layout.cellW * 0.08;
+      const columnLift = Math.cos(col * 0.73 + state.randomSeed * 0.04) * layout.cellH * 0.07;
+      const waveX = Math.sin(row * 1.42 + col * 0.37 + state.randomSeed * 0.09) * layout.cellW * 0.1;
+      const waveY = Math.cos(col * 1.18 + row * 0.29 + state.randomSeed * 0.07) * layout.cellH * 0.08;
+      const jitterX = (seeded(index, 2) - 0.5) * Math.min(76, layout.cellW * 0.2);
+      const jitterY = (seeded(index, 3) - 0.5) * Math.min(86, layout.cellH * 0.18);
       const rawX = originX + col * layout.cellW + rowStagger + waveX + jitterX;
       const rawY = originY + row * layout.cellH + columnLift + waveY + jitterY;
       const centerX = world.width / 2;
       const centerY = world.height / 2;
-      const pull = far ? 0.96 + seeded(index, 17) * 0.06 : 0.84 + seeded(index, 17) * 0.08;
+      const pull = far ? 0.98 + seeded(index, 17) * 0.04 : 0.94 + seeded(index, 17) * 0.04;
       const x = Math.round(clamp(centerX + (rawX + size / 2 - centerX) * pull - size / 2, 8, world.width - size - 8));
       const y = Math.round(clamp(centerY + (rawY + size * 0.71 - centerY) * (pull + 0.02) - size * 0.71, 8, world.height - size * 1.42 - 8));
       const tilt = (seeded(index, 4) - 0.5) * (far ? 7.8 : 5.2);
@@ -1676,7 +2120,6 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
         card.style.cssText = albumStyle(index);
         const plan = createAlbumPlan(card, index);
         settleAlbumPlan(plan, placedCards);
-        applyAlbumPlan(plan);
         placedCards.push(plan);
         state.renderedCards.push(plan);
         card.innerHTML =
@@ -1720,6 +2163,15 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
         });
         sea.appendChild(card);
       });
+      relaxAlbumPlans(placedCards);
+      protectPrimaryAlbumPlans(placedCards);
+      relaxAlbumPlans(placedCards);
+      protectPrimaryAlbumPlans(placedCards);
+      settleBackgroundAlbumPlans(placedCards);
+      resolveVisibleAlbumPlans(placedCards);
+      protectPrimaryAlbumPlans(placedCards);
+      resolveVisibleAlbumPlans(placedCards);
+      placedCards.forEach(applyAlbumPlan);
       syncSelectedAlbum();
       syncNowPlayingAlbum();
       applyPan();
@@ -1950,6 +2402,7 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       if (stage) {
         delete stage.dataset.dragging;
       }
+      requestPan();
       if (state.dragMoved) {
         state.suppressClickUntil = Date.now() + 180;
         startMomentum();
@@ -2002,12 +2455,17 @@ const createWebControlHtml = (token: string): string => `<!doctype html>
       renderMural();
       renderAlbums();
     });
-    window.addEventListener('focus', () => void loadStatus());
+    window.addEventListener('focus', () => {
+      void loadSettings();
+      void loadStatus();
+    });
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) {
+        void loadSettings();
         void loadStatus();
       }
     });
+    loadSettings();
     loadStatus();
     loadAlbums().catch((error) => toast(error.message));
     window.setInterval(() => {
@@ -2083,6 +2541,8 @@ export class EchoLinkService {
   private authFailureCount = 0;
   private lastMediaTokenServed: MediaServeSummary | null = null;
   private readonly recentHttpErrors: HttpErrorEvent[] = [];
+  private webBackground: EchoLinkWebBackground = { ...defaultWebBackground };
+  private webBackgroundAsset: WebBackgroundAssetRecord | null = null;
   private mdnsState: MdnsState = {
     state: 'disabled',
     serviceName: '_echo-link._tcp.local',
@@ -2144,6 +2604,7 @@ export class EchoLinkService {
       token: this.token,
       deviceName: this.deviceName,
       deviceId: this.deviceId,
+      webBackground: { ...this.webBackground },
       activeMediaTokens: this.mediaTokens.size,
       activeArtworkTokens: this.artworkTokens.size,
       mdns: {
@@ -2178,6 +2639,37 @@ export class EchoLinkService {
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
     }
+    this.touch();
+    return this.getServerStatus();
+  }
+
+  setWebBackground(value: unknown): EchoLinkServerStatus {
+    const nextBackground = normalizeWebBackground(value);
+    const currentAssetUrl = this.webBackgroundAsset ? `${internalWebBackgroundPathPrefix}${this.webBackgroundAsset.token}` : null;
+    const usesInternalAsset = internalWebBackgroundUrlPattern.test(nextBackground.url);
+    if (usesInternalAsset && nextBackground.url !== currentAssetUrl) {
+      throw new HttpError(400, 'background_asset_not_available');
+    }
+    if (!usesInternalAsset) {
+      this.webBackgroundAsset = null;
+    }
+    this.webBackground = nextBackground;
+    this.touch();
+    return this.getServerStatus();
+  }
+
+  setLocalWebBackgroundImage(filePath: unknown): EchoLinkServerStatus {
+    const image = normalizeLocalWebBackgroundImage(filePath);
+    const token = randomBytes(24).toString('base64url');
+    this.webBackgroundAsset = {
+      token,
+      filePath: image.filePath,
+      mimeType: image.mimeType,
+    };
+    this.webBackground = {
+      type: 'image',
+      url: `${internalWebBackgroundPathPrefix}${token}`,
+    };
     this.touch();
     return this.getServerStatus();
   }
@@ -2235,6 +2727,12 @@ export class EchoLinkService {
         name: this.deviceName,
       },
       playback: this.createPlayback(audioStatus, track, baseUrl ?? this.defaultBaseUrl()),
+    };
+  }
+
+  getSettingsResponse(): EchoLinkSettingsResponse {
+    return {
+      webBackground: { ...this.webBackground },
     };
   }
 
@@ -2524,6 +3022,12 @@ export class EchoLinkService {
         return;
       }
 
+      const webBackgroundMatch = path.match(/^\/echo-link\/v1\/background\/([^/]+)$/u);
+      if (webBackgroundMatch) {
+        await this.serveWebBackgroundAsset(request, response, webBackgroundMatch[1]);
+        return;
+      }
+
       if (request.method === 'GET' && path === '/echo-link/web') {
         if (url.searchParams.get('token') !== this.token) {
           this.recordAuthFailure();
@@ -2544,6 +3048,11 @@ export class EchoLinkService {
 
       if (request.method === 'GET' && path === '/echo-link/v1/status') {
         writeJson(response, 200, this.getStatusResponse(this.baseUrlForRequest(request)));
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/echo-link/v1/settings') {
+        writeJson(response, 200, this.getSettingsResponse());
         return;
       }
 
@@ -2988,6 +3497,44 @@ export class EchoLinkService {
       return;
     }
     createReadStream(record.filePath).pipe(response);
+  }
+
+  private async serveWebBackgroundAsset(request: IncomingMessage, response: ServerResponse, token: string): Promise<void> {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      writeText(response, 405, 'method_not_allowed');
+      return;
+    }
+
+    const asset = this.webBackgroundAsset;
+    if (!asset || asset.token !== token) {
+      throw new HttpError(401, 'background_token_expired_or_missing');
+    }
+
+    if (!existsSync(asset.filePath)) {
+      throw new HttpError(404, 'background_image_file_missing');
+    }
+    const fileStat = statSync(asset.filePath);
+    if (!fileStat.isFile()) {
+      throw new HttpError(404, 'background_image_file_missing');
+    }
+
+    response.writeHead(200, {
+      'Cache-Control': 'private, max-age=300',
+      'Content-Length': String(fileStat.size),
+      'Content-Type': asset.mimeType,
+      'Last-Modified': fileStat.mtime.toUTCString(),
+    });
+    if (request.method === 'HEAD') {
+      response.end();
+      return;
+    }
+    createReadStream(asset.filePath)
+      .once('error', (error) => {
+        if (!response.destroyed) {
+          response.destroy(error);
+        }
+      })
+      .pipe(response);
   }
 
   private async serveMediaToken(request: IncomingMessage, response: ServerResponse, token: string): Promise<void> {
