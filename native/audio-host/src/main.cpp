@@ -4551,30 +4551,6 @@ int runLegacyWasapiExclusiveDopHost(const Options& options)
     return 0;
 }
 
-int openAsioControlPanel(const Options& options)
-{
-#if ECHO_ENABLE_ASIO
-    char error[1024] {};
-    const int result = asio_open_control_panel(
-        options.deviceName.isNotEmpty() ? options.deviceName.toRawUTF8() : nullptr,
-        options.deviceIndex,
-        error,
-        sizeof(error));
-
-    if (result != 0)
-    {
-        logLine(std::string("ASIO control panel failed: ") + (error[0] != '\0' ? error : "unknown error"));
-        return 3;
-    }
-
-    return 0;
-#else
-    (void)options;
-    logLine("ASIO control panel failed: ASIO support is disabled at build time (ECHO_ENABLE_ASIO=OFF)");
-    return 3;
-#endif
-}
-
 int runLegacyWasapiSharedHost(const Options& options)
 {
     const bool useDefaultWasapiDevice = options.deviceName.isEmpty() && options.deviceIndex < 0;
@@ -5259,6 +5235,30 @@ int runLegacyAsioNativeDsdHost(const Options& options)
 }
 #endif
 #endif
+
+int openAsioControlPanel(const Options& options)
+{
+#if ECHO_ENABLE_ASIO && JUCE_WINDOWS
+    char error[1024] {};
+    const int result = asio_open_control_panel(
+        options.deviceName.isNotEmpty() ? options.deviceName.toRawUTF8() : nullptr,
+        options.deviceIndex,
+        error,
+        sizeof(error));
+
+    if (result != 0)
+    {
+        logLine(std::string("ASIO control panel failed: ") + (error[0] != '\0' ? error : "unknown error"));
+        return 3;
+    }
+
+    return 0;
+#else
+    (void)options;
+    logLine("ASIO control panel failed: ASIO support is disabled at build time (ECHO_ENABLE_ASIO=OFF) or unsupported platform");
+    return 3;
+#endif
+}
 
 int runJuceDecodePcm(const Options& options)
 {
