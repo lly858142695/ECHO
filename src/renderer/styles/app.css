@@ -839,12 +839,21 @@
   }
 }
 
-.chrome-notice {
+.chrome-notice-layer {
   position: fixed;
   top: 52px;
   left: 18px;
-  z-index: 30;
-  max-width: min(420px, calc(100vw - 48px));
+  z-index: 42;
+  display: grid;
+  width: min(430px, calc(100vw - 36px));
+  gap: 8px;
+  pointer-events: none;
+}
+
+.chrome-notice {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 24px;
   align-items: center;
@@ -859,10 +868,13 @@
   font-weight: 720;
   line-height: 1.45;
   opacity: 0;
-  transform: translate3d(-12px, -8px, 0) scale(0.98);
+  pointer-events: auto;
+  transform: translate3d(-10px, -14px, 0) scale(0.965);
+  transform-origin: 0 0;
+  will-change: opacity, transform;
   transition:
-    opacity 180ms ease,
-    transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    opacity 200ms ease,
+    transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .chrome-notice.is-visible {
@@ -871,7 +883,21 @@
 }
 
 .chrome-notice.is-hiding {
+  opacity: 0;
   pointer-events: none;
+  transform: translate3d(-8px, -12px, 0) scale(0.975);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chrome-notice {
+    transform: none;
+    transition: opacity 1ms linear;
+  }
+
+  .chrome-notice.is-visible,
+  .chrome-notice.is-hiding {
+    transform: none;
+  }
 }
 
 .chrome-notice-message {
@@ -903,9 +929,8 @@
 }
 
 .upcoming-track-notice {
-  z-index: 34;
-  width: min(430px, calc(100vw - 36px));
-  max-width: min(430px, calc(100vw - 36px));
+  width: 100%;
+  max-width: 100%;
   grid-template-columns: 56px minmax(0, 1fr) 24px;
   gap: 12px;
   align-items: center;
@@ -1008,40 +1033,26 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: 10px;
-  opacity: 1;
-  transform: none;
 }
 
 .chrome-notice--audio-error {
-  top: 52px;
-  right: auto;
-  bottom: auto;
-  left: 18px;
   display: grid;
   grid-template-columns: 1fr;
   gap: 7px;
-  max-width: min(460px, calc(100vw - 36px));
+  max-width: 100%;
   border-color: var(--theme-danger-border);
   background: var(--theme-danger-panel-bg);
   box-shadow: var(--theme-shadow-soft);
-  opacity: 1;
-  transform: none;
 }
 
 .chrome-notice--account {
-  top: 52px;
-  right: auto;
-  bottom: auto;
-  left: 18px;
   display: grid;
   grid-template-columns: 1fr;
   gap: 6px;
-  max-width: min(420px, calc(100vw - 36px));
+  max-width: 100%;
   border-color: var(--theme-warning-border);
   background: var(--theme-warning-panel-bg);
   box-shadow: var(--theme-shadow-soft);
-  opacity: 1;
-  transform: none;
 }
 
 .chrome-notice--account strong {
@@ -21720,10 +21731,14 @@ html[data-theme="dark"] .app-shell--wallpaper-ready {
     grid-column: 1 / -1;
   }
 
-  .chrome-notice {
+  .chrome-notice-layer {
     top: 48px;
     left: 12px;
-    max-width: calc(100vw - 24px);
+    width: calc(100vw - 24px);
+  }
+
+  .chrome-notice {
+    max-width: 100%;
   }
 
   .player-download-notice {

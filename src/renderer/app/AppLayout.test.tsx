@@ -490,15 +490,18 @@ describe('AppLayout standalone routes', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /最小化|Minimize/ }));
+    act(() => {
+      vi.advanceTimersByTime(16);
+    });
     expect(screen.getByRole('status')).toBeTruthy();
 
     act(() => {
       vi.advanceTimersByTime(5000);
     });
-    expect(screen.getByRole('status').className).toContain('is-hiding');
+    expect(document.querySelector('.chrome-notice')?.className).toContain('is-hiding');
 
     act(() => {
-      vi.advanceTimersByTime(220);
+      vi.advanceTimersByTime(260);
     });
     expect(screen.queryByRole('status')).toBeNull();
   });
@@ -594,6 +597,7 @@ describe('AppLayout standalone routes', () => {
     const notice = await screen.findByText('Next Song');
     const card = notice.closest('.upcoming-track-notice') as HTMLElement;
     expect(card).toBeTruthy();
+    await waitFor(() => expect(card.className).toContain('is-visible'));
     expect(card.textContent).toContain('Next Artist');
     expect(card.textContent).toContain('Next Album');
     expect(within(card).getByRole('img', { name: /Next Song/ }).getAttribute('src')).toBe('echo-cover://thumb/next');
@@ -794,6 +798,7 @@ describe('AppLayout standalone routes', () => {
     if (!diagnosticsNotice) {
       throw new Error('diagnostics notice was not rendered');
     }
+    await waitFor(() => expect(diagnosticsNotice.className).toContain('is-visible'));
     fireEvent.click(within(diagnosticsNotice as HTMLElement).getByRole('button', { name: /打开报告|Open Report/i }));
 
     await waitFor(() => expect(openCrashReport).toHaveBeenCalledTimes(1));
@@ -1774,6 +1779,7 @@ describe('AppLayout standalone routes', () => {
     });
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('alert').className).toContain('is-visible'));
     expect(screen.getByText(/音频错误|Audio Error/i)).toBeTruthy();
     expect(screen.getByText(/Markdown (诊断报告|diagnostics report)/i)).toBeTruthy();
 
@@ -1911,11 +1917,19 @@ describe('AppLayout standalone routes', () => {
     await act(async () => {
       await Promise.resolve();
     });
+    act(() => {
+      vi.advanceTimersByTime(16);
+    });
 
     expect(screen.getByRole('alert')).toBeTruthy();
 
     act(() => {
       vi.advanceTimersByTime(5000);
+    });
+
+    expect(document.querySelector('.chrome-notice--audio-error')?.className).toContain('is-hiding');
+    act(() => {
+      vi.advanceTimersByTime(260);
     });
 
     expect(screen.queryByRole('alert')).toBeNull();

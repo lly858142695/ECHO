@@ -2082,7 +2082,39 @@ describe("LyricsPage", () => {
       'url("echo-cover://original/cover%201")',
     );
     expect(container.querySelector(".lyrics-mv-panel")?.getAttribute("data-lyrics-readability")).toBe("true");
-    expect(window.echo.library.resolveLyricsBackgroundCover).toHaveBeenCalledWith("track-1");
+    expect(window.echo.library.resolveLyricsBackgroundCover).not.toHaveBeenCalled();
+  });
+
+  it("keeps immersive cover style pinned to local album artwork even when high resolution covers are enabled", async () => {
+    const track = makeTrack({ coverId: "cover 1" });
+    mockEcho(track, 0, {
+      lyricsBackgroundMode: "theme",
+      lyricsImmersiveCoverStyleEnabled: true,
+      lyricsHighResolutionNetworkCoverEnabled: true,
+    });
+    window.echo.library.resolveLyricsBackgroundCover = vi.fn().mockResolvedValue({
+      coverUrl: "https://p.music.126.net/cover.jpg",
+      provider: "netease-cloud-music",
+      confidence: 0.96,
+    });
+
+    const { container } = render(
+      <PlaybackQueueProvider>
+        <QueueSeed track={track}>
+          <LyricsPage initialLyrics={lyrics} />
+        </QueueSeed>
+      </PlaybackQueueProvider>,
+    );
+
+    await screen.findAllByRole("heading", { name: "Test Song" });
+    const page = container.querySelector(".lyrics-page") as HTMLElement;
+
+    expect(page.dataset.immersiveCoverStyle).toBe("true");
+    expect(page.dataset.background).toBe("cover");
+    expect(page.style.getPropertyValue("--lyrics-cover")).toBe(
+      'url("echo-cover://original/cover%201")',
+    );
+    expect(window.echo.library.resolveLyricsBackgroundCover).not.toHaveBeenCalled();
   });
 
   it("keeps immersive cover style active when the lyrics player drawer header is enabled", async () => {

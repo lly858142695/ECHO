@@ -355,6 +355,8 @@ const defaultChromeNoticeAutoHideMs = 5000;
 const quickAudioNoticeAutoHideMs = 1800;
 const upcomingTrackNoticeLeadSeconds = 10;
 const upcomingTrackNoticeAutoHideMs = 6400;
+const chromeNoticeEnterDelayMs = 16;
+const chromeNoticeExitAnimationMs = 260;
 const temporarilyBlockedRouteIds = new Set<AppRouteId>(['streaming']);
 const readSuppressAccountExpiryNotices = (settings: Partial<AppSettings> | null | undefined): boolean =>
   settings?.suppressAccountExpiryNotices === true;
@@ -366,6 +368,72 @@ const readUpcomingTrackNoticeEnabled = (settings: Partial<AppSettings> | null | 
 type UpcomingTrackNotice = {
   key: string;
   track: LibraryTrack;
+};
+
+type ChromeNoticePresenceProps = {
+  ariaLive?: 'off' | 'polite' | 'assertive';
+  children: ReactNode;
+  className?: string;
+  onExited?: () => void;
+  role: 'alert' | 'status';
+  show: boolean;
+};
+
+const ChromeNoticePresence = ({
+  ariaLive,
+  children,
+  className,
+  onExited,
+  role,
+  show,
+}: ChromeNoticePresenceProps): JSX.Element | null => {
+  const [shouldRender, setShouldRender] = useState(show);
+  const [isVisible, setIsVisible] = useState(false);
+  const latestChildrenRef = useRef(children);
+  const onExitedRef = useRef(onExited);
+
+  if (show) {
+    latestChildrenRef.current = children;
+  }
+
+  useEffect(() => {
+    onExitedRef.current = onExited;
+  }, [onExited]);
+
+  useEffect(() => {
+    if (show) {
+      setShouldRender(true);
+      const timer = window.setTimeout(() => setIsVisible(true), chromeNoticeEnterDelayMs);
+      return () => window.clearTimeout(timer);
+    }
+
+    setIsVisible(false);
+    if (!shouldRender) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShouldRender(false);
+      onExitedRef.current?.();
+    }, chromeNoticeExitAnimationMs);
+
+    return () => window.clearTimeout(timer);
+  }, [show, shouldRender]);
+
+  if (!show && !shouldRender) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-hidden={isVisible ? undefined : true}
+      aria-live={isVisible ? ariaLive : undefined}
+      className={['chrome-notice', className, isVisible ? 'is-visible' : 'is-hiding'].filter(Boolean).join(' ')}
+      role={isVisible ? role : undefined}
+    >
+      {show ? children : latestChildrenRef.current}
+    </div>
+  );
 };
 
 const getPlaybackClock = (
@@ -676,6 +744,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         ) {
           proUnlockNoticeShownRef.current = true;
           setChromeNotice('Pro 已解锁，感谢你的赞助。');
+          setIsChromeNoticeVisible(true);
         }
       })
       .catch(() => setConnectDonatorUnlocked(false));
@@ -1460,6 +1529,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
     setChromeNoticeAutoHideMs(autoHideMs);
     setChromeNotice((current) => (current === message ? current : message));
+    setIsChromeNoticeVisible(true);
   }, []);
 
   useEffect(() => {
@@ -1493,30 +1563,16 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, []);
 
   useEffect(() => {
-    if (!chromeNotice || notificationsDisabled) {
+    if (!chromeNotice || notificationsDisabled || !isChromeNoticeVisible) {
       return undefined;
     }
-
-    setIsChromeNoticeVisible(true);
 
     const timer = window.setTimeout(() => {
       setIsChromeNoticeVisible(false);
     }, chromeNoticeAutoHideMs);
 
     return () => window.clearTimeout(timer);
-  }, [chromeNotice, chromeNoticeAutoHideMs, notificationsDisabled]);
-
-  useEffect(() => {
-    if (!chromeNotice || isChromeNoticeVisible) {
-      return undefined;
-    }
-
-    const timer = window.setTimeout(() => {
-      setChromeNotice(null);
-    }, 220);
-
-    return () => window.clearTimeout(timer);
-  }, [chromeNotice, isChromeNoticeVisible]);
+  }, [chromeNotice, chromeNoticeAutoHideMs, isChromeNoticeVisible, notificationsDisabled]);
 
   useEffect(() => {
     const handleShowChromeNotice = (event: Event): void => {
@@ -1543,18 +1599,6 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
     return () => window.clearTimeout(timer);
   }, [notificationsDisabled, upcomingTrackNotice, upcomingTrackNoticeEnabled]);
-
-  useEffect(() => {
-    if (!upcomingTrackNotice || isUpcomingTrackNoticeVisible) {
-      return undefined;
-    }
-
-    const timer = window.setTimeout(() => {
-      setUpcomingTrackNotice(null);
-    }, 220);
-
-    return () => window.clearTimeout(timer);
-  }, [isUpcomingTrackNoticeVisible, upcomingTrackNotice]);
 
   useEffect(() => {
     if (notificationsDisabledRef.current || !upcomingTrackNoticeEnabledRef.current) {
@@ -2749,7 +2793,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
       <EditableContextMenu />
 
-      {shouldRenderDragDropImportOverlay ? <DragDropImportOverlay onNotice={setChromeNotice} /> : null}
+      {shouldRenderDragDropImportOverlay ? <DragDropImportOverlay onNotice={showChromeNotice} /> : null}
 
       {isFirstRunWizardOpen ? (
         <FirstRunWizard
@@ -2788,51 +2832,65 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         <AudioIssueDiagnosticsWindow onClose={handleCloseAudioIssueDiagnosticsWindow} />
       ) : null}
 
-      {!notificationsDisabled && chromeNotice ? (
-        <div className={`chrome-notice ${isChromeNoticeVisible ? 'is-visible' : 'is-hiding'}`} role="status">
+      <div className="chrome-notice-layer">
+        <ChromeNoticePresence
+          onExited={() => setChromeNotice(null)}
+          role="status"
+          show={!notificationsDisabled && Boolean(chromeNotice) && isChromeNoticeVisible}
+        >
           <span className="chrome-notice-message">{chromeNotice}</span>
           <button className="chrome-notice-close" type="button" aria-label={t('notice.action.closeNotice')} title={t('notice.action.closeNotice')} onClick={dismissChromeNotice}>
             <X size={14} />
           </button>
-        </div>
-      ) : null}
+        </ChromeNoticePresence>
 
-      {!notificationsDisabled && upcomingTrackNotice ? (
-        <div className={`chrome-notice upcoming-track-notice ${isUpcomingTrackNoticeVisible ? 'is-visible' : 'is-hiding'}`} role="status" aria-live="polite">
-          <div className="upcoming-track-notice__cover" data-empty={!upcomingTrackNotice.track.coverThumb}>
-            {upcomingTrackNotice.track.coverThumb ? (
-              <img
-                alt={t('notice.upcomingTrack.coverAlt', { title: upcomingTrackNotice.track.title })}
-                src={upcomingTrackNotice.track.coverThumb}
-              />
-            ) : (
-              <span aria-hidden="true" />
-            )}
-          </div>
-          <div className="upcoming-track-notice__copy">
-            <span>{t('notice.upcomingTrack.kicker')}</span>
-            <strong title={upcomingTrackNotice.track.title}>{upcomingTrackNotice.track.title}</strong>
-            <em title={upcomingTrackNotice.track.artist || t('queue.unknownArtist')}>
-              {upcomingTrackNotice.track.artist || t('queue.unknownArtist')}
-            </em>
-            <small title={upcomingTrackNotice.track.album || t('queue.unknownAlbum')}>
-              {upcomingTrackNotice.track.album || t('queue.unknownAlbum')}
-            </small>
-          </div>
-          <button
-            className="chrome-notice-close"
-            type="button"
-            aria-label={t('notice.action.closeNotice')}
-            title={t('notice.action.closeNotice')}
-            onClick={() => setIsUpcomingTrackNoticeVisible(false)}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      ) : null}
+        <ChromeNoticePresence
+          ariaLive="polite"
+          className="upcoming-track-notice"
+          onExited={() => setUpcomingTrackNotice(null)}
+          role="status"
+          show={!notificationsDisabled && upcomingTrackNoticeEnabled && Boolean(upcomingTrackNotice) && isUpcomingTrackNoticeVisible}
+        >
+          {upcomingTrackNotice ? (
+            <>
+              <div className="upcoming-track-notice__cover" data-empty={!upcomingTrackNotice.track.coverThumb}>
+                {upcomingTrackNotice.track.coverThumb ? (
+                  <img
+                    alt={t('notice.upcomingTrack.coverAlt', { title: upcomingTrackNotice.track.title })}
+                    src={upcomingTrackNotice.track.coverThumb}
+                  />
+                ) : (
+                  <span aria-hidden="true" />
+                )}
+              </div>
+              <div className="upcoming-track-notice__copy">
+                <span>{t('notice.upcomingTrack.kicker')}</span>
+                <strong title={upcomingTrackNotice.track.title}>{upcomingTrackNotice.track.title}</strong>
+                <em title={upcomingTrackNotice.track.artist || t('queue.unknownArtist')}>
+                  {upcomingTrackNotice.track.artist || t('queue.unknownArtist')}
+                </em>
+                <small title={upcomingTrackNotice.track.album || t('queue.unknownAlbum')}>
+                  {upcomingTrackNotice.track.album || t('queue.unknownAlbum')}
+                </small>
+              </div>
+              <button
+                className="chrome-notice-close"
+                type="button"
+                aria-label={t('notice.action.closeNotice')}
+                title={t('notice.action.closeNotice')}
+                onClick={() => setIsUpcomingTrackNoticeVisible(false)}
+              >
+                <X size={14} />
+              </button>
+            </>
+          ) : null}
+        </ChromeNoticePresence>
 
-      {!notificationsDisabled && diagnosticsNotice ? (
-        <div className="chrome-notice chrome-notice--diagnostics" role="status">
+        <ChromeNoticePresence
+          className="chrome-notice--diagnostics"
+          role="status"
+          show={!notificationsDisabled && diagnosticsNotice}
+        >
           <span>{t('notice.diagnosticsCrash.description')}</span>
           <div className="chrome-notice-actions">
             <button type="button" onClick={() => void handleOpenCrashReportNotice()}>
@@ -2842,31 +2900,43 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
               {t('notice.action.ignore')}
             </button>
           </div>
-        </div>
-      ) : null}
+        </ChromeNoticePresence>
 
-      {!notificationsDisabled && accountNotice ? (
-        <div className="chrome-notice chrome-notice--account" role="alert">
-          <strong>{t('notice.accountExpired.title')}</strong>
-          <span>{accountNotice}</span>
-        </div>
-      ) : null}
+        <ChromeNoticePresence
+          className="chrome-notice--account"
+          role="alert"
+          show={!notificationsDisabled && Boolean(accountNotice)}
+        >
+          {accountNotice ? (
+            <>
+              <strong>{t('notice.accountExpired.title')}</strong>
+              <span>{accountNotice}</span>
+            </>
+          ) : null}
+        </ChromeNoticePresence>
 
-      {!notificationsDisabled && audioErrorNotice ? (
-        <div className="chrome-notice chrome-notice--audio-error" role="alert">
-          <strong>{t('notice.audioError.title')}</strong>
-          <span>{audioErrorNotice.message}</span>
-          <small>{t('notice.audioError.description')}</small>
-          <div className="chrome-notice-actions">
-            <button type="button" onClick={() => void handleOpenAudioCrashReport()}>
-              {t('notice.action.openReport')}
-            </button>
-            <button type="button" onClick={() => setAudioErrorNotice(null)}>
-              {t('notice.action.close')}
-            </button>
-          </div>
-        </div>
-      ) : null}
+        <ChromeNoticePresence
+          className="chrome-notice--audio-error"
+          role="alert"
+          show={!notificationsDisabled && Boolean(audioErrorNotice)}
+        >
+          {audioErrorNotice ? (
+            <>
+              <strong>{t('notice.audioError.title')}</strong>
+              <span>{audioErrorNotice.message}</span>
+              <small>{t('notice.audioError.description')}</small>
+              <div className="chrome-notice-actions">
+                <button type="button" onClick={() => void handleOpenAudioCrashReport()}>
+                  {t('notice.action.openReport')}
+                </button>
+                <button type="button" onClick={() => setAudioErrorNotice(null)}>
+                  {t('notice.action.close')}
+                </button>
+              </div>
+            </>
+          ) : null}
+        </ChromeNoticePresence>
+      </div>
 
       <AudioSettingsDrawer
         isOpen={isAudioDrawerOpen}

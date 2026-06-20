@@ -2001,8 +2001,8 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
     : lyricsDisplaySettings.lyricsBackgroundMode;
   const shouldRequestNetworkBackgroundCover =
     lyricsDisplaySettings.lowLoadPlaybackModeEnabled !== true &&
-    (lyricsDisplaySettings.lyricsHighResolutionNetworkCoverEnabled === true ||
-      (shouldUseImmersiveCoverStyle && Boolean(backgroundCoverUrl))) &&
+    lyricsDisplaySettings.lyricsHighResolutionNetworkCoverEnabled === true &&
+    !(shouldUseImmersiveCoverStyle && Boolean(backgroundCoverUrl)) &&
     requestedLyricsBackgroundMode === "cover" &&
     Boolean(currentTrack?.id) &&
     currentTrack?.isTemporary !== true &&
@@ -2041,7 +2041,10 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
   const lyricsWallpaperUrl = lyricsDisplaySettings.lyricsCustomWallpaperPath
     ? `echo-wallpaper://lyrics/custom?path=${encodeURIComponent(lyricsDisplaySettings.lyricsCustomWallpaperPath)}`
     : null;
-  const lyricsBackgroundCoverUrl = networkBackgroundCoverUrl ?? backgroundCoverUrl;
+  const activeNetworkBackgroundCoverUrl = shouldRequestNetworkBackgroundCover
+    ? networkBackgroundCoverUrl
+    : null;
+  const lyricsBackgroundCoverUrl = activeNetworkBackgroundCoverUrl ?? backgroundCoverUrl;
   const lyricsSmartReadableEnabled =
     shouldUseImmersiveCoverStyle || lyricsDisplaySettings.lyricsSmartReadableColorsEnabled === true;
   const lyricsUsesManualColor =

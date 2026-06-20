@@ -3418,6 +3418,66 @@ describe('PlayerBar', () => {
     expect(Number(slider.value)).toBeGreaterThanOrEqual(12);
   });
 
+  it('keeps waveform progress anchored to the full track duration when audio telemetry reports a shorter duration', async () => {
+    const track = makeTrack(1, { duration: 180 });
+    const shortAudioDurationStatus = {
+      ...audioStatus(track),
+      durationSeconds: 120,
+      positionSeconds: 118,
+    };
+
+    window.echo = {
+      playback: {
+        getStatus: vi.fn().mockResolvedValue({
+          state: 'playing',
+          currentTrackId: track.id,
+          positionMs: 118000,
+          durationMs: track.duration * 1000,
+          filePath: track.path,
+        }),
+        playLocalFile: vi.fn(),
+        play: vi.fn(),
+        pause: vi.fn(),
+        stop: vi.fn(),
+        seek: vi.fn(),
+        openLocalAudioFile: vi.fn(),
+      },
+      audio: {
+        getStatus: vi.fn().mockResolvedValue(shortAudioDurationStatus),
+        onStatus: vi.fn(),
+        listDevices: vi.fn(),
+        setOutput: vi.fn(),
+      },
+      library: {
+        getLikedTrackIds: vi.fn().mockResolvedValue({ [track.id]: false }),
+      },
+      app: {
+        getSettings: vi.fn().mockResolvedValue({
+          hiddenPlayerBarButtonIds: ['sleepTimer'],
+          playerWaveformProgressEnabled: true,
+          smtcEnabled: true,
+        }),
+      },
+    } as unknown as Window['echo'];
+
+    const { container } = render(
+      <I18nProvider>
+        <PlaybackQueueProvider>
+          <QueueSeed tracks={[track]} />
+        </PlaybackQueueProvider>
+      </I18nProvider>,
+    );
+
+    await screen.findByText('Song 1');
+    await waitFor(() => expect(container.querySelector('.progress-track')?.getAttribute('data-waveform')).toBe('true'));
+
+    const slider = screen.getByRole('slider', { name: 'Seek position' }) as HTMLInputElement;
+    expect(Number(slider.max)).toBe(180);
+    expect(Number(slider.value)).toBeLessThan(180);
+    expect(screen.getByText('3:00')).toBeTruthy();
+    expect(screen.queryByText('2:00')).toBeNull();
+  });
+
   it('does not retain same-track audio status after a shared seek snapshot clears audio telemetry', async () => {
     const track = makeTrack(1, { duration: 240 });
     const initialAudioStatus = {

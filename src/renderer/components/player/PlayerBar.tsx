@@ -610,6 +610,12 @@ const originalCoverUrlFromThumb = (coverUrl: string | null): string | null =>
 const playerArtworkUrl = (track: { coverId: string | null; coverThumb: string | null } | null): string | null =>
   track?.coverId ? `echo-cover://original/${encodeURIComponent(track.coverId)}` : originalCoverUrlFromThumb(track?.coverThumb ?? null);
 
+const positiveDurationSeconds = (value: number | null | undefined): number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+
+const maxTrustedDurationSeconds = (...values: Array<number | null | undefined>): number =>
+  Math.max(0, ...values.map(positiveDurationSeconds));
+
 const isAudioStatusForPlayback = (audioStatus: AudioStatus, playbackStatus: PlaybackStatus | null): boolean => {
   if (!playbackStatus?.currentTrackId && !playbackStatus?.filePath) {
     return true;
@@ -1054,10 +1060,18 @@ export const PlayerBar = ({
   const sourcePositionSeconds = activeReceiverStatus
     ? activeReceiverStatus.positionSeconds ?? playbackAudioStatus?.positionSeconds ?? (currentPlaybackStatus?.positionMs ?? 0) / 1000
     : playbackAudioStatus?.positionSeconds ?? (currentPlaybackStatus?.positionMs ?? 0) / 1000;
-  const currentTrackDurationMs = Math.round(Math.max(0, currentTrack?.duration ?? 0) * 1000);
   const durationSeconds = activeReceiverStatus
-    ? Math.max(activeReceiverStatus.durationSeconds ?? 0, playbackAudioStatus?.durationSeconds ?? 0, (currentPlaybackStatus?.durationMs ?? 0) / 1000)
-    : playbackAudioStatus?.durationSeconds ?? (currentPlaybackStatus?.durationMs ?? currentTrackDurationMs) / 1000;
+    ? maxTrustedDurationSeconds(
+        activeReceiverStatus.durationSeconds,
+        playbackAudioStatus?.durationSeconds,
+        currentPlaybackStatus ? currentPlaybackStatus.durationMs / 1000 : null,
+        currentTrack?.duration,
+      )
+    : maxTrustedDurationSeconds(
+        playbackAudioStatus?.durationSeconds,
+        currentPlaybackStatus ? currentPlaybackStatus.durationMs / 1000 : null,
+        currentTrack?.duration,
+      );
   const [realtimePositionSeconds, setRealtimePositionSeconds] = useState(sourcePositionSeconds);
   const playbackProgressKey = trackId ?? filePath ?? null;
   const realtimePositionMatchesPlayback = progressClockRef.current.trackKey === playbackProgressKey;
