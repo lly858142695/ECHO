@@ -162,7 +162,7 @@ describe('MvPanel', () => {
     );
     expect(screen.getByText('MV unavailable')).toBeTruthy();
     expect(screen.getByText('MV 不可用')).toBeTruthy();
-    expect(screen.getByText('未找到可播放 MV')).toBeTruthy();
+    expect(screen.getByText(/未找到可播放 MV/u)).toBeTruthy();
     expect(screen.queryByText('Find local')).toBeNull();
     expect(screen.queryByText('Choose file')).toBeNull();
   });
@@ -177,13 +177,13 @@ describe('MvPanel', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText('未找到可播放 MV')).toBeTruthy();
+    expect(screen.getByText(/未找到可播放 MV/u)).toBeTruthy();
 
     act(() => {
       vi.advanceTimersByTime(3000);
     });
 
-    expect(screen.queryByText('未找到可播放 MV')).toBeNull();
+    expect(screen.queryByText(/未找到可播放 MV/u)).toBeNull();
   });
 
   it('can hide track info on the cover fallback card', async () => {
@@ -1545,7 +1545,7 @@ describe('MvPanel', () => {
     renderPanel(makeVideo({ playableInApp: false, mediaUrl: null, mimeType: 'video/x-matroska' }));
 
     expect(await screen.findByText('External player required')).toBeTruthy();
-    expect(screen.getByText('本地视频格式不支持')).toBeTruthy();
+    expect(screen.getByText(/本地视频格式不支持/u)).toBeTruthy();
   });
 
   it('shows the Bilibili block reason instead of the generic video failure notice', async () => {
@@ -1623,7 +1623,7 @@ describe('MvPanel', () => {
     );
     expect(window.echo.mv.selectVideo).not.toHaveBeenCalled();
     expect(await screen.findByText('临时 MV 播放中，数据库待修复')).toBeTruthy();
-    expect(screen.queryByText('MV 数据库不可读')).toBeNull();
+    expect(screen.queryByText(/MV 数据库不可读/u)).toBeNull();
   });
 
   it('shows the MV load failure reason in the top-left unavailable badge', async () => {
@@ -1660,12 +1660,12 @@ describe('MvPanel', () => {
       />,
     );
 
-    expect(await screen.findByText('MV 数据库不可读')).toBeTruthy();
+    expect(await screen.findByText(/MV 数据库不可读/u)).toBeTruthy();
     expect(screen.queryByText('DatabaseHealthError: database disk image is malformed')).toBeNull();
 
     fireEvent.click(screen.getByLabelText('关闭 MV 不可用提示'));
 
-    expect(screen.queryByText('MV 数据库不可读')).toBeNull();
+    expect(screen.queryByText(/MV 数据库不可读/u)).toBeNull();
   });
 
   it('does not surface auto-selected external network candidates in the lyrics MV panel', async () => {

@@ -55,6 +55,19 @@ describe('audio error formatting', () => {
     expect(formatted).not.toContain('音频引擎');
   });
 
+  it('formats output device failures with concrete next actions', () => {
+    const asio = formatAudioHostError('asio_output_sample_rate_unusable:176400->8000');
+    const exclusive = formatAudioHostError('exclusive_output_fallback_blocked');
+    const native = formatAudioHostError('native_writable_error: device failed');
+
+    expect(asio).toContain('ASIO 输出没有打开成功');
+    expect(asio).toContain('WASAPI Shared');
+    expect(exclusive).toContain('WASAPI 独占没有拿到设备');
+    expect(exclusive).toContain('共享输出');
+    expect(native).toContain('音频设备初始化失败');
+    expect(native).toContain('重启音频引擎');
+  });
+
   it('formats invalid executable spawn errors as an audio engine startup problem', () => {
     const message = "Error invoking remote method 'playback:play-local-file': Error: spawn EFTYPE";
 

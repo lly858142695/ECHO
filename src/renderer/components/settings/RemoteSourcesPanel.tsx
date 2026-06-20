@@ -341,6 +341,35 @@ const formatBytes = (value: number): string => {
 
   return `${size >= 10 || unitIndex === 0 ? Math.round(size) : size.toFixed(1)} ${units[unitIndex]}`;
 };
+
+const remoteSourceErrorText = (error: unknown, fallback = '操作失败。'): string => {
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : fallback;
+  const message = raw.trim() || fallback;
+  const withReason = (summary: string): string => `${summary} 原始原因：${message}`;
+
+  if (/timeout|timed out|ETIMEDOUT|AbortError|aborted/iu.test(message)) {
+    return withReason('远程来源连接超时。先确认服务器地址、端口和根目录能在浏览器或 WebDAV 客户端打开；如果正在播放，等空闲后再重试同步。');
+  }
+
+  if (/ENOTFOUND|EAI_AGAIN|DNS|getaddrinfo|name.*not.*resolved/iu.test(message)) {
+    return withReason('远程来源地址无法解析。请检查域名、内网/VPN、代理和端口，确认当前电脑能访问这个地址。');
+  }
+
+  if (/ECONNREFUSED|ECONNRESET|network down|fetch failed|network|socket hang up|self[- ]signed|certificate|TLS|SSL/iu.test(message)) {
+    return withReason('远程来源连接失败。请确认服务正在运行、URL/端口正确，证书可信；网络不稳时可以降低后台并发后重试。');
+  }
+
+  if (/401|403|unauthorized|forbidden|invalid token|access token|permission|denied|credential|password/iu.test(message)) {
+    return withReason('远程来源认证失败。请重新测试用户名、密码或 token；百度网盘来源可以重新走授权，再保存连接。');
+  }
+
+  if (/404|not found|root path|path.*missing|ENOENT/iu.test(message)) {
+    return withReason('远程路径不存在或根目录写错了。请回到来源设置里检查根目录，然后先打开根目录确认目录能列出来。');
+  }
+
+  return message;
+};
+
 const sumKinds = (values: Record<RemoteBackgroundJobKind, number>): number => jobKinds.reduce((total, kind) => total + values[kind], 0);
 const isJobKindActive = (status: RemoteBackgroundJobStatus, kind: RemoteBackgroundJobKind): boolean => status.pending[kind] + status.running[kind] > 0;
 
@@ -1209,7 +1238,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         try {
           indexedTracks = indexedTrackMap(await remoteApi.lookupTracks(source.id, audioPaths));
         } catch (error) {
-          lookupError = error instanceof Error ? error.message : '读取入库状态失败。';
+          lookupError = remoteSourceErrorText(error, '读取入库状态失败。');
         }
       }
       setBrowserStates((current) => ({
@@ -1228,6 +1257,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         ? `已打开 ${source.displayName}：${formatCount(items.length)} 个项目，入库状态暂未读取。`
         : `已打开 ${source.displayName}：${formatCount(items.length)} 个项目。`);
     } catch (error) {
+      const message = remoteSourceErrorText(error, '读取目录失败。');
       setBrowserStates((current) => ({
         ...current,
         [source.id]: {
@@ -1235,11 +1265,11 @@ export const RemoteSourcesPanel = (): JSX.Element => {
           path,
           loading: false,
           loaded: true,
-          error: error instanceof Error ? error.message : '读取目录失败。',
+          error: message,
           lookupError: null,
         },
       }));
-      setMessage(error instanceof Error ? error.message : '读取目录失败。');
+      setMessage(message);
     }
   }, [remoteApi]);
 
@@ -1254,7 +1284,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       });
       setMessage(`正在播放：${track.title}`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '播放失败。');
+      setMessage(remoteSourceErrorText(error, '播放失败。'));
     } finally {
       setBusy(null);
     }
@@ -1334,8 +1364,9 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       const input = toInput(activeProvider);
       if (action === 'test') {
         const result = await remoteApi.test(input);
-        setTestResult(result);
-        setMessage(result.message);
+        const nextResult = result.ok ? result : { ...result, message: remoteSourceErrorText(result.message, '测试连接失败。') };
+        setTestResult(nextResult);
+        setMessage(nextResult.message);
         return;
       }
 
@@ -1347,7 +1378,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       setForm((current) => ({ ...current, displayName: '', baseUrl: '', username: '', secret: '' }));
       await refreshSources();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '操作失败。');
+      setMessage(remoteSourceErrorText(error, '操作失败。'));
     } finally {
       setBusy(null);
     }
@@ -1558,7 +1589,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
     try {
       if (action === 'test') {
         const result = await remoteApi.test(source.id);
-        setMessage(result.message);
+        setMessage(result.ok ? result.message : remoteSourceErrorText(result.message, '测试连接失败。'));
       } else if (action === 'sync') {
         const status = await remoteApi.sync(source.id, { includeCover: true });
         setSyncStatuses((current) => ({ ...current, [status.sourceId]: status }));
@@ -1647,7 +1678,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       }
       await refreshSources();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '操作失败。');
+      setMessage(remoteSourceErrorText(error, '操作失败。'));
     } finally {
       setBusy(null);
     }
@@ -1673,7 +1704,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
       await refreshStatuses([source.id]);
       setMessage(`已开始同步当前目录索引：${rootPath}`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '同步当前目录索引失败。');
+      setMessage(remoteSourceErrorText(error, '同步当前目录索引失败。'));
     } finally {
       setBusy(null);
     }
@@ -1694,7 +1725,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
         ? `已列出 ${source.displayName} 的 ${issueKindLabels[kind]} 问题。`
         : `${source.displayName} 暂时没有 ${issueKindLabels[kind]} 问题。`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '读取问题列表失败。');
+      setMessage(remoteSourceErrorText(error, '读取问题列表失败。'));
     } finally {
       setBusy(null);
     }
@@ -2515,7 +2546,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
                 <span><em>问题项</em><strong>{formatCount(sourceIssueTotal(sourceOverview))}</strong></span>
                 <span><em>后台并发</em><strong>scan {readConfigNumber(source, 'scanConcurrency', 3)} / metadata {jobStatus.concurrency.metadata} / cover {jobStatus.concurrency.cover}</strong></span>
               </div>
-              {source.lastError ? <p className="settings-inline-note">错误：{source.lastError}</p> : null}
+              {source.lastError ? <p className="settings-inline-note">错误：{remoteSourceErrorText(source.lastError)}</p> : null}
               <div className="remote-sync-status">
                 <span>阶段：<strong>{phaseLabels[syncStatus.phase] ?? syncStatus.phase}</strong></span>
                 <span>发现：<strong>{syncStatus.discoveredCount}</strong></span>

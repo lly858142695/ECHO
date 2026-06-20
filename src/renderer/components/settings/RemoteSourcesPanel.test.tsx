@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { RemoteSourcesPanel } from './RemoteSourcesPanel';
+import type * as I18nProviderModule from '../../i18n/I18nProvider';
 import type {
   RemoteBackgroundGlobalStatus,
   RemoteBackgroundJobKind,
@@ -61,6 +62,20 @@ vi.mock('../../utils/echoBridge', () => ({
 vi.mock('../../stores/PlaybackQueueProvider', () => ({
   usePlaybackQueue: () => playbackQueueMocks,
 }));
+
+vi.mock('../../i18n/I18nProvider', async () => {
+  const actual = await vi.importActual<typeof I18nProviderModule>('../../i18n/I18nProvider');
+
+  return {
+    ...actual,
+    useI18n: () => ({
+      locale: 'zh-CN',
+      localeOptions: [],
+      setLocale: vi.fn(),
+      t: actual.translateFallback,
+    }),
+  };
+});
 
 const jobKinds: RemoteBackgroundJobKind[] = ['metadata', 'cover', 'lyrics', 'mv', 'duration-backfill'];
 
@@ -619,7 +634,8 @@ describe('RemoteSourcesPanel', () => {
 
     await screen.findAllByText('Mock AList');
     fireEvent.click(screen.getByRole('button', { name: /打开根目录/u }));
-    await screen.findAllByText('network down');
+    expect((await screen.findAllByText(/远程来源连接失败/u)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/network down/u).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /^重试$/u })).toBeTruthy();
     expect(remoteApiMocks.lookupTracks).not.toHaveBeenCalled();
   });

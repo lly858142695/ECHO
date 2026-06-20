@@ -37,6 +37,7 @@ import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import type { AppSettings } from '../../../shared/types/appSettings';
 import { clampMvOffsetMs, mvOffsetMaxMs, mvOffsetMinMs, mvOffsetStepMs } from '../../../shared/constants/mvOffset';
 import { readMvDiagnosticsEnabled, writeMvDiagnosticsEnabled } from './mvDiagnostics';
+import type { TranslationKey } from '../../i18n/locales';
 
 type MvSettingsDrawerProps = {
   isOpen: boolean;
@@ -73,6 +74,24 @@ const isMvDatabaseError = (error: unknown): boolean => {
 };
 const summarizeMvDatabaseError = (error: unknown, databaseUnavailableLabel: string): string =>
   isMvDatabaseError(error) ? databaseUnavailableLabel : error instanceof Error ? error.message : String(error);
+type Translate = (key: TranslationKey, options?: Record<string, string | number>) => string;
+const summarizeMvActionError = (error: unknown, t: Translate, fallbackKey: TranslationKey = 'mvSettings.error.actionFailed'): string => {
+  if (isMvDatabaseError(error)) {
+    return t('mvSettings.error.databaseUnavailable');
+  }
+
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+
+  if (/bilibili|playurl|blocked|forbidden|403|412|credential|cookie|SESSDATA/iu.test(message)) {
+    return t('mvSettings.error.bilibiliBlocked', { reason: message || t(fallbackKey) });
+  }
+
+  if (/network|fetch|timeout|timed out|AbortError|ECONN|ENOTFOUND|EAI_AGAIN/iu.test(message)) {
+    return t('mvSettings.error.networkFailed', { reason: message || t(fallbackKey) });
+  }
+
+  return message.trim() || t(fallbackKey);
+};
 const immersiveBackgroundDefaults = {
   immersiveBackgroundAutoScale: true,
   immersiveBackgroundScalePercent: 115,
@@ -593,7 +612,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         try {
           await searchNetworkForActiveTrack(trackId, searchQuery);
         } catch (searchError) {
-          const message = searchError instanceof Error ? searchError.message : String(searchError);
+          const message = summarizeMvActionError(searchError, t);
           setError(message);
           setNetworkSearchError(message);
           setNetworkSearchNotice(null);
@@ -602,7 +621,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         }
       }
     }
-  }, [patchSettings, refreshActiveTrack, searchNetworkForActiveTrack, searchQuery, settings.autoSearch]);
+  }, [patchSettings, refreshActiveTrack, searchNetworkForActiveTrack, searchQuery, settings.autoSearch, t]);
 
   const toggleDiagnosticsReport = useCallback((): void => {
     const nextEnabled = !isDiagnosticsReportEnabled;
@@ -692,7 +711,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     try {
       await searchNetworkForActiveTrack(trackId, searchQuery);
     } catch (searchError) {
-      const message = searchError instanceof Error ? searchError.message : String(searchError);
+      const message = summarizeMvActionError(searchError, t);
       setError(message);
       setNetworkSearchError(message);
       setNetworkSearchNotice(null);
@@ -720,7 +739,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         await replayCurrentTrackAfterMvChange();
       }
     } catch (chooseError) {
-      setError(chooseError instanceof Error ? chooseError.message : String(chooseError));
+      setError(summarizeMvActionError(chooseError, t));
     } finally {
       setIsBusy(false);
     }
@@ -743,7 +762,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       notifyMvChanged(trackId);
       await replayCurrentTrackAfterMvChange();
     } catch (bindError) {
-      setError(bindError instanceof Error ? bindError.message : String(bindError));
+      setError(summarizeMvActionError(bindError, t));
     } finally {
       setIsBusy(false);
     }
@@ -776,7 +795,7 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
         notifyMvChanged(targetTrackId);
         await replayCurrentTrackAfterMvChange();
       } catch (selectError) {
-        setError(selectError instanceof Error ? selectError.message : String(selectError));
+        setError(summarizeMvActionError(selectError, t));
       } finally {
         setBusyCandidateId(null);
       }
@@ -798,11 +817,11 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
       setSelectedVideo(null);
       notifyMvChanged(trackId);
     } catch (clearError) {
-      setError(clearError instanceof Error ? clearError.message : String(clearError));
+      setError(summarizeMvActionError(clearError, t));
     } finally {
       setIsBusy(false);
     }
-  }, [notifyMvChanged, refreshActiveTrack]);
+  }, [notifyMvChanged, refreshActiveTrack, t]);
 
   const openExternal = useCallback(async (): Promise<void> => {
     if (!selectedVideo || !window.echo?.mv) {
@@ -813,9 +832,9 @@ export const MvSettingsDrawer = ({ isOpen, onClose }: MvSettingsDrawerProps): JS
     try {
       await window.echo.mv.openExternal(selectedVideo.id);
     } catch (openError) {
-      setError(openError instanceof Error ? openError.message : String(openError));
+      setError(summarizeMvActionError(openError, t));
     }
-  }, [selectedVideo]);
+  }, [selectedVideo, t]);
 
   const handleMvOffsetChange = useCallback(
     async (nextOffsetMs: number): Promise<void> => {

@@ -12,6 +12,11 @@ const nativeAccessViolationPattern =
 const confirmedDamagedAudioFilePattern = /\baudio_file_decode_failed_or_corrupt\b/iu;
 const audioDecodeFailurePattern =
   /\bsystem_audio_decode_error\b|\bkind="input_invalid"\b|invalid data found when processing input|decode_frame\(\) failed|error while decoding stream/iu;
+const asioOutputFailurePattern =
+  /\basio_output_(?:sample_rate_unusable|fallback_blocked|device_temporarily_unavailable|fell_back_to_safe_shared)\b|\bmode="asio"\b.*Failed to initialize output device|\bASIO\b.*(?:failed|error|unavailable|denied)/iu;
+const exclusiveOutputFailurePattern =
+  /\bexclusive_output_(?:fallback_blocked|fell_back_to_shared|unstable)\b|\bexclusive_denied\b|\bmode="exclusive"\b.*Failed to initialize output device/iu;
+const nativeOutputInitializeFailurePattern = /\bFailed to initialize output device\b|\bnative_writable_error\b/iu;
 
 export const shouldSuppressAudioHostError = (error: string | null | undefined): boolean => {
   if (!error) {
@@ -44,6 +49,18 @@ export const formatAudioHostError = (error: string | null | undefined): string |
 
   if (/\bsystem_audio_playback_failed\b|\bsystem_audio_source_empty\b|\bMEDIA_ERR_\w+\b|\bHTMLMediaElement\b|\bNotSupportedError\b/u.test(error)) {
     return '系统音频播放失败，请尝试重新播放或切换到兼容输出';
+  }
+
+  if (asioOutputFailurePattern.test(error)) {
+    return 'ASIO 输出没有打开成功。先确认声卡驱动控制面板能正常工作；也可以在设置 > 播放里切回 WASAPI Shared，或打开“ASIO 不可用时自动回退”后再重试。';
+  }
+
+  if (exclusiveOutputFailurePattern.test(error)) {
+    return 'WASAPI 独占没有拿到设备。请先关闭其它正在占用该输出设备的应用，或在设置 > 播放里临时切回共享输出。';
+  }
+
+  if (nativeOutputInitializeFailurePattern.test(error)) {
+    return '音频设备初始化失败。请确认输出设备仍然在线，降低采样率/缓冲设置后重试；如果刚拔插过 DAC，可以先重启音频引擎。';
   }
 
   if (/\bdevice_initialize_timeout\b/u.test(error)) {

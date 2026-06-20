@@ -71,12 +71,19 @@ const QueueSourceProbe = (): JSX.Element => {
   );
 };
 
+const QueueOrderProbe = (): JSX.Element => {
+  const queue = usePlaybackQueue();
+
+  return <output aria-label="queue-order">order:{queue.items.map((item) => item.track.title).join('>')}</output>;
+};
+
 const renderQueuePage = (tracks: LibraryTrack[], options: { startTrackId?: string } = {}): void => {
   render(
     <I18nProvider>
       <PlaybackQueueProvider>
         <QueueSeeder startTrackId={options.startTrackId} tracks={tracks} />
         <QueueSourceProbe />
+        <QueueOrderProbe />
         <QueuePage />
       </PlaybackQueueProvider>
     </I18nProvider>,
@@ -136,6 +143,103 @@ describe('QueuePage', () => {
     fireEvent.doubleClick(secondRow!);
 
     await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: second.id })));
+  });
+
+  it('starts playback from a queued row action', async () => {
+    const first = makeTrack(1);
+    const second = makeTrack(2);
+    const playLocalFile = vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: request.trackId,
+        positionMs: 0,
+        durationMs: 180000,
+        filePath: request.filePath,
+      }),
+    );
+
+    window.echo = {
+      playback: {
+        playLocalFile,
+      },
+      library: {
+        startPlaybackHistory: vi.fn().mockResolvedValue({ historyId: 'history-1' }),
+      },
+    } as unknown as Window['echo'];
+
+    renderQueuePage([first, second]);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start from here: Track 2' }));
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: second.id })));
+  });
+
+  it('moves selected tracks after the current item and can undo the queue move', async () => {
+    const tracks = [makeTrack(1), makeTrack(2), makeTrack(3), makeTrack(4)];
+    renderQueuePage(tracks, { startTrackId: tracks[0].id });
+
+    await screen.findByText('Track 4');
+    fireEvent.click(screen.getByLabelText('选择 Track 3'));
+    fireEvent.click(screen.getByLabelText('选择 Track 4'));
+    fireEvent.click(screen.getByRole('button', { name: /临时插播/u }));
+
+    await waitFor(() => expect(screen.getByLabelText('queue-order').textContent).toBe('order:Track 1>Track 3>Track 4>Track 2'));
+    expect(screen.getByText(/已把 2 首插到当前播放后面/u)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+    await waitFor(() => expect(screen.getByLabelText('queue-order').textContent).toBe('order:Track 1>Track 2>Track 3>Track 4'));
+  });
+
+  it('removes selected queue items and restores them with undo', async () => {
+    const tracks = [makeTrack(1), makeTrack(2), makeTrack(3), makeTrack(4)];
+    renderQueuePage(tracks, { startTrackId: tracks[0].id });
+
+    await screen.findByText('Track 4');
+    fireEvent.click(screen.getByLabelText('选择 Track 2'));
+    fireEvent.click(screen.getByLabelText('选择 Track 3'));
+    fireEvent.click(screen.getByRole('button', { name: /移除所选/u }));
+
+    await waitFor(() => expect(screen.getByLabelText('queue-order').textContent).toBe('order:Track 1>Track 4'));
+    expect(screen.getByText(/已移除 2 首/u)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+    await waitFor(() => expect(screen.getByLabelText('queue-order').textContent).toBe('order:Track 1>Track 2>Track 3>Track 4'));
+  });
+
+  it('removes a marked queue item after playback moves away from it', async () => {
+    const first = makeTrack(1);
+    const second = makeTrack(2);
+    const third = makeTrack(3);
+    const playLocalFile = vi.fn().mockImplementation((request: { trackId: string; filePath: string }) =>
+      Promise.resolve({
+        state: 'playing',
+        currentTrackId: request.trackId,
+        positionMs: 0,
+        durationMs: 180000,
+        filePath: request.filePath,
+      }),
+    );
+
+    window.echo = {
+      playback: {
+        playLocalFile,
+      },
+      library: {
+        startPlaybackHistory: vi.fn().mockResolvedValue({ historyId: 'history-1' }),
+      },
+    } as unknown as Window['echo'];
+
+    renderQueuePage([first, second, third], { startTrackId: first.id });
+
+    await screen.findByText('Track 3');
+    fireEvent.click(screen.getByLabelText('选择 Track 1'));
+    fireEvent.click(screen.getByRole('button', { name: '播放后移除' }));
+    expect(screen.getByText('播完移除')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start from here: Track 2' }));
+
+    await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: second.id })));
+    await waitFor(() => expect(screen.getByLabelText('queue-order').textContent).toBe('order:Track 2>Track 3'));
   });
 
   it('generates random queues as refreshable song-library random queues', async () => {

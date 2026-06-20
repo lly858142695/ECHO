@@ -4415,6 +4415,16 @@ html[data-theme="dark"] .lyrics-candidate-badges .lyrics-kind-badge--instrumenta
   --lyrics-candidate-badge-bg: rgba(236, 241, 247, 0.76);
 }
 
+.lyrics-candidate-badges .lyrics-candidate-next-step {
+  flex-basis: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 6px 8px;
+  line-height: 1.35;
+  text-align: right;
+  white-space: normal;
+}
+
 html[data-theme="dark"] .lyrics-candidate-badges .lyrics-reason-badge,
 .lyrics-page:has(.lyrics-mv-background) .lyrics-candidate-badges .lyrics-reason-badge {
   --lyrics-candidate-badge-color: rgba(229, 237, 255, 0.68);

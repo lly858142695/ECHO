@@ -111,7 +111,8 @@ const PlaybackQueueDrawerRow = memo(
       <button
         className="lyrics-queue-row-main"
         type="button"
-        aria-label={`播放 ${item.track.title}`}
+        aria-label={`从这里开始 ${item.track.title}`}
+        title={`从这里开始 ${item.track.title}`}
         onClick={() => onPlay(item.queueId)}
       >
         <strong>{item.track.title}</strong>

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle2, FolderOpen, HardDrive, Headphones, Loader2, LogIn, Palette, ScanLine, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, FolderOpen, HardDrive, Headphones, Loader2, LogIn, Palette, ScanLine, Sparkles, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AudioOutputMode } from '../../../shared/types/audio';
 import type { AppSettings, AppThemeMode, AppThemePreset, ScanPerformanceMode } from '../../../shared/types/appSettings';
@@ -25,6 +25,8 @@ type FirstRunStep = {
   descriptionKey: TranslationKey;
   icon: LucideIcon;
 };
+
+const echoDocumentationUrl = 'https://echonext.moe/zh/docs/';
 
 type FirstRunOption<T extends string> = {
   mode: T;
@@ -149,6 +151,16 @@ const firstRunSteps: FirstRunStep[] = [
   },
 ];
 
+const firstRunStepNotes: Record<FirstRunStepId, TranslationKey[]> = {
+  library: ['firstRun.detail.library.safe', 'firstRun.detail.library.scan'],
+  cache: ['firstRun.detail.cache.space', 'firstRun.detail.cache.changeLater'],
+  scan: ['firstRun.detail.scan.balanced', 'firstRun.detail.scan.low'],
+  audio: ['firstRun.detail.audio.shared', 'firstRun.detail.audio.advanced'],
+  appearance: ['firstRun.detail.appearance.preview', 'firstRun.detail.appearance.system'],
+  accounts: ['firstRun.detail.accounts.later', 'firstRun.detail.accounts.local'],
+  summary: ['firstRun.detail.summary.save', 'firstRun.detail.summary.docs'],
+};
+
 export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstRunWizardProps): JSX.Element => {
   const t = useOptionalI18n()?.t ?? translateFallback;
   const [rendererPlatform] = useState<NodeJS.Platform | 'unknown'>(() => detectFirstRunPlatform());
@@ -175,6 +187,8 @@ export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstR
   const ActiveIcon = activeStep.icon;
   const isFinalStep = activeStep.id === 'summary';
   const progressPercent = ((activeStepIndex + 1) / firstRunSteps.length) * 100;
+  const progressPercentLabel = `${Math.round(progressPercent)}%`;
+  const activeStepNotes = firstRunStepNotes[activeStep.id];
 
   const cacheDirectoryLabel = useMemo(() => {
     if (cacheDirectory === undefined) {
@@ -304,6 +318,18 @@ export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstR
     }
   }, [appearanceTheme, appearanceThemePreset, cacheDirectory, initialSettings, musicFolderPath, onClose, onCompleted, outputMode, scanMode, scanNow, t]);
 
+  const openDocumentation = useCallback((): void => {
+    const openExternalUrl = window.echo?.app?.openExternalUrl;
+    if (openExternalUrl) {
+      void openExternalUrl(echoDocumentationUrl).catch(() => {
+        window.open(echoDocumentationUrl, '_blank', 'noopener,noreferrer');
+      });
+      return;
+    }
+
+    window.open(echoDocumentationUrl, '_blank', 'noopener,noreferrer');
+  }, []);
+
   const goToPreviousStep = (): void => {
     setActiveStepId(firstRunSteps[Math.max(0, activeStepIndex - 1)]!.id);
   };
@@ -324,9 +350,10 @@ export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstR
                 {busy === 'folder' ? <Loader2 className="spinning-icon" size={15} /> : <FolderOpen size={15} />}
                 {t('firstRun.library.chooseFolder')}
               </button>
-              <label className="settings-inline-toggle">
-                <span>{t('firstRun.library.scanAfterFinish')}</span>
+              <label className="first-run-scan-toggle">
                 <input type="checkbox" checked={scanNow} onChange={(event) => setScanNow(event.target.checked)} />
+                <span className="first-run-scan-switch" aria-hidden="true" />
+                <span>{t('firstRun.library.scanAfterFinish')}</span>
               </label>
             </div>
           </div>
@@ -467,18 +494,29 @@ export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstR
     <div className="first-run-backdrop" role="dialog" aria-modal="true" aria-labelledby="first-run-title" aria-describedby="first-run-description">
       <section className="first-run-panel">
         <header className="first-run-header">
-          <div>
+          <div className="first-run-heading">
             <span className="section-kicker">ECHO Next</span>
             <h2 id="first-run-title">{t('firstRun.title')}</h2>
             <p id="first-run-description">{t('firstRun.description')}</p>
+            <button className="first-run-doc-button" type="button" onClick={openDocumentation}>
+              <BookOpen size={15} />
+              <span>{t('firstRun.docs.action')}</span>
+              <ArrowRight size={14} />
+            </button>
           </div>
           <button className="queue-icon-button" type="button" aria-label={t('firstRun.action.skipWizard')} title={t('firstRun.action.skipWizard')} disabled={busy !== null} onClick={() => void skip()}>
             <X size={17} />
           </button>
         </header>
 
-        <div className="first-run-progress" aria-hidden="true">
-          <span style={{ width: `${progressPercent}%` }} />
+        <div className="first-run-progress-shell" aria-hidden="true">
+          <div className="first-run-progress-meta">
+            <span>{t(activeStep.eyebrowKey)} · {progressPercentLabel}</span>
+            <strong>{t(activeStep.labelKey)}</strong>
+          </div>
+          <div className="first-run-progress">
+            <span style={{ width: `${progressPercent}%` }} />
+          </div>
         </div>
 
         <nav className="first-run-stepper" aria-label={t('firstRun.aria.steps')}>
@@ -503,7 +541,7 @@ export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstR
         </nav>
 
         <div className="first-run-layout">
-          <main className="first-run-stage" key={activeStep.id}>
+          <main className="first-run-stage" data-step={activeStep.id} key={activeStep.id}>
             <div className="first-run-stage-icon">
               <ActiveIcon size={26} />
             </div>
@@ -511,12 +549,25 @@ export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstR
               <span>{t(activeStep.eyebrowKey)}</span>
               <h3>{t(activeStep.titleKey)}</h3>
               <p>{t(activeStep.descriptionKey)}</p>
+              <div className="first-run-step-notes" aria-label={t('firstRun.aria.stepNotes')}>
+                {activeStepNotes.map((noteKey) => (
+                  <span key={noteKey}>
+                    <CheckCircle2 size={12} />
+                    {t(noteKey)}
+                  </span>
+                ))}
+              </div>
             </div>
             {renderStepBody()}
           </main>
 
           <aside className="first-run-summary" aria-label={t('firstRun.aria.summary')}>
             <span className="first-run-summary-kicker">{t('firstRun.summary.kicker')}</span>
+            <div className="first-run-summary-current">
+              <span>{t(activeStep.eyebrowKey)}</span>
+              <strong>{t(activeStep.titleKey)}</strong>
+              <em>{progressPercentLabel}</em>
+            </div>
             <dl>
               <div>
                 <dt>{t('firstRun.summary.music')}</dt>
@@ -544,6 +595,13 @@ export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstR
               </div>
             </dl>
             <p>{t('firstRun.summary.noFileMove')}</p>
+            <button className="first-run-doc-card" type="button" title={t('firstRun.docs.description')} onClick={openDocumentation}>
+              <BookOpen size={16} />
+              <span>
+                <strong>{t('firstRun.docs.title')}</strong>
+              </span>
+              <ArrowRight size={15} />
+            </button>
           </aside>
         </div>
 

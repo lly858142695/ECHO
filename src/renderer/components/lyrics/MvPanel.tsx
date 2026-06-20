@@ -101,8 +101,14 @@ const summarizeMvLoadError = (message: string, t: Translate): string => {
   if (/MV database is temporarily unavailable|database disk image is malformed|DatabaseHealthError|SQLITE_CORRUPT|file is not a database/i.test(message)) {
     return t('mvPanel.status.databaseUnread');
   }
-  if (/network|fetch|timeout|ECONN|ENOTFOUND/i.test(message)) {
+  if (/bilibili|playurl|blocked|forbidden|403|412|credential|cookie|SESSDATA/i.test(message)) {
+    return t('mvPanel.status.bilibiliBlocked');
+  }
+  if (/network|fetch|timeout|timed out|AbortError|ECONN|ENOTFOUND|EAI_AGAIN/i.test(message)) {
     return t('mvPanel.status.networkFailed');
+  }
+  if (/MEDIA_ERR|decode|demux|unsupported|format|source|ERR_FILE_NOT_FOUND|404/i.test(message)) {
+    return t('mvPanel.status.videoFailed');
   }
 
   return message.trim() || t('mvPanel.status.loadFailed');

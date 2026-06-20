@@ -100,7 +100,7 @@ import {
 import type { AppCacheInventory, CoverCacheMigrationResult } from '../../shared/types/coverCache';
 import type { LastCrashSummary } from '../../shared/types/diagnostics';
 import type { DiscordPresenceStatus } from '../../shared/types/discordPresence';
-import type { DownloadSettings } from '../../shared/types/downloads';
+import type { DownloadSettings, DownloadToolsStatus } from '../../shared/types/downloads';
 import type { DataBackupProgress, DataBackupStatus } from '../../shared/types/settingsBackup';
 import type { LastFmStatus } from '../../shared/types/lastfm';
 import type { PlaybackStatus } from '../../shared/types/playback';
@@ -673,6 +673,18 @@ type SettingsSearchResult = {
   description: string;
   targetId?: string;
   score: number;
+};
+
+type SettingsStatusBadgeTone = 'good' | 'warning' | 'neutral' | 'muted';
+
+type SettingsStatusBadge = {
+  id: string;
+  icon: LucideIcon;
+  label: string;
+  detail: string;
+  tone: SettingsStatusBadgeTone;
+  sectionKey: SettingsNavKey;
+  targetId?: string;
 };
 
 type FontPickerTarget = 'main' | 'chinese' | 'fallback';
@@ -4335,6 +4347,7 @@ export const SettingsPage = (): JSX.Element => {
   const [status, setStatus] = useState<AudioStatus | null>(null);
   const [audioDiagnosticsCopied, setAudioDiagnosticsCopied] = useState(false);
   const [devices, setDevices] = useState<AudioDeviceInfo[]>([]);
+  const [audioDevicesChecked, setAudioDevicesChecked] = useState(false);
   const [outputMode, setOutputMode] = useState<AudioOutputMode>('shared');
   const [sharedBackend, setSharedBackend] = useState<AudioSharedBackend>('auto');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
@@ -4432,6 +4445,8 @@ export const SettingsPage = (): JSX.Element => {
   const [cacheInventory, setCacheInventory] = useState<AppCacheInventory | null>(null);
   const [cacheInventoryBusy, setCacheInventoryBusy] = useState(false);
   const [downloadSettings, setDownloadSettings] = useState<DownloadSettings | null>(null);
+  const [downloadToolsStatus, setDownloadToolsStatus] = useState<DownloadToolsStatus | null>(null);
+  const [downloadToolsChecked, setDownloadToolsChecked] = useState(false);
   const [downloadDirectoryBusy, setDownloadDirectoryBusy] = useState(false);
   const [downloadDirectoryMessage, setDownloadDirectoryMessage] = useState<string | null>(null);
   const [downloadUnlockInput, setDownloadUnlockInput] = useState('');
@@ -5599,15 +5614,18 @@ export const SettingsPage = (): JSX.Element => {
 
       if (!audio) {
         setDevices([]);
+        setAudioDevicesChecked(true);
         return;
       }
 
       const nextDevices = await audio.listDevices();
       setDevices(nextDevices);
+      setAudioDevicesChecked(true);
       setError(null);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
       setDevices([]);
+      setAudioDevicesChecked(true);
     }
   }, []);
 
@@ -5623,6 +5641,24 @@ export const SettingsPage = (): JSX.Element => {
       setDiscordPresenceStatus(await discordPresence.getStatus());
     } catch {
       setDiscordPresenceStatus(null);
+    }
+  }, []);
+
+  const refreshDownloadToolsStatus = useCallback(async () => {
+    const downloads = getDownloadsBridge();
+
+    if (!downloads?.checkTools) {
+      setDownloadToolsStatus(null);
+      setDownloadToolsChecked(true);
+      return;
+    }
+
+    try {
+      setDownloadToolsStatus(await downloads.checkTools());
+    } catch {
+      setDownloadToolsStatus(null);
+    } finally {
+      setDownloadToolsChecked(true);
     }
   }, []);
 
@@ -5922,6 +5958,17 @@ export const SettingsPage = (): JSX.Element => {
       void refreshAccountStatuses();
     });
   }, [activeSection, refreshAccountStatuses, refreshDiscordPresenceStatus, refreshLastFmStatus, refreshSmtcDiagnostics, refreshTaskbarPlaybackStatus]);
+
+  useEffect(
+    () =>
+      scheduleSettingsIdleTask(() => {
+        void refreshStatus();
+        void refreshDevices();
+        void refreshDiscordPresenceStatus();
+        void refreshDownloadToolsStatus();
+      }),
+    [refreshDevices, refreshDiscordPresenceStatus, refreshDownloadToolsStatus, refreshStatus],
+  );
 
   useEffect(() => {
     if (activeSection !== 'library') {
@@ -10960,6 +11007,132 @@ export const SettingsPage = (): JSX.Element => {
       : t('settings.playback.replayGain.mode.track');
   const replayGainAppliedLabel = Number.isFinite(status?.replayGainAppliedDb) ? `${status?.replayGainAppliedDb?.toFixed(2)} dB` : '0 dB';
   const replayGainProgressLabel = replayGainAnalysisJob ? `${replayGainAnalysisJob.processedTracks}/${replayGainAnalysisJob.totalTracks}` : t('settings.playback.replayGain.notRun');
+  const settingsStatusBadges = useMemo<SettingsStatusBadge[]>(() => {
+    const asioDevices = devices.filter((device) => device.outputMode === 'asio');
+    const asioActive = effectiveAudioStatus?.outputMode === 'asio';
+    const asioDetail = !advancedNativeOutputAvailable
+      ? t('settings.status.asio.unsupported')
+      : !audioDevicesChecked
+        ? t('settings.status.asio.checking')
+        : asioDevices.length > 0
+          ? asioActive
+            ? t('settings.status.asio.active')
+            : t('settings.status.asio.available', { count: asioDevices.length })
+          : t('settings.status.asio.missing');
+    const asioTone: SettingsStatusBadgeTone = !advancedNativeOutputAvailable
+      ? 'muted'
+      : !audioDevicesChecked
+        ? 'neutral'
+        : asioDevices.length > 0
+          ? 'good'
+          : 'warning';
+
+    const eqSectionVisible = settingsNavigationItems.some((item) => item.key === 'eq');
+    const eqChangingSound = effectiveAudioStatus?.dspActive === true || effectiveAudioStatus?.eqEnabled === true;
+    const eqClippingRisk = effectiveAudioStatus?.dspClippingRisk === true || effectiveAudioStatus?.clippingRisk === true;
+    const eqDetail = !effectiveAudioStatus
+      ? t('settings.status.eq.checking')
+      : eqClippingRisk
+        ? t('settings.status.eq.clipping')
+        : eqChangingSound
+          ? effectiveAudioStatus.eqEnabled
+            ? t('settings.status.eq.active', { preset: effectiveAudioStatus.eqPresetName ?? t('settings.status.eq.custom') })
+            : t('settings.status.eq.dspActive')
+          : t('settings.status.eq.off');
+    const eqTone: SettingsStatusBadgeTone = !effectiveAudioStatus ? 'neutral' : eqChangingSound ? 'warning' : 'muted';
+
+    const discordDetail = !discordPresenceStatus
+      ? t('settings.status.discord.checking')
+      : !discordPresenceStatus.enabled
+        ? t('settings.status.discord.disabled')
+        : discordPresenceStatus.connected
+          ? t('settings.status.discord.connected')
+          : discordPresenceStatus.lastError
+            ? t('settings.status.discord.error', { error: discordPresenceStatus.lastError })
+            : discordPresenceStatus.available
+              ? t('settings.status.discord.notConnected')
+              : t('settings.status.discord.notRunning');
+    const discordTone: SettingsStatusBadgeTone = !discordPresenceStatus
+      ? 'neutral'
+      : !discordPresenceStatus.enabled
+        ? 'muted'
+        : discordPresenceStatus.connected
+          ? 'good'
+          : 'warning';
+
+    const missingDownloadTools = downloadToolsStatus
+      ? [
+          downloadToolsStatus.ytDlpAvailable ? null : 'yt-dlp',
+          downloadToolsStatus.ffmpegAvailable ? null : 'ffmpeg',
+        ].filter((tool): tool is string => Boolean(tool))
+      : [];
+    const downloadToolsDetail = appSettings?.downloadsFeatureUnlocked !== true
+      ? t('settings.status.downloadTools.locked')
+      : !downloadToolsChecked
+        ? t('settings.status.downloadTools.checking')
+        : !downloadToolsStatus
+          ? t('settings.status.downloadTools.unavailable')
+          : missingDownloadTools.length === 0
+            ? t('settings.status.downloadTools.ready')
+            : t('settings.status.downloadTools.missing', { tools: missingDownloadTools.join(' / ') });
+    const downloadToolsTone: SettingsStatusBadgeTone = appSettings?.downloadsFeatureUnlocked !== true
+      ? 'muted'
+      : !downloadToolsChecked
+        ? 'neutral'
+        : downloadToolsStatus && missingDownloadTools.length === 0
+          ? 'good'
+          : 'warning';
+
+    return [
+      {
+        id: 'asio',
+        icon: Headphones,
+        label: t('settings.status.asio.title'),
+        detail: asioDetail,
+        tone: asioTone,
+        sectionKey: 'playback',
+        targetId: 'settings-row-output-device',
+      },
+      {
+        id: 'eq',
+        icon: SlidersHorizontal,
+        label: t('settings.status.eq.title'),
+        detail: eqDetail,
+        tone: eqTone,
+        sectionKey: eqSectionVisible ? 'eq' : 'playback',
+        targetId: eqSectionVisible ? undefined : 'settings-row-audio-status',
+      },
+      {
+        id: 'discord',
+        icon: Link2,
+        label: t('settings.status.discord.title'),
+        detail: discordDetail,
+        tone: discordTone,
+        sectionKey: 'integrations',
+        targetId: 'settings-row-discord-presence',
+      },
+      {
+        id: 'download-tools',
+        icon: Download,
+        label: t('settings.status.downloadTools.title'),
+        detail: downloadToolsDetail,
+        tone: downloadToolsTone,
+        sectionKey: 'library',
+        targetId: appSettings?.downloadsFeatureUnlocked === true ? 'settings-row-streaming-download-actions' : undefined,
+      },
+    ];
+  }, [
+    advancedNativeOutputAvailable,
+    appSettings?.downloadsFeatureUnlocked,
+    audioDevicesChecked,
+    devices,
+    discordPresenceStatus,
+    downloadToolsChecked,
+    downloadToolsStatus,
+    effectiveAudioStatus,
+    settingsNavigationItems,
+    t,
+  ]);
 
   return (
     <div className="settings-page no-drag">
@@ -11000,11 +11173,33 @@ export const SettingsPage = (): JSX.Element => {
                   </button>
                 ))
               ) : (
-                <p className="settings-search-empty">没有匹配的设置</p>
+                <p className="settings-search-empty">{t('settings.header.searchEmpty')}</p>
               )}
             </div>
           ) : null}
         </label>
+        <div className="settings-status-overview" aria-label={t('settings.status.aria')}>
+          {settingsStatusBadges.map((badge) => {
+            const Icon = badge.icon;
+            return (
+              <button
+                className={`settings-status-badge settings-status-badge--${badge.tone}`}
+                key={badge.id}
+                type="button"
+                title={badge.detail}
+                onClick={() => jumpToSettingsSection(badge.sectionKey, { clearSearch: true, targetId: badge.targetId })}
+              >
+                <span className="settings-status-badge-icon">
+                  <Icon size={14} aria-hidden="true" />
+                </span>
+                <span className="settings-status-badge-copy">
+                  <strong>{badge.label}</strong>
+                  <em>{badge.detail}</em>
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </header>
 
       <div className="settings-body">

@@ -3191,6 +3191,7 @@ describe("LyricsPage", () => {
     expect(container.querySelector(".lyrics-source-quality")?.textContent).toContain("LRCLIB");
     expect(container.querySelector(".lyrics-source-quality")?.textContent).toContain("近期");
     expect(container.querySelectorAll(".lyrics-reason-badge").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/应用前先看首句和进度是否对齐/u)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "标记为纯音乐" })).toBeNull();
 
     act(() => {

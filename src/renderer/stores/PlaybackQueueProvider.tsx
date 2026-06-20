@@ -217,6 +217,12 @@ type PlayNextOptions = {
   autoAdvance?: boolean;
 };
 
+type RestoreQueueItemsOptions = {
+  currentQueueId?: string | null;
+  currentTrackId?: string | null;
+  preserveHistory?: boolean;
+};
+
 type PlayLocalTrackOptions = {
   routeToConnectOutput?: boolean;
   forceHqPlayerConnect?: boolean;
@@ -251,9 +257,13 @@ type PlaybackQueueContextValue = {
   appendTracksToQueue: (tracks: LibraryTrack[], source?: QueueSource) => void;
   playTrackNext: (track: LibraryTrack, source?: QueueSource) => void;
   removeQueueItem: (queueId: string) => void;
+  removeQueueItems: (queueIds: string[]) => void;
   removeTrackFromQueue: (trackId: string) => number;
   clearQueue: () => void;
   moveQueueItem: (fromIndex: number, toIndex: number) => void;
+  moveQueueItemsToIndex: (queueIds: string[], toIndex: number) => void;
+  moveQueueItemsAfterCurrent: (queueIds: string[]) => void;
+  restoreQueueItems: (items: QueueItem[], options?: RestoreQueueItemsOptions) => void;
   playQueueItem: (queueId: string) => Promise<PlaybackStatus>;
   playTrack: (track: LibraryTrack, options?: PlayTrackOptions) => Promise<PlaybackStatus>;
   playPlaylistSequence: (tracks: LibraryTrack[], options?: PlayPlaylistSequenceOptions) => Promise<PlaybackStatus | null>;
@@ -3036,6 +3046,24 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
     [restorePlaylistPlaybackSnapshotOnly, setCurrentQueueId, setHistory, setItems],
   );
 
+  const removeQueueItems = useCallback(
+    (queueIds: string[]): void => {
+      const queueIdSet = new Set(queueIds);
+      if (queueIdSet.size === 0) {
+        return;
+      }
+
+      restorePlaylistPlaybackSnapshotOnly();
+      setItems((current) => current.filter((item) => !queueIdSet.has(item.queueId)));
+      setHistory((current) => current.filter((item) => !queueIdSet.has(item.queueId)));
+
+      if (currentQueueIdRef.current && queueIdSet.has(currentQueueIdRef.current)) {
+        setCurrentQueueId(null);
+      }
+    },
+    [restorePlaylistPlaybackSnapshotOnly, setCurrentQueueId, setHistory, setItems],
+  );
+
   const removeTrackFromQueue = useCallback(
     (trackId: string): number => {
       restorePlaylistPlaybackSnapshotOnly();
@@ -3080,6 +3108,104 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       });
     },
     [restorePlaylistPlaybackSnapshotOnly, setItems],
+  );
+
+  const moveQueueItemsToIndex = useCallback(
+    (queueIds: string[], toIndex: number): void => {
+      const queueIdSet = new Set(queueIds);
+      if (queueIdSet.size === 0) {
+        return;
+      }
+
+      restorePlaylistPlaybackSnapshotOnly();
+      setItems((current) => {
+        if (current.length === 0) {
+          return current;
+        }
+
+        const moving = current.filter((item) => queueIdSet.has(item.queueId));
+        if (moving.length === 0) {
+          return current;
+        }
+
+        const remaining = current.filter((item) => !queueIdSet.has(item.queueId));
+        if (remaining.length === 0) {
+          return current;
+        }
+
+        const targetQueueId = current[clampMoveIndex(toIndex, current.length)]?.queueId ?? null;
+        const insertIndex = targetQueueId && !queueIdSet.has(targetQueueId)
+          ? Math.max(0, remaining.findIndex((item) => item.queueId === targetQueueId))
+          : clampMoveIndex(toIndex, remaining.length + 1);
+
+        return [
+          ...remaining.slice(0, insertIndex),
+          ...moving,
+          ...remaining.slice(insertIndex),
+        ];
+      });
+    },
+    [restorePlaylistPlaybackSnapshotOnly, setItems],
+  );
+
+  const moveQueueItemsAfterCurrent = useCallback(
+    (queueIds: string[]): void => {
+      const queueIdSet = new Set(queueIds);
+      if (queueIdSet.size === 0) {
+        return;
+      }
+
+      restorePlaylistPlaybackSnapshotOnly();
+      setItems((current) => {
+        if (current.length === 0) {
+          return current;
+        }
+
+        const activeQueueId = currentQueueIdRef.current;
+        const moving = current.filter((item) => item.queueId !== activeQueueId && queueIdSet.has(item.queueId));
+        if (moving.length === 0) {
+          return current;
+        }
+
+        const remaining = current.filter((item) => item.queueId === activeQueueId || !queueIdSet.has(item.queueId));
+        const activeIndex = activeQueueId ? remaining.findIndex((item) => item.queueId === activeQueueId) : -1;
+        const insertIndex = activeIndex >= 0 ? activeIndex + 1 : 0;
+
+        return [
+          ...remaining.slice(0, insertIndex),
+          ...moving,
+          ...remaining.slice(insertIndex),
+        ];
+      });
+    },
+    [restorePlaylistPlaybackSnapshotOnly, setItems],
+  );
+
+  const restoreQueueItems = useCallback(
+    (nextItems: QueueItem[], options: RestoreQueueItemsOptions = {}): void => {
+      restorePlaylistPlaybackSnapshotOnly();
+      clearLibraryShuffleDeck();
+      const queueIds = new Set(nextItems.map((item) => item.queueId));
+      const nextCurrentQueueId = options.currentQueueId && queueIds.has(options.currentQueueId)
+        ? options.currentQueueId
+        : null;
+      const nextCurrentTrackId =
+        typeof options.currentTrackId === 'string'
+          ? options.currentTrackId
+          : nextCurrentQueueId
+            ? nextItems.find((item) => item.queueId === nextCurrentQueueId)?.track.id ?? null
+            : currentTrackIdRef.current;
+
+      setItems(nextItems);
+      setHistory((current) =>
+        options.preserveHistory === true
+          ? current.filter((item) => queueIds.has(item.queueId))
+          : [],
+      );
+      setCurrentQueueId(nextCurrentQueueId);
+      setCurrentTrackIdInternal(nextCurrentTrackId);
+    },
+    [clearLibraryShuffleDeck, restorePlaylistPlaybackSnapshotOnly, setCurrentQueueId, setCurrentTrackIdInternal, setHistory, setItems],
   );
 
   const playQueueItem = useCallback(
@@ -3893,9 +4019,13 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       appendTracksToQueue,
       playTrackNext,
       removeQueueItem,
+      removeQueueItems,
       removeTrackFromQueue,
       clearQueue,
       moveQueueItem,
+      moveQueueItemsToIndex,
+      moveQueueItemsAfterCurrent,
+      restoreQueueItems,
       playQueueItem,
       playTrack,
       playPlaylistSequence,
@@ -3935,6 +4065,8 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       items,
       lastPlayedTrack,
       moveQueueItem,
+      moveQueueItemsAfterCurrent,
+      moveQueueItemsToIndex,
       playNext,
       playPlaylistSequence,
       playPrevious,
@@ -3945,8 +4077,10 @@ export const PlaybackQueueProvider = ({ children }: PropsWithChildren): JSX.Elem
       openTemporaryLocalFiles,
       playTrackNext,
       removeQueueItem,
+      removeQueueItems,
       removeTrackFromQueue,
       repeatMode,
+      restoreQueueItems,
       replaceQueue,
       setAutomixEnabled,
       setAutoFillQueueEnabled,

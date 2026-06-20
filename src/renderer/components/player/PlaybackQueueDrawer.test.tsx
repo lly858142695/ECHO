@@ -105,7 +105,7 @@ describe('PlaybackQueueDrawer', () => {
     expect(await screen.findByText('Track 2')).toBeTruthy();
     expect(document.querySelector('.lyrics-queue-list')?.getAttribute('data-virtualized')).toBe('true');
 
-    fireEvent.click(screen.getByRole('button', { name: '播放 Track 2' }));
+    fireEvent.click(screen.getByRole('button', { name: '从这里开始 Track 2' }));
     await waitFor(() => expect(playLocalFile).toHaveBeenCalledWith(expect.objectContaining({ trackId: second.id })));
 
     const list = document.querySelector('.lyrics-queue-list') as HTMLElement;

@@ -588,6 +588,34 @@ const visibleReasons = (candidate: LyricsSearchCandidate): string[] =>
     .filter((reason): reason is string => Boolean(reason))
     .slice(0, 3);
 
+const lyricsCandidateNextStep = (candidate: LyricsSearchCandidate): string | null => {
+  const reasons = new Set(candidate.reasons ?? []);
+  const risk = candidate.risk ?? "low";
+  const score = typeof candidate.score === "number" ? candidate.score : 0;
+
+  if (reasons.has("artist_mismatch")) {
+    return "艺人不一致，先换来源或手动搜索歌名 + 艺人；不要直接套用。";
+  }
+
+  if (reasons.has("version_conflict") || reasons.has("cover_intent") || reasons.has("candidate_only_cover")) {
+    return "可能是翻唱/现场/不同版本，先试听几句对齐，再决定是否应用。";
+  }
+
+  if (reasons.has("duration_mismatch") || reasons.has("candidate_only_duration")) {
+    return "时长不同，适合 live/剪辑版；应用前先看首句和进度是否对齐。";
+  }
+
+  if (risk === "high" || score < 0.5) {
+    return "匹配分偏低，建议换来源、重新搜索，或导入本地 LRC/TTML。";
+  }
+
+  if (risk === "medium") {
+    return "中风险候选，建议先核对标题、艺人和专辑再应用。";
+  }
+
+  return null;
+};
+
 const sourceFilterKey = (candidate: LyricsSearchCandidate): LyricsProviderId =>
   candidate.provider;
 
@@ -4314,6 +4342,7 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
             <div className="lyrics-candidate-list">
               {visibleCandidates.map((candidate) => {
                 const candidateKind = lyricsCandidateDisplayKind(candidate);
+                const nextStep = lyricsCandidateNextStep(candidate);
                 return (
                   <button
                     className={`lyrics-candidate lyrics-candidate--${candidateKind}`}
@@ -4347,6 +4376,11 @@ export const LyricsPage = ({ initialLyrics, usePlayerDrawerHeader = false }: Lyr
                           {reason}
                         </small>
                       ))}
+                      {nextStep ? (
+                        <small className="lyrics-candidate-next-step">
+                          {nextStep}
+                        </small>
+                      ) : null}
                       {applyingCandidateId === candidate.id ? (
                         <small>Applying</small>
                       ) : null}

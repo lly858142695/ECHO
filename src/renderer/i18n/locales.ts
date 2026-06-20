@@ -401,6 +401,7 @@ export type TranslationKey =
   | 'firstRun.action.skip'
   | 'firstRun.action.skipWizard'
   | 'firstRun.aria.steps'
+  | 'firstRun.aria.stepNotes'
   | 'firstRun.aria.summary'
   | 'firstRun.audio.asio.description'
   | 'firstRun.audio.asio.hint'
@@ -431,6 +432,23 @@ export type TranslationKey =
   | 'firstRun.currentSelection'
   | 'firstRun.defaultLocation'
   | 'firstRun.description'
+  | 'firstRun.detail.accounts.later'
+  | 'firstRun.detail.accounts.local'
+  | 'firstRun.detail.appearance.preview'
+  | 'firstRun.detail.appearance.system'
+  | 'firstRun.detail.audio.advanced'
+  | 'firstRun.detail.audio.shared'
+  | 'firstRun.detail.cache.changeLater'
+  | 'firstRun.detail.cache.space'
+  | 'firstRun.detail.library.safe'
+  | 'firstRun.detail.library.scan'
+  | 'firstRun.detail.scan.balanced'
+  | 'firstRun.detail.scan.low'
+  | 'firstRun.detail.summary.docs'
+  | 'firstRun.detail.summary.save'
+  | 'firstRun.docs.action'
+  | 'firstRun.docs.description'
+  | 'firstRun.docs.title'
   | 'firstRun.error.desktopBridgeCache'
   | 'firstRun.error.desktopBridgeMusicFolder'
   | 'firstRun.error.desktopBridgeSave'
@@ -1662,6 +1680,7 @@ export type TranslationKey =
   | 'punctuation.clauseSeparator'
   | 'punctuation.listSeparator'
   | 'queue.action.clear'
+  | 'queue.action.currentItem'
   | 'queue.action.dragLabel'
   | 'queue.action.dragTitle'
   | 'queue.action.generateRandom'
@@ -1676,6 +1695,8 @@ export type TranslationKey =
   | 'queue.action.playNext'
   | 'queue.action.remove'
   | 'queue.action.shuffle'
+  | 'queue.action.startFromHere'
+  | 'queue.action.startFromHereShort'
   | 'queue.count'
   | 'queue.empty.description'
   | 'queue.empty.title'
@@ -2254,12 +2275,15 @@ export type TranslationKey =
   | 'mvSettings.engine.quality'
   | 'mvSettings.engine.selected'
   | 'mvSettings.engine.title'
+  | 'mvSettings.error.actionFailed'
+  | 'mvSettings.error.bilibiliBlocked'
   | 'mvSettings.error.noActiveTrackBinding'
   | 'mvSettings.error.noActiveTrackMatching'
   | 'mvSettings.error.noActiveTrackNetworkSearch'
   | 'mvSettings.error.databaseUnavailable'
   | 'mvSettings.error.noLocalCandidates'
   | 'mvSettings.error.noNetworkCandidates'
+  | 'mvSettings.error.networkFailed'
   | 'mvSettings.general.enabled'
   | 'mvSettings.immersive.blur'
   | 'mvSettings.immersive.autoScale'
@@ -2938,7 +2962,35 @@ export type TranslationKey =
   | 'settings.general.trackContextMenuExtraActions.title'
   | 'settings.general.touchKeyboard.description'
   | 'settings.general.touchKeyboard.title'
+  | 'settings.header.searchEmpty'
   | 'settings.header.searchPlaceholder'
+  | 'settings.status.aria'
+  | 'settings.status.asio.active'
+  | 'settings.status.asio.available'
+  | 'settings.status.asio.checking'
+  | 'settings.status.asio.missing'
+  | 'settings.status.asio.title'
+  | 'settings.status.asio.unsupported'
+  | 'settings.status.discord.checking'
+  | 'settings.status.discord.connected'
+  | 'settings.status.discord.disabled'
+  | 'settings.status.discord.error'
+  | 'settings.status.discord.notConnected'
+  | 'settings.status.discord.notRunning'
+  | 'settings.status.discord.title'
+  | 'settings.status.downloadTools.checking'
+  | 'settings.status.downloadTools.locked'
+  | 'settings.status.downloadTools.missing'
+  | 'settings.status.downloadTools.ready'
+  | 'settings.status.downloadTools.title'
+  | 'settings.status.downloadTools.unavailable'
+  | 'settings.status.eq.active'
+  | 'settings.status.eq.checking'
+  | 'settings.status.eq.clipping'
+  | 'settings.status.eq.custom'
+  | 'settings.status.eq.dspActive'
+  | 'settings.status.eq.off'
+  | 'settings.status.eq.title'
   | 'settings.integrations.discord.description'
   | 'settings.integrations.discord.action.refresh'
   | 'settings.integrations.discord.title'
@@ -5671,6 +5723,7 @@ const zhCN: TranslationMap = {
   'firstRun.action.skip': '跳过',
   'firstRun.action.skipWizard': '跳过向导',
   'firstRun.aria.steps': '首次启动步骤',
+  'firstRun.aria.stepNotes': '当前步骤提示',
   'firstRun.aria.summary': '当前向导选择摘要',
   'firstRun.audio.asio.description': '需要 ASIO 设备和可靠驱动。',
   'firstRun.audio.asio.hint': '专业',
@@ -5701,6 +5754,23 @@ const zhCN: TranslationMap = {
   'firstRun.currentSelection': '当前选择',
   'firstRun.defaultLocation': '默认位置',
   'firstRun.description': '按顺序确认曲库、缓存、扫描、输出、外观和账号入口。不确定的地方保留推荐值就好。',
+  'firstRun.detail.accounts.later': '账号可以之后再登录',
+  'firstRun.detail.accounts.local': '本地曲库不依赖账号',
+  'firstRun.detail.appearance.preview': '主题会立即预览',
+  'firstRun.detail.appearance.system': '跟随系统更省心',
+  'firstRun.detail.audio.advanced': '独占 / ASIO 适合稳定外置设备',
+  'firstRun.detail.audio.shared': '普通设备先用共享输出',
+  'firstRun.detail.cache.changeLater': 'C 盘紧张就换到其它盘',
+  'firstRun.detail.cache.space': '封面、歌词和 MV 缓存在这里',
+  'firstRun.detail.library.safe': '只读取标签和封面，不移动文件',
+  'firstRun.detail.library.scan': '勾选后完成即开始索引',
+  'firstRun.detail.scan.balanced': '均衡适合日常首次导入',
+  'firstRun.detail.scan.low': '低占用更适合边听边扫',
+  'firstRun.detail.summary.docs': '更多教程随时打开文档',
+  'firstRun.detail.summary.save': '完成后只保存基础设置',
+  'firstRun.docs.action': '查看 ECHO 文档',
+  'firstRun.docs.description': '安装、曲库、音频输出和排障教程都在这里。',
+  'firstRun.docs.title': 'ECHO 官方文档',
   'firstRun.error.desktopBridgeCache': '桌面桥接不可用，暂时不能选择缓存位置。',
   'firstRun.error.desktopBridgeMusicFolder': '桌面桥接不可用，暂时不能选择音乐文件夹。',
   'firstRun.error.desktopBridgeSave': '桌面桥接不可用，暂时不能保存首次启动设置。',
@@ -5869,19 +5939,19 @@ const zhCN: TranslationMap = {
   'mvPanel.action.dismissUnavailable': '关闭 MV 不可用提示',
   'mvPanel.diagnostics.title': 'MV 诊断报告',
   'mvPanel.notice.unavailable': 'MV 不可用',
-  'mvPanel.status.bilibiliBlocked': 'Bilibili 暂时拒绝解析，请稍后重试或外部打开',
-  'mvPanel.status.databaseUnread': 'MV 数据库不可读',
-  'mvPanel.status.externalRequired': '当前 MV 需要外部播放',
-  'mvPanel.status.inAppUnavailable': '当前 MV 无法在应用内播放',
+  'mvPanel.status.bilibiliBlocked': 'Bilibili 暂时拒绝直链解析。可以在 MV 设置里打开诊断报告、配置 Bilibili Cookie，或先外部打开。',
+  'mvPanel.status.databaseUnread': 'MV 数据库不可读。先到曲库恢复里修复数据库；修复前可以在 MV 设置里临时绑定本地视频或自定义链接。',
+  'mvPanel.status.externalRequired': '当前 MV 需要外部播放。点 MV 设置里的“在外部打开”，或换一个应用内候选。',
+  'mvPanel.status.inAppUnavailable': '当前 MV 暂时不能在应用内播放。可以降低最高画质、换来源，或外部打开。',
   'mvPanel.status.loadFailed': 'MV 加载失败',
   'mvPanel.status.loading': '正在加载 MV',
-  'mvPanel.status.localUnsupported': '本地视频格式不支持',
-  'mvPanel.status.missingUrl': '缺少可播放地址',
-  'mvPanel.status.networkFailed': '网络 MV 请求失败',
-  'mvPanel.status.notFound': '未找到可播放 MV',
+  'mvPanel.status.localUnsupported': '本地视频格式不支持。请换成 mp4/webm，或用系统播放器外部打开。',
+  'mvPanel.status.missingUrl': '缺少可播放地址。请在 MV 设置里重新搜索、手动粘贴链接，或导入本地视频。',
+  'mvPanel.status.networkFailed': '网络 MV 请求失败。先检查代理/网络；也可以在 MV 设置里切换 Bilibili/YouTube 来源、降低画质后重试。',
+  'mvPanel.status.notFound': '未找到可播放 MV。可以打开 MV 设置手动搜索、粘贴 Bilibili/YouTube 链接，或导入本地视频。',
   'mvPanel.status.temporaryPlayback': '临时 MV 播放中，数据库待修复',
   'mvPanel.status.unavailable': 'MV 不可用',
-  'mvPanel.status.videoFailed': '视频加载失败',
+  'mvPanel.status.videoFailed': '视频加载失败。请换一个候选、降低画质，或外部打开；本地视频可换成浏览器支持的 mp4/webm。',
   'miniPlayer.action.close': '关闭迷你播放器',
   'miniPlayer.action.closeQueue': '收起播放队列',
   'miniPlayer.action.closeShort': '关闭',
@@ -6759,6 +6829,7 @@ const zhCN: TranslationMap = {
   'punctuation.clauseSeparator': '，',
   'punctuation.listSeparator': '、',
   'queue.action.clear': '清空队列',
+  'queue.action.currentItem': '正在播放',
   'queue.action.dragLabel': '拖拽 {title}',
   'queue.action.dragTitle': '拖拽排序',
   'queue.action.generateFromHistory': '按历史生成队列',
@@ -6773,6 +6844,8 @@ const zhCN: TranslationMap = {
   'queue.action.playNext': '下一首播放 {title}',
   'queue.action.remove': '移除 {title}',
   'queue.action.shuffle': '随机播放',
+  'queue.action.startFromHere': '从这里开始 {title}',
+  'queue.action.startFromHereShort': '从这里开始',
   'queue.count': '{count} 首',
   'queue.empty.description': '播放歌曲、加入队列或选择下一首播放后，这里会出现队列内容。',
   'queue.empty.title': '还没有接下来播放的歌曲',
@@ -7718,12 +7791,15 @@ const zhCN: TranslationMap = {
   'mvSettings.engine.quality': '画质',
   'mvSettings.engine.selected': '已选',
   'mvSettings.engine.title': 'MV 引擎',
+  'mvSettings.error.actionFailed': 'MV 操作失败。请稍后重试，或先换成本地视频/自定义链接。',
+  'mvSettings.error.bilibiliBlocked': 'Bilibili 解析被拦截。先打开 MV 诊断报告，配置 Bilibili Cookie 或外部打开；原始原因：{reason}',
   'mvSettings.error.noActiveTrackBinding': '没有可用于 MV 绑定的当前曲库歌曲',
   'mvSettings.error.noActiveTrackMatching': '没有可用于 MV 匹配的当前曲库歌曲',
   'mvSettings.error.noActiveTrackNetworkSearch': '没有可用于网络 MV 搜索的当前曲库歌曲',
   'mvSettings.error.databaseUnavailable': 'MV 数据库暂时不可读，请先到曲库恢复里修复数据库。',
   'mvSettings.error.noLocalCandidates': '没有找到本地 MV 候选',
   'mvSettings.error.noNetworkCandidates': '没有找到网络 MV 候选',
+  'mvSettings.error.networkFailed': '网络 MV 请求失败。先检查代理/网络，或切换来源、降低最高画质后重试；原始原因：{reason}',
   'mvSettings.general.enabled': '启用 MV',
   'mvSettings.immersive.blur': '毛玻璃模糊',
   'mvSettings.immersive.autoScale': '自动缩放',
@@ -8402,7 +8478,35 @@ const zhCN: TranslationMap = {
   'settings.general.rememberWindowSize.title': '记住窗口尺寸',
   'settings.general.searchTraditionalVariants.description': '开启后，输入繁体可以搜到简体结果，输入简体也可以搜到繁体结果。',
   'settings.general.searchTraditionalVariants.title': '简繁互搜',
+  'settings.header.searchEmpty': '没有匹配的设置',
   'settings.header.searchPlaceholder': '搜索设置...',
+  'settings.status.aria': '设置状态概览',
+  'settings.status.asio.active': 'ASIO 正在输出',
+  'settings.status.asio.available': '检测到 {count} 个 ASIO 设备',
+  'settings.status.asio.checking': '正在检测输出设备',
+  'settings.status.asio.missing': '未检测到 ASIO 设备',
+  'settings.status.asio.title': 'ASIO',
+  'settings.status.asio.unsupported': '当前平台不支持 ASIO',
+  'settings.status.discord.checking': '正在读取 Discord 状态',
+  'settings.status.discord.connected': '已连接 Rich Presence',
+  'settings.status.discord.disabled': 'Discord 状态已关闭',
+  'settings.status.discord.error': '连接异常：{error}',
+  'settings.status.discord.notConnected': '已启用，但尚未连接',
+  'settings.status.discord.notRunning': 'Discord 未运行',
+  'settings.status.discord.title': 'Discord',
+  'settings.status.downloadTools.checking': '正在检查 yt-dlp / ffmpeg',
+  'settings.status.downloadTools.locked': '下载功能未解锁',
+  'settings.status.downloadTools.missing': '缺少 {tools}',
+  'settings.status.downloadTools.ready': '下载工具可用',
+  'settings.status.downloadTools.title': '下载工具',
+  'settings.status.downloadTools.unavailable': '运行环境暂不可检查',
+  'settings.status.eq.active': 'EQ 正在改变声音：{preset}',
+  'settings.status.eq.checking': '等待播放链路状态',
+  'settings.status.eq.clipping': 'DSP 有削波风险',
+  'settings.status.eq.custom': '自定义',
+  'settings.status.eq.dspActive': 'DSP 正在改变声音',
+  'settings.status.eq.off': 'EQ / DSP 未介入',
+  'settings.status.eq.title': 'EQ / DSP',
   'settings.integrations.discord.action.refresh': '刷新状态',
   'settings.integrations.discord.description': '将当前播放状态同步到 Discord Rich Presence，可显示歌曲、艺术家、进度和播放状态。',
   'settings.integrations.discord.title': 'Discord 状态',
@@ -9369,6 +9473,7 @@ const zhTW: TranslationMap = {
   'firstRun.action.skip': '跳過',
   'firstRun.action.skipWizard': '跳過精靈',
   'firstRun.aria.steps': '首次啟動步驟',
+  'firstRun.aria.stepNotes': '目前步驟提示',
   'firstRun.aria.summary': '目前精靈選擇摘要',
   'firstRun.audio.asio.description': '需要 ASIO 裝置和可靠驅動。',
   'firstRun.audio.asio.hint': '專業',
@@ -9399,6 +9504,23 @@ const zhTW: TranslationMap = {
   'firstRun.currentSelection': '目前選擇',
   'firstRun.defaultLocation': '預設位置',
   'firstRun.description': '按順序確認媒體庫、快取、掃描、輸出、外觀和帳號入口。不確定的地方保留推薦值即可。',
+  'firstRun.detail.accounts.later': '帳號可以之後再登入',
+  'firstRun.detail.accounts.local': '本地媒體庫不依賴帳號',
+  'firstRun.detail.appearance.preview': '主題會立即預覽',
+  'firstRun.detail.appearance.system': '跟隨系統更省心',
+  'firstRun.detail.audio.advanced': '獨佔 / ASIO 適合穩定外接裝置',
+  'firstRun.detail.audio.shared': '一般裝置先用共享輸出',
+  'firstRun.detail.cache.changeLater': 'C 槽緊張就換到其他磁碟',
+  'firstRun.detail.cache.space': '封面、歌詞和 MV 快取在這裡',
+  'firstRun.detail.library.safe': '只讀取標籤和封面，不移動檔案',
+  'firstRun.detail.library.scan': '勾選後完成即開始索引',
+  'firstRun.detail.scan.balanced': '均衡適合日常首次匯入',
+  'firstRun.detail.scan.low': '低占用更適合邊聽邊掃',
+  'firstRun.detail.summary.docs': '更多教程可隨時開啟文檔',
+  'firstRun.detail.summary.save': '完成後只儲存基礎設定',
+  'firstRun.docs.action': '查看 ECHO 文檔',
+  'firstRun.docs.description': '安裝、媒體庫、音訊輸出和排障教程都在這裡。',
+  'firstRun.docs.title': 'ECHO 官方文檔',
   'firstRun.error.desktopBridgeCache': '桌面橋接不可用，暫時不能選擇快取位置。',
   'firstRun.error.desktopBridgeMusicFolder': '桌面橋接不可用，暫時不能選擇音樂資料夾。',
   'firstRun.error.desktopBridgeSave': '桌面橋接不可用，暫時不能儲存首次啟動設定。',
@@ -9574,19 +9696,19 @@ const zhTW: TranslationMap = {
   'mvPanel.action.dismissUnavailable': '關閉 MV 不可用提示',
   'mvPanel.diagnostics.title': 'MV 診斷報告',
   'mvPanel.notice.unavailable': 'MV 不可用',
-  'mvPanel.status.bilibiliBlocked': 'Bilibili 暫時拒絕解析，請稍後重試或外部開啟',
-  'mvPanel.status.databaseUnread': 'MV 資料庫不可讀',
-  'mvPanel.status.externalRequired': '目前 MV 需要外部播放',
-  'mvPanel.status.inAppUnavailable': '目前 MV 無法在應用程式內播放',
+  'mvPanel.status.bilibiliBlocked': 'Bilibili 暫時拒絕直連解析。可以在 MV 設定裡開啟診斷報告、配置 Bilibili Cookie，或先外部開啟。',
+  'mvPanel.status.databaseUnread': 'MV 資料庫不可讀。先到曲庫恢復裡修復資料庫；修復前可以在 MV 設定裡暫時綁定本機影片或自訂連結。',
+  'mvPanel.status.externalRequired': '目前 MV 需要外部播放。點 MV 設定裡的「在外部開啟」，或換一個應用內候選。',
+  'mvPanel.status.inAppUnavailable': '目前 MV 暫時不能在應用程式內播放。可以降低最高畫質、換來源，或外部開啟。',
   'mvPanel.status.loadFailed': 'MV 載入失敗',
   'mvPanel.status.loading': '正在載入 MV',
-  'mvPanel.status.localUnsupported': '本機影片格式不支援',
-  'mvPanel.status.missingUrl': '缺少可播放位址',
-  'mvPanel.status.networkFailed': '網路 MV 請求失敗',
-  'mvPanel.status.notFound': '找不到可播放 MV',
+  'mvPanel.status.localUnsupported': '本機影片格式不支援。請換成 mp4/webm，或用系統播放器外部開啟。',
+  'mvPanel.status.missingUrl': '缺少可播放位址。請在 MV 設定裡重新搜尋、手動貼上連結，或匯入本機影片。',
+  'mvPanel.status.networkFailed': '網路 MV 請求失敗。先檢查代理/網路；也可以在 MV 設定裡切換 Bilibili/YouTube 來源、降低畫質後重試。',
+  'mvPanel.status.notFound': '找不到可播放 MV。可以開啟 MV 設定手動搜尋、貼上 Bilibili/YouTube 連結，或匯入本機影片。',
   'mvPanel.status.temporaryPlayback': '臨時 MV 播放中，資料庫待修復',
   'mvPanel.status.unavailable': 'MV 不可用',
-  'mvPanel.status.videoFailed': '影片載入失敗',
+  'mvPanel.status.videoFailed': '影片載入失敗。請換一個候選、降低畫質，或外部開啟；本機影片可換成瀏覽器支援的 mp4/webm。',
   'miniPlayer.action.close': '關閉迷你播放器',
   'miniPlayer.action.closeQueue': '收起播放佇列',
   'miniPlayer.action.closeShort': '關閉',
@@ -11355,12 +11477,15 @@ const zhTW: TranslationMap = {
   'mvSettings.engine.quality': '畫質',
   'mvSettings.engine.selected': '已選',
   'mvSettings.engine.title': 'MV 引擎',
+  'mvSettings.error.actionFailed': 'MV 操作失敗。請稍後重試，或先換成本地影片/自訂連結。',
+  'mvSettings.error.bilibiliBlocked': 'Bilibili 解析被攔截。先開啟 MV 診斷報告，配置 Bilibili Cookie 或外部開啟；原始原因：{reason}',
   'mvSettings.error.noActiveTrackBinding': '沒有可用於 MV 綁定的目前曲庫歌曲',
   'mvSettings.error.noActiveTrackMatching': '沒有可用於 MV 匹配的目前曲庫歌曲',
   'mvSettings.error.noActiveTrackNetworkSearch': '沒有可用於網路 MV 搜尋的目前曲庫歌曲',
   'mvSettings.error.databaseUnavailable': 'MV 資料庫暫時無法讀取，請先到曲庫恢復裡修復資料庫。',
   'mvSettings.error.noLocalCandidates': '沒有找到本地 MV 候選',
   'mvSettings.error.noNetworkCandidates': '沒有找到網路 MV 候選',
+  'mvSettings.error.networkFailed': '網路 MV 請求失敗。先檢查代理/網路，或切換來源、降低最高畫質後重試；原始原因：{reason}',
   'mvSettings.general.enabled': '啟用 MV',
   'mvSettings.immersive.blur': '毛玻璃模糊',
   'mvSettings.immersive.autoScale': '自動縮放',
@@ -11465,6 +11590,7 @@ const zhTW: TranslationMap = {
   'route.plugins.label': '外掛',
   'route.queue.label': '佇列',
   'queue.action.clear': '清空佇列',
+  'queue.action.currentItem': '正在播放',
   'queue.action.dragLabel': '拖曳 {title}',
   'queue.action.dragTitle': '拖曳排序',
   'queue.action.generateFromHistory': '依播放歷史產生佇列',
@@ -11479,6 +11605,8 @@ const zhTW: TranslationMap = {
   'queue.action.playNext': '下一首播放 {title}',
   'queue.action.remove': '移除 {title}',
   'queue.action.shuffle': '隨機播放',
+  'queue.action.startFromHere': '從這裡開始 {title}',
+  'queue.action.startFromHereShort': '從這裡開始',
   'queue.count': '{count} 首',
   'queue.empty.description': '播放歌曲、加入佇列或選擇下一首播放後，這裡會出現佇列內容。',
   'queue.empty.title': '還沒有接下來播放的歌曲',
@@ -11661,7 +11789,35 @@ const zhTW: TranslationMap = {
   'settings.general.dataPackage.action.exporting': '打包中...',
   'settings.general.dataPackage.action.recovery': '恢復入口',
   'settings.general.dataPackage.note': '恢復前請先在危險區建立健康快照；遷移包裡的 RESTORE.md 會說明每個檔案的用途。',
+  'settings.header.searchEmpty': '沒有符合的設定',
   'settings.header.searchPlaceholder': '搜尋設定...',
+  'settings.status.aria': '設定狀態概覽',
+  'settings.status.asio.active': 'ASIO 正在輸出',
+  'settings.status.asio.available': '偵測到 {count} 個 ASIO 裝置',
+  'settings.status.asio.checking': '正在偵測輸出裝置',
+  'settings.status.asio.missing': '未偵測到 ASIO 裝置',
+  'settings.status.asio.title': 'ASIO',
+  'settings.status.asio.unsupported': '目前平台不支援 ASIO',
+  'settings.status.discord.checking': '正在讀取 Discord 狀態',
+  'settings.status.discord.connected': '已連接 Rich Presence',
+  'settings.status.discord.disabled': 'Discord 狀態已關閉',
+  'settings.status.discord.error': '連接異常：{error}',
+  'settings.status.discord.notConnected': '已啟用，但尚未連接',
+  'settings.status.discord.notRunning': 'Discord 未執行',
+  'settings.status.discord.title': 'Discord',
+  'settings.status.downloadTools.checking': '正在檢查 yt-dlp / ffmpeg',
+  'settings.status.downloadTools.locked': '下載功能未解鎖',
+  'settings.status.downloadTools.missing': '缺少 {tools}',
+  'settings.status.downloadTools.ready': '下載工具可用',
+  'settings.status.downloadTools.title': '下載工具',
+  'settings.status.downloadTools.unavailable': '執行環境暫不可檢查',
+  'settings.status.eq.active': 'EQ 正在改變聲音：{preset}',
+  'settings.status.eq.checking': '等待播放鏈路狀態',
+  'settings.status.eq.clipping': 'DSP 有削波風險',
+  'settings.status.eq.custom': '自訂',
+  'settings.status.eq.dspActive': 'DSP 正在改變聲音',
+  'settings.status.eq.off': 'EQ / DSP 未介入',
+  'settings.status.eq.title': 'EQ / DSP',
   'settings.nav.general.label': '一般',
   'settings.nav.general.description': '語言、視窗與基礎行為',
   'settings.nav.playback.label': '播放',
@@ -12819,6 +12975,7 @@ const jaJP: TranslationMap = {
   'firstRun.action.skip': 'スキップ',
   'firstRun.action.skipWizard': 'ウィザードをスキップ',
   'firstRun.aria.steps': '初回起動の手順',
+  'firstRun.aria.stepNotes': '現在の手順のヒント',
   'firstRun.aria.summary': '現在のウィザード選択の概要',
   'firstRun.audio.asio.description': 'ASIO デバイスと安定したドライバーが必要です。',
   'firstRun.audio.asio.hint': 'プロ向け',
@@ -12849,6 +13006,23 @@ const jaJP: TranslationMap = {
   'firstRun.currentSelection': '現在の選択',
   'firstRun.defaultLocation': '既定の場所',
   'firstRun.description': 'ライブラリ、キャッシュ、スキャン、出力、外観、アカウント入口を順に確認します。迷ったら推奨値のままで大丈夫です。',
+  'firstRun.detail.accounts.later': 'アカウントは後からログインできます',
+  'firstRun.detail.accounts.local': 'ローカルライブラリはアカウント不要です',
+  'firstRun.detail.appearance.preview': 'テーマはすぐにプレビューされます',
+  'firstRun.detail.appearance.system': 'システム連動が手軽です',
+  'firstRun.detail.audio.advanced': '排他 / ASIO は安定した外部機器向け',
+  'firstRun.detail.audio.shared': '通常の機器は共有出力から',
+  'firstRun.detail.cache.changeLater': 'C ドライブが厳しければ別ドライブへ',
+  'firstRun.detail.cache.space': 'カバー、歌詞、MV キャッシュの場所です',
+  'firstRun.detail.library.safe': 'タグとカバーだけを読み取り、ファイルは移動しません',
+  'firstRun.detail.library.scan': 'チェックすると完了後すぐ索引を作ります',
+  'firstRun.detail.scan.balanced': 'バランスは普段の初回取り込み向け',
+  'firstRun.detail.scan.low': '低負荷は聴きながらのスキャン向け',
+  'firstRun.detail.summary.docs': '詳しい手順はいつでも文書で確認できます',
+  'firstRun.detail.summary.save': '完了後は基本設定だけを保存します',
+  'firstRun.docs.action': 'ECHO 文書を見る',
+  'firstRun.docs.description': 'インストール、ライブラリ、音声出力、トラブル対応を確認できます。',
+  'firstRun.docs.title': 'ECHO 公式文書',
   'firstRun.error.desktopBridgeCache': 'デスクトップブリッジを利用できないため、キャッシュ場所を選択できません。',
   'firstRun.error.desktopBridgeMusicFolder': 'デスクトップブリッジを利用できないため、音楽フォルダーを選択できません。',
   'firstRun.error.desktopBridgeSave': 'デスクトップブリッジを利用できないため、初回起動設定を保存できません。',
@@ -13025,19 +13199,19 @@ const jaJP: TranslationMap = {
   'mvPanel.action.dismissUnavailable': 'MV 利用不可の通知を閉じる',
   'mvPanel.diagnostics.title': 'MV 診断レポート',
   'mvPanel.notice.unavailable': 'MV を利用できません',
-  'mvPanel.status.bilibiliBlocked': 'Bilibili が一時的に解析を拒否しました。後で再試行するか外部で開いてください',
-  'mvPanel.status.databaseUnread': 'MV データベースを読み取れません',
-  'mvPanel.status.externalRequired': 'この MV は外部再生が必要です',
-  'mvPanel.status.inAppUnavailable': 'この MV はアプリ内で再生できません',
+  'mvPanel.status.bilibiliBlocked': 'Bilibili の直リンク解析が一時的に拒否されました。MV 設定で診断レポートを有効にする、Bilibili Cookie を設定する、または外部で開いてください。',
+  'mvPanel.status.databaseUnread': 'MV データベースを読み取れません。まずライブラリ復旧でデータベースを修復してください。修復前は MV 設定でローカル動画やカスタムリンクを一時的に紐付けできます。',
+  'mvPanel.status.externalRequired': 'この MV は外部再生が必要です。MV 設定の「外部で開く」を使うか、アプリ内候補に切り替えてください。',
+  'mvPanel.status.inAppUnavailable': 'この MV は一時的にアプリ内再生できません。最高画質を下げる、別のソースに切り替える、または外部で開いてください。',
   'mvPanel.status.loadFailed': 'MV の読み込みに失敗しました',
   'mvPanel.status.loading': 'MV を読み込み中',
-  'mvPanel.status.localUnsupported': 'ローカル動画形式に対応していません',
-  'mvPanel.status.missingUrl': '再生できる URL がありません',
-  'mvPanel.status.networkFailed': 'ネットワーク MV リクエストに失敗しました',
-  'mvPanel.status.notFound': '再生できる MV が見つかりません',
+  'mvPanel.status.localUnsupported': 'ローカル動画形式に対応していません。mp4/webm に変換するか、システムプレイヤーで外部再生してください。',
+  'mvPanel.status.missingUrl': '再生できる URL がありません。MV 設定で再検索、リンク貼り付け、またはローカル動画をインポートしてください。',
+  'mvPanel.status.networkFailed': 'ネットワーク MV リクエストに失敗しました。プロキシ/ネットワークを確認し、MV 設定で Bilibili/YouTube ソース切替や画質を下げて再試行してください。',
+  'mvPanel.status.notFound': '再生できる MV が見つかりません。MV 設定で手動検索、Bilibili/YouTube リンク貼り付け、またはローカル動画をインポートしてください。',
   'mvPanel.status.temporaryPlayback': '一時 MV を再生中。データベースの修復待ちです',
   'mvPanel.status.unavailable': 'MV を利用できません',
-  'mvPanel.status.videoFailed': '動画の読み込みに失敗しました',
+  'mvPanel.status.videoFailed': '動画の読み込みに失敗しました。別候補に切り替える、画質を下げる、または外部で開いてください。ローカル動画はブラウザ対応の mp4/webm を試してください。',
   'miniPlayer.action.close': 'ミニプレイヤーを閉じる',
   'miniPlayer.action.closeQueue': '再生キューを閉じる',
   'miniPlayer.action.closeShort': '閉じる',
@@ -14822,12 +14996,15 @@ const jaJP: TranslationMap = {
   'mvSettings.engine.quality': '画質',
   'mvSettings.engine.selected': '選択中',
   'mvSettings.engine.title': 'MV エンジン',
+  'mvSettings.error.actionFailed': 'MV 操作に失敗しました。後でもう一度試すか、ローカル動画/カスタムリンクに切り替えてください。',
+  'mvSettings.error.bilibiliBlocked': 'Bilibili 解析がブロックされました。MV 診断レポートを有効にし、Bilibili Cookie を設定するか外部で開いてください。元の理由：{reason}',
   'mvSettings.error.noActiveTrackBinding': 'MV の紐付けに使えるライブラリ曲が選択されていません',
   'mvSettings.error.noActiveTrackMatching': 'MV 検索に使えるライブラリ曲が選択されていません',
   'mvSettings.error.noActiveTrackNetworkSearch': 'ネットワーク MV 検索に使えるライブラリ曲が選択されていません',
   'mvSettings.error.databaseUnavailable': 'MV データベースを一時的に読み取れません。先にライブラリ復旧でデータベースを修復してください。',
   'mvSettings.error.noLocalCandidates': 'ローカル MV 候補が見つかりません',
   'mvSettings.error.noNetworkCandidates': 'ネットワーク MV 候補が見つかりません',
+  'mvSettings.error.networkFailed': 'ネットワーク MV リクエストに失敗しました。プロキシ/ネットワークを確認するか、ソース切替や最高画質を下げて再試行してください。元の理由：{reason}',
   'mvSettings.general.enabled': 'MV を有効化',
   'mvSettings.immersive.blur': '背景ぼかし',
   'mvSettings.immersive.autoScale': '自動ズーム',
@@ -14953,6 +15130,7 @@ const jaJP: TranslationMap = {
   'route.queue.description': '再生キュー。',
   'route.queue.label': 'キュー',
   'queue.action.clear': 'キューを空にする',
+  'queue.action.currentItem': '再生中',
   'queue.action.dragLabel': '{title} をドラッグ',
   'queue.action.dragTitle': 'ドラッグして並べ替え',
   'queue.action.generateFromHistory': '履歴からキューを作成',
@@ -14967,6 +15145,8 @@ const jaJP: TranslationMap = {
   'queue.action.playNext': '{title} を次に再生',
   'queue.action.remove': '{title} を削除',
   'queue.action.shuffle': 'シャッフル',
+  'queue.action.startFromHere': '{title} から再生',
+  'queue.action.startFromHereShort': 'ここから再生',
   'queue.count': '{count} 曲',
   'queue.empty.description': '曲を再生、キューに追加、または次に再生を選ぶとここに表示されます。',
   'queue.empty.title': '次に再生する曲はありません',
@@ -15078,7 +15258,35 @@ const jaJP: TranslationMap = {
   'streaming.tab.playlist': 'プレイリスト',
   'streaming.tab.track': '曲',
   'streaming.tabs.aria': '結果タイプ',
+  'settings.header.searchEmpty': '一致する設定がありません',
   'settings.header.searchPlaceholder': '設定を検索...',
+  'settings.status.aria': '設定ステータス概要',
+  'settings.status.asio.active': 'ASIO で出力中',
+  'settings.status.asio.available': '{count} 件の ASIO デバイスを検出',
+  'settings.status.asio.checking': '出力デバイスを確認中',
+  'settings.status.asio.missing': 'ASIO デバイスが見つかりません',
+  'settings.status.asio.title': 'ASIO',
+  'settings.status.asio.unsupported': 'このプラットフォームは ASIO 非対応です',
+  'settings.status.discord.checking': 'Discord の状態を確認中',
+  'settings.status.discord.connected': 'Rich Presence 接続済み',
+  'settings.status.discord.disabled': 'Discord ステータスはオフ',
+  'settings.status.discord.error': '接続エラー：{error}',
+  'settings.status.discord.notConnected': '有効ですが未接続です',
+  'settings.status.discord.notRunning': 'Discord が起動していません',
+  'settings.status.discord.title': 'Discord',
+  'settings.status.downloadTools.checking': 'yt-dlp / ffmpeg を確認中',
+  'settings.status.downloadTools.locked': 'ダウンロード機能は未解除です',
+  'settings.status.downloadTools.missing': '{tools} がありません',
+  'settings.status.downloadTools.ready': 'ダウンロードツール利用可',
+  'settings.status.downloadTools.title': 'DL ツール',
+  'settings.status.downloadTools.unavailable': 'この環境では確認できません',
+  'settings.status.eq.active': 'EQ が音を変更中：{preset}',
+  'settings.status.eq.checking': '再生経路の状態を待機中',
+  'settings.status.eq.clipping': 'DSP にクリッピングリスク',
+  'settings.status.eq.custom': 'カスタム',
+  'settings.status.eq.dspActive': 'DSP が音を変更中',
+  'settings.status.eq.off': 'EQ / DSP は未使用',
+  'settings.status.eq.title': 'EQ / DSP',
   'settings.nav.general.label': '一般',
   'settings.nav.general.description': '言語、ウィンドウ、基本動作',
   'settings.nav.playback.label': '再生',
@@ -16350,6 +16558,7 @@ const enUS: TranslationMap = {
   'firstRun.action.skip': 'Skip',
   'firstRun.action.skipWizard': 'Skip wizard',
   'firstRun.aria.steps': 'First-run steps',
+  'firstRun.aria.stepNotes': 'Current step notes',
   'firstRun.aria.summary': 'Current wizard selection summary',
   'firstRun.audio.asio.description': 'Requires an ASIO device and reliable driver.',
   'firstRun.audio.asio.hint': 'Pro',
@@ -16380,6 +16589,23 @@ const enUS: TranslationMap = {
   'firstRun.currentSelection': 'Current selection',
   'firstRun.defaultLocation': 'Default location',
   'firstRun.description': 'Review library, cache, scanning, output, appearance, and account entry points in order. Keep the recommended values when unsure.',
+  'firstRun.detail.accounts.later': 'Accounts can be connected later',
+  'firstRun.detail.accounts.local': 'Local library works without accounts',
+  'firstRun.detail.appearance.preview': 'Themes preview immediately',
+  'firstRun.detail.appearance.system': 'Follow system keeps it easy',
+  'firstRun.detail.audio.advanced': 'Exclusive / ASIO suits stable external gear',
+  'firstRun.detail.audio.shared': 'Start with shared output for regular devices',
+  'firstRun.detail.cache.changeLater': 'Move this off C: when space is tight',
+  'firstRun.detail.cache.space': 'Covers, lyrics, and MV cache live here',
+  'firstRun.detail.library.safe': 'Reads tags and covers without moving files',
+  'firstRun.detail.library.scan': 'Checked means indexing starts after finish',
+  'firstRun.detail.scan.balanced': 'Balanced fits most first imports',
+  'firstRun.detail.scan.low': 'Low impact is better while listening',
+  'firstRun.detail.summary.docs': 'Open the docs anytime for more guides',
+  'firstRun.detail.summary.save': 'Finish only saves base settings',
+  'firstRun.docs.action': 'Open ECHO docs',
+  'firstRun.docs.description': 'Install, library, audio output, and troubleshooting guides are here.',
+  'firstRun.docs.title': 'Official ECHO docs',
   'firstRun.error.desktopBridgeCache': 'Desktop bridge unavailable, so the cache location cannot be selected right now.',
   'firstRun.error.desktopBridgeMusicFolder': 'Desktop bridge unavailable, so the music folder cannot be selected right now.',
   'firstRun.error.desktopBridgeSave': 'Desktop bridge unavailable, so first-run settings cannot be saved right now.',
@@ -16556,19 +16782,19 @@ const enUS: TranslationMap = {
   'mvPanel.action.dismissUnavailable': 'Dismiss MV unavailable notice',
   'mvPanel.diagnostics.title': 'MV Diagnostics Report',
   'mvPanel.notice.unavailable': 'MV unavailable',
-  'mvPanel.status.bilibiliBlocked': 'Bilibili temporarily rejected playback parsing. Try again later or open externally',
-  'mvPanel.status.databaseUnread': 'MV database is unreadable',
-  'mvPanel.status.externalRequired': 'This MV requires external playback',
-  'mvPanel.status.inAppUnavailable': 'This MV cannot play inside the app',
+  'mvPanel.status.bilibiliBlocked': 'Bilibili temporarily blocked direct stream parsing. Enable the MV diagnostics report, add a Bilibili cookie, or open it externally for now.',
+  'mvPanel.status.databaseUnread': 'MV database is unreadable. Repair the library database first; until then, bind a local video or custom link in MV Settings.',
+  'mvPanel.status.externalRequired': 'This MV requires external playback. Use Open externally in MV Settings, or choose another in-app candidate.',
+  'mvPanel.status.inAppUnavailable': 'This MV cannot play in-app right now. Lower the max quality, switch source, or open it externally.',
   'mvPanel.status.loadFailed': 'MV failed to load',
   'mvPanel.status.loading': 'Loading MV',
-  'mvPanel.status.localUnsupported': 'Local video format is not supported',
-  'mvPanel.status.missingUrl': 'Missing playable URL',
-  'mvPanel.status.networkFailed': 'Network MV request failed',
-  'mvPanel.status.notFound': 'No playable MV found',
+  'mvPanel.status.localUnsupported': 'Local video format is not supported. Use mp4/webm, or open it with the system player.',
+  'mvPanel.status.missingUrl': 'Missing playable URL. Search again in MV Settings, paste a link manually, or import a local video.',
+  'mvPanel.status.networkFailed': 'Network MV request failed. Check proxy/network, or switch Bilibili/YouTube source and lower quality in MV Settings before retrying.',
+  'mvPanel.status.notFound': 'No playable MV found. Open MV Settings to search manually, paste a Bilibili/YouTube link, or import a local video.',
   'mvPanel.status.temporaryPlayback': 'Temporary MV playing; database still needs repair',
   'mvPanel.status.unavailable': 'MV unavailable',
-  'mvPanel.status.videoFailed': 'Video failed to load',
+  'mvPanel.status.videoFailed': 'Video failed to load. Try another candidate, lower quality, or open externally; for local videos, use browser-supported mp4/webm.',
   'miniPlayer.action.close': 'Close mini player',
   'miniPlayer.action.closeQueue': 'Close playback queue',
   'miniPlayer.action.closeShort': 'Close',
@@ -18353,12 +18579,15 @@ const enUS: TranslationMap = {
   'mvSettings.engine.quality': 'Quality',
   'mvSettings.engine.selected': 'Selected',
   'mvSettings.engine.title': 'MV Engine',
+  'mvSettings.error.actionFailed': 'MV action failed. Try again later, or switch to a local video/custom link for now.',
+  'mvSettings.error.bilibiliBlocked': 'Bilibili parsing was blocked. Enable the MV diagnostics report, add a Bilibili cookie, or open externally. Original reason: {reason}',
   'mvSettings.error.noActiveTrackBinding': 'No active library track for MV binding',
   'mvSettings.error.noActiveTrackMatching': 'No active library track for MV matching',
   'mvSettings.error.noActiveTrackNetworkSearch': 'No active library track for network MV search',
   'mvSettings.error.databaseUnavailable': 'MV database is temporarily unavailable. Repair the database in Library Recovery first.',
   'mvSettings.error.noLocalCandidates': 'No local MV candidates found',
   'mvSettings.error.noNetworkCandidates': 'No network MV candidates found',
+  'mvSettings.error.networkFailed': 'Network MV request failed. Check proxy/network, or switch source and lower max quality before retrying. Original reason: {reason}',
   'mvSettings.general.enabled': 'Enable MV',
   'mvSettings.immersive.blur': 'Glass blur',
   'mvSettings.immersive.autoScale': 'Auto scale',
@@ -18484,6 +18713,7 @@ const enUS: TranslationMap = {
   'route.queue.description': 'Playback queue.',
   'route.queue.label': 'Queue',
   'queue.action.clear': 'Clear queue',
+  'queue.action.currentItem': 'Now playing',
   'queue.action.dragLabel': 'Drag {title}',
   'queue.action.dragTitle': 'Drag to reorder',
   'queue.action.generateFromHistory': 'Generate from history',
@@ -18498,6 +18728,8 @@ const enUS: TranslationMap = {
   'queue.action.playNext': 'Play next {title}',
   'queue.action.remove': 'Remove {title}',
   'queue.action.shuffle': 'Shuffle',
+  'queue.action.startFromHere': 'Start from here: {title}',
+  'queue.action.startFromHereShort': 'Start here',
   'queue.count': '{count} tracks',
   'queue.empty.description': 'Play a song, add to queue, or choose play next to fill this list.',
   'queue.empty.title': 'No upcoming tracks',
@@ -18609,7 +18841,35 @@ const enUS: TranslationMap = {
   'streaming.tab.playlist': 'Playlists',
   'streaming.tab.track': 'Tracks',
   'streaming.tabs.aria': 'Result types',
+  'settings.header.searchEmpty': 'No matching settings',
   'settings.header.searchPlaceholder': 'Search settings...',
+  'settings.status.aria': 'Settings status overview',
+  'settings.status.asio.active': 'ASIO is active',
+  'settings.status.asio.available': '{count} ASIO device(s) detected',
+  'settings.status.asio.checking': 'Checking output devices',
+  'settings.status.asio.missing': 'No ASIO devices detected',
+  'settings.status.asio.title': 'ASIO',
+  'settings.status.asio.unsupported': 'ASIO is not supported on this platform',
+  'settings.status.discord.checking': 'Checking Discord status',
+  'settings.status.discord.connected': 'Rich Presence connected',
+  'settings.status.discord.disabled': 'Discord status is off',
+  'settings.status.discord.error': 'Connection issue: {error}',
+  'settings.status.discord.notConnected': 'Enabled, not connected yet',
+  'settings.status.discord.notRunning': 'Discord is not running',
+  'settings.status.discord.title': 'Discord',
+  'settings.status.downloadTools.checking': 'Checking yt-dlp / ffmpeg',
+  'settings.status.downloadTools.locked': 'Downloads are locked',
+  'settings.status.downloadTools.missing': 'Missing {tools}',
+  'settings.status.downloadTools.ready': 'Download tools ready',
+  'settings.status.downloadTools.title': 'Download tools',
+  'settings.status.downloadTools.unavailable': 'Cannot check tools in this runtime',
+  'settings.status.eq.active': 'EQ is changing sound: {preset}',
+  'settings.status.eq.checking': 'Waiting for playback status',
+  'settings.status.eq.clipping': 'DSP clipping risk',
+  'settings.status.eq.custom': 'Custom',
+  'settings.status.eq.dspActive': 'DSP is changing sound',
+  'settings.status.eq.off': 'EQ / DSP inactive',
+  'settings.status.eq.title': 'EQ / DSP',
   'settings.nav.general.label': 'General',
   'settings.nav.general.description': 'Language, window, and basic behavior',
   'settings.nav.playback.label': 'Playback',

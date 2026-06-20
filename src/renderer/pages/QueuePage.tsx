@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { DragEvent, MouseEvent } from 'react';
+import type { ChangeEvent, DragEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Disc3,
@@ -37,6 +37,7 @@ import { getPageScrollContainer } from '../components/ui/InfiniteScrollSentinel'
 const automixTemporarilyDisabled = false;
 const randomQueuePageSize = 96;
 const locateCurrentTrackEvent = 'app:locate-current-track';
+const queuePageDragItemsMime = 'application/x-echo-next-queue-items';
 const queuePagePerfWarnThresholdMs = 120;
 const queuePageFirstPaintWarnThresholdMs = 250;
 const queuePageDeferredTaskDelayMs = 120;
@@ -211,6 +212,15 @@ type SavedQueueSnapshot = {
   tracks: LibraryTrack[];
 };
 
+type QueueUndoSnapshot = {
+  label: string;
+  items: QueueItem[];
+  currentQueueId: string | null;
+  currentTrackId: string | null;
+  selectedQueueIds: string[];
+  removeAfterPlayQueueIds: string[];
+};
+
 const savedQueueStorageKey = 'echo-next:saved-queues';
 const maxSavedQueueSnapshots = 12;
 
@@ -278,7 +288,11 @@ export const QueuePage = (): JSX.Element => {
   const [savedQueues, setSavedQueues] = useState<SavedQueueSnapshot[]>([]);
   const [isGeneratingRandomQueue, setIsGeneratingRandomQueue] = useState(false);
   const [isGeneratingHistoryQueue, setIsGeneratingHistoryQueue] = useState(false);
-  const [draggedQueueId, setDraggedQueueId] = useState<string | null>(null);
+  const [selectedQueueIds, setSelectedQueueIds] = useState<Set<string>>(() => new Set());
+  const [lastSelectedQueueId, setLastSelectedQueueId] = useState<string | null>(null);
+  const [removeAfterPlayQueueIds, setRemoveAfterPlayQueueIds] = useState<Set<string>>(() => new Set());
+  const [undoSnapshot, setUndoSnapshot] = useState<QueueUndoSnapshot | null>(null);
+  const [draggedQueueIds, setDraggedQueueIds] = useState<string[]>([]);
   const [dropTargetQueueId, setDropTargetQueueId] = useState<string | null>(null);
   const [trackMenu, setTrackMenu] = useState<TrackMenuState | null>(null);
   const [osuTimingTrack, setOsuTimingTrack] = useState<LibraryTrack | null>(null);
@@ -291,6 +305,7 @@ export const QueuePage = (): JSX.Element => {
   const scrollMarginRef = useRef(0);
   const mountStartedAtRef = useRef(performance.now());
   const tagEditorCloseTimerRef = useRef<number | null>(null);
+  const previousCurrentQueueIdRef = useRef<string | null>(null);
   const currentIndex = useMemo(
     () =>
       measureQueuePageWork(
@@ -314,6 +329,16 @@ export const QueuePage = (): JSX.Element => {
     );
   }, [currentIndex, queue.items]);
   const upNextCount = currentIndex >= 0 ? Math.max(0, queue.items.length - currentIndex - 1) : queue.items.length;
+  const selectedItems = useMemo(
+    () => queue.items.filter((item) => selectedQueueIds.has(item.queueId)),
+    [queue.items, selectedQueueIds],
+  );
+  const selectedCount = selectedItems.length;
+  const selectedQueueIdList = useMemo(() => selectedItems.map((item) => item.queueId), [selectedItems]);
+  const areAllRowsSelected = rows.length > 0 && rows.every((item) => selectedQueueIds.has(item.queueId));
+  const canMoveSelectedAfterCurrent = selectedItems.some((item) => item.queueId !== queue.currentQueueId);
+  const selectedRemoveAfterPlayCount = selectedItems.filter((item) => removeAfterPlayQueueIds.has(item.queueId)).length;
+  const shouldUnmarkSelectedAfterPlay = selectedCount > 0 && selectedRemoveAfterPlayCount === selectedCount;
   const nowPlaying = queue.currentTrack;
   const isNowPlayingTemporary = nowPlaying?.isTemporary === true;
   const nowPlayingTags = qualityTags(nowPlaying);
@@ -437,6 +462,37 @@ export const QueuePage = (): JSX.Element => {
     return () => window.removeEventListener(locateCurrentTrackEvent, handleLocateCurrentTrack);
   }, [queue.currentQueueId, queue.currentTrackId, rowVirtualizer, rows]);
 
+  useEffect(() => {
+    const validQueueIds = new Set(queue.items.map((item) => item.queueId));
+
+    setSelectedQueueIds((current) => {
+      const next = new Set(Array.from(current).filter((queueId) => validQueueIds.has(queueId)));
+      return next.size === current.size ? current : next;
+    });
+    setRemoveAfterPlayQueueIds((current) => {
+      const next = new Set(Array.from(current).filter((queueId) => validQueueIds.has(queueId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [queue.items]);
+
+  useEffect(() => {
+    const previousQueueId = previousCurrentQueueIdRef.current;
+    const currentQueueId = queue.currentQueueId;
+    previousCurrentQueueIdRef.current = currentQueueId;
+
+    if (!previousQueueId || previousQueueId === currentQueueId || !removeAfterPlayQueueIds.has(previousQueueId)) {
+      return;
+    }
+
+    setRemoveAfterPlayQueueIds((current) => {
+      const next = new Set(current);
+      next.delete(previousQueueId);
+      return next;
+    });
+    queue.removeQueueItem(previousQueueId);
+    setActionNotice('已移除播放完成的队列项。');
+  }, [queue.currentQueueId, queue.removeQueueItem, removeAfterPlayQueueIds]);
+
   const repeatLabels: Record<RepeatMode, string> = useMemo(
     () => ({
       off: t('queue.repeat.off'),
@@ -511,6 +567,131 @@ export const QueuePage = (): JSX.Element => {
     [updateSavedQueues],
   );
 
+  const captureQueueUndo = useCallback(
+    (label: string): void => {
+      setUndoSnapshot({
+        label,
+        items: queue.items,
+        currentQueueId: queue.currentQueueId,
+        currentTrackId: queue.currentTrackId,
+        selectedQueueIds: Array.from(selectedQueueIds),
+        removeAfterPlayQueueIds: Array.from(removeAfterPlayQueueIds),
+      });
+    },
+    [queue.currentQueueId, queue.currentTrackId, queue.items, removeAfterPlayQueueIds, selectedQueueIds],
+  );
+
+  const handleUndoQueueAction = useCallback((): void => {
+    if (!undoSnapshot) {
+      return;
+    }
+
+    queue.restoreQueueItems(undoSnapshot.items, {
+      currentQueueId: undoSnapshot.currentQueueId,
+      currentTrackId: undoSnapshot.currentTrackId,
+    });
+    setSelectedQueueIds(new Set(undoSnapshot.selectedQueueIds));
+    setRemoveAfterPlayQueueIds(new Set(undoSnapshot.removeAfterPlayQueueIds));
+    setUndoSnapshot(null);
+    setActionError(null);
+    setActionNotice(`已撤销：${undoSnapshot.label}`);
+  }, [queue, undoSnapshot]);
+
+  const handleToggleVisibleSelection = useCallback((): void => {
+    setSelectedQueueIds((current) => {
+      const next = new Set(current);
+      if (areAllRowsSelected) {
+        rows.forEach((item) => next.delete(item.queueId));
+      } else {
+        rows.forEach((item) => next.add(item.queueId));
+      }
+      return next;
+    });
+    setLastSelectedQueueId(null);
+  }, [areAllRowsSelected, rows]);
+
+  const handleToggleQueueSelection = useCallback(
+    (event: ChangeEvent<HTMLInputElement>, item: QueueItem): void => {
+      const checked = event.currentTarget.checked;
+      const shiftKey = (event.nativeEvent as globalThis.MouseEvent).shiftKey === true;
+
+      setSelectedQueueIds((current) => {
+        const next = new Set(current);
+        const rowIds = rows.map((row) => row.queueId);
+        const lastIndex = lastSelectedQueueId ? rowIds.indexOf(lastSelectedQueueId) : -1;
+        const currentIndex = rowIds.indexOf(item.queueId);
+
+        if (shiftKey && lastIndex >= 0 && currentIndex >= 0) {
+          const [start, end] = lastIndex < currentIndex ? [lastIndex, currentIndex] : [currentIndex, lastIndex];
+          for (const queueId of rowIds.slice(start, end + 1)) {
+            if (checked) {
+              next.add(queueId);
+            } else {
+              next.delete(queueId);
+            }
+          }
+        } else if (checked) {
+          next.add(item.queueId);
+        } else {
+          next.delete(item.queueId);
+        }
+
+        return next;
+      });
+      setLastSelectedQueueId(item.queueId);
+    },
+    [lastSelectedQueueId, rows],
+  );
+
+  const handleClearSelection = useCallback((): void => {
+    setSelectedQueueIds(new Set());
+    setLastSelectedQueueId(null);
+  }, []);
+
+  const handleRemoveSelected = useCallback((): void => {
+    if (selectedCount === 0) {
+      return;
+    }
+
+    captureQueueUndo(`移除 ${selectedCount} 首`);
+    queue.removeQueueItems(selectedQueueIdList);
+    setSelectedQueueIds(new Set());
+    setLastSelectedQueueId(null);
+    setActionError(null);
+    setActionNotice(`已移除 ${selectedCount} 首，可撤销。`);
+  }, [captureQueueUndo, queue, selectedCount, selectedQueueIdList]);
+
+  const handleMoveSelectedAfterCurrent = useCallback((): void => {
+    if (selectedCount === 0 || !canMoveSelectedAfterCurrent) {
+      return;
+    }
+
+    captureQueueUndo(`临时插播 ${selectedCount} 首`);
+    queue.moveQueueItemsAfterCurrent(selectedQueueIdList);
+    setActionError(null);
+    setActionNotice(`已把 ${selectedCount} 首插到当前播放后面。`);
+  }, [canMoveSelectedAfterCurrent, captureQueueUndo, queue, selectedCount, selectedQueueIdList]);
+
+  const handleToggleSelectedRemoveAfterPlay = useCallback((): void => {
+    if (selectedCount === 0) {
+      return;
+    }
+
+    setRemoveAfterPlayQueueIds((current) => {
+      const next = new Set(current);
+      for (const queueId of selectedQueueIdList) {
+        if (shouldUnmarkSelectedAfterPlay) {
+          next.delete(queueId);
+        } else {
+          next.add(queueId);
+        }
+      }
+      return next;
+    });
+    setActionError(null);
+    setActionNotice(shouldUnmarkSelectedAfterPlay ? '已取消播放后移除标记。' : `已标记 ${selectedCount} 首：播放后自动移除。`);
+  }, [selectedCount, selectedQueueIdList, shouldUnmarkSelectedAfterPlay]);
+
   const handleSaveQueueAsPlaylist = useCallback(async (): Promise<void> => {
     const library = window.echo?.library;
     if (!library?.createPlaylist || !library.addTracksToPlaylist) {
@@ -580,7 +761,7 @@ export const QueuePage = (): JSX.Element => {
   }, []);
 
   const handleTrackContextMenu = useCallback(
-    (event: MouseEvent<HTMLElement>, track: LibraryTrack): void => {
+    (event: ReactMouseEvent<HTMLElement>, track: LibraryTrack): void => {
       event.preventDefault();
       event.stopPropagation();
       handleOpenTrackMenu(track, { x: event.clientX, y: event.clientY });
@@ -589,7 +770,7 @@ export const QueuePage = (): JSX.Element => {
   );
 
   const handleNowPlayingMoreClick = useCallback(
-    (event: MouseEvent<HTMLButtonElement>): void => {
+    (event: ReactMouseEvent<HTMLButtonElement>): void => {
       if (!nowPlaying) {
         return;
       }
@@ -886,11 +1067,18 @@ export const QueuePage = (): JSX.Element => {
     }
   }, [queue, t]);
 
-  const handleDragStart = useCallback((event: DragEvent<HTMLDivElement>, item: QueueItem): void => {
-    setDraggedQueueId(item.queueId);
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', item.queueId);
-  }, []);
+  const handleDragStart = useCallback(
+    (event: DragEvent<HTMLDivElement>, item: QueueItem): void => {
+      const queueIds = selectedQueueIds.has(item.queueId) && selectedCount > 1
+        ? selectedQueueIdList
+        : [item.queueId];
+      setDraggedQueueIds(queueIds);
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData(queuePageDragItemsMime, JSON.stringify(queueIds));
+      event.dataTransfer.setData('text/plain', item.queueId);
+    },
+    [selectedCount, selectedQueueIdList, selectedQueueIds],
+  );
 
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>, item: QueueItem): void => {
     event.preventDefault();
@@ -901,29 +1089,50 @@ export const QueuePage = (): JSX.Element => {
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>, targetItem: QueueItem): void => {
       event.preventDefault();
-      const sourceQueueId = draggedQueueId ?? event.dataTransfer.getData('text/plain');
+      const serializedQueueIds = event.dataTransfer.getData(queuePageDragItemsMime);
+      const fallbackQueueId = event.dataTransfer.getData('text/plain');
+      let sourceQueueIds: string[] = draggedQueueIds;
 
-      setDraggedQueueId(null);
+      if (serializedQueueIds) {
+        try {
+          const parsed = JSON.parse(serializedQueueIds) as unknown;
+          if (Array.isArray(parsed)) {
+            sourceQueueIds = parsed.filter((queueId): queueId is string => typeof queueId === 'string');
+          }
+        } catch {
+          sourceQueueIds = [];
+        }
+      }
+
+      if (sourceQueueIds.length === 0 && fallbackQueueId) {
+        sourceQueueIds = [fallbackQueueId];
+      }
+
+      setDraggedQueueIds([]);
       setDropTargetQueueId(null);
 
-      if (!sourceQueueId || sourceQueueId === targetItem.queueId) {
+      const movableQueueIds = Array.from(new Set(sourceQueueIds)).filter((queueId) =>
+        queue.items.some((item) => item.queueId === queueId),
+      );
+
+      if (movableQueueIds.length === 0 || movableQueueIds.includes(targetItem.queueId)) {
         return;
       }
 
-      const fromIndex = queue.items.findIndex((item) => item.queueId === sourceQueueId);
       const toIndex = queue.items.findIndex((item) => item.queueId === targetItem.queueId);
 
-      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+      if (toIndex < 0) {
         return;
       }
 
-      queue.moveQueueItem(fromIndex, toIndex);
+      captureQueueUndo(`移动 ${movableQueueIds.length} 首`);
+      queue.moveQueueItemsToIndex(movableQueueIds, toIndex);
     },
-    [draggedQueueId, queue],
+    [captureQueueUndo, draggedQueueIds, queue],
   );
 
   const handleDragEnd = useCallback((): void => {
-    setDraggedQueueId(null);
+    setDraggedQueueIds([]);
     setDropTargetQueueId(null);
   }, []);
 
@@ -1057,6 +1266,32 @@ export const QueuePage = (): JSX.Element => {
         </button>
       </section>
 
+      <section className="queue-selection-bar" aria-label="队列批量操作">
+        <button className="queue-tool-button" type="button" disabled={rows.length === 0} onClick={handleToggleVisibleSelection}>
+          {areAllRowsSelected ? '取消选择列表' : '选择列表'}
+        </button>
+        <span>{selectedCount > 0 ? `已选择 ${selectedCount} 首` : '未选择歌曲'}</span>
+        <button className="queue-tool-button" type="button" disabled={selectedCount === 0 || !canMoveSelectedAfterCurrent} onClick={handleMoveSelectedAfterCurrent}>
+          <ListPlus size={16} />
+          临时插播
+        </button>
+        <button className="queue-tool-button" type="button" disabled={selectedCount === 0} onClick={handleToggleSelectedRemoveAfterPlay}>
+          {shouldUnmarkSelectedAfterPlay ? '取消播完移除' : '播放后移除'}
+        </button>
+        <button className="queue-tool-button danger" type="button" disabled={selectedCount === 0} onClick={handleRemoveSelected}>
+          <Trash2 size={16} />
+          移除所选
+        </button>
+        <button className="queue-tool-button" type="button" disabled={selectedCount === 0} onClick={handleClearSelection}>
+          <X size={15} />
+          清除选择
+        </button>
+        <button className="queue-tool-button" type="button" disabled={!undoSnapshot} onClick={handleUndoQueueAction}>
+          <RotateCcw size={16} />
+          撤销
+        </button>
+      </section>
+
       {savedQueues.length > 0 ? (
         <section className="queue-saved-panel" aria-label="已保存队列">
           <div className="queue-section-heading">
@@ -1101,6 +1336,8 @@ export const QueuePage = (): JSX.Element => {
               {virtualRows.map((virtualRow) => {
                 const item = rows[virtualRow.index];
                 const isCurrent = item.queueId === queue.currentQueueId;
+                const isSelected = selectedQueueIds.has(item.queueId);
+                const removeAfterPlay = removeAfterPlayQueueIds.has(item.queueId);
                 const rowQualityTags = qualityTags(item.track);
                 return (
                   <div
@@ -1113,8 +1350,10 @@ export const QueuePage = (): JSX.Element => {
                     <div
                       className="queue-row"
                       data-current={isCurrent}
-                      data-dragging={draggedQueueId === item.queueId}
-                      data-drop-target={dropTargetQueueId === item.queueId && draggedQueueId !== item.queueId}
+                      data-selected={isSelected ? 'true' : undefined}
+                      data-remove-after-play={removeAfterPlay ? 'true' : undefined}
+                      data-dragging={draggedQueueIds.includes(item.queueId)}
+                      data-drop-target={dropTargetQueueId === item.queueId && !draggedQueueIds.includes(item.queueId)}
                       draggable
                       role="listitem"
                       onContextMenu={(event) => handleTrackContextMenu(event, item.track)}
@@ -1127,12 +1366,21 @@ export const QueuePage = (): JSX.Element => {
                       <span className="queue-drag-handle" aria-label={t('queue.action.dragLabel', { title: item.track.title })} title={t('queue.action.dragTitle')}>
                         <GripVertical size={17} />
                       </span>
+                      <label className="queue-row-select" onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          aria-label={`选择 ${item.track.title}`}
+                          onChange={(event) => handleToggleQueueSelection(event, item)}
+                        />
+                      </label>
                       <div className="queue-row-cover" data-empty={!item.track.coverThumb}>
                         {item.track.coverThumb ? <img alt="" src={item.track.coverThumb} /> : <Music2 size={19} />}
                       </div>
                       <div className="queue-row-copy">
                         <strong>{item.track.title}</strong>
                         <span>{item.track.artist || item.track.albumArtist || t('queue.unknownArtist')}</span>
+                        {removeAfterPlay ? <em className="queue-row-chip">播完移除</em> : null}
                       </div>
                       <div className="queue-row-quality" aria-label={t('queue.now.quality')}>
                         {rowQualityTags.length > 0 ? rowQualityTags.map((tag) => <span key={`${item.queueId}-${tag}`}>{tag}</span>) : <span>{t('queue.quality.unknown')}</span>}
@@ -1141,13 +1389,15 @@ export const QueuePage = (): JSX.Element => {
                       <span className="queue-row-duration">{formatDuration(item.track.duration)}</span>
                       <div className="queue-row-actions" onDoubleClick={(event) => event.stopPropagation()}>
                         <button
-                          className="queue-icon-button"
+                          className="queue-row-start-button"
                           type="button"
-                          aria-label={t('queue.action.play', { title: item.track.title })}
-                          title={t('queue.action.play', { title: item.track.title })}
+                          aria-label={isCurrent ? t('queue.action.currentItem') : t('queue.action.startFromHere', { title: item.track.title })}
+                          title={isCurrent ? t('queue.action.currentItem') : t('queue.action.startFromHere', { title: item.track.title })}
+                          disabled={isCurrent}
                           onClick={() => void runQueueAction(() => queue.playQueueItem(item.queueId))}
                         >
                           <Play size={16} fill="currentColor" />
+                          <span>{isCurrent ? t('queue.action.currentItem') : t('queue.action.startFromHereShort')}</span>
                         </button>
                         <button
                           className="queue-icon-button"
