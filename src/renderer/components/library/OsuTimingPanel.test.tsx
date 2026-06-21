@@ -145,4 +145,37 @@ describe('OsuTimingPanel', () => {
     expect(screen.getByText('128 BPM')).toBeTruthy();
     expect(screen.getByText('12,468.75,4,1,0,100,1,0')).toBeTruthy();
   });
+
+  it('lets users override BPM, offset, and meter before copying editor bookmarks', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(<OsuTimingPanel track={makeTrack({ bpm: 120, bpmConfidence: 0.9, beatOffsetMs: 250, analysisStatus: 'complete' })} isOpen onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('手动 BPM'), { target: { value: '180' } });
+    fireEvent.change(screen.getByLabelText('手动 offset'), { target: { value: '500' } });
+    fireEvent.click(screen.getByRole('button', { name: '3/4' }));
+
+    expect(screen.getByText('500,333.333333,3,1,0,100,1,0')).toBeTruthy();
+    expect(screen.getAllByText('333.333 ms').length).toBeGreaterThan(0);
+    expect(screen.getByText('1000 ms')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '复制书签行' }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith('Bookmarks: 500,1500,2500,3500,4500,5500,6500,7500,8500,9500,10500,11500,12500,13500,14500,15500'),
+    );
+  });
+
+  it('blocks generated timing when manual BPM is invalid', () => {
+    render(<OsuTimingPanel track={makeTrack({ bpm: 128, bpmConfidence: 0.9, beatOffsetMs: 0, analysisStatus: 'complete' })} isOpen onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('手动 BPM'), { target: { value: '0' } });
+
+    expect(screen.getByText('手动 BPM 需要是大于 0 的数字。')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '复制 timing 行' })).toHaveProperty('disabled', true);
+  });
 });

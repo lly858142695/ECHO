@@ -48,7 +48,7 @@ describe('OsuArchiveImport', () => {
     const root = makeTempRoot();
     const archivePath = writeArchive(root, {
       'unicode.osu':
-        '[General]\nAudioFilename: audio/main.mp3\n\n[Metadata]\nTitle: ASCII Title\nTitleUnicode: 曲名\nArtist: ASCII Artist\nArtistUnicode: アーティスト\nCreator: Mapper\nVersion: Hard\nBeatmapSetID: 2492872\n\n[Events]\n0,0,"images/bg image.png",0,0\n',
+        '[General]\nAudioFilename: audio/main.mp3\n\n[Metadata]\nTitle: ASCII Title\nTitleUnicode: 曲名\nArtist: ASCII Artist\nArtistUnicode: アーティスト\nCreator: Mapper\nVersion: Hard\nBeatmapID: 5318008\nBeatmapSetID: 2492872\n\n[Events]\n0,0,"images/bg image.png",0,0\n',
       'audio/main.mp3': new Uint8Array([1, 2, 3]),
       'images/bg image.png': new Uint8Array([255, 216, 1, 2]),
     });
@@ -74,6 +74,7 @@ describe('OsuArchiveImport', () => {
           artist: 'アーティスト',
           album: 'osu! beatmapset 2492872',
           albumArtist: 'アーティスト',
+          comment: 'mapid:5318008',
         }),
       }),
     );

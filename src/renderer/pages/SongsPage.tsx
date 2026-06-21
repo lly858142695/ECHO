@@ -27,6 +27,7 @@ import { isPlaybackCancellationError, usePlaybackQueue } from '../stores/Playbac
 import { openAlbumDetailForTrack } from '../utils/albumNavigation';
 import { openArtistDetailForTrack } from '../utils/artistNavigation';
 import { resolvePlaylistForTrackAdd } from '../utils/appPrompt';
+import { dispatchAudioErrorNotice } from '../utils/audioErrorNotice';
 import {
   getLibraryDatabaseRecoveryMessage,
   isLibraryDatabaseCorruptionError,
@@ -810,7 +811,7 @@ export const SongsPage = (): JSX.Element => {
           return;
         }
 
-        setError(playError instanceof Error ? playError.message : String(playError));
+        dispatchAudioErrorNotice(playError);
       }
     },
     [playTrack, queueSource, tracks],

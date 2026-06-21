@@ -2791,8 +2791,6 @@ export const PlayerBar = ({
     }
   }, [state, trackId]);
 
-  const displayError = formatAudioHostError(error);
-
   const commitSeek = useCallback(
     async (nextPositionSeconds: number): Promise<void> => {
       const playback = window.echo?.playback;
@@ -3068,7 +3066,6 @@ export const PlayerBar = ({
           positionSeconds={positionSeconds}
           onCommit={(nextPositionSeconds) => void commitSeek(nextPositionSeconds)}
         />
-        {displayError ? <span className="player-error">{displayError}</span> : null}
       </div>
 
       <div className="output-status">

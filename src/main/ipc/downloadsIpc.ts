@@ -37,11 +37,64 @@ const getDownloadsIpcService = (): ReturnType<typeof getDownloadService> => {
   }
 };
 
-const assertDownloadsUnlocked = (): void => {
+const parseOsuBeatmapsetId = (value: string): string | null => {
+  try {
+    const url = new URL(value.trim());
+    const host = url.hostname.toLowerCase();
+    if (host !== 'osu.ppy.sh' && host !== 'www.osu.ppy.sh') {
+      return null;
+    }
+
+    const match = url.pathname.match(/^\/(?:beatmapsets|s)\/(\d+)(?:\/|$)/u);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const downloadsUnlocked = (): boolean => {
   if (getDownloadFeatureUnlockService().getStatus().unlocked === true) {
-    return;
+    return true;
   }
   if (getAppSettings().downloadsFeatureUnlocked === true) {
+    return true;
+  }
+
+  return false;
+};
+
+const isOsuOnlySearchRequest = (request: string | DownloadSearchRequest): boolean =>
+  typeof request !== 'string' && request.provider === 'osu';
+
+const assertDownloadsOrOsuRequest = (request: {
+  url?: string;
+  options?: CreateDownloadUrlJobOptions;
+  search?: string | DownloadSearchRequest;
+}): void => {
+  const osuBeatmapsetUrl = typeof request.url === 'string' && Boolean(parseOsuBeatmapsetId(request.url));
+  if (request.options?.providerLock === 'osu') {
+    if (osuBeatmapsetUrl) {
+      return;
+    }
+    throw new Error('osu_downloader_only_supports_beatmapset_links');
+  }
+
+  if (typeof request.search !== 'string' && request.search?.providerLock === 'osu') {
+    if (request.search.provider === 'osu') {
+      return;
+    }
+    throw new Error('osu_downloader_only_supports_osu_search');
+  }
+
+  if (downloadsUnlocked()) {
+    return;
+  }
+
+  const osuOnlyRequest =
+    osuBeatmapsetUrl ||
+    (request.search !== undefined && isOsuOnlySearchRequest(request.search));
+
+  if (osuOnlyRequest) {
     return;
   }
 
@@ -51,11 +104,10 @@ const assertDownloadsUnlocked = (): void => {
 export const registerDownloadsIpc = (): void => {
   ipcMain.handle(IpcChannels.DownloadsGetJobs, (): DownloadJob[] => getDownloadsIpcService().getJobs());
   ipcMain.handle(IpcChannels.DownloadsCreateUrlJob, (_event, url: unknown, options?: CreateDownloadUrlJobOptions): DownloadJob => {
-    assertDownloadsUnlocked();
-
     if (typeof url !== 'string') {
       throw new Error('download URL must be a string');
     }
+    assertDownloadsOrOsuRequest({ url, options });
 
     return getDownloadsIpcService().createUrlJob(url, options);
   });
@@ -65,7 +117,7 @@ export const registerDownloadsIpc = (): void => {
   ipcMain.handle(IpcChannels.DownloadsSetSettings, (_event, patch: Partial<DownloadSettings>): DownloadSettings =>
     getDownloadsIpcService().setSettings(patch),
   );
-  ipcMain.handle(IpcChannels.DownloadsChooseOutputDirectory, async (): Promise<DownloadSettings | null> => {
+  ipcMain.handle(IpcChannels.DownloadsChooseOutputDirectory, async (_event, target?: 'default' | 'osu'): Promise<DownloadSettings | null> => {
     const result = await dialog.showOpenDialog({
       title: '选择下载文件夹',
       properties: ['openDirectory', 'createDirectory'],
@@ -75,10 +127,10 @@ export const registerDownloadsIpc = (): void => {
       return null;
     }
 
-    return getDownloadsIpcService().setSettings({ outputDirectory: result.filePaths[0] });
+    return getDownloadsIpcService().setSettings(target === 'osu' ? { osuOutputDirectory: result.filePaths[0] } : { outputDirectory: result.filePaths[0] });
   });
   ipcMain.handle(IpcChannels.DownloadsSearch, (_event, request: string | DownloadSearchRequest): Promise<DownloadSearchResponse> => {
-    assertDownloadsUnlocked();
+    assertDownloadsOrOsuRequest({ search: request });
     return getDownloadsIpcService().search(request);
   });
   ipcMain.handle(IpcChannels.DownloadsCheckTools, (): Promise<DownloadToolsStatus> => getDownloadsIpcService().checkTools());

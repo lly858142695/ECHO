@@ -171,6 +171,7 @@ import type {
 import type {
   DiagnosticConsoleEntry,
   DiagnosticConsoleSnapshot,
+  DiagnosticMemoryPressureEvent,
   DiagnosticPerformanceStallPayload,
   LastCrashSummary,
   RendererErrorPayload,
@@ -756,11 +757,15 @@ export type EchoApi = {
     exportDiagnosticsZip: () => Promise<string>;
     openDiagnosticsFolder: () => Promise<string>;
     openCrashReport: () => Promise<string>;
+    openCrashTextReport: () => Promise<string>;
     openAudioCrashReport: () => Promise<string>;
+    openAudioCrashTextReport: () => Promise<string>;
+    openMemoryPressureReport: () => Promise<string>;
     relaunchApp: () => Promise<void>;
     openDevConsole: () => Promise<void>;
     getDevConsoleSnapshot?: () => Promise<DiagnosticConsoleSnapshot>;
     onDevConsoleEntry?: (handler: (entry: DiagnosticConsoleEntry) => void) => () => void;
+    onMemoryPressure?: (handler: (event: DiagnosticMemoryPressureEvent) => void) => () => void;
     reportRendererError: (payload: RendererErrorPayload) => Promise<void>;
     reportPerformanceStall: (payload: DiagnosticPerformanceStallPayload) => Promise<void>;
   };
@@ -771,7 +776,7 @@ export type EchoApi = {
     clearCompleted: () => Promise<DownloadJob[]>;
     getSettings: () => Promise<DownloadSettings>;
     setSettings: (patch: Partial<DownloadSettings>) => Promise<DownloadSettings>;
-    chooseOutputDirectory: () => Promise<DownloadSettings | null>;
+    chooseOutputDirectory: (target?: 'default' | 'osu') => Promise<DownloadSettings | null>;
     search: (request: string | DownloadSearchRequest) => Promise<DownloadSearchResponse>;
     checkTools: () => Promise<DownloadToolsStatus>;
     onJobsUpdated: (handler: (jobs: DownloadJob[]) => void) => () => void;

@@ -70,3 +70,51 @@ export type DiagnosticPerformanceStallPayload = {
   url?: string;
   details?: Record<string, unknown>;
 };
+
+export type DiagnosticMemoryProcessMetric = {
+  pid: number;
+  type: string;
+  name?: string;
+  serviceName?: string;
+  sandboxed?: boolean;
+  creationTime?: number;
+  workingSetBytes: number;
+  peakWorkingSetBytes: number;
+  privateBytes?: number;
+  cpuPercent?: number;
+};
+
+export type DiagnosticCurrentProcessMemory = {
+  pid: number;
+  rssBytes: number;
+  heapTotalBytes: number;
+  heapUsedBytes: number;
+  externalBytes: number;
+  arrayBuffersBytes: number;
+};
+
+export type DiagnosticMemorySnapshot = {
+  timestamp: string;
+  thresholdBytes: number;
+  totalWorkingSetBytes: number;
+  totalPrivateBytes?: number;
+  processCount: number;
+  source: 'electron-app-metrics' | 'process-memory-usage';
+  currentProcess: DiagnosticCurrentProcessMemory;
+  metrics: DiagnosticMemoryProcessMetric[];
+  topProcesses: DiagnosticMemoryProcessMetric[];
+  appVersion: string;
+  platform: string;
+  arch: string;
+};
+
+export type DiagnosticMemoryPressureEvent = {
+  timestamp: string;
+  thresholdBytes: number;
+  totalWorkingSetBytes: number;
+  totalPrivateBytes?: number;
+  processCount: number;
+  topProcessType: string;
+  topProcessWorkingSetBytes: number;
+  reportPath: string;
+};

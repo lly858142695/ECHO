@@ -10,12 +10,14 @@ import type {
   DownloadSearchScope,
   DownloadSettings,
   DownloadToolsStatus,
+  OsuDownloadMirror,
 } from '../../shared/types/downloads';
 import { EmptyState } from '../components/ui/EmptyState';
 import { translateFallback, useOptionalI18n } from '../i18n/I18nProvider';
 import type { TranslationKey } from '../i18n/locales';
 import { getDownloadsBridge } from '../utils/echoBridge';
 import { isImeComposingKeyEvent } from '../utils/imeInput';
+import { formatUserFacingError } from '../utils/userFacingError';
 
 const terminalStatuses = new Set<DownloadJobStatus>(['completed', 'failed', 'cancelled']);
 const runningStatuses = new Set<DownloadJobStatus>(['queued', 'probing', 'downloading', 'extracting_audio', 'importing', 'binding_mv']);
@@ -25,6 +27,8 @@ const defaultSettings: DownloadSettings = {
   importToLibrary: true,
   bindMvAfterImport: true,
   outputDirectory: null,
+  osuOutputDirectory: null,
+  osuDownloadMirror: 'auto',
 };
 
 const statusLabelKeys: Record<DownloadJobStatus, TranslationKey> = {
@@ -54,11 +58,62 @@ const searchScopeLabels: Record<DownloadSearchScope, string> = {
   osu: 'osu!',
 };
 
+const osuDownloadMirrorOptions: Array<{ value: OsuDownloadMirror; label: string; detail: string }> = [
+  { value: 'auto', label: '自动', detail: '官方 -> Sayobot -> Catboy -> NeriNyan' },
+  { value: 'official', label: 'osu! official', detail: '官方源' },
+  { value: 'sayobot', label: 'Sayobot', detail: '镜像站' },
+  { value: 'catboy', label: 'Catboy / Mino', detail: '镜像站' },
+  { value: 'nerinyan', label: 'NeriNyan', detail: '镜像站' },
+];
+
 const searchScopes: DownloadSearchScope[] = ['all', 'youtube', 'bilibili', 'osu'];
 
-type Translate = (key: TranslationKey, options?: Record<string, string | number>) => string;
+type DownloadsPageProps = {
+  variant?: 'all' | 'osu';
+};
 
-const formatError = (error: unknown, t: Translate): string => (error instanceof Error ? error.message : String(error || t('downloads.error.operationFailed')));
+type Translate = (key: TranslationKey, options?: Record<string, string | number>) => string;
+type DownloadNotice = {
+  tone: 'info' | 'success' | 'error';
+  title: string;
+  detail?: string | null;
+  jobId?: string | null;
+};
+
+const formatError = (error: unknown, t: Translate): string =>
+  formatUserFacingError(error, { context: 'downloads', fallback: t('downloads.error.operationFailed') });
+
+const isOsuBeatmapsetUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value.trim());
+    const host = url.hostname.toLowerCase();
+    return (host === 'osu.ppy.sh' || host === 'www.osu.ppy.sh') && /^\/(?:beatmapsets|s)\/\d+(?:\/|$)/u.test(url.pathname);
+  } catch {
+    return false;
+  }
+};
+
+const splitOsuDisplayTitle = (value: string): { title: string; artist: string | null } => {
+  const parts = value.split(/\s+-\s+/u).map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) {
+    return { title: value, artist: null };
+  }
+
+  const [artist, ...titleParts] = parts;
+  return {
+    artist: artist || null,
+    title: titleParts.join(' - ') || value,
+  };
+};
+
+const formatSearchDate = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 10);
+};
 
 const formatSearchProviderError = (error: string, t: Translate): string => {
   const message = error.replace(/\s+/gu, ' ').trim();
@@ -129,7 +184,15 @@ const ToolStatus = ({ label, ready, detail }: { label: string; ready: boolean; d
   </span>
 );
 
-const JobRow = ({ job, onCancel }: { job: DownloadJob; onCancel: (jobId: string) => void }): JSX.Element => {
+const JobRow = ({
+  job,
+  onCancel,
+  compact = false,
+}: {
+  job: DownloadJob;
+  onCancel: (jobId: string) => void;
+  compact?: boolean;
+}): JSX.Element => {
   const t = useOptionalI18n()?.t ?? translateFallback;
   const canCancel = runningStatuses.has(job.status);
   const duration = formatDuration(job.durationSeconds);
@@ -137,6 +200,28 @@ const JobRow = ({ job, onCancel }: { job: DownloadJob; onCancel: (jobId: string)
   const total = formatBytes(job.totalBytes);
   const speed = formatBytes(job.speedBytesPerSecond);
   const eta = formatEta(job.etaSeconds);
+  const progressLabel = `${Math.round(job.progress)}%`;
+  const artist = job.artist?.trim() || null;
+  const compactTitle = artist && job.title?.startsWith(`${artist} - `) ? job.title.slice(artist.length + 3) : (job.title ?? 'Untitled download');
+
+  if (compact) {
+    return (
+      <article className="download-job-row download-job-row--compact" data-status={job.status}>
+        <div className="download-job-main">
+          <div className="download-job-copy">
+            <strong>{compactTitle}</strong>
+            {artist ? <span>{artist}</span> : null}
+          </div>
+        </div>
+
+        <div className="download-job-progress">
+          <div className="download-progress-track" aria-label={progressLabel}>
+            <span style={{ width: `${job.progress}%` }} />
+          </div>
+        </div>
+      </article>
+    );
+  }
 
   return (
     <article className="download-job-row" data-status={job.status}>
@@ -159,7 +244,7 @@ const JobRow = ({ job, onCancel }: { job: DownloadJob; onCancel: (jobId: string)
         </div>
         <div className="download-job-meta">
           <span>{t(statusLabelKeys[job.status])}</span>
-          <em>{Math.round(job.progress)}%</em>
+          <em>{progressLabel}</em>
         </div>
         <div className="download-job-meta">
           <span>{downloaded && total ? `${downloaded} / ${total}` : downloaded ?? t('downloads.job.waitingProgress')}</span>
@@ -188,6 +273,7 @@ const SearchResultRow = ({
   const duration = formatDuration(result.durationSeconds);
   const t = useOptionalI18n()?.t ?? translateFallback;
   const views = formatViews(result.viewCount, t);
+  const publishedAt = formatSearchDate(result.publishedAt);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
 
   useEffect(() => {
@@ -210,7 +296,7 @@ const SearchResultRow = ({
         </div>
         <strong title={result.title}>{result.title}</strong>
         <span title={result.uploader ?? undefined}>{result.uploader ?? t('downloads.search.unknownUploader')}</span>
-        <small>{[views, result.publishedAt].filter(Boolean).join(' · ') || result.webpageUrl}</small>
+        <small>{[views, publishedAt].filter(Boolean).join(' · ') || result.webpageUrl}</small>
       </div>
       <button className="downloads-action-button" type="button" disabled={joined} onClick={() => onDownload(result)}>
         <Download size={15} />
@@ -220,31 +306,62 @@ const SearchResultRow = ({
   );
 };
 
-export const DownloadsPage = (): JSX.Element => {
+export const DownloadsPage = ({ variant = 'all' }: DownloadsPageProps): JSX.Element => {
   const t = useOptionalI18n()?.t ?? translateFallback;
+  const osuOnly = variant === 'osu';
   const [url, setUrl] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const [searchScope, setSearchScope] = useState<DownloadSearchScope>('all');
+  const [searchScope, setSearchScope] = useState<DownloadSearchScope>(osuOnly ? 'osu' : 'all');
   const [searchResponse, setSearchResponse] = useState<DownloadSearchResponse>({ results: [], errors: [] });
+  const [submittedSearch, setSubmittedSearch] = useState<{ query: string; scope: DownloadSearchScope } | null>(null);
   const [joinedResultKeys, setJoinedResultKeys] = useState<Set<string>>(() => new Set());
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
   const [settings, setSettings] = useState<DownloadSettings>(defaultSettings);
   const [tools, setTools] = useState<DownloadToolsStatus | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<DownloadNotice | null>(null);
   const [busyAction, setBusyAction] = useState<'create' | 'clear' | 'tools' | 'folder' | 'search' | null>(null);
   const [needsFolder, setNeedsFolder] = useState(false);
   const jobStatusRef = useRef<Map<string, DownloadJobStatus>>(new Map());
 
   const bridge = getDownloadsBridge();
-  const completedCount = useMemo(() => jobs.filter((job) => terminalStatuses.has(job.status)).length, [jobs]);
+  const activeSearchScope: DownloadSearchScope = osuOnly ? 'osu' : searchScope;
+  const visibleJobs = useMemo(() => (osuOnly ? jobs.filter((job) => job.provider === 'osu') : jobs), [jobs, osuOnly]);
+  const completedCount = useMemo(() => visibleJobs.filter((job) => terminalStatuses.has(job.status)).length, [visibleJobs]);
   const visibleSearchResults =
-    searchScope === 'all' ? searchResponse.results : searchResponse.results.filter((result) => result.provider === searchScope);
+    activeSearchScope === 'all' ? searchResponse.results : searchResponse.results.filter((result) => result.provider === activeSearchScope);
   const visibleSearchErrors =
-    searchScope === 'all' ? searchResponse.errors : searchResponse.errors.filter((item) => item.provider === searchScope);
+    activeSearchScope === 'all' ? searchResponse.errors : searchResponse.errors.filter((item) => item.provider === activeSearchScope);
+  const currentSearchQuery = searchInput.trim();
+  const searchResultsAreCurrent = Boolean(submittedSearch && submittedSearch.query === currentSearchQuery && submittedSearch.scope === activeSearchScope);
+  const displayedSearchResults = searchResultsAreCurrent ? visibleSearchResults : [];
   const searchProviderErrors = visibleSearchErrors
     .map((item) => t('downloads.search.providerErrorItem', { provider: providerLabels[item.provider], error: formatSearchProviderError(item.error, t) }))
     .join(t('punctuation.clauseSeparator'));
+  const displayedSearchProviderErrors = searchResultsAreCurrent ? searchProviderErrors : '';
+  const requiredOutputDirectory = osuOnly ? settings.osuOutputDirectory : settings.outputDirectory;
+  const noticeJob = useMemo(() => (notice?.jobId ? jobs.find((job) => job.id === notice.jobId) ?? null : null), [jobs, notice?.jobId]);
+  const noticeProgress = noticeJob ? Math.max(0, Math.min(100, Math.round(noticeJob.progress))) : null;
+  const noticeStatus = noticeJob ? t(statusLabelKeys[noticeJob.status]) : null;
+  const noticeDetail = noticeJob ? (noticeJob.artist ? `${noticeJob.artist} - ${noticeJob.title ?? noticeJob.sourceUrl}` : noticeJob.title ?? noticeJob.sourceUrl) : notice?.detail;
+  const noticeTitle = noticeJob && terminalStatuses.has(noticeJob.status) ? t(statusLabelKeys[noticeJob.status]) : notice?.title;
+
+  const showNotice = useCallback((nextNotice: DownloadNotice): void => {
+    setNotice(nextNotice);
+  }, []);
+
+  useEffect(() => {
+    if (!notice) {
+      return undefined;
+    }
+    if (noticeJob && !terminalStatuses.has(noticeJob.status)) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setNotice(null), 3600);
+    return () => window.clearTimeout(timer);
+  }, [notice, noticeJob]);
 
   const refreshJobs = useCallback(async (): Promise<void> => {
     if (!bridge?.getJobs) {
@@ -257,9 +374,11 @@ export const DownloadsPage = (): JSX.Element => {
       jobStatusRef.current = new Map(nextJobs.map((job) => [job.id, job.status]));
       setJobs(nextJobs);
     } catch (jobsError) {
-      setError(formatError(jobsError, t));
+      const nextError = formatError(jobsError, t);
+      setError(nextError);
+      showNotice({ tone: 'error', title: t('downloads.error.operationFailed'), detail: nextError });
     }
-  }, [bridge, t]);
+  }, [bridge, showNotice, t]);
 
   const refreshTools = useCallback(async (): Promise<void> => {
     if (!bridge?.checkTools) {
@@ -271,15 +390,18 @@ export const DownloadsPage = (): JSX.Element => {
     try {
       setTools(await bridge.checkTools());
     } catch (toolsError) {
-      setError(formatError(toolsError, t));
+      const nextError = formatError(toolsError, t);
+      setError(nextError);
+      showNotice({ tone: 'error', title: t('downloads.error.operationFailed'), detail: nextError });
     } finally {
       setBusyAction(null);
     }
-  }, [bridge, t]);
+  }, [bridge, showNotice, t]);
 
   useEffect(() => {
     if (!bridge) {
       setError(t('downloads.error.ipcUnavailable'));
+      showNotice({ tone: 'error', title: t('downloads.error.operationFailed'), detail: t('downloads.error.ipcUnavailable') });
       return undefined;
     }
 
@@ -288,18 +410,24 @@ export const DownloadsPage = (): JSX.Element => {
     void refreshTools();
 
     return bridge.onJobsUpdated?.((nextJobs) => {
+      let completedNotice: { title: string; detail: string; jobId: string } | null = null;
       for (const job of nextJobs) {
         const previousStatus = jobStatusRef.current.get(job.id);
         if (previousStatus && previousStatus !== 'completed' && job.status === 'completed') {
-          setMessage(t('downloads.message.completed', { title: job.title ?? job.sourceUrl }));
+          const completedMessage = t('downloads.message.completed', { title: job.title ?? job.sourceUrl });
+          setMessage(completedMessage);
+          completedNotice = { title: t('downloads.status.completed'), detail: completedMessage, jobId: job.id };
           setError(null);
           break;
         }
       }
       jobStatusRef.current = new Map(nextJobs.map((job) => [job.id, job.status]));
       setJobs(nextJobs);
+      if (completedNotice) {
+        showNotice({ tone: 'success', title: completedNotice.title, detail: completedNotice.detail, jobId: completedNotice.jobId });
+      }
     });
-  }, [bridge, refreshJobs, refreshTools, t]);
+  }, [bridge, refreshJobs, refreshTools, showNotice, t]);
 
   const createDownload = useCallback(
     async (sourceUrl: string, options: CreateDownloadUrlJobOptions = {}): Promise<DownloadJob | null> => {
@@ -307,29 +435,39 @@ export const DownloadsPage = (): JSX.Element => {
         return null;
       }
 
-      if (!settings.outputDirectory) {
+      if (!requiredOutputDirectory) {
         setNeedsFolder(true);
-        setError(t('downloads.folder.required'));
+        setError(osuOnly ? '请选择 osu 下载文件夹' : t('downloads.folder.required'));
         setMessage(null);
+        showNotice({ tone: 'error', title: osuOnly ? '请选择 osu 下载文件夹' : t('downloads.folder.required') });
         return null;
       }
 
       const job = await bridge.createUrlJob(sourceUrl, {
         ...options,
         importToLibrary: settings.importToLibrary,
-        bindMvAfterImport: settings.bindMvAfterImport,
+        bindMvAfterImport: osuOnly ? false : settings.bindMvAfterImport,
+        ...(osuOnly ? { providerLock: 'osu' as const } : {}),
       });
       jobStatusRef.current.set(job.id, job.status);
       setJobs((current) => (current.some((item) => item.id === job.id) ? current : [job, ...current]));
       setNeedsFolder(false);
+      showNotice({ tone: 'info', title: t('downloads.message.queued'), detail: job.title ?? job.sourceUrl, jobId: job.id });
       return job;
     },
-    [bridge, settings, t],
+    [bridge, osuOnly, requiredOutputDirectory, settings.bindMvAfterImport, settings.importToLibrary, showNotice, t],
   );
 
   const handleCreate = useCallback(async (): Promise<void> => {
     const trimmedUrl = url.trim();
     if (!trimmedUrl) {
+      return;
+    }
+    if (osuOnly && !isOsuBeatmapsetUrl(trimmedUrl)) {
+      const nextError = 'osu downloader 只能下载 osu! beatmapset 链接。';
+      setMessage(null);
+      setError(nextError);
+      showNotice({ tone: 'error', title: nextError });
       return;
     }
 
@@ -341,16 +479,17 @@ export const DownloadsPage = (): JSX.Element => {
       const job = await createDownload(trimmedUrl);
       if (job) {
         setUrl('');
-        setMessage(t('downloads.message.queued'));
+        setMessage(osuOnly ? null : t('downloads.message.queued'));
       }
     } catch (createError) {
       const nextError = formatError(createError, t);
       setNeedsFolder(nextError.includes(t('downloads.folder.required')));
       setError(nextError);
+      showNotice({ tone: 'error', title: t('downloads.error.operationFailed'), detail: nextError });
     } finally {
       setBusyAction(null);
     }
-  }, [createDownload, t, url]);
+  }, [createDownload, osuOnly, showNotice, t, url]);
 
   const handleSearch = useCallback(async (): Promise<void> => {
     const query = searchInput.trim();
@@ -362,16 +501,24 @@ export const DownloadsPage = (): JSX.Element => {
     setError(null);
     setMessage(null);
     setSearchResponse({ results: [], errors: [] });
+    setSubmittedSearch({ query, scope: activeSearchScope });
     setJoinedResultKeys(new Set());
 
     try {
-      setSearchResponse(await bridge.search({ query, limitPerProvider: 10, provider: searchScope }));
+      setSearchResponse(await bridge.search({
+        query,
+        limitPerProvider: 10,
+        provider: activeSearchScope,
+        ...(osuOnly ? { providerLock: 'osu' as const } : {}),
+      }));
     } catch (searchError) {
-      setError(formatError(searchError, t));
+      const nextError = formatError(searchError, t);
+      setError(nextError);
+      showNotice({ tone: 'error', title: t('downloads.error.operationFailed'), detail: nextError });
     } finally {
       setBusyAction(null);
     }
-  }, [bridge, searchInput, searchScope, t]);
+  }, [activeSearchScope, bridge, osuOnly, searchInput, showNotice, t]);
 
   const handleDownloadSearchResult = useCallback(
     async (result: DownloadSearchResult): Promise<void> => {
@@ -379,8 +526,10 @@ export const DownloadsPage = (): JSX.Element => {
       setMessage(null);
 
       try {
+        const osuTitle = osuOnly && result.provider === 'osu' ? splitOsuDisplayTitle(result.title) : null;
         const job = await createDownload(result.webpageUrl, {
-          title: result.title,
+          title: osuTitle?.title ?? result.title,
+          ...(osuTitle?.artist ? { artist: osuTitle.artist } : {}),
           coverUrl: result.thumbnailUrl,
           webpageUrl: result.webpageUrl,
         });
@@ -389,17 +538,19 @@ export const DownloadsPage = (): JSX.Element => {
         }
 
         setJoinedResultKeys((current) => new Set([...current, searchResultKey(result)]));
-        setMessage(t('downloads.message.resultQueued', { title: result.title }));
+        const queuedMessage = t('downloads.message.resultQueued', { title: result.title });
+        setMessage(osuOnly ? null : queuedMessage);
       } catch (downloadError) {
         const nextError = formatError(downloadError, t);
         setNeedsFolder(nextError.includes(t('downloads.folder.required')));
         setError(nextError);
+        showNotice({ tone: 'error', title: t('downloads.error.operationFailed'), detail: nextError });
       }
     },
-    [createDownload, t],
+    [createDownload, osuOnly, showNotice, t],
   );
 
-  const handleChooseDirectory = useCallback(async (): Promise<void> => {
+  const handleChooseDirectory = useCallback(async (target: 'default' | 'osu' = 'default'): Promise<void> => {
     if (!bridge?.chooseOutputDirectory) {
       return;
     }
@@ -407,17 +558,19 @@ export const DownloadsPage = (): JSX.Element => {
     setBusyAction('folder');
     setError(null);
     try {
-      const nextSettings = await bridge.chooseOutputDirectory();
+      const nextSettings = await bridge.chooseOutputDirectory(target);
       if (nextSettings) {
         setSettings(nextSettings);
         setNeedsFolder(false);
       }
     } catch (directoryError) {
-      setError(formatError(directoryError, t));
+      const nextError = formatError(directoryError, t);
+      setError(nextError);
+      showNotice({ tone: 'error', title: t('downloads.error.operationFailed'), detail: nextError });
     } finally {
       setBusyAction(null);
     }
-  }, [bridge, t]);
+  }, [bridge, showNotice, t]);
 
   const handleCancel = useCallback(
     async (jobId: string): Promise<void> => {
@@ -431,10 +584,12 @@ export const DownloadsPage = (): JSX.Element => {
           setJobs((current) => current.map((item) => (item.id === job.id ? job : item)));
         }
       } catch (cancelError) {
-        setError(formatError(cancelError, t));
+        const nextError = formatError(cancelError, t);
+        setError(nextError);
+        showNotice({ tone: 'error', title: t('downloads.error.operationFailed'), detail: nextError });
       }
     },
-    [bridge, t],
+    [bridge, showNotice, t],
   );
 
   const handleClearCompleted = useCallback(async (): Promise<void> => {
@@ -449,11 +604,13 @@ export const DownloadsPage = (): JSX.Element => {
       setJobs(await bridge.clearCompleted());
       setMessage(t('downloads.message.clearedTerminal'));
     } catch (clearError) {
-      setError(formatError(clearError, t));
+      const nextError = formatError(clearError, t);
+      setError(nextError);
+      showNotice({ tone: 'error', title: t('downloads.error.operationFailed'), detail: nextError });
     } finally {
       setBusyAction(null);
     }
-  }, [bridge, t]);
+  }, [bridge, showNotice, t]);
 
   const patchSettings = useCallback(
     async (patch: Partial<DownloadSettings>): Promise<void> => {
@@ -473,13 +630,57 @@ export const DownloadsPage = (): JSX.Element => {
     [bridge, settings, t],
   );
 
+  const queuePanel = (
+    <section className="downloads-panel downloads-queue-panel">
+      <div className="downloads-section-title downloads-section-title--split">
+        <div>
+          {osuOnly ? null : <Download size={17} />}
+          <h2>{t('downloads.queue.title')}</h2>
+        </div>
+        {osuOnly ? null : <button className="downloads-action-button" type="button" disabled={completedCount === 0 || busyAction === 'clear'} onClick={() => void handleClearCompleted()}>
+          {t('downloads.action.clearCompleted')}
+        </button>}
+      </div>
+
+      <div className="download-job-list">
+        {visibleJobs.length === 0 ? (
+          <EmptyState icon={Download} title={t('downloads.empty.queue.title')} description={t('downloads.empty.queue.description')} meta="Idle" />
+        ) : (
+          visibleJobs.map((job) => <JobRow compact={osuOnly} job={job} key={job.id} onCancel={(jobId) => void handleCancel(jobId)} />)
+        )}
+      </div>
+    </section>
+  );
+
   return (
-    <div className="downloads-page">
+    <div className={`downloads-page${osuOnly ? ' downloads-page--osu' : ''}`}>
+      {notice ? (
+        <div className="downloads-toast" data-tone={notice.tone} role={notice.tone === 'error' ? 'alert' : 'status'}>
+          <span>
+            {notice.tone === 'error' ? <XCircle size={16} /> : notice.tone === 'success' ? <CheckCircle2 size={16} /> : <Download size={16} />}
+          </span>
+          <div>
+            <strong>{noticeTitle}</strong>
+            {noticeDetail ? <small>{noticeDetail}</small> : null}
+            {noticeProgress !== null ? (
+              <div className="downloads-toast-progress">
+                <div>
+                  <span>{noticeStatus}</span>
+                  <em>{noticeProgress}%</em>
+                </div>
+                <div className="download-progress-track" aria-label={`${noticeProgress}%`}>
+                  <span style={{ width: `${noticeProgress}%` }} />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <header className="downloads-header">
         <div>
           <span className="panel-kicker">Downloader</span>
-          <h1>{t('downloads.title')}</h1>
-          <p>{t('downloads.description')}</p>
+          <h1>{osuOnly ? 'osu downloader' : t('downloads.title')}</h1>
+          <p>{osuOnly ? 'Download osu! beatmaps as tagged MP3 files.' : t('downloads.description')}</p>
         </div>
         <button className="downloads-action-button" type="button" onClick={() => void refreshTools()} disabled={busyAction === 'tools'}>
           <Wrench size={16} />
@@ -497,7 +698,7 @@ export const DownloadsPage = (): JSX.Element => {
             <input
               type="url"
               value={url}
-              placeholder={t('downloads.url.placeholder')}
+              placeholder={osuOnly ? 'Paste an osu! beatmapset link' : t('downloads.url.placeholder')}
               onChange={(event) => setUrl(event.target.value)}
               onKeyDown={(event) => {
                 if (!isImeComposingKeyEvent(event) && event.key === 'Enter') {
@@ -518,7 +719,7 @@ export const DownloadsPage = (): JSX.Element => {
           <div className="downloads-section-title">
             <Search size={17} />
             <h2>{t('downloads.search.title')}</h2>
-            <div className="download-search-scope" role="group" aria-label={t('downloads.search.scopeAria')}>
+            {osuOnly ? null : <div className="download-search-scope" role="group" aria-label={t('downloads.search.scopeAria')}>
               {searchScopes.map((scope) => (
                 <button
                   type="button"
@@ -528,16 +729,17 @@ export const DownloadsPage = (): JSX.Element => {
                   onClick={() => {
                     setSearchScope(scope);
                     setSearchResponse({ results: [], errors: [] });
+                    setSubmittedSearch(null);
                     setJoinedResultKeys(new Set());
                   }}
                 >
                   {searchScopeLabels[scope]}
                 </button>
               ))}
-            </div>
+            </div>}
           </div>
           <form
-            className="downloads-url-box"
+            className="downloads-search-form"
             onSubmit={(event) => {
               event.preventDefault();
               void handleSearch();
@@ -548,7 +750,7 @@ export const DownloadsPage = (): JSX.Element => {
               <input
                 type="search"
                 value={searchInput}
-                placeholder={t('downloads.search.placeholder')}
+                placeholder={osuOnly ? 'Search osu! beatmap name, artist, mapper, or id' : t('downloads.search.placeholder')}
                 onChange={(event) => setSearchInput(event.target.value)}
               />
             </label>
@@ -558,14 +760,14 @@ export const DownloadsPage = (): JSX.Element => {
             </button>
           </form>
 
-          {searchProviderErrors ? <p className="downloads-note">{t('downloads.search.providerErrors', { errors: searchProviderErrors })}</p> : null}
+          {displayedSearchProviderErrors ? <p className="downloads-note">{t('downloads.search.providerErrors', { errors: displayedSearchProviderErrors })}</p> : null}
           <div className="download-search-results">
             {busyAction === 'search' ? (
-              <EmptyState icon={Search} title={t('downloads.empty.searching.title')} description={t('downloads.empty.searching.description', { scope: searchScopeLabels[searchScope] })} meta="Searching" />
-            ) : visibleSearchResults.length === 0 && searchInput.trim() ? (
+              <EmptyState icon={Search} title={t('downloads.empty.searching.title')} description={t('downloads.empty.searching.description', { scope: searchScopeLabels[activeSearchScope] })} meta="Searching" />
+            ) : searchResultsAreCurrent && displayedSearchResults.length === 0 && currentSearchQuery ? (
               <EmptyState icon={Search} title={t('downloads.empty.noResults.title')} description={t('downloads.empty.noResults.description')} meta="Search" />
             ) : (
-              visibleSearchResults.map((result) => (
+              displayedSearchResults.map((result) => (
                 <SearchResultRow
                   result={result}
                   key={searchResultKey(result)}
@@ -577,25 +779,7 @@ export const DownloadsPage = (): JSX.Element => {
           </div>
         </section>
 
-        <section className="downloads-panel downloads-queue-panel">
-          <div className="downloads-section-title downloads-section-title--split">
-            <div>
-              <Download size={17} />
-              <h2>{t('downloads.queue.title')}</h2>
-            </div>
-            <button className="downloads-action-button" type="button" disabled={completedCount === 0 || busyAction === 'clear'} onClick={() => void handleClearCompleted()}>
-              {t('downloads.action.clearCompleted')}
-            </button>
-          </div>
-
-          <div className="download-job-list">
-            {jobs.length === 0 ? (
-              <EmptyState icon={Download} title={t('downloads.empty.queue.title')} description={t('downloads.empty.queue.description')} meta="Idle" />
-            ) : (
-              jobs.map((job) => <JobRow job={job} key={job.id} onCancel={(jobId) => void handleCancel(jobId)} />)
-            )}
-          </div>
-        </section>
+        {osuOnly ? null : queuePanel}
 
         <aside className="downloads-side">
           <section className="downloads-panel" data-attention={needsFolder}>
@@ -607,22 +791,43 @@ export const DownloadsPage = (): JSX.Element => {
               <em>{t('downloads.settings.audioStrategy')}</em>
               <strong>{t('downloads.settings.bestAvailable')}</strong>
             </div>
+            {osuOnly ? (
+              <div className="download-setting-field">
+                <span>osu 镜像站</span>
+                <div className="download-mirror-options" role="group" aria-label="osu 镜像站">
+                  {osuDownloadMirrorOptions.map((option) => (
+                    <button
+                      type="button"
+                      key={option.value}
+                      aria-pressed={settings.osuDownloadMirror === option.value}
+                      className="download-mirror-option"
+                      onClick={() => void patchSettings({ osuDownloadMirror: option.value })}
+                    >
+                      <strong>{option.label}</strong>
+                      <em>{option.detail}</em>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="download-output-path">
-              <em>{t('downloads.settings.outputDirectory')}</em>
-              <strong title={formatPath(settings.outputDirectory, t)}>{formatPath(settings.outputDirectory, t)}</strong>
+              <em>{osuOnly ? 'osu 下载文件夹' : t('downloads.settings.outputDirectory')}</em>
+              <strong title={osuOnly ? formatPath(settings.osuOutputDirectory, t) : formatPath(settings.outputDirectory, t)}>
+                {osuOnly ? formatPath(settings.osuOutputDirectory, t) : formatPath(settings.outputDirectory, t)}
+              </strong>
             </div>
-            <button className="downloads-action-button" type="button" onClick={() => void handleChooseDirectory()} disabled={busyAction === 'folder'}>
+            <button className="downloads-action-button" type="button" onClick={() => void handleChooseDirectory(osuOnly ? 'osu' : 'default')} disabled={busyAction === 'folder'}>
               <FolderOpen size={16} />
-              {settings.outputDirectory ? t('downloads.action.changeFolder') : t('downloads.action.chooseFolder')}
+              {(osuOnly ? settings.osuOutputDirectory : settings.outputDirectory) ? t('downloads.action.changeFolder') : t('downloads.action.chooseFolder')}
             </button>
             <label className="download-toggle-row">
               <input type="checkbox" checked={settings.importToLibrary} onChange={(event) => void patchSettings({ importToLibrary: event.target.checked })} />
               <span>{t('downloads.settings.importToLibrary')}</span>
             </label>
-            <label className="download-toggle-row">
+            {osuOnly ? null : <label className="download-toggle-row">
               <input type="checkbox" checked={settings.bindMvAfterImport} onChange={(event) => void patchSettings({ bindMvAfterImport: event.target.checked })} />
               <span>{t('downloads.settings.bindMvAfterImport')}</span>
-            </label>
+            </label>}
           </section>
 
           <section className="downloads-panel">
@@ -631,10 +836,11 @@ export const DownloadsPage = (): JSX.Element => {
               <h2>{t('downloads.tools.title')}</h2>
             </div>
             <div className="download-tools-list">
-              <ToolStatus label="yt-dlp" ready={tools?.ytDlpAvailable ?? false} detail={tools?.ytDlpVersion ?? t('downloads.tools.notBundled')} />
+              {osuOnly ? null : <ToolStatus label="yt-dlp" ready={tools?.ytDlpAvailable ?? false} detail={tools?.ytDlpVersion ?? t('downloads.tools.notBundled')} />}
               <ToolStatus label="ffmpeg" ready={tools?.ffmpegAvailable ?? false} detail={tools?.ffmpegPath ?? t('downloads.tools.notDetected')} />
             </div>
           </section>
+          {osuOnly ? queuePanel : null}
         </aside>
       </main>
     </div>

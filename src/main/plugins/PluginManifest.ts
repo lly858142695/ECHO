@@ -196,13 +196,16 @@ const normalizePanel = (value: unknown): PluginPanelContribution | null => {
   const input = value as Partial<PluginPanelContribution>;
   try {
     const path = normalizeRelativeFilePath(input.path, 'panel path', null);
-    if (!path || extname(path).toLowerCase() !== '.html') {
+    const hostPage = input.hostPage === 'osu-downloader' ? input.hostPage : undefined;
+    if ((!path || extname(path).toLowerCase() !== '.html') && !hostPage) {
       return null;
     }
     return {
       id: normalizePluginId(input.id),
       title: asText(input.title, 'panel title', 80),
-      path,
+      ...(path ? { path } : {}),
+      ...(hostPage ? { hostPage } : {}),
+      placement: input.placement === 'utility' ? 'utility' : 'main',
     };
   } catch {
     return null;

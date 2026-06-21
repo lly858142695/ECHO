@@ -221,8 +221,37 @@ type QueueUndoSnapshot = {
   removeAfterPlayQueueIds: string[];
 };
 
+type QueueActionNotice = {
+  id: string;
+  title: string;
+  detail?: string;
+  trackTitles?: string[];
+  canUndo?: boolean;
+};
+
 const savedQueueStorageKey = 'echo-next:saved-queues';
 const maxSavedQueueSnapshots = 12;
+let queueActionNoticeId = 0;
+
+const createQueueActionNotice = (
+  title: string,
+  options: Omit<QueueActionNotice, 'id' | 'title'> = {},
+): QueueActionNotice => {
+  queueActionNoticeId += 1;
+  return {
+    id: `queue-action-${queueActionNoticeId}`,
+    title,
+    ...options,
+  };
+};
+
+const queueActionTrackTitles = (items: QueueItem[], limit = 4): string[] =>
+  items.slice(0, limit).map((item) => item.track.title);
+
+const queueActionTrackDetail = (items: QueueItem[], label = '首'): string | undefined => {
+  const hiddenCount = Math.max(0, items.length - 4);
+  return hiddenCount > 0 ? `还有 ${hiddenCount} ${label}` : undefined;
+};
 
 const isSavedQueueSnapshot = (value: unknown): value is SavedQueueSnapshot => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -284,7 +313,7 @@ export const QueuePage = (): JSX.Element => {
   const { t } = useI18n();
   const queue = usePlaybackQueue();
   const [actionError, setActionError] = useState<string | null>(null);
-  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<QueueActionNotice | null>(null);
   const [savedQueues, setSavedQueues] = useState<SavedQueueSnapshot[]>([]);
   const [isGeneratingRandomQueue, setIsGeneratingRandomQueue] = useState(false);
   const [isGeneratingHistoryQueue, setIsGeneratingHistoryQueue] = useState(false);
@@ -292,6 +321,7 @@ export const QueuePage = (): JSX.Element => {
   const [lastSelectedQueueId, setLastSelectedQueueId] = useState<string | null>(null);
   const [removeAfterPlayQueueIds, setRemoveAfterPlayQueueIds] = useState<Set<string>>(() => new Set());
   const [undoSnapshot, setUndoSnapshot] = useState<QueueUndoSnapshot | null>(null);
+  const [recentQueueIds, setRecentQueueIds] = useState<Set<string>>(() => new Set());
   const [draggedQueueIds, setDraggedQueueIds] = useState<string[]>([]);
   const [dropTargetQueueId, setDropTargetQueueId] = useState<string | null>(null);
   const [trackMenu, setTrackMenu] = useState<TrackMenuState | null>(null);
@@ -306,6 +336,7 @@ export const QueuePage = (): JSX.Element => {
   const mountStartedAtRef = useRef(performance.now());
   const tagEditorCloseTimerRef = useRef<number | null>(null);
   const previousCurrentQueueIdRef = useRef<string | null>(null);
+  const recentQueueTimerRef = useRef<number | null>(null);
   const currentIndex = useMemo(
     () =>
       measureQueuePageWork(
@@ -428,6 +459,14 @@ export const QueuePage = (): JSX.Element => {
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (recentQueueTimerRef.current !== null) {
+        window.clearTimeout(recentQueueTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const logFirstPaint = (): void => {
       logQueuePagePerf(
         'firstPaint',
@@ -484,14 +523,17 @@ export const QueuePage = (): JSX.Element => {
       return;
     }
 
+    const removedItem = queue.items.find((item) => item.queueId === previousQueueId) ?? null;
     setRemoveAfterPlayQueueIds((current) => {
       const next = new Set(current);
       next.delete(previousQueueId);
       return next;
     });
     queue.removeQueueItem(previousQueueId);
-    setActionNotice('已移除播放完成的队列项。');
-  }, [queue.currentQueueId, queue.removeQueueItem, removeAfterPlayQueueIds]);
+    setActionNotice(createQueueActionNotice('已移除播放完成的队列项', {
+      trackTitles: removedItem ? [removedItem.track.title] : undefined,
+    }));
+  }, [queue.currentQueueId, queue.items, queue.removeQueueItem, removeAfterPlayQueueIds]);
 
   const repeatLabels: Record<RepeatMode, string> = useMemo(
     () => ({
@@ -501,6 +543,25 @@ export const QueuePage = (): JSX.Element => {
     }),
     [t],
   );
+
+  const flashQueueItems = useCallback((queueIds: string[]): void => {
+    if (recentQueueTimerRef.current !== null) {
+      window.clearTimeout(recentQueueTimerRef.current);
+      recentQueueTimerRef.current = null;
+    }
+
+    const nextIds = Array.from(new Set(queueIds));
+    if (nextIds.length === 0) {
+      setRecentQueueIds(new Set());
+      return;
+    }
+
+    setRecentQueueIds(new Set(nextIds));
+    recentQueueTimerRef.current = window.setTimeout(() => {
+      setRecentQueueIds(new Set());
+      recentQueueTimerRef.current = null;
+    }, 1400);
+  }, []);
 
   const runQueueAction = useCallback(async (action: () => Promise<unknown> | unknown): Promise<void> => {
     try {
@@ -538,7 +599,7 @@ export const QueuePage = (): JSX.Element => {
 
     updateSavedQueues((current) => [snapshot, ...current]);
     setActionError(null);
-    setActionNotice(`已保存队列：${name}`);
+    setActionNotice(createQueueActionNotice('已保存队列', { detail: name }));
   }, [nowPlaying?.title, queue.currentTrackId, queue.items, updateSavedQueues]);
 
   const handleRestoreSavedQueue = useCallback(
@@ -553,7 +614,7 @@ export const QueuePage = (): JSX.Element => {
         source: { type: 'manual', label: `保存队列：${snapshot.name}` },
       });
       setActionError(null);
-      setActionNotice(`已恢复队列：${snapshot.name}`);
+      setActionNotice(createQueueActionNotice('已恢复队列', { detail: snapshot.name }));
     },
     [queue],
   );
@@ -562,7 +623,7 @@ export const QueuePage = (): JSX.Element => {
     (snapshotId: string): void => {
       updateSavedQueues((current) => current.filter((snapshot) => snapshot.id !== snapshotId));
       setActionError(null);
-      setActionNotice('已删除队列快照。');
+      setActionNotice(createQueueActionNotice('已删除队列快照'));
     },
     [updateSavedQueues],
   );
@@ -594,8 +655,9 @@ export const QueuePage = (): JSX.Element => {
     setRemoveAfterPlayQueueIds(new Set(undoSnapshot.removeAfterPlayQueueIds));
     setUndoSnapshot(null);
     setActionError(null);
-    setActionNotice(`已撤销：${undoSnapshot.label}`);
-  }, [queue, undoSnapshot]);
+    flashQueueItems(undoSnapshot.selectedQueueIds.length > 0 ? undoSnapshot.selectedQueueIds : undoSnapshot.items.map((item) => item.queueId));
+    setActionNotice(createQueueActionNotice('已撤销', { detail: undoSnapshot.label }));
+  }, [flashQueueItems, queue, undoSnapshot]);
 
   const handleToggleVisibleSelection = useCallback((): void => {
     setSelectedQueueIds((current) => {
@@ -648,29 +710,87 @@ export const QueuePage = (): JSX.Element => {
     setLastSelectedQueueId(null);
   }, []);
 
+  const handleDismissActionNotice = useCallback((): void => {
+    setActionNotice(null);
+  }, []);
+
+  const handleClearQueue = useCallback((): void => {
+    if (queue.items.length === 0) {
+      return;
+    }
+
+    const removedItems = queue.items;
+    captureQueueUndo(`清空 ${removedItems.length} 首`);
+    queue.clearQueue();
+    setSelectedQueueIds(new Set());
+    setLastSelectedQueueId(null);
+    setRemoveAfterPlayQueueIds(new Set());
+    setActionError(null);
+    setActionNotice(createQueueActionNotice(`已清空 ${removedItems.length} 首`, {
+      detail: queueActionTrackDetail(removedItems) ?? '可撤销',
+      trackTitles: queueActionTrackTitles(removedItems),
+      canUndo: true,
+    }));
+  }, [captureQueueUndo, queue]);
+
+  const handleRemoveQueueItem = useCallback(
+    (item: QueueItem): void => {
+      captureQueueUndo(`移除 ${item.track.title}`);
+      queue.removeQueueItem(item.queueId);
+      setSelectedQueueIds((current) => {
+        const next = new Set(current);
+        next.delete(item.queueId);
+        return next;
+      });
+      setRemoveAfterPlayQueueIds((current) => {
+        const next = new Set(current);
+        next.delete(item.queueId);
+        return next;
+      });
+      setLastSelectedQueueId((current) => (current === item.queueId ? null : current));
+      setActionError(null);
+      setActionNotice(createQueueActionNotice('已从队列移除', {
+        trackTitles: [item.track.title],
+        canUndo: true,
+      }));
+    },
+    [captureQueueUndo, queue],
+  );
+
   const handleRemoveSelected = useCallback((): void => {
     if (selectedCount === 0) {
       return;
     }
 
+    const removedItems = selectedItems;
     captureQueueUndo(`移除 ${selectedCount} 首`);
     queue.removeQueueItems(selectedQueueIdList);
     setSelectedQueueIds(new Set());
     setLastSelectedQueueId(null);
     setActionError(null);
-    setActionNotice(`已移除 ${selectedCount} 首，可撤销。`);
-  }, [captureQueueUndo, queue, selectedCount, selectedQueueIdList]);
+    setActionNotice(createQueueActionNotice(`已移除 ${selectedCount} 首`, {
+      detail: queueActionTrackDetail(removedItems) ?? '可撤销',
+      trackTitles: queueActionTrackTitles(removedItems),
+      canUndo: true,
+    }));
+  }, [captureQueueUndo, queue, selectedCount, selectedItems, selectedQueueIdList]);
 
   const handleMoveSelectedAfterCurrent = useCallback((): void => {
     if (selectedCount === 0 || !canMoveSelectedAfterCurrent) {
       return;
     }
 
+    const movedItems = selectedItems;
     captureQueueUndo(`临时插播 ${selectedCount} 首`);
     queue.moveQueueItemsAfterCurrent(selectedQueueIdList);
+    flashQueueItems(selectedQueueIdList);
     setActionError(null);
-    setActionNotice(`已把 ${selectedCount} 首插到当前播放后面。`);
-  }, [canMoveSelectedAfterCurrent, captureQueueUndo, queue, selectedCount, selectedQueueIdList]);
+    setActionNotice(createQueueActionNotice(`已临时插播 ${selectedCount} 首`, {
+      detail: queueActionTrackDetail(movedItems) ?? '已经排到当前播放后面',
+      trackTitles: queueActionTrackTitles(movedItems),
+      canUndo: true,
+    }));
+  }, [canMoveSelectedAfterCurrent, captureQueueUndo, flashQueueItems, queue, selectedCount, selectedItems, selectedQueueIdList]);
 
   const handleToggleSelectedRemoveAfterPlay = useCallback((): void => {
     if (selectedCount === 0) {
@@ -688,9 +808,16 @@ export const QueuePage = (): JSX.Element => {
       }
       return next;
     });
+    flashQueueItems(selectedQueueIdList);
     setActionError(null);
-    setActionNotice(shouldUnmarkSelectedAfterPlay ? '已取消播放后移除标记。' : `已标记 ${selectedCount} 首：播放后自动移除。`);
-  }, [selectedCount, selectedQueueIdList, shouldUnmarkSelectedAfterPlay]);
+    setActionNotice(createQueueActionNotice(
+      shouldUnmarkSelectedAfterPlay ? '已取消播放后移除' : `已标记 ${selectedCount} 首播放后移除`,
+      {
+        detail: queueActionTrackDetail(selectedItems),
+        trackTitles: queueActionTrackTitles(selectedItems),
+      },
+    ));
+  }, [flashQueueItems, selectedCount, selectedItems, selectedQueueIdList, shouldUnmarkSelectedAfterPlay]);
 
   const handleSaveQueueAsPlaylist = useCallback(async (): Promise<void> => {
     const library = window.echo?.library;
@@ -723,7 +850,7 @@ export const QueuePage = (): JSX.Element => {
       }
 
       window.dispatchEvent(new Event('library:playlists-changed'));
-      setActionNotice(`已保存为歌单：${playlist.name}（${savedCount} 首）`);
+      setActionNotice(createQueueActionNotice('已保存为歌单', { detail: `${playlist.name}（${savedCount} 首）` }));
     } catch (error) {
       if (createdPlaylistId && library.deletePlaylist) {
         await library.deletePlaylist(createdPlaylistId).catch(() => undefined);
@@ -987,9 +1114,16 @@ export const QueuePage = (): JSX.Element => {
         return;
       }
 
+      captureQueueUndo(`插播 ${item.track.title}`);
       queue.moveQueueItem(fromIndex, activeIndex >= 0 ? (fromIndex < activeIndex ? activeIndex : activeIndex + 1) : 0);
+      flashQueueItems([item.queueId]);
+      setActionError(null);
+      setActionNotice(createQueueActionNotice('已插到下一首', {
+        trackTitles: [item.track.title],
+        canUndo: true,
+      }));
     },
-    [queue],
+    [captureQueueUndo, flashQueueItems, queue],
   );
 
   const handleGenerateRandomQueue = useCallback(async (): Promise<void> => {
@@ -1125,10 +1259,18 @@ export const QueuePage = (): JSX.Element => {
         return;
       }
 
+      const movedItems = queue.items.filter((item) => movableQueueIds.includes(item.queueId));
       captureQueueUndo(`移动 ${movableQueueIds.length} 首`);
       queue.moveQueueItemsToIndex(movableQueueIds, toIndex);
+      flashQueueItems(movableQueueIds);
+      setActionError(null);
+      setActionNotice(createQueueActionNotice(`已移动 ${movableQueueIds.length} 首`, {
+        detail: queueActionTrackDetail(movedItems),
+        trackTitles: queueActionTrackTitles(movedItems),
+        canUndo: true,
+      }));
     },
-    [captureQueueUndo, draggedQueueIds, queue],
+    [captureQueueUndo, draggedQueueIds, flashQueueItems, queue],
   );
 
   const handleDragEnd = useCallback((): void => {
@@ -1260,7 +1402,7 @@ export const QueuePage = (): JSX.Element => {
             </button>
           ))}
         </div>
-        <button className="queue-tool-button danger" type="button" disabled={queue.items.length === 0} onClick={queue.clearQueue}>
+        <button className="queue-tool-button danger" type="button" disabled={queue.items.length === 0} onClick={handleClearQueue}>
           <Trash2 size={16} />
           {t('queue.action.clear')}
         </button>
@@ -1286,11 +1428,39 @@ export const QueuePage = (): JSX.Element => {
           <X size={15} />
           清除选择
         </button>
-        <button className="queue-tool-button" type="button" disabled={!undoSnapshot} onClick={handleUndoQueueAction}>
+        <button className="queue-tool-button queue-undo-button" type="button" disabled={!undoSnapshot} onClick={handleUndoQueueAction}>
           <RotateCcw size={16} />
           撤销
         </button>
       </section>
+
+      {actionNotice ? (
+        <section className="queue-action-receipt" aria-live="polite" key={actionNotice.id}>
+          <div className="queue-action-receipt__copy">
+            <span>刚刚完成</span>
+            <strong>{actionNotice.title}</strong>
+            {actionNotice.detail ? <p>{actionNotice.detail}</p> : null}
+            {actionNotice.trackTitles && actionNotice.trackTitles.length > 0 ? (
+              <div className="queue-action-receipt__tracks" aria-label="受影响歌曲">
+                {actionNotice.trackTitles.map((title, index) => (
+                  <em key={`${title}-${index}`}>{title}</em>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="queue-action-receipt__actions">
+            {actionNotice.canUndo && undoSnapshot ? (
+              <button className="queue-tool-button queue-undo-button" type="button" onClick={handleUndoQueueAction}>
+                <RotateCcw size={16} />
+                撤销这次操作
+              </button>
+            ) : null}
+            <button className="queue-icon-button" type="button" aria-label="关闭队列操作回执" title="关闭" onClick={handleDismissActionNotice}>
+              <X size={15} />
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {savedQueues.length > 0 ? (
         <section className="queue-saved-panel" aria-label="已保存队列">
@@ -1338,6 +1508,7 @@ export const QueuePage = (): JSX.Element => {
                 const isCurrent = item.queueId === queue.currentQueueId;
                 const isSelected = selectedQueueIds.has(item.queueId);
                 const removeAfterPlay = removeAfterPlayQueueIds.has(item.queueId);
+                const isRecent = recentQueueIds.has(item.queueId);
                 const rowQualityTags = qualityTags(item.track);
                 return (
                   <div
@@ -1352,6 +1523,7 @@ export const QueuePage = (): JSX.Element => {
                       data-current={isCurrent}
                       data-selected={isSelected ? 'true' : undefined}
                       data-remove-after-play={removeAfterPlay ? 'true' : undefined}
+                      data-recent-change={isRecent ? 'true' : undefined}
                       data-dragging={draggedQueueIds.includes(item.queueId)}
                       data-drop-target={dropTargetQueueId === item.queueId && !draggedQueueIds.includes(item.queueId)}
                       draggable
@@ -1414,7 +1586,7 @@ export const QueuePage = (): JSX.Element => {
                           type="button"
                           aria-label={t('queue.action.remove', { title: item.track.title })}
                           title={t('queue.action.remove', { title: item.track.title })}
-                          onClick={() => queue.removeQueueItem(item.queueId)}
+                          onClick={() => handleRemoveQueueItem(item)}
                         >
                           <X size={16} />
                         </button>
@@ -1434,7 +1606,6 @@ export const QueuePage = (): JSX.Element => {
         )}
 
         {actionError ? <p className="queue-error">{actionError}</p> : null}
-        {actionNotice ? <p className="queue-note">{actionNotice}</p> : null}
       </section>
 
       {trackMenu ? (

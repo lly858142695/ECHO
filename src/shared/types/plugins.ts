@@ -2,6 +2,7 @@ import type { LibraryPage, LibraryPageQuery, LibraryTrack } from './library';
 import type { AppThemePreset, AppThemeToneOverride } from './appSettings';
 
 export const pluginApiVersion = 2;
+export const osuDownloaderPluginId = 'osu.downloader';
 
 export const pluginPermissions = [
   'playback:read',
@@ -105,7 +106,9 @@ export const pluginPermissionDescriptors: Record<PluginPermission, PluginPermiss
 export type PluginPanelContribution = {
   id: string;
   title: string;
-  path: string;
+  path?: string;
+  hostPage?: 'osu-downloader';
+  placement?: 'main' | 'utility';
 };
 
 export type PluginCommandContribution = {

@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { ClipboardCopy, Crosshair, Music2, Play, RotateCw, Volume2, X } from 'lucide-react';
 import { BPM_CONFIDENCE_THRESHOLD } from '../../../shared/constants/audioAnalysis';
 import type { BpmAnalysisJobStatus, LibraryTrack } from '../../../shared/types/library';
-import { formatOsuTimingBlock, formatOsuTimingPoint, getBeatLengthMs } from '../../utils/osuTiming';
+import { formatOsuBookmarksLine, formatOsuTimingBlock, formatOsuTimingPoint, getBeatLengthMs, getMeasureLengthMs } from '../../utils/osuTiming';
 
 type OsuTimingPanelProps = {
   track: LibraryTrack | null;
@@ -16,6 +16,9 @@ type OsuTimingPanelProps = {
 const analysisPollMs = 1000;
 const offsetSteps = [-10, -5, -1, 1, 5, 10];
 const bpmMultipliers = [0.5, 1, 2] as const;
+const meterOptions = [3, 4, 6] as const;
+const beatSnapDivisors = [1, 2, 3, 4, 6, 8] as const;
+const bookmarkMeasureCount = 16;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -45,6 +48,23 @@ const formatConfidence = (value: number | null | undefined): string =>
 const getStatusLabel = (status: LibraryTrack['analysisStatus'] | undefined): string =>
   status ? (analysisStatusLabels[status] ?? status) : '未分析';
 
+const formatPreciseMs = (value: number): string => `${Number(value.toFixed(3))} ms`;
+
+const parseNumberInput = (value: string): number | null => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number(trimmed.replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const parsePositiveNumberInput = (value: string): number | null => {
+  const parsed = parseNumberInput(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
+};
+
 const stopClickTimer = (timeoutRef: MutableRefObject<number | null>, intervalRef: MutableRefObject<number | null>): void => {
   if (timeoutRef.current !== null) {
     window.clearTimeout(timeoutRef.current);
@@ -61,11 +81,14 @@ export const OsuTimingPanel = ({ track, isOpen, onClose, onTrackUpdated }: OsuTi
   const [activeTrack, setActiveTrack] = useState<LibraryTrack | null>(track);
   const [offsetAdjustmentMs, setOffsetAdjustmentMs] = useState(0);
   const [bpmMultiplier, setBpmMultiplier] = useState<(typeof bpmMultipliers)[number]>(1);
+  const [manualBpmText, setManualBpmText] = useState('');
+  const [manualOffsetText, setManualOffsetText] = useState('');
+  const [meter, setMeter] = useState<(typeof meterOptions)[number]>(4);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisJob, setAnalysisJob] = useState<BpmAnalysisJobStatus | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState<'line' | 'block' | null>(null);
+  const [copied, setCopied] = useState<'line' | 'block' | 'bookmarks' | null>(null);
   const [clickPreviewRunning, setClickPreviewRunning] = useState(false);
   const analysisRunRef = useRef(0);
   const clickTimeoutRef = useRef<number | null>(null);
@@ -81,6 +104,9 @@ export const OsuTimingPanel = ({ track, isOpen, onClose, onTrackUpdated }: OsuTi
     setActiveTrack(track);
     setOffsetAdjustmentMs(0);
     setBpmMultiplier(1);
+    setManualBpmText('');
+    setManualOffsetText('');
+    setMeter(4);
     setAnalysisJob(null);
     setMessage(null);
     setError(null);
@@ -143,40 +169,72 @@ export const OsuTimingPanel = ({ track, isOpen, onClose, onTrackUpdated }: OsuTi
   );
 
   const rawBpm = activeTrack?.bpm ?? null;
-  const bpm = isFinitePositive(rawBpm) ? rawBpm * bpmMultiplier : null;
+  const manualBpm = parsePositiveNumberInput(manualBpmText);
+  const hasManualBpmText = manualBpmText.trim().length > 0;
+  const hasManualBpm = hasManualBpmText && manualBpm !== null;
+  const invalidManualBpm = hasManualBpmText && manualBpm === null;
+  const sourceBpm = invalidManualBpm ? null : hasManualBpm ? manualBpm : rawBpm;
+  const bpm = isFinitePositive(sourceBpm) ? sourceBpm * bpmMultiplier : null;
   const rawBeatOffsetMs = activeTrack?.beatOffsetMs;
   const hasDetectedOffset = isFiniteNumber(rawBeatOffsetMs);
   const detectedOffsetMs = hasDetectedOffset ? rawBeatOffsetMs : 0;
-  const adjustedOffsetMs = detectedOffsetMs + offsetAdjustmentMs;
+  const manualOffsetMs = parseNumberInput(manualOffsetText);
+  const hasManualOffsetText = manualOffsetText.trim().length > 0;
+  const hasManualOffset = hasManualOffsetText && manualOffsetMs !== null;
+  const invalidManualOffset = hasManualOffsetText && manualOffsetMs === null;
+  const sourceOffsetMs = hasManualOffset ? manualOffsetMs : detectedOffsetMs;
+  const adjustedOffsetMs = sourceOffsetMs + offsetAdjustmentMs;
   const missingBpm = !isFinitePositive(bpm);
-  const missingOffset = !hasDetectedOffset;
+  const missingOffset = !hasDetectedOffset && !hasManualOffset;
   const lowConfidence =
     activeTrack?.analysisStatus === 'low_confidence' ||
     (isFiniteNumber(activeTrack?.bpmConfidence) && activeTrack.bpmConfidence < BPM_CONFIDENCE_THRESHOLD);
+  const bpmSourceLabel = invalidManualBpm ? '输入无效' : hasManualBpm ? '手动' : '检测';
+  const offsetSourceLabel = invalidManualOffset ? '输入无效' : hasManualOffset ? '手动' : hasDetectedOffset ? '检测' : '默认 0';
+  const beatLengthMs = isFinitePositive(bpm) ? getBeatLengthMs(bpm) : null;
+  const measureLengthMs = isFinitePositive(bpm) ? getMeasureLengthMs(bpm, meter) : null;
+  const snapRows = beatLengthMs
+    ? beatSnapDivisors.map((divisor) => ({
+        label: divisor === 1 ? '1/1' : `1/${divisor}`,
+        valueMs: beatLengthMs / divisor,
+      }))
+    : [];
 
   const timingLine = useMemo(() => {
-    if (!isFinitePositive(bpm)) {
+    if (!isFinitePositive(bpm) || invalidManualOffset) {
       return null;
     }
 
     try {
-      return formatOsuTimingPoint({ bpm, offsetMs: adjustedOffsetMs, meter: 4 });
+      return formatOsuTimingPoint({ bpm, offsetMs: adjustedOffsetMs, meter });
     } catch {
       return null;
     }
-  }, [adjustedOffsetMs, bpm]);
+  }, [adjustedOffsetMs, bpm, invalidManualOffset, meter]);
 
   const timingBlock = useMemo(() => {
-    if (!isFinitePositive(bpm)) {
+    if (!isFinitePositive(bpm) || invalidManualOffset) {
       return null;
     }
 
     try {
-      return formatOsuTimingBlock({ bpm, offsetMs: adjustedOffsetMs, meter: 4 });
+      return formatOsuTimingBlock({ bpm, offsetMs: adjustedOffsetMs, meter });
     } catch {
       return null;
     }
-  }, [adjustedOffsetMs, bpm]);
+  }, [adjustedOffsetMs, bpm, invalidManualOffset, meter]);
+
+  const bookmarksLine = useMemo(() => {
+    if (!isFinitePositive(bpm) || invalidManualOffset) {
+      return null;
+    }
+
+    try {
+      return formatOsuBookmarksLine({ bpm, offsetMs: adjustedOffsetMs, meter, measureCount: bookmarkMeasureCount });
+    } catch {
+      return null;
+    }
+  }, [adjustedOffsetMs, bpm, invalidManualOffset, meter]);
 
   const stopClickPreview = (): void => {
     stopClickTimer(clickTimeoutRef, clickIntervalRef);
@@ -332,8 +390,8 @@ export const OsuTimingPanel = ({ track, isOpen, onClose, onTrackUpdated }: OsuTi
     }
   };
 
-  const handleCopy = async (kind: 'line' | 'block'): Promise<void> => {
-    const text = kind === 'line' ? timingLine : timingBlock;
+  const handleCopy = async (kind: 'line' | 'block' | 'bookmarks'): Promise<void> => {
+    const text = kind === 'line' ? timingLine : kind === 'block' ? timingBlock : bookmarksLine;
     if (!text) {
       setError('还没有可复制的 osu! timing。');
       return;
@@ -383,9 +441,9 @@ export const OsuTimingPanel = ({ track, isOpen, onClose, onTrackUpdated }: OsuTi
               <span>不会写入文件</span>
             </div>
             <ol>
-              <li>先播放歌曲，再启动节拍器；如果明显半速或倍速，用 BPM 修正。</li>
-              <li>鼓点和节拍器不齐时，用 +/-1、5、10 ms 微调 offset。</li>
-              <li>确认后复制单行，或复制完整块覆盖 osu! 的 `[TimingPoints]`。</li>
+              <li>先播放歌曲，再启动节拍器；检测不准时可手动输入 BPM 或 offset。</li>
+              <li>鼓点和节拍器不齐时，用 +/-1、5、10 ms 微调，或切换拍号生成小节网格。</li>
+              <li>确认后复制 TimingPoints、Bookmarks，放到 osu! editor 里再听一遍。</li>
             </ol>
           </section>
 
@@ -404,6 +462,10 @@ export const OsuTimingPanel = ({ track, isOpen, onClose, onTrackUpdated }: OsuTi
                 <strong>{formatBpm(bpm)}</strong>
               </span>
               <span>
+                <em>BPM 来源</em>
+                <strong>{bpmSourceLabel}</strong>
+              </span>
+              <span>
                 <em>置信度</em>
                 <strong>{formatConfidence(activeTrack.bpmConfidence)}</strong>
               </span>
@@ -411,20 +473,78 @@ export const OsuTimingPanel = ({ track, isOpen, onClose, onTrackUpdated }: OsuTi
                 <em>最终 offset</em>
                 <strong>{formatMs(adjustedOffsetMs)}</strong>
               </span>
+              <span>
+                <em>offset 来源</em>
+                <strong>{offsetSourceLabel}</strong>
+              </span>
             </div>
-            <div className="osu-timing-segmented" aria-label="BPM 修正">
-              {bpmMultipliers.map((multiplier) => (
-                <button
-                  key={multiplier}
-                  type="button"
-                  className={bpmMultiplier === multiplier ? 'is-active' : undefined}
-                  disabled={!isFinitePositive(rawBpm)}
-                  onClick={() => setBpmMultiplier(multiplier)}
-                >
-                  {multiplier === 0.5 ? '半速' : multiplier === 2 ? '倍速' : '原速'}
+            <div className="osu-timing-field-grid">
+              <label className="osu-timing-field">
+                <span>手动 BPM</span>
+                <input
+                  aria-label="手动 BPM"
+                  inputMode="decimal"
+                  min="1"
+                  placeholder={isFinitePositive(rawBpm) ? String(Math.round(rawBpm * 1000) / 1000) : '例如 180'}
+                  step="0.001"
+                  type="number"
+                  value={manualBpmText}
+                  onChange={(event) => setManualBpmText(event.currentTarget.value)}
+                />
+              </label>
+              <label className="osu-timing-field">
+                <span>手动 offset</span>
+                <input
+                  aria-label="手动 offset"
+                  inputMode="decimal"
+                  placeholder={hasDetectedOffset ? String(Math.round(detectedOffsetMs)) : '0'}
+                  step="1"
+                  type="number"
+                  value={manualOffsetText}
+                  onChange={(event) => setManualOffsetText(event.currentTarget.value)}
+                />
+              </label>
+            </div>
+            <div className="osu-timing-control-stack">
+              <div>
+                <span>BPM 修正</span>
+                <div className="osu-timing-segmented" aria-label="BPM 修正">
+                  {bpmMultipliers.map((multiplier) => (
+                    <button
+                      key={multiplier}
+                      type="button"
+                      className={bpmMultiplier === multiplier ? 'is-active' : undefined}
+                      disabled={!isFinitePositive(sourceBpm)}
+                      onClick={() => setBpmMultiplier(multiplier)}
+                    >
+                      {multiplier === 0.5 ? '半速' : multiplier === 2 ? '倍速' : '原速'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span>拍号</span>
+                <div className="osu-timing-segmented" aria-label="拍号">
+                  {meterOptions.map((option) => (
+                    <button key={option} type="button" className={meter === option ? 'is-active' : undefined} onClick={() => setMeter(option)}>
+                      {option}/4
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {hasManualBpmText || hasManualOffsetText ? (
+              <div className="osu-timing-button-row osu-timing-button-row--compact">
+                <button type="button" onClick={() => setManualBpmText('')}>
+                  清空 BPM
                 </button>
-              ))}
-            </div>
+                <button type="button" onClick={() => setManualOffsetText('')}>
+                  清空 offset
+                </button>
+              </div>
+            ) : null}
+            {invalidManualBpm ? <p className="osu-timing-warning">手动 BPM 需要是大于 0 的数字。</p> : null}
+            {invalidManualOffset ? <p className="osu-timing-warning">手动 offset 需要是有效数字，单位是 ms。</p> : null}
             {missingBpm ? <p className="osu-timing-note">还没有 BPM。点击“重新分析此曲”后会尝试读取 BPM 和 offset。</p> : null}
             {!missingBpm && missingOffset ? <p className="osu-timing-note">已有 BPM，但没有检测到 offset。当前先按 0ms 生成 timing，请用节拍器手动校准。</p> : null}
             {lowConfidence ? <p className="osu-timing-warning">BPM 置信度偏低。可复制，但建议在 osu! editor 里再听一遍确认。</p> : null}
@@ -455,6 +575,35 @@ export const OsuTimingPanel = ({ track, isOpen, onClose, onTrackUpdated }: OsuTi
             </p>
           </section>
 
+          <section className="osu-timing-section" aria-label="制谱计算">
+            <div className="osu-timing-section-heading">
+              <h3>制谱计算</h3>
+              <span>{isFinitePositive(bpm) ? `${meter}/4 · ${bookmarkMeasureCount} 小节` : '需要 BPM'}</span>
+            </div>
+            <div className="osu-timing-metrics osu-timing-metrics--compact">
+              <span>
+                <em>一拍</em>
+                <strong>{beatLengthMs ? formatPreciseMs(beatLengthMs) : '未知'}</strong>
+              </span>
+              <span>
+                <em>一小节</em>
+                <strong>{measureLengthMs ? formatPreciseMs(measureLengthMs) : '未知'}</strong>
+              </span>
+            </div>
+            <div className="osu-timing-snap-grid" aria-label="Beat snap 长度">
+              {snapRows.length > 0 ? (
+                snapRows.map((row) => (
+                  <span key={row.label}>
+                    <em>{row.label}</em>
+                    <strong>{formatPreciseMs(row.valueMs)}</strong>
+                  </span>
+                ))
+              ) : (
+                <p className="osu-timing-note">输入 BPM 后显示 beat snap 长度。</p>
+              )}
+            </div>
+          </section>
+
           <section className="osu-timing-section" aria-label="预览控制">
             <div className="osu-timing-button-row">
               <button type="button" onClick={() => void handlePlayTrack()}>
@@ -482,6 +631,7 @@ export const OsuTimingPanel = ({ track, isOpen, onClose, onTrackUpdated }: OsuTi
               <span>{timingLine ? '可复制' : '需要 BPM'}</span>
             </div>
             <pre className="osu-timing-output">{timingLine ?? '点击“重新分析此曲”生成 timing。'}</pre>
+            <pre className="osu-timing-output osu-timing-output--secondary">{bookmarksLine ?? '输入 BPM 后生成 osu! editor Bookmarks。'}</pre>
             <div className="osu-timing-copy-row">
               <button className="osu-timing-copy" type="button" disabled={!timingLine} onClick={() => void handleCopy('line')}>
                 <ClipboardCopy size={18} />
@@ -490,6 +640,10 @@ export const OsuTimingPanel = ({ track, isOpen, onClose, onTrackUpdated }: OsuTi
               <button className="osu-timing-copy osu-timing-copy--secondary" type="button" disabled={!timingBlock} onClick={() => void handleCopy('block')}>
                 <ClipboardCopy size={18} />
                 {copied === 'block' ? '已复制' : '复制完整块'}
+              </button>
+              <button className="osu-timing-copy osu-timing-copy--secondary" type="button" disabled={!bookmarksLine} onClick={() => void handleCopy('bookmarks')}>
+                <ClipboardCopy size={18} />
+                {copied === 'bookmarks' ? '已复制' : '复制书签行'}
               </button>
             </div>
           </section>

@@ -84,8 +84,17 @@ export const registerDiagnosticsIpc = (): void => {
   ipcMain.handle(IpcChannels.DiagnosticsOpenCrashReport, (): Promise<string> =>
     getCrashReportService().openCrashReportFile({ preferLastAbnormal: true }),
   );
+  ipcMain.handle(IpcChannels.DiagnosticsOpenCrashTextReport, (): Promise<string> =>
+    getCrashReportService().openCrashReportTextFile({ preferLastAbnormal: true }),
+  );
   ipcMain.handle(IpcChannels.DiagnosticsOpenAudioCrashReport, (): Promise<string> =>
     getCrashReportService().openAudioCrashReportFile(),
+  );
+  ipcMain.handle(IpcChannels.DiagnosticsOpenAudioCrashTextReport, (): Promise<string> =>
+    getCrashReportService().openAudioCrashReportTextFile(),
+  );
+  ipcMain.handle(IpcChannels.DiagnosticsOpenMemoryPressureReport, (): Promise<string> =>
+    getCrashReportService().openMemoryPressureReportFile(),
   );
   ipcMain.handle(IpcChannels.DiagnosticsRelaunchApp, (): void => {
     app.relaunch();

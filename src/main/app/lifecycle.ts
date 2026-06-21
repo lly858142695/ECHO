@@ -40,6 +40,7 @@ import { isLibraryRecoveryMode } from './libraryRecoveryMode';
 import { applyNetworkProxySettings } from '../network/proxySettings';
 import { markStartupStage, openSafeModeStartupConsoleIfEnabled } from '../diagnostics/StartupDiagnostics';
 import { closeDevConsoleWindow } from '../diagnostics/DevConsoleService';
+import { startMemoryPressureMonitor, stopMemoryPressureMonitor } from '../diagnostics/MemoryPressureMonitor';
 import { closeDesktopLyricsWindow, restoreDesktopLyricsWindowOnStartup } from './desktopLyricsWindow';
 import { closeMiniPlayerWindow, restoreMiniPlayerWindowOnStartup } from './miniPlayerWindow';
 import { runPackageIntegrityGuard } from './packageIntegrity';
@@ -285,6 +286,8 @@ export const registerAppLifecycle = (): void => {
     markStartupStage('main-window:create:request');
     const mainWindow = createMainWindow();
     markStartupStage('main-window:create:returned');
+    startMemoryPressureMonitor();
+    markStartupStage('memory-pressure-monitor:started');
     if (!libraryRecoveryMode && !dataProtectionDisabled) {
       scheduleDeferredStartupDataProtection(dataProtection.userDataPath, mainWindow);
     } else if (dataProtectionDisabled) {
@@ -346,7 +349,16 @@ export const registerAppLifecycle = (): void => {
   let gracefulQuitInProgress = false;
   let gracefulQuitCompleted = false;
 
+  const closeDiagnosticsSessionForQuit = (): void => {
+    try {
+      getCrashReportService().closeSession();
+    } catch (error) {
+      console.warn('[Lifecycle] failed to close diagnostics session during quit', error);
+    }
+  };
+
   const cleanupBeforeQuit = async (): Promise<void> => {
+    stopMemoryPressureMonitor();
     closeDevConsoleWindow();
     closeDesktopLyricsWindow();
     closeMiniPlayerWindow();
@@ -377,7 +389,7 @@ export const registerAppLifecycle = (): void => {
       });
     }
     closeDefaultLibraryDatabaseManager();
-    getCrashReportService().closeSession();
+    closeDiagnosticsSessionForQuit();
     requestAppQuit();
   };
 
@@ -423,6 +435,7 @@ export const registerAppLifecycle = (): void => {
         });
       })
       .finally(() => {
+        closeDiagnosticsSessionForQuit();
         gracefulQuitCompleted = true;
         app.quit();
       });

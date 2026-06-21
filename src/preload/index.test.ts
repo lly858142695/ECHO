@@ -240,6 +240,12 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.DiagnosticsOpenCrashReport);
   });
 
+  it('exposes crash text report file opening through IPC', async () => {
+    await exposedApi!.diagnostics.openCrashTextReport();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.DiagnosticsOpenCrashTextReport);
+  });
+
   it('exposes safe diagnostics zip export through IPC', async () => {
     await exposedApi!.diagnostics.exportDiagnosticsZip();
 
@@ -250,6 +256,12 @@ describe('preload SMTC API', () => {
     await exposedApi!.diagnostics.openAudioCrashReport();
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.DiagnosticsOpenAudioCrashReport);
+  });
+
+  it('exposes audio crash text report file opening through IPC', async () => {
+    await exposedApi!.diagnostics.openAudioCrashTextReport();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.DiagnosticsOpenAudioCrashTextReport);
   });
 
   it('exposes app quit through IPC', async () => {

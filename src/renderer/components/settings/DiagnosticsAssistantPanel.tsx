@@ -4,6 +4,7 @@ import type { AudioDeviceInfo, AudioDiagnostics, AudioStatus } from '../../../sh
 import type { LastCrashSummary } from '../../../shared/types/diagnostics';
 import type { SmtcCommand, SmtcDiagnostics } from '../../../shared/types/smtc';
 import { getAudioBridge, getDiagnosticsBridge, getSmtcBridge } from '../../utils/echoBridge';
+import { formatUserFacingError } from '../../utils/userFacingError';
 
 type AudioDiagnosticSnapshot = Partial<AudioDiagnostics> & Partial<AudioStatus>;
 type SmtcDiagnosticSnapshot = SmtcDiagnostics;
@@ -544,7 +545,7 @@ export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssis
           setDeviceListError(null);
         } catch (listError) {
           setDevices([]);
-          setDeviceListError(listError instanceof Error ? listError.message : String(listError));
+          setDeviceListError(formatUserFacingError(listError, { context: 'audio', fallback: '音频设备列表读取失败。请稍后重试。' }));
         }
       } else {
         setDevices([]);
@@ -552,7 +553,7 @@ export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssis
       }
       setLastRefreshAt(new Date().toLocaleString());
     } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+      setError(formatUserFacingError(refreshError, { context: 'settings', fallback: '诊断信息刷新失败。请稍后重试。' }));
     } finally {
       setBusyAction(null);
     }
@@ -578,7 +579,7 @@ export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssis
       setSmtcDiagnostics(await smtc.restart());
       setMessage('SMTC support restarted');
     } catch (restartError) {
-      setError(restartError instanceof Error ? restartError.message : String(restartError));
+      setError(formatUserFacingError(restartError, { context: 'audio', fallback: '音频服务重启失败。请稍后重试。' }));
     } finally {
       setBusyAction(null);
     }
@@ -596,7 +597,7 @@ export const DiagnosticsAssistantPanel = ({ lastCrashSummary }: DiagnosticsAssis
       const result = await task();
       setMessage(result ? `${successPrefix}：${result}` : successPrefix);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : String(actionError));
+      setError(formatUserFacingError(actionError, { context: 'settings', fallback: '诊断操作没有成功。请稍后重试。' }));
     } finally {
       setBusyAction(null);
     }

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, FolderOpen, HardDrive, Headphones, Loader2, LogIn, Palette, ScanLine, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, FolderOpen, Gift, HardDrive, Headphones, Loader2, LogIn, Palette, ScanLine, Sparkles, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AudioOutputMode } from '../../../shared/types/audio';
 import type { AppSettings, AppThemeMode, AppThemePreset, ScanPerformanceMode } from '../../../shared/types/appSettings';
@@ -13,6 +13,7 @@ type FirstRunWizardProps = {
   initialSettings: AppSettings | null;
   onClose: () => void;
   onCompleted: (settings: AppSettings | null) => void;
+  presentationState?: 'open' | 'closing';
 };
 
 type FirstRunStepId = 'library' | 'cache' | 'scan' | 'audio' | 'appearance' | 'accounts' | 'summary';
@@ -27,6 +28,7 @@ type FirstRunStep = {
 };
 
 const echoDocumentationUrl = 'https://echonext.moe/zh/docs/';
+const echoSponsorUrl = 'https://afdian.com/a/echonext';
 
 type FirstRunOption<T extends string> = {
   mode: T;
@@ -161,7 +163,7 @@ const firstRunStepNotes: Record<FirstRunStepId, TranslationKey[]> = {
   summary: ['firstRun.detail.summary.save', 'firstRun.detail.summary.docs'],
 };
 
-export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstRunWizardProps): JSX.Element => {
+export const FirstRunWizard = ({ initialSettings, onClose, onCompleted, presentationState = 'open' }: FirstRunWizardProps): JSX.Element => {
   const t = useOptionalI18n()?.t ?? translateFallback;
   const [rendererPlatform] = useState<NodeJS.Platform | 'unknown'>(() => detectFirstRunPlatform());
   const firstRunOutputModes = useMemo(() => getSupportedFirstRunOutputModes(rendererPlatform), [rendererPlatform]);
@@ -318,17 +320,20 @@ export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstR
     }
   }, [appearanceTheme, appearanceThemePreset, cacheDirectory, initialSettings, musicFolderPath, onClose, onCompleted, outputMode, scanMode, scanNow, t]);
 
-  const openDocumentation = useCallback((): void => {
+  const openExternalUrl = useCallback((url: string): void => {
     const openExternalUrl = window.echo?.app?.openExternalUrl;
     if (openExternalUrl) {
-      void openExternalUrl(echoDocumentationUrl).catch(() => {
-        window.open(echoDocumentationUrl, '_blank', 'noopener,noreferrer');
+      void openExternalUrl(url).catch(() => {
+        window.open(url, '_blank', 'noopener,noreferrer');
       });
       return;
     }
 
-    window.open(echoDocumentationUrl, '_blank', 'noopener,noreferrer');
+    window.open(url, '_blank', 'noopener,noreferrer');
   }, []);
+
+  const openDocumentation = useCallback((): void => openExternalUrl(echoDocumentationUrl), [openExternalUrl]);
+  const openSponsorChannel = useCallback((): void => openExternalUrl(echoSponsorUrl), [openExternalUrl]);
 
   const goToPreviousStep = (): void => {
     setActiveStepId(firstRunSteps[Math.max(0, activeStepIndex - 1)]!.id);
@@ -477,11 +482,39 @@ export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstR
         );
       case 'summary':
         return (
-          <div className="first-run-final-card">
-            <Sparkles size={24} aria-hidden="true" />
-            <div>
-              <h3>{t('firstRun.summary.readyTitle')}</h3>
-              <p>{t('firstRun.summary.readyDescription')}</p>
+          <div className="first-run-summary-stack">
+            <div className="first-run-final-card">
+              <Sparkles size={24} aria-hidden="true" />
+              <div>
+                <h3>{t('firstRun.summary.readyTitle')}</h3>
+                <p>{t('firstRun.summary.readyDescription')}</p>
+              </div>
+            </div>
+            <div className="first-run-pro-card">
+              <div className="first-run-pro-heading">
+                <Gift size={22} aria-hidden="true" />
+                <div>
+                  <span>{t('firstRun.pro.kicker')}</span>
+                  <h3>{t('firstRun.pro.title')}</h3>
+                </div>
+              </div>
+              <p>{t('firstRun.pro.description')}</p>
+              <p>{t('firstRun.pro.freeNotice')}</p>
+              <p>{t('firstRun.pro.contributors')}</p>
+              <strong>{t('firstRun.pro.benefitsTitle')}</strong>
+              <ul>
+                <li>{t('firstRun.pro.benefit.connect')}</li>
+                <li>{t('firstRun.pro.benefit.mobile')}</li>
+                <li>{t('firstRun.pro.benefit.themes')}</li>
+                <li>{t('firstRun.pro.benefit.plugins')}</li>
+                <li>{t('firstRun.pro.benefit.donators')}</li>
+                <li>{t('firstRun.pro.benefit.network')}</li>
+                <li>{t('firstRun.pro.benefit.storeKey')}</li>
+              </ul>
+              <button className="settings-action-button" type="button" onClick={openSponsorChannel}>
+                <Gift size={15} />
+                {t('firstRun.pro.action')}
+              </button>
             </div>
           </div>
         );
@@ -491,7 +524,7 @@ export const FirstRunWizard = ({ initialSettings, onClose, onCompleted }: FirstR
   };
 
   return (
-    <div className="first-run-backdrop" role="dialog" aria-modal="true" aria-labelledby="first-run-title" aria-describedby="first-run-description">
+    <div className="first-run-backdrop" data-state={presentationState} role="dialog" aria-modal="true" aria-labelledby="first-run-title" aria-describedby="first-run-description">
       <section className="first-run-panel">
         <header className="first-run-header">
           <div className="first-run-heading">

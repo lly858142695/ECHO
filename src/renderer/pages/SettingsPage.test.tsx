@@ -190,6 +190,8 @@ const downloadSettings: DownloadSettings = {
   importToLibrary: true,
   bindMvAfterImport: true,
   outputDirectory: 'D:\\Downloads',
+  osuOutputDirectory: null,
+  osuDownloadMirror: 'auto',
 };
 
 const healthyDatabaseProtectionStatus: LibraryDatabaseProtectionStatus = {
@@ -887,7 +889,7 @@ describe('SettingsPage', () => {
     expect(appearanceButton.getAttribute('aria-current')).toBe('page');
   });
 
-  it('marks onboarding incomplete from the general settings guide toggle', async () => {
+  it('opens the beginner guide from the general settings guide button', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     const nextSettings = { ...settings, onboardingCompleted: false };
     const settingsChanged = vi.fn();
@@ -901,7 +903,7 @@ describe('SettingsPage', () => {
 
     await screen.findByText('route.settings.label');
     const row = screen.getByText('settings.general.firstRunWizard.title').closest('.setting-row') as HTMLElement;
-    fireEvent.click(within(row).getByRole('button'));
+    fireEvent.click(within(row).getByRole('button', { name: 'settings.general.firstRunWizard.action' }));
 
     await waitFor(() => expect(setSettingsMock).toHaveBeenCalledWith({ onboardingCompleted: false }));
     expect(settingsChanged).toHaveBeenCalledWith(expect.objectContaining({ detail: nextSettings }));

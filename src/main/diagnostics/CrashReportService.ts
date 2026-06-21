@@ -11,7 +11,14 @@ import { deflateRawSync } from 'node:zlib';
 import { app, dialog, shell } from 'electron';
 import type { SaveDialogReturnValue } from 'electron';
 import type { AudioStatus } from '../../shared/types/audio';
-import type { LastCrashSummary, RendererErrorPayload, CrashSessionInfo } from '../../shared/types/diagnostics';
+import type {
+  DiagnosticMemoryPressureEvent,
+  DiagnosticMemoryProcessMetric,
+  DiagnosticMemorySnapshot,
+  LastCrashSummary,
+  RendererErrorPayload,
+  CrashSessionInfo,
+} from '../../shared/types/diagnostics';
 import { getAppSettings } from '../app/appSettings';
 import { getLastDataProtectionResult, getLibraryDatabaseMaintenanceReport } from '../app/dataProtection';
 import { getAudioSession } from '../audio/AudioSession';
@@ -165,7 +172,60 @@ const formatJsonBlock = (value: unknown): string => `\`\`\`json\n${JSON.stringif
 
 const formatTextBlock = (value: string): string => `\`\`\`text\n${value.trim() || 'n/a'}\n\`\`\``;
 
+const markdownReportToText = (markdown: string): string =>
+  `${markdown
+    .replace(/\r\n?/g, '\n')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^```(?:json|text)?$/gm, '-----')
+    .replace(/^```$/gm, '-----')
+    .trim()}\n`;
+
 const aiReportReviewTip = 'AI review tip: Copy this report and paste it into AI to help identify the problem.';
+
+const formatBytes = (bytes: number | null | undefined): string => {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) {
+    return 'n/a';
+  }
+
+  const mib = bytes / (1024 * 1024);
+  if (mib < 1024) {
+    return `${mib.toFixed(mib >= 100 ? 0 : 1)} MiB`;
+  }
+
+  return `${(mib / 1024).toFixed(2)} GiB`;
+};
+
+const memoryProcessLabel = (metric: DiagnosticMemoryProcessMetric | null | undefined): string =>
+  metric ? (metric.serviceName || metric.name || metric.type || `pid-${metric.pid}`) : 'unknown';
+
+const cleanMarkdownTableCell = (value: unknown): string =>
+  String(value ?? 'n/a').replace(/\|/g, '/').replace(/\s+/g, ' ').trim();
+
+const createMemoryProcessTableMarkdown = (metrics: DiagnosticMemoryProcessMetric[]): string[] => {
+  const lines = [
+    '| # | PID | Type | Name | Working Set | Private | CPU |',
+    '| - | - | - | - | - | - | - |',
+  ];
+
+  if (metrics.length === 0) {
+    lines.push('| - | n/a | n/a | n/a | n/a | n/a | n/a |');
+    return lines;
+  }
+
+  metrics.forEach((metric, index) => {
+    lines.push(`| ${[
+      index + 1,
+      metric.pid,
+      cleanMarkdownTableCell(metric.type),
+      cleanMarkdownTableCell(metric.serviceName || metric.name || 'n/a'),
+      formatBytes(metric.workingSetBytes),
+      formatBytes(metric.privateBytes),
+      typeof metric.cpuPercent === 'number' && Number.isFinite(metric.cpuPercent) ? `${metric.cpuPercent.toFixed(1)}%` : 'n/a',
+    ].join(' | ')} |`);
+  });
+
+  return lines;
+};
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -483,6 +543,7 @@ export class CrashReportService {
   private logger: Logger | null = null;
   private lastRendererErrorSignature: string | null = null;
   private lastRendererErrorAt = 0;
+  private lastMemoryPressureSnapshot: DiagnosticMemorySnapshot | null = null;
 
   constructor(private readonly userDataPath = app.getPath('userData')) {}
 
@@ -574,8 +635,24 @@ export class CrashReportService {
     return sessionDir ? join(sessionDir, 'crash-report.md') : join(this.getCrashReportsRoot(), 'crash-report.md');
   }
 
+  getCrashReportTextFilePath(sessionDir = this.sessionDir): string {
+    return sessionDir ? join(sessionDir, 'crash-report.txt') : join(this.getCrashReportsRoot(), 'crash-report.txt');
+  }
+
   getAudioCrashReportFilePath(sessionDir = this.sessionDir): string {
     return sessionDir ? join(sessionDir, 'audio-crash-report.md') : join(this.getCrashReportsRoot(), 'audio-crash-report.md');
+  }
+
+  getAudioCrashReportTextFilePath(sessionDir = this.sessionDir): string {
+    return sessionDir ? join(sessionDir, 'audio-crash-report.txt') : join(this.getCrashReportsRoot(), 'audio-crash-report.txt');
+  }
+
+  getMemoryPressureReportFilePath(sessionDir = this.sessionDir): string {
+    return sessionDir ? join(sessionDir, 'memory-pressure-report.md') : join(this.getCrashReportsRoot(), 'memory-pressure-report.md');
+  }
+
+  getMemoryPressureSnapshotFilePath(sessionDir = this.sessionDir): string {
+    return sessionDir ? join(sessionDir, 'memory-pressure.latest.json') : join(this.getCrashReportsRoot(), 'memory-pressure.latest.json');
   }
 
   getAudioCrashReportsDir(): string {
@@ -595,8 +672,35 @@ export class CrashReportService {
     return reportPath;
   }
 
+  async openCrashReportTextFile(options: { preferLastAbnormal?: boolean } = {}): Promise<string> {
+    const reportPath = this.writeCrashReportTextFile(undefined, { preferLastAbnormal: options.preferLastAbnormal ?? false });
+    const result = await shell.openPath(reportPath);
+    if (result) {
+      throw new Error(result);
+    }
+    return reportPath;
+  }
+
   async openAudioCrashReportFile(): Promise<string> {
     const reportPath = this.writeAudioCrashReportFile();
+    const result = await shell.openPath(reportPath);
+    if (result) {
+      throw new Error(result);
+    }
+    return reportPath;
+  }
+
+  async openAudioCrashReportTextFile(): Promise<string> {
+    const reportPath = this.writeAudioCrashReportTextFile();
+    const result = await shell.openPath(reportPath);
+    if (result) {
+      throw new Error(result);
+    }
+    return reportPath;
+  }
+
+  async openMemoryPressureReportFile(): Promise<string> {
+    const reportPath = this.writeMemoryPressureReportFile();
     const result = await shell.openPath(reportPath);
     if (result) {
       throw new Error(result);
@@ -700,6 +804,52 @@ export class CrashReportService {
     });
   }
 
+  reportMemoryPressure(snapshot: DiagnosticMemorySnapshot): DiagnosticMemoryPressureEvent {
+    this.lastMemoryPressureSnapshot = snapshot;
+    const reportPath = this.writeMemoryPressureReportFile(snapshot);
+    const topProcess = snapshot.topProcesses[0] ?? snapshot.metrics[0] ?? null;
+    this.logger?.warn('main', 'memory pressure threshold crossed', {
+      totalWorkingSetBytes: snapshot.totalWorkingSetBytes,
+      thresholdBytes: snapshot.thresholdBytes,
+      processCount: snapshot.processCount,
+      topProcess: topProcess
+        ? {
+            pid: topProcess.pid,
+            type: topProcess.type,
+            name: topProcess.name,
+            serviceName: topProcess.serviceName,
+            workingSetBytes: topProcess.workingSetBytes,
+            privateBytes: topProcess.privateBytes,
+          }
+        : null,
+      reportPath,
+    });
+    recordDiagnosticException({
+      source: 'main',
+      severity: 'error',
+      type: 'memory-pressure',
+      message: `ECHO memory reached ${formatBytes(snapshot.totalWorkingSetBytes)}`,
+      details: {
+        thresholdBytes: snapshot.thresholdBytes,
+        processCount: snapshot.processCount,
+        topProcess: topProcess ? memoryProcessLabel(topProcess) : 'unknown',
+        reportFile: basename(reportPath),
+      },
+      timestamp: snapshot.timestamp,
+    });
+
+    return {
+      timestamp: snapshot.timestamp,
+      thresholdBytes: snapshot.thresholdBytes,
+      totalWorkingSetBytes: snapshot.totalWorkingSetBytes,
+      totalPrivateBytes: snapshot.totalPrivateBytes,
+      processCount: snapshot.processCount,
+      topProcessType: topProcess ? memoryProcessLabel(topProcess) : 'unknown',
+      topProcessWorkingSetBytes: topProcess?.workingSetBytes ?? 0,
+      reportPath,
+    };
+  }
+
   private writeCrashReportFile(
     record?: CrashRecord | null,
     options: { preferLastAbnormal?: boolean; sessionDir?: string | null } = {},
@@ -712,12 +862,137 @@ export class CrashReportService {
     return reportPath;
   }
 
+  private writeCrashReportTextFile(
+    record?: CrashRecord | null,
+    options: { preferLastAbnormal?: boolean; sessionDir?: string | null } = {},
+  ): string {
+    const targetSessionDir = options.sessionDir ?? this.resolveCrashReportSessionDir(options.preferLastAbnormal ?? false);
+    const reportPath = this.getCrashReportTextFilePath(targetSessionDir);
+    mkdirSync(targetSessionDir ?? this.getCrashReportsRoot(), { recursive: true });
+    const crashRecord = record ?? (targetSessionDir ? readJson<CrashRecord>(join(targetSessionDir, 'crash.json')) : null);
+    const markdown = this.createCrashReportMarkdown(crashRecord, { reportPath, sessionDir: targetSessionDir });
+    writeFileSync(reportPath, markdownReportToText(markdown));
+    return reportPath;
+  }
+
   private writeAudioCrashReportFile(record?: AudioCrashRecord | null, sessionDir = this.sessionDir): string {
     const reportPath = this.getAudioCrashReportFilePath(sessionDir);
     mkdirSync(sessionDir ?? this.getCrashReportsRoot(), { recursive: true });
     const audioRecord = record ?? (sessionDir ? readJson<AudioCrashRecord>(join(sessionDir, 'audio-crash.latest.json')) : null);
     writeFileSync(reportPath, this.createAudioCrashReportMarkdown(audioRecord, { reportPath, sessionDir }));
     return reportPath;
+  }
+
+  private writeAudioCrashReportTextFile(record?: AudioCrashRecord | null, sessionDir = this.sessionDir): string {
+    const reportPath = this.getAudioCrashReportTextFilePath(sessionDir);
+    mkdirSync(sessionDir ?? this.getCrashReportsRoot(), { recursive: true });
+    const audioRecord = record ?? (sessionDir ? readJson<AudioCrashRecord>(join(sessionDir, 'audio-crash.latest.json')) : null);
+    const markdown = this.createAudioCrashReportMarkdown(audioRecord, { reportPath, sessionDir });
+    writeFileSync(reportPath, markdownReportToText(markdown));
+    return reportPath;
+  }
+
+  private writeMemoryPressureReportFile(snapshot = this.readLatestMemoryPressureSnapshot(), sessionDir = this.sessionDir): string {
+    if (!snapshot) {
+      throw new Error('No memory pressure report has been generated yet.');
+    }
+
+    const targetDir = sessionDir ?? this.getCrashReportsRoot();
+    mkdirSync(targetDir, { recursive: true });
+    const snapshotPath = this.getMemoryPressureSnapshotFilePath(sessionDir);
+    const reportPath = this.getMemoryPressureReportFilePath(sessionDir);
+    writeJson(snapshotPath, sanitizeLogPayload(snapshot));
+    this.lastMemoryPressureSnapshot = snapshot;
+    writeFileSync(reportPath, this.createMemoryPressureReportMarkdown(snapshot, { reportPath, sessionDir }));
+    return reportPath;
+  }
+
+  private readLatestMemoryPressureSnapshot(sessionDir = this.sessionDir): DiagnosticMemorySnapshot | null {
+    return this.lastMemoryPressureSnapshot ?? readJson<DiagnosticMemorySnapshot>(this.getMemoryPressureSnapshotFilePath(sessionDir));
+  }
+
+  private createMemoryPressureReportMarkdown(
+    snapshot: DiagnosticMemorySnapshot,
+    options: { reportPath: string; sessionDir: string | null },
+  ): string {
+    const topProcess = snapshot.topProcesses[0] ?? snapshot.metrics[0] ?? null;
+    const mainMemory = snapshot.currentProcess;
+    const lines = [
+      '# ECHO Next Memory Pressure Report',
+      '',
+      `Generated: ${nowIso()}`,
+      `Report file: ${basename(options.reportPath)}`,
+      aiReportReviewTip,
+      '',
+      '## Summary',
+      '',
+      `- Triggered at: ${snapshot.timestamp}`,
+      `- Threshold: ${formatBytes(snapshot.thresholdBytes)}`,
+      `- Total working set: ${formatBytes(snapshot.totalWorkingSetBytes)}`,
+      `- Total private bytes: ${formatBytes(snapshot.totalPrivateBytes)}`,
+      `- Process count: ${snapshot.processCount}`,
+      `- Metrics source: ${snapshot.source}`,
+      `- Largest process: ${memoryProcessLabel(topProcess)} (${formatBytes(topProcess?.workingSetBytes)})`,
+      '',
+      '## What To Inspect First',
+      '',
+      '- If one renderer or utility process dominates the table, inspect the route or background job active near the timestamp.',
+      '- If Browser/main process memory dominates, inspect startup, database, scanner, logging, and long-lived caches.',
+      '- If the total is high but private bytes are much lower, some usage may be shared Chromium/Electron memory rather than leaked app-owned objects.',
+      '',
+      '## Main Process Memory',
+      '',
+      `- PID: ${mainMemory.pid}`,
+      `- RSS: ${formatBytes(mainMemory.rssBytes)}`,
+      `- Heap used: ${formatBytes(mainMemory.heapUsedBytes)} / ${formatBytes(mainMemory.heapTotalBytes)}`,
+      `- External: ${formatBytes(mainMemory.externalBytes)}`,
+      `- Array buffers: ${formatBytes(mainMemory.arrayBuffersBytes)}`,
+      '',
+      '## Top App Processes',
+      '',
+      ...createMemoryProcessTableMarkdown(snapshot.topProcesses),
+      '',
+      '## All Process Metrics',
+      '',
+      ...createMemoryProcessTableMarkdown(snapshot.metrics),
+      '',
+      '## Runtime Snapshots',
+      '',
+      '### Playback',
+      '',
+      formatJsonBlock(this.getSafePlaybackStatus()),
+      '',
+      '### Audio',
+      '',
+      formatJsonBlock(this.getSafeAudioStatus()),
+      '',
+      '### Library Diagnostics',
+      '',
+      formatJsonBlock(this.getSafeLibraryDiagnostics()),
+      '',
+      '### Startup Timeline',
+      '',
+      formatJsonBlock(getStartupTimelineSnapshot()),
+      '',
+      '### Exception Summary',
+      '',
+      formatJsonBlock(getExceptionSummarySnapshot()),
+      '',
+      '## Raw Memory Snapshot',
+      '',
+      formatJsonBlock(snapshot),
+      '',
+      '## Recent Logs',
+      '',
+      this.createLogTailMarkdown(['main.log', 'renderer.log', 'library.log', 'audio.log', 'crash.log'], options.sessionDir),
+      '',
+      '## Privacy',
+      '',
+      'This report is generated locally. It stores process memory counters, safe diagnostics snapshots, and recent local logs. Music files, cover binaries, lyric contents, tokens, cookies, and authentication secrets are not included.',
+      '',
+    ];
+
+    return `${lines.join('\n')}\n`;
   }
 
   private createCrashReportMarkdown(
@@ -943,6 +1218,10 @@ export class CrashReportService {
       return this.writeAudioCrashReportFile();
     }
 
+    if (this.sessionDir && existsSync(this.getMemoryPressureSnapshotFilePath())) {
+      return this.writeMemoryPressureReportFile();
+    }
+
     return this.writeCrashReportFile(undefined, { preferLastAbnormal: true });
   }
 
@@ -1031,8 +1310,10 @@ export class CrashReportService {
       'audio.log',
       'crash.log',
       'audio-crash.latest.json',
+      'memory-pressure.latest.json',
       'crash-report.md',
       'audio-crash-report.md',
+      'memory-pressure-report.md',
     ]) {
       const filePath = join(this.sessionDir, fileName);
       if (existsSync(filePath) && statSync(filePath).isFile()) {
@@ -1193,15 +1474,22 @@ export class CrashReportService {
     }
 
     const detectedAt = nowIso();
+    if (previousSession.shutdownRequestedAt && !existsSync(join(previousSessionDir, 'crash.json'))) {
+      const closedSession: CrashSessionInfo = {
+        ...previousSession,
+        status: 'closed',
+        endedAt: detectedAt,
+      };
+      writeJson(sessionFilePath, closedSession);
+      return;
+    }
+
     const abnormalSession: CrashSessionInfo = {
       ...previousSession,
       status: 'abnormalExit',
       endedAt: detectedAt,
     };
     writeJson(sessionFilePath, abnormalSession);
-    if (previousSession.shutdownRequestedAt && !existsSync(join(previousSessionDir, 'crash.json'))) {
-      return;
-    }
 
     this.lastCrashSummary = {
       sessionId: previousSession.sessionId,

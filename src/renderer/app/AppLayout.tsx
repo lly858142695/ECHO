@@ -16,10 +16,13 @@ import { Sidebar } from '../components/layout/Sidebar';
 import { AppTitleBar } from '../components/layout/AppTitleBar';
 import { EditableContextMenu } from '../components/ui/EditableContextMenu';
 import { formatAudioHostError, shouldSuppressAudioHostError } from '../components/player/audioErrorFormat';
+import { type AudioErrorNoticeEventDetail, showAudioErrorNoticeEvent } from '../utils/audioErrorNotice';
+import { createPluginPanelRoutes } from './routes';
 import type { AppRoute, AppRouteId } from './routes';
 import type { AudioStatus } from '../../shared/types/audio';
 import type { AccountProvider, AccountStatus } from '../../shared/types/accounts';
 import type { AppSettings } from '../../shared/types/appSettings';
+import type { DiagnosticMemoryPressureEvent } from '../../shared/types/diagnostics';
 import type { DownloadJob } from '../../shared/types/downloads';
 import type { LibraryTrack } from '../../shared/types/library';
 import type { UpdateStatus } from '../../shared/types/updates';
@@ -35,7 +38,15 @@ import { albumDetailNavigationEvent } from '../utils/albumNavigation';
 import { artistDetailNavigationEvent } from '../utils/artistNavigation';
 import { AnimatedOutlet } from '../ui/motion/AnimatedOutlet';
 import { applySidebarPreferences } from './sidebarPreferences';
-import { defaultSidebarHiddenRouteIds, defaultSidebarRouteOrder, normalizeSidebarHiddenRouteIds, normalizeSidebarRouteOrder } from '../../shared/types/sidebar';
+import {
+  defaultSidebarHiddenRouteIds,
+  defaultSidebarRouteOrder,
+  lockedHiddenSidebarRouteIds,
+  lockedVisibleSidebarRouteIds,
+  normalizeSidebarHiddenRouteIds,
+  normalizeSidebarRouteOrder,
+  type SidebarRouteId,
+} from '../../shared/types/sidebar';
 import type { PlaybackStatus } from '../../shared/types/playback';
 
 type AppLayoutProps = {
@@ -200,6 +211,9 @@ const defaultSidebarLayoutSettings: SidebarLayoutSettings = {
   sidebarIconOnlyEnabled: false,
 };
 
+const lockedVisibleSidebarRouteIdSet = new Set<SidebarRouteId>(lockedVisibleSidebarRouteIds);
+const lockedHiddenSidebarRouteIdSet = new Set<SidebarRouteId>(lockedHiddenSidebarRouteIds);
+
 const downloadLibraryChangeDebounceMs = 250;
 const persistentRouteIds = new Set<AppRouteId>(['songs', 'albums', 'artists', 'streaming', 'playlists']);
 const readSongsNavigationRemoteSourceId = (event: Event): string | null => {
@@ -209,6 +223,25 @@ const readSongsNavigationRemoteSourceId = (event: Event): string | null => {
 
   const remoteSourceId = (event.detail as { remoteSourceId?: unknown }).remoteSourceId;
   return typeof remoteSourceId === 'string' && remoteSourceId.trim().length > 0 ? remoteSourceId : null;
+};
+
+const readAudioErrorNoticeMessage = (event: Event): string | null => {
+  if (!(event instanceof CustomEvent)) {
+    return null;
+  }
+
+  const detail = event.detail as AudioErrorNoticeEventDetail | null | undefined;
+  if (typeof detail === 'string') {
+    const message = detail.trim();
+    return message ? message : null;
+  }
+
+  if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
+    const message = detail.message.trim();
+    return message ? message : null;
+  }
+
+  return null;
 };
 const accountProviderLabelKeys: Record<AccountProvider, TranslationKey> = {
   netease: 'accountProvider.netease',
@@ -364,6 +397,19 @@ const readNotificationsDisabled = (settings: Partial<AppSettings> | null | undef
   settings?.notificationsDisabled === true;
 const readUpcomingTrackNoticeEnabled = (settings: Partial<AppSettings> | null | undefined): boolean =>
   settings?.upcomingTrackNoticeEnabled === true;
+
+const formatMemoryNoticeBytes = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return 'n/a';
+  }
+
+  const mib = bytes / (1024 * 1024);
+  if (mib < 1024) {
+    return `${mib.toFixed(mib >= 100 ? 0 : 1)} MiB`;
+  }
+
+  return `${(mib / 1024).toFixed(2)} GiB`;
+};
 
 type UpcomingTrackNotice = {
   key: string;
@@ -579,6 +625,16 @@ const shouldShowProUnlockNotice = (status: {
   return true;
 };
 
+const diagnosticsCrashNoticeOptInStorageKey = 'echo:diagnostics:crash-notice-enabled';
+
+const shouldAutoShowDiagnosticsCrashNotice = (): boolean => {
+  try {
+    return window.localStorage.getItem(diagnosticsCrashNoticeOptInStorageKey) === 'true';
+  } catch {
+    return false;
+  }
+};
+
 export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const { t } = useI18n();
   const playbackQueue = usePlaybackQueue();
@@ -600,10 +656,15 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const lastUpcomingTrackPlaybackIdentityRef = useRef<string | null>(null);
   const [audioErrorNotice, setAudioErrorNotice] = useState<{ message: string } | null>(null);
   const [diagnosticsNotice, setDiagnosticsNotice] = useState(false);
+  const [memoryPressureNotice, setMemoryPressureNotice] = useState<DiagnosticMemoryPressureEvent | null>(null);
   const [firstRunSettings, setFirstRunSettings] = useState<AppSettings | null>(null);
   const [isFirstRunWizardOpen, setIsFirstRunWizardOpen] = useState(false);
+  const [isFirstRunWizardClosing, setIsFirstRunWizardClosing] = useState(false);
+  const firstRunWizardMountedRef = useRef(false);
+  const firstRunWizardCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [downloadsFeatureUnlocked, setDownloadsFeatureUnlocked] = useState(false);
   const [connectDonatorUnlocked, setConnectDonatorUnlocked] = useState(false);
+  const [pluginPanelRoutes, setPluginPanelRoutes] = useState<AppRoute[]>([]);
   const [isAudioDrawerOpen, setIsAudioDrawerOpen] = useState(false);
   const [isLyricsDrawerOpen, setIsLyricsDrawerOpen] = useState(false);
   const [lyricsDrawerCurrentTrackTools, setLyricsDrawerCurrentTrackTools] = useState<ReactNode | null>(null);
@@ -712,10 +773,12 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const downloadImportedTrackIdsRef = useRef<Map<string, string | null>>(new Map());
   const downloadLibraryChangedTimerRef = useRef<number | null>(null);
   const notifiedUpdateKeysRef = useRef<Set<string>>(new Set());
+  const availableRoutes = useMemo(() => [...routes, ...pluginPanelRoutes], [pluginPanelRoutes, routes]);
+
   const visibleRoutes = useMemo(
     () =>
       applySidebarPreferences(
-        routes.map((route) => (
+        availableRoutes.map((route) => (
           (route.id === 'downloads' && !downloadsFeatureUnlocked) ||
           (route.id === 'connect' && !connectDonatorUnlocked)
             ? { ...route, hideFromSidebar: true }
@@ -723,7 +786,63 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         )),
         sidebarLayoutSettings,
       ),
-    [connectDonatorUnlocked, downloadsFeatureUnlocked, routes, sidebarLayoutSettings],
+    [availableRoutes, connectDonatorUnlocked, downloadsFeatureUnlocked, sidebarLayoutSettings],
+  );
+  const sidebarRouteById = useMemo(() => new Map(availableRoutes.map((route) => [route.id, route])), [availableRoutes]);
+
+  const persistSidebarLayoutPatch = useCallback((patch: Pick<SidebarLayoutSettings, 'sidebarHiddenRouteIds' | 'sidebarRouteOrder'>): void => {
+    const nextSettings: Pick<SidebarLayoutSettings, 'sidebarHiddenRouteIds' | 'sidebarRouteOrder'> = {
+      sidebarRouteOrder: normalizeSidebarRouteOrder(patch.sidebarRouteOrder),
+      sidebarHiddenRouteIds: normalizeSidebarHiddenRouteIds(patch.sidebarHiddenRouteIds),
+    };
+
+    setSidebarLayoutSettings((current) => ({
+      ...current,
+      ...nextSettings,
+    }));
+
+    void window.echo?.app?.setSettings?.(nextSettings)
+      .then((settings) => {
+        window.dispatchEvent(new CustomEvent('settings:changed', { detail: settings }));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const handleSidebarRouteHide = useCallback(
+    (routeId: SidebarRouteId): void => {
+      if (lockedVisibleSidebarRouteIdSet.has(routeId) || lockedHiddenSidebarRouteIdSet.has(routeId)) {
+        return;
+      }
+
+      persistSidebarLayoutPatch({
+        sidebarRouteOrder: normalizeSidebarRouteOrder(sidebarLayoutSettings.sidebarRouteOrder),
+        sidebarHiddenRouteIds: normalizeSidebarHiddenRouteIds([...normalizeSidebarHiddenRouteIds(sidebarLayoutSettings.sidebarHiddenRouteIds), routeId]),
+      });
+    },
+    [persistSidebarLayoutPatch, sidebarLayoutSettings.sidebarHiddenRouteIds, sidebarLayoutSettings.sidebarRouteOrder],
+  );
+
+  const handleSidebarRouteReorder = useCallback(
+    (routeIds: SidebarRouteId[], placement: AppRoute['placement']): void => {
+      const nextVisibleRouteIds = routeIds.filter((routeId) => sidebarRouteById.get(routeId)?.placement === placement);
+      const routeIdSet = new Set(nextVisibleRouteIds);
+      const remainingRouteIds = [...nextVisibleRouteIds];
+      const currentOrder = normalizeSidebarRouteOrder(sidebarLayoutSettings.sidebarRouteOrder);
+      const nextOrder = currentOrder.map((routeId) => {
+        const route = sidebarRouteById.get(routeId);
+        if (route?.placement !== placement || !routeIdSet.has(routeId)) {
+          return routeId;
+        }
+
+        return remainingRouteIds.shift() ?? routeId;
+      });
+
+      persistSidebarLayoutPatch({
+        sidebarRouteOrder: nextOrder,
+        sidebarHiddenRouteIds: normalizeSidebarHiddenRouteIds(sidebarLayoutSettings.sidebarHiddenRouteIds),
+      });
+    },
+    [persistSidebarLayoutPatch, sidebarLayoutSettings.sidebarHiddenRouteIds, sidebarLayoutSettings.sidebarRouteOrder, sidebarRouteById],
   );
 
   const refreshConnectFeatureUnlock = useCallback((): void => {
@@ -748,6 +867,27 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         }
       })
       .catch(() => setConnectDonatorUnlocked(false));
+  }, []);
+
+  const refreshOsuDownloaderPluginEnabled = useCallback((): void => {
+    const listPlugins = window.echo?.plugins?.list;
+    if (!listPlugins) {
+      setOsuDownloaderPluginEnabled(false);
+      return;
+    }
+
+    void listPlugins()
+      .then((result) => {
+        setOsuDownloaderPluginEnabled(
+          result.plugins.some((plugin) =>
+            plugin.id === osuDownloaderPluginId &&
+            plugin.enabled === true &&
+            plugin.disabledByHost !== true &&
+            plugin.status !== 'error',
+          ),
+        );
+      })
+      .catch(() => setOsuDownloaderPluginEnabled(false));
   }, []);
 
   const startWindowFullscreenTransition = useCallback((nextFullscreen: boolean): void => {
@@ -777,8 +917,12 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     setWindowFullscreenTransitionTarget(null);
   }, []);
   const navigableRoutes = useMemo(
-    () => routes.filter((route) => route.id !== 'downloads' || downloadsFeatureUnlocked),
-    [downloadsFeatureUnlocked, routes],
+    () =>
+      routes.filter((route) =>
+        (route.id !== 'downloads' || downloadsFeatureUnlocked) &&
+        (route.id !== 'osu-downloader' || osuDownloaderPluginEnabled),
+      ),
+    [downloadsFeatureUnlocked, osuDownloaderPluginEnabled, routes],
   );
   const activeRoute = useMemo(
     () => navigableRoutes.find((route) => route.id === activeRouteId) ?? navigableRoutes[0] ?? routes[0],
@@ -809,6 +953,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const isStandaloneRoute = activeRoute.chrome === 'standalone';
   const isLyricsRoute = activeRouteId === 'lyrics';
   const shouldRenderDragDropImportOverlay = !isStandaloneRoute && activeRouteId !== 'plugins';
+  const shouldRenderFirstRunWizard = isFirstRunWizardOpen || isFirstRunWizardClosing;
   const shouldUseLyricsPlayerDrawer =
     isLyricsRoute &&
     (lyricsMiniPlayerSettings.lyricsPlayerBarDrawerEnabled === true ||
@@ -1015,6 +1160,39 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     };
   }, [startWindowFullscreenTransition]);
 
+  const clearFirstRunWizardCloseTimer = useCallback((): void => {
+    if (firstRunWizardCloseTimerRef.current !== null) {
+      clearTimeout(firstRunWizardCloseTimerRef.current);
+      firstRunWizardCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const openFirstRunWizard = useCallback((): void => {
+    clearFirstRunWizardCloseTimer();
+    firstRunWizardMountedRef.current = true;
+    setIsFirstRunWizardClosing(false);
+    setIsFirstRunWizardOpen(true);
+  }, [clearFirstRunWizardCloseTimer]);
+
+  const closeFirstRunWizard = useCallback((): void => {
+    if (!firstRunWizardMountedRef.current) {
+      setIsFirstRunWizardClosing(false);
+      setIsFirstRunWizardOpen(false);
+      return;
+    }
+
+    clearFirstRunWizardCloseTimer();
+    setIsFirstRunWizardClosing(true);
+    firstRunWizardCloseTimerRef.current = setTimeout(() => {
+      firstRunWizardMountedRef.current = false;
+      firstRunWizardCloseTimerRef.current = null;
+      setIsFirstRunWizardOpen(false);
+      setIsFirstRunWizardClosing(false);
+    }, 220);
+  }, [clearFirstRunWizardCloseTimer]);
+
+  useEffect(() => () => clearFirstRunWizardCloseTimer(), [clearFirstRunWizardCloseTimer]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1024,7 +1202,11 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       }
 
       setFirstRunSettings((current) => ({ ...(current ?? {}), ...settings }) as AppSettings);
-      setIsFirstRunWizardOpen(settings.onboardingCompleted === false);
+      if (settings.onboardingCompleted === false) {
+        openFirstRunWizard();
+      } else {
+        closeFirstRunWizard();
+      }
     };
 
     const loadFirstRunSettings = (): void => {
@@ -1055,7 +1237,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       cancelled = true;
       window.removeEventListener('settings:changed', handleSettingsChanged);
     };
-  }, []);
+  }, [closeFirstRunWizard, openFirstRunWizard]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1201,13 +1383,15 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
   useEffect(() => {
     refreshConnectFeatureUnlock();
+    refreshOsuDownloaderPluginEnabled();
     const handlePluginsChanged = (): void => {
       refreshConnectFeatureUnlock();
+      refreshOsuDownloaderPluginEnabled();
       window.dispatchEvent(new Event('settings:changed'));
     };
     window.addEventListener('plugins:changed', handlePluginsChanged);
     return () => window.removeEventListener('plugins:changed', handlePluginsChanged);
-  }, [refreshConnectFeatureUnlock]);
+  }, [refreshConnectFeatureUnlock, refreshOsuDownloaderPluginEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1486,6 +1670,12 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [activeRouteId, downloadsFeatureUnlocked, navigateRoute]);
 
   useEffect(() => {
+    if (!osuDownloaderPluginEnabled && activeRouteId === 'osu-downloader') {
+      navigateRoute('songs', 'osu-downloader-disabled');
+    }
+  }, [activeRouteId, navigateRoute, osuDownloaderPluginEnabled]);
+
+  useEffect(() => {
     if (isTemporarilyBlockedRouteId(activeRouteId)) {
       navigateRoute(readFallbackRouteId(routes), 'blocked-route-recovery');
     }
@@ -1520,6 +1710,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     setIsUpcomingTrackNoticeVisible(false);
     setAudioErrorNotice(null);
     setDiagnosticsNotice(false);
+    setMemoryPressureNotice(null);
   }, []);
 
   const showChromeNotice = useCallback((message: string, autoHideMs = defaultChromeNoticeAutoHideMs): void => {
@@ -1530,6 +1721,33 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     setChromeNoticeAutoHideMs(autoHideMs);
     setChromeNotice((current) => (current === message ? current : message));
     setIsChromeNoticeVisible(true);
+  }, []);
+
+  const showAudioErrorNotice = useCallback((rawError: string): void => {
+    if (notificationsDisabledRef.current) {
+      return;
+    }
+
+    if (!rawError || rawError === 'Desktop bridge unavailable') {
+      return;
+    }
+
+    if (isSpotifyPlaybackSetupError(rawError)) {
+      return;
+    }
+
+    if (shouldSuppressAudioHostError(rawError)) {
+      return;
+    }
+
+    if (lastAudioErrorRef.current === rawError) {
+      return;
+    }
+
+    lastAudioErrorRef.current = rawError;
+    setAudioErrorNotice({
+      message: formatAudioHostError(rawError) ?? rawError,
+    });
   }, []);
 
   useEffect(() => {
@@ -1552,6 +1770,10 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, []);
 
   useEffect(() => {
+    if (!shouldAutoShowDiagnosticsCrashNotice()) {
+      return;
+    }
+
     void window.echo?.diagnostics
       ?.getLastCrashSummary()
       .then((summary) => {
@@ -1560,6 +1782,16 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         }
       })
       .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.echo?.diagnostics?.onMemoryPressure?.((event) => {
+      if (!notificationsDisabledRef.current) {
+        setMemoryPressureNotice(event);
+      }
+    });
+
+    return () => unsubscribe?.();
   }, []);
 
   useEffect(() => {
@@ -1752,33 +1984,23 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [t]);
 
   useEffect(() => {
-    if (notificationsDisabledRef.current) {
-      return;
-    }
-
     const rawError = playbackStatusSnapshot.audioStatus?.error ?? playbackStatusSnapshot.error;
-
-    if (!rawError || rawError === 'Desktop bridge unavailable') {
-      return;
+    if (rawError) {
+      showAudioErrorNotice(rawError);
     }
+  }, [playbackStatusSnapshot.audioStatus?.error, playbackStatusSnapshot.error, showAudioErrorNotice]);
 
-    if (isSpotifyPlaybackSetupError(rawError)) {
-      return;
-    }
+  useEffect(() => {
+    const handleShowAudioErrorNotice = (event: Event): void => {
+      const message = readAudioErrorNoticeMessage(event);
+      if (message) {
+        showAudioErrorNotice(message);
+      }
+    };
 
-    if (shouldSuppressAudioHostError(rawError)) {
-      return;
-    }
-
-    if (lastAudioErrorRef.current === rawError) {
-      return;
-    }
-
-    lastAudioErrorRef.current = rawError;
-    setAudioErrorNotice({
-      message: formatAudioHostError(rawError) ?? rawError,
-    });
-  }, [playbackStatusSnapshot.audioStatus?.error, playbackStatusSnapshot.error]);
+    window.addEventListener(showAudioErrorNoticeEvent, handleShowAudioErrorNotice);
+    return () => window.removeEventListener(showAudioErrorNoticeEvent, handleShowAudioErrorNotice);
+  }, [showAudioErrorNotice]);
 
   useEffect(() => {
     if (notificationsDisabledRef.current) {
@@ -2582,28 +2804,52 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     window.dispatchEvent(new CustomEvent(settingsSectionNavigationEvent, { detail: { section: 'about' } }));
   }, [navigateRoute]);
 
-  const handleOpenCrashReportNotice = useCallback(async (): Promise<void> => {
+  const showReportOpenedNotice = useCallback(
+    (format: 'markdown' | 'text', reportPath: string | undefined): void => {
+      const messageKey = format === 'text' ? 'notice.reportOpenedText' : 'notice.reportOpenedMarkdown';
+      const pathMessageKey = format === 'text' ? 'notice.reportOpenedTextPath' : 'notice.reportOpenedMarkdownPath';
+      showChromeNotice(reportPath ? t(pathMessageKey, { path: reportPath }) : t(messageKey));
+    },
+    [showChromeNotice, t],
+  );
+
+  const handleOpenCrashReportNotice = useCallback(async (format: 'markdown' | 'text' = 'markdown'): Promise<void> => {
     try {
-      const reportPath = await window.echo?.diagnostics.openCrashReport();
+      const reportPath = format === 'text'
+        ? await window.echo?.diagnostics.openCrashTextReport()
+        : await window.echo?.diagnostics.openCrashReport();
       setDiagnosticsNotice(false);
-      showChromeNotice(reportPath ? t('notice.reportOpenedPath', { path: reportPath }) : t('notice.reportOpened'));
+      showReportOpenedNotice(format, reportPath);
     } catch (error) {
       showChromeNotice(error instanceof Error ? error.message : String(error));
     }
-  }, [showChromeNotice, t]);
+  }, [showChromeNotice, showReportOpenedNotice]);
 
   const handleDismissDiagnosticsNotice = useCallback(async (): Promise<void> => {
     setDiagnosticsNotice(false);
     await window.echo?.diagnostics.clearLastCrashSummary().catch(() => undefined);
   }, []);
 
-  const handleOpenAudioCrashReport = useCallback(async (): Promise<void> => {
+  const handleOpenAudioCrashReport = useCallback(async (format: 'markdown' | 'text' = 'markdown'): Promise<void> => {
     try {
-      await window.echo?.diagnostics.openAudioCrashReport();
+      const reportPath = format === 'text'
+        ? await window.echo?.diagnostics.openAudioCrashTextReport()
+        : await window.echo?.diagnostics.openAudioCrashReport();
+      showReportOpenedNotice(format, reportPath);
     } catch (error) {
       showChromeNotice(error instanceof Error ? error.message : String(error));
     }
-  }, [showChromeNotice]);
+  }, [showChromeNotice, showReportOpenedNotice]);
+
+  const handleOpenMemoryPressureReport = useCallback(async (): Promise<void> => {
+    try {
+      const reportPath = await window.echo?.diagnostics.openMemoryPressureReport();
+      setMemoryPressureNotice(null);
+      showChromeNotice(reportPath ? t('notice.reportOpenedPath', { path: reportPath }) : t('notice.reportOpened'));
+    } catch (error) {
+      showChromeNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, [showChromeNotice, t]);
 
   const handleCloseAudioIssueDiagnosticsWindow = useCallback((): void => {
     setAudioIssueDiagnosticsWindowEnabled(false);
@@ -2765,6 +3011,8 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
           onOpenLyricsSettings={() => setIsLyricsDrawerOpen(true)}
           onImportFolder={() => void handleImportFolder()}
           onImportFile={() => void handleImportFile()}
+          onHideRoute={handleSidebarRouteHide}
+          onReorderRoutes={handleSidebarRouteReorder}
         />
       )}
 
@@ -2795,10 +3043,11 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
       {shouldRenderDragDropImportOverlay ? <DragDropImportOverlay onNotice={showChromeNotice} /> : null}
 
-      {isFirstRunWizardOpen ? (
+      {shouldRenderFirstRunWizard ? (
         <FirstRunWizard
           initialSettings={firstRunSettings}
-          onClose={() => setIsFirstRunWizardOpen(false)}
+          presentationState={isFirstRunWizardClosing ? 'closing' : 'open'}
+          onClose={closeFirstRunWizard}
           onCompleted={(settings) => {
             if (settings) {
               setFirstRunSettings(settings);
@@ -2887,14 +3136,47 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         </ChromeNoticePresence>
 
         <ChromeNoticePresence
+          ariaLive="assertive"
+          className="chrome-notice--memory-pressure"
+          role="alert"
+          show={!notificationsDisabled && Boolean(memoryPressureNotice)}
+        >
+          {memoryPressureNotice ? (
+            <>
+              <strong>{t('notice.memoryPressure.title')}</strong>
+              <span>
+                {t('notice.memoryPressure.description', {
+                  process: memoryPressureNotice.topProcessType,
+                  processMemory: formatMemoryNoticeBytes(memoryPressureNotice.topProcessWorkingSetBytes),
+                  threshold: formatMemoryNoticeBytes(memoryPressureNotice.thresholdBytes),
+                  usage: formatMemoryNoticeBytes(memoryPressureNotice.totalWorkingSetBytes),
+                })}
+              </span>
+              <small>{t('notice.memoryPressure.reportReady')}</small>
+              <div className="chrome-notice-actions">
+                <button type="button" onClick={() => void handleOpenMemoryPressureReport()}>
+                  {t('notice.action.openReport')}
+                </button>
+                <button type="button" onClick={() => setMemoryPressureNotice(null)}>
+                  {t('notice.action.close')}
+                </button>
+              </div>
+            </>
+          ) : null}
+        </ChromeNoticePresence>
+
+        <ChromeNoticePresence
           className="chrome-notice--diagnostics"
           role="status"
           show={!notificationsDisabled && diagnosticsNotice}
         >
           <span>{t('notice.diagnosticsCrash.description')}</span>
           <div className="chrome-notice-actions">
-            <button type="button" onClick={() => void handleOpenCrashReportNotice()}>
-              {t('notice.action.openReport')}
+            <button type="button" onClick={() => void handleOpenCrashReportNotice('markdown')}>
+              {t('notice.action.openMarkdownReport')}
+            </button>
+            <button type="button" onClick={() => void handleOpenCrashReportNotice('text')}>
+              {t('notice.action.openTextReport')}
             </button>
             <button type="button" onClick={() => void handleDismissDiagnosticsNotice()}>
               {t('notice.action.ignore')}
@@ -2926,8 +3208,11 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
               <span>{audioErrorNotice.message}</span>
               <small>{t('notice.audioError.description')}</small>
               <div className="chrome-notice-actions">
-                <button type="button" onClick={() => void handleOpenAudioCrashReport()}>
-                  {t('notice.action.openReport')}
+                <button type="button" onClick={() => void handleOpenAudioCrashReport('markdown')}>
+                  {t('notice.action.openMarkdownReport')}
+                </button>
+                <button type="button" onClick={() => void handleOpenAudioCrashReport('text')}>
+                  {t('notice.action.openTextReport')}
                 </button>
                 <button type="button" onClick={() => setAudioErrorNotice(null)}>
                   {t('notice.action.close')}

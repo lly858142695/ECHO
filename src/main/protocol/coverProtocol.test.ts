@@ -236,6 +236,31 @@ describe('echo-wallpaper protocol', () => {
     );
   });
 
+  it('proxies osu beatmap covers with the osu referer header', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('image', {
+        headers: {
+          'Content-Type': 'image/jpeg',
+        },
+      }),
+    );
+    const imageUrl = 'https://assets.ppy.sh/beatmaps/2492872/covers/card.jpg';
+
+    const response = await getImageHandler()(new Request(`echo-image://remote/${encodeURIComponent(imageUrl)}?referer=${encodeURIComponent('https://osu.ppy.sh/')}`));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('image/jpeg');
+    expect(fetchMock).toHaveBeenCalledWith(
+      imageUrl,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          referer: 'https://osu.ppy.sh/',
+        }),
+        redirect: 'follow',
+      }),
+    );
+  });
+
   it('proxies Subsonic covers by track id without exposing source credentials', async () => {
     readRemoteCoverMock.mockResolvedValue({
       status: 'ok',

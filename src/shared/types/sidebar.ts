@@ -2,6 +2,7 @@ export const sidebarRouteIds = [
   'home',
   'songs',
   'downloads',
+  'osu-downloader',
   'albums',
   'artists',
   'folders',

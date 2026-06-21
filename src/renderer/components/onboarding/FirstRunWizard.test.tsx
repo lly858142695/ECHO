@@ -24,4 +24,20 @@ describe('FirstRunWizard', () => {
 
     await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith('https://echonext.moe/zh/docs/'));
   });
+
+  it('opens the ECHO Next Pro sponsor channel from the summary guide', async () => {
+    const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+    window.echo = {
+      app: {
+        openExternalUrl,
+      },
+    } as unknown as Window['echo'];
+
+    render(<FirstRunWizard initialSettings={null} onClose={vi.fn()} onCompleted={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开赞助渠道' }));
+
+    await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith('https://afdian.com/a/echonext'));
+  });
 });

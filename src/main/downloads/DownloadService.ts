@@ -5,19 +5,21 @@ import { spawn } from 'node:child_process';
 import { dirname, join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { app } from 'electron';
-import type {
-  CreateDownloadUrlJobOptions,
-  DownloadJob,
-  DownloadSearchProvider,
-  DownloadSearchProviderError,
-  DownloadSearchRequest,
-  DownloadSearchResponse,
-  DownloadSearchResult,
-  DownloadSearchScope,
-  DownloadJobStatus,
-  DownloadSettings,
-  DownloadSourceProvider,
-  DownloadToolsStatus,
+import {
+  osuDownloadMirrorValues,
+  type CreateDownloadUrlJobOptions,
+  type DownloadJob,
+  type DownloadSearchProvider,
+  type DownloadSearchProviderError,
+  type DownloadSearchRequest,
+  type DownloadSearchResponse,
+  type DownloadSearchResult,
+  type DownloadSearchScope,
+  type DownloadJobStatus,
+  type DownloadSettings,
+  type DownloadSourceProvider,
+  type DownloadToolsStatus,
+  type OsuDownloadMirror,
 } from '../../shared/types/downloads';
 import type { AccountCredentials, AccountProvider } from '../../shared/types/accounts';
 import type { AppSettings } from '../../shared/types/appSettings';
@@ -46,6 +48,8 @@ const defaultSettings: DownloadSettings = {
   importToLibrary: true,
   bindMvAfterImport: true,
   outputDirectory: null,
+  osuOutputDirectory: null,
+  osuDownloadMirror: 'auto',
 };
 
 const terminalStatuses = new Set<DownloadJobStatus>(['completed', 'failed', 'cancelled']);
@@ -184,6 +188,7 @@ type DownloadJobOptions = Required<Pick<DownloadSettings, 'importToLibrary' | 'b
   suggestedArtist: string | null;
   suggestedAlbum: string | null;
   suggestedAlbumArtist: string | null;
+  suggestedComment: string | null;
   suggestedCoverUrl: string | null;
   suggestedCoverData: { data: Uint8Array; mimeType: string } | null;
   webpageUrl: string | null;
@@ -363,6 +368,7 @@ type SayobotBeatmap = {
 };
 
 type OsuDownloadSource = {
+  mirror: Exclude<OsuDownloadMirror, 'auto'>;
   label: string;
   url: string;
   headers: Record<string, string>;
@@ -390,12 +396,19 @@ const sanitizeSettings = (value: Partial<DownloadSettings> | null | undefined, f
   audioStrategy: 'best_available',
   importToLibrary: typeof value?.importToLibrary === 'boolean' ? value.importToLibrary : fallback.importToLibrary,
   bindMvAfterImport: typeof value?.bindMvAfterImport === 'boolean' ? value.bindMvAfterImport : fallback.bindMvAfterImport,
+  osuDownloadMirror: osuDownloadMirrorValues.includes(value?.osuDownloadMirror as OsuDownloadMirror) ? (value?.osuDownloadMirror as OsuDownloadMirror) : fallback.osuDownloadMirror,
   outputDirectory:
     typeof value?.outputDirectory === 'string' && value.outputDirectory.trim().length > 0
       ? resolve(value.outputDirectory.trim())
       : value?.outputDirectory === null
         ? null
         : fallback.outputDirectory,
+  osuOutputDirectory:
+    typeof value?.osuOutputDirectory === 'string' && value.osuOutputDirectory.trim().length > 0
+      ? resolve(value.osuOutputDirectory.trim())
+      : value?.osuOutputDirectory === null
+        ? null
+        : fallback.osuOutputDirectory,
 });
 
 const sanitizeTextOption = (value: unknown, maxLength: number): string | null =>
@@ -783,7 +796,8 @@ export class DownloadService extends EventEmitter {
       throw new Error(protectedMusicDownloadBlockedMessage);
     }
 
-    const baseOutputDirectory = this.settings.outputDirectory;
+    const provider = inferProvider(sourceUrl);
+    const baseOutputDirectory = provider === 'osu' ? (this.settings.osuOutputDirectory ?? this.settings.outputDirectory) : this.settings.outputDirectory;
     if (!baseOutputDirectory) {
       throw new Error('请选择下载文件夹');
     }
@@ -795,7 +809,6 @@ export class DownloadService extends EventEmitter {
     this.ensureOutputDirectoryInLibrary(baseOutputDirectory);
     const outputDirectory = this.prepareJobOutputDirectory(baseOutputDirectory, options.outputSubdirectory);
 
-    const provider = inferProvider(sourceUrl);
     const now = new Date().toISOString();
     const job: DownloadJob = {
       id: randomUUID(),
@@ -804,6 +817,7 @@ export class DownloadService extends EventEmitter {
       audioStrategy: 'best_available',
       status: 'queued',
       title: suggestedTitle,
+      artist: suggestedArtist,
       durationSeconds: null,
       thumbnailUrl: suggestedCoverUrl,
       webpageUrl,
@@ -829,6 +843,7 @@ export class DownloadService extends EventEmitter {
       suggestedArtist,
       suggestedAlbum,
       suggestedAlbumArtist,
+      suggestedComment: null,
       suggestedCoverUrl,
       suggestedCoverData: null,
       webpageUrl,
@@ -901,8 +916,13 @@ export class DownloadService extends EventEmitter {
       throw new Error(`涓嬭浇鏂囦欢澶逛笉鍙敤: ${nextSettings.outputDirectory}`);
     }
 
+    if (nextSettings.osuOutputDirectory && (!existsSync(nextSettings.osuOutputDirectory) || !statSync(nextSettings.osuOutputDirectory).isDirectory())) {
+      throw new Error(`osu! download folder is not available: ${nextSettings.osuOutputDirectory}`);
+    }
+
     this.settings = nextSettings;
     this.ensureOutputDirectoryInLibrary(this.settings.outputDirectory);
+    this.ensureOutputDirectoryInLibrary(this.settings.osuOutputDirectory);
     (this.dependencies.saveSettings ?? saveDownloadSettings)(this.settings);
     return this.getSettings();
   }
@@ -1259,10 +1279,9 @@ export class DownloadService extends EventEmitter {
       if (parsed.protocol === 'http:') {
         parsed.protocol = 'https:';
       }
-      if (parsed.protocol === 'https:' && (parsed.hostname === 'assets.ppy.sh' || parsed.hostname.endsWith('.ppy.sh'))) {
+      if (parsed.protocol === 'https:' && parsed.hostname === 'assets.ppy.sh') {
         return `echo-image://remote/${encodeURIComponent(parsed.toString())}?referer=${encodeURIComponent('https://osu.ppy.sh/')}`;
       }
-
       return parsed.toString();
     } catch {
       return url;
@@ -1781,6 +1800,7 @@ export class DownloadService extends EventEmitter {
       const canResume = isTerminal || Boolean(options?.outputDirectory);
       const job: DownloadJob = {
         ...rawJob,
+        artist: typeof rawJob.artist === 'string' && rawJob.artist.trim() ? rawJob.artist : null,
         status: isTerminal ? rawJob.status : canResume ? 'queued' : 'failed',
         progress: isTerminal ? rawJob.progress : canResume ? Math.min(95, Math.max(0, rawJob.progress ?? 0)) : 100,
         error: isTerminal ? rawJob.error : canResume ? null : 'Download resume data is incomplete. Add the track to downloads again.',
@@ -1793,6 +1813,7 @@ export class DownloadService extends EventEmitter {
         this.jobOptions.set(rawJob.id, {
           ...options,
           requestHeaders: sanitizeRequestHeaders(options.requestHeaders),
+          suggestedComment: sanitizeTextOption(options.suggestedComment, 512),
           suggestedCoverData: null,
           deferImportToLibrary: options.deferImportToLibrary === true,
         });
@@ -2180,6 +2201,7 @@ export class DownloadService extends EventEmitter {
             suggestedArtist: extracted.tags.artist,
             suggestedAlbum: extracted.tags.album,
             suggestedAlbumArtist: extracted.tags.albumArtist,
+            suggestedComment: extracted.tags.comment ?? null,
             suggestedCoverData: extracted.coverData,
             webpageUrl: job.webpageUrl ?? job.sourceUrl,
           });
@@ -2188,6 +2210,7 @@ export class DownloadService extends EventEmitter {
         this.deleteTempFile(archivePath);
         this.updateJob(jobId, {
           title: displayTitle,
+          artist: extracted.tags.artist,
           status: 'extracting_audio',
           outputPath: extracted.outputPath,
           progress: 96,
@@ -2217,34 +2240,44 @@ export class DownloadService extends EventEmitter {
       officialHeaders.Cookie = osuCookie;
     }
 
-    const mirrorHeaders: Record<string, string> = {
+    const mirrorHeaders = (referer: string): Record<string, string> => ({
       Accept: osuArchiveAccept,
-      Referer: 'https://sayobot.cn/',
+      Referer: referer,
       'User-Agent': osuDownloadUserAgent,
-    };
+    });
 
-    return [
+    const sources: OsuDownloadSource[] = [
       {
+        mirror: 'official',
         label: 'osu! official',
         url: `https://osu.ppy.sh/beatmapsets/${encodeURIComponent(beatmapsetId)}/download?noVideo=1`,
         headers: officialHeaders,
       },
       {
+        mirror: 'sayobot',
         label: 'Sayobot',
         url: `https://dl.sayobot.cn/beatmaps/download/novideo/${encodeURIComponent(beatmapsetId)}`,
-        headers: mirrorHeaders,
+        headers: mirrorHeaders('https://sayobot.cn/'),
       },
       {
-        label: 'Catboy',
+        mirror: 'catboy',
+        label: 'Catboy / Mino',
         url: `https://catboy.best/d/${encodeURIComponent(beatmapsetId)}`,
-        headers: mirrorHeaders,
+        headers: mirrorHeaders('https://catboy.best/'),
       },
       {
+        mirror: 'nerinyan',
         label: 'NeriNyan',
         url: `https://api.nerinyan.moe/d/${encodeURIComponent(beatmapsetId)}`,
-        headers: mirrorHeaders,
+        headers: mirrorHeaders('https://nerinyan.moe/'),
       },
     ];
+
+    if (this.settings.osuDownloadMirror === 'auto') {
+      return sources;
+    }
+
+    return sources.filter((source) => source.mirror === this.settings.osuDownloadMirror);
   }
 
   private isOsuArchiveResponse(response: Response): boolean {
@@ -2336,7 +2369,8 @@ export class DownloadService extends EventEmitter {
       Boolean(options.suggestedTitle) ||
       Boolean(options.suggestedArtist) ||
       Boolean(options.suggestedAlbum) ||
-      Boolean(options.suggestedAlbumArtist);
+      Boolean(options.suggestedAlbumArtist) ||
+      Boolean(options.suggestedComment);
     const coverUrl = options.suggestedCoverUrl ?? job.thumbnailUrl;
     const hasCover = Boolean(options.suggestedCoverData) || Boolean(coverUrl);
     if (!hasMetadata && !hasCover) {
@@ -2372,6 +2406,7 @@ export class DownloadService extends EventEmitter {
           discNo: null,
           year: null,
           genre: null,
+          ...(options.suggestedComment ? { comment: options.suggestedComment } : {}),
         },
       });
     } catch (error) {
@@ -2612,6 +2647,7 @@ export class DownloadService extends EventEmitter {
       suggestedArtist: null,
       suggestedAlbum: null,
       suggestedAlbumArtist: null,
+      suggestedComment: null,
       suggestedCoverUrl: null,
       suggestedCoverData: null,
       webpageUrl: null,

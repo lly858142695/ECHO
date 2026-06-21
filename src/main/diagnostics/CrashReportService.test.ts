@@ -253,7 +253,7 @@ describe('CrashReportService', () => {
     expect(readJson<{ status: string }>(join(previousDir, 'session.json')).status).toBe('abnormalExit');
   });
 
-  it('keeps user-requested shutdown timeouts out of the startup crash notice', () => {
+  it('treats user-requested shutdown timeouts without a crash record as closed', () => {
     const sessionsDir = join(tempDir, 'crash-reports', 'sessions');
     const previousDir = join(sessionsDir, '0001');
     mkdirSync(previousDir, { recursive: true });
@@ -278,8 +278,36 @@ describe('CrashReportService', () => {
 
     const session = readJson<{ status: string; endedAt?: string }>(join(previousDir, 'session.json'));
     expect(service.getLastCrashSummary()).toBeNull();
-    expect(session.status).toBe('abnormalExit');
+    expect(session.status).toBe('closed');
     expect(session.endedAt).toBeTruthy();
+  });
+
+  it('keeps shutdown-timeout sessions reportable when a crash record exists', () => {
+    const sessionsDir = join(tempDir, 'crash-reports', 'sessions');
+    const previousDir = join(sessionsDir, '0001');
+    mkdirSync(previousDir, { recursive: true });
+    writeFileSync(
+      join(previousDir, 'session.json'),
+      JSON.stringify({
+        sessionId: '0001',
+        appVersion: '1.0.1-test',
+        electronVersion: 'test',
+        chromeVersion: 'test',
+        nodeVersion: 'test',
+        platform: 'win32',
+        arch: 'x64',
+        startedAt: '2026-05-13T00:00:00.000Z',
+        shutdownRequestedAt: '2026-05-13T00:01:00.000Z',
+        status: 'running',
+      }),
+    );
+    writeFileSync(join(previousDir, 'crash.json'), JSON.stringify({ type: 'main' }));
+
+    const service = new CrashReportService(tempDir);
+    service.initialize();
+
+    expect(service.getLastCrashSummary()).toEqual(expect.objectContaining({ sessionId: '0001', reason: 'abnormalExit' }));
+    expect(readJson<{ status: string }>(join(previousDir, 'session.json')).status).toBe('abnormalExit');
   });
 
   it('opens a markdown report for the previous abnormal session', async () => {
@@ -613,6 +641,27 @@ describe('CrashReportService', () => {
     expect(shell.openPath).toHaveBeenCalledWith(reportPath);
   });
 
+  it('opens the dedicated audio crash text report file', async () => {
+    const service = new CrashReportService(tempDir);
+    service.initialize();
+    service.reportAudioError({
+      message: 'echo-audio-host timeout_waiting_for_ready',
+      phase: 'output-start',
+      severity: 'recoverable',
+    });
+
+    const reportPath = await service.openAudioCrashReportTextFile();
+
+    expect(reportPath).toBe(join(service.getSessionDir()!, 'audio-crash-report.txt'));
+    expect(existsSync(reportPath)).toBe(true);
+    const report = readFileSync(reportPath, 'utf8');
+    expect(report).toContain('ECHO Next Audio Crash Report');
+    expect(report).toContain('echo-audio-host timeout_waiting_for_ready');
+    expect(report).not.toContain('```json');
+    const { shell } = await import('electron');
+    expect(shell.openPath).toHaveBeenCalledWith(reportPath);
+  });
+
   it('opens the dedicated normal crash report file', async () => {
     const service = new CrashReportService(tempDir);
     service.initialize();
@@ -626,6 +675,85 @@ describe('CrashReportService', () => {
     expect(report).toContain('AI review tip: Copy this report and paste it into AI to help identify the problem.');
     expect(report).toContain('Synthetic crash');
     expect(report).not.toContain('D:\\Music\\private-song.flac');
+    const { shell } = await import('electron');
+    expect(shell.openPath).toHaveBeenCalledWith(reportPath);
+  });
+
+  it('opens the dedicated normal crash text report file', async () => {
+    const service = new CrashReportService(tempDir);
+    service.initialize();
+    service.reportCrash({ type: 'test', message: 'Synthetic crash', details: { outputPath: 'D:\\Music\\secret.flac' } });
+
+    const reportPath = await service.openCrashReportTextFile();
+
+    const report = readFileSync(reportPath, 'utf8');
+    expect(reportPath).toBe(join(service.getSessionDir()!, 'crash-report.txt'));
+    expect(report).toContain('ECHO Next Crash Report');
+    expect(report).toContain('Synthetic crash');
+    expect(report).not.toContain('```json');
+    const { shell } = await import('electron');
+    expect(shell.openPath).toHaveBeenCalledWith(reportPath);
+  });
+
+  it('writes and opens a dedicated memory pressure report', async () => {
+    const service = new CrashReportService(tempDir);
+    service.initialize();
+
+    const browserProcess = {
+      pid: 100,
+      type: 'Browser',
+      workingSetBytes: 2_300_000_000,
+      peakWorkingSetBytes: 2_500_000_000,
+      privateBytes: 1_900_000_000,
+      cpuPercent: 4.5,
+    };
+    const event = service.reportMemoryPressure({
+      timestamp: '2026-06-21T02:10:00.000Z',
+      thresholdBytes: 3 * 1024 * 1024 * 1024,
+      totalWorkingSetBytes: 3_600_000_000,
+      totalPrivateBytes: 2_700_000_000,
+      processCount: 2,
+      source: 'electron-app-metrics',
+      currentProcess: {
+        pid: 100,
+        rssBytes: 2_300_000_000,
+        heapTotalBytes: 420_000_000,
+        heapUsedBytes: 390_000_000,
+        externalBytes: 40_000_000,
+        arrayBuffersBytes: 20_000_000,
+      },
+      metrics: [
+        browserProcess,
+        {
+          pid: 200,
+          type: 'Tab',
+          name: 'renderer',
+          workingSetBytes: 1_300_000_000,
+          peakWorkingSetBytes: 1_400_000_000,
+          privateBytes: 800_000_000,
+          cpuPercent: 1.25,
+        },
+      ],
+      topProcesses: [browserProcess],
+      appVersion: '1.0.1-test',
+      platform: 'win32',
+      arch: 'x64',
+    });
+
+    const reportPath = join(service.getSessionDir()!, 'memory-pressure-report.md');
+    expect(event.reportPath).toBe(reportPath);
+    expect(event.topProcessType).toBe('Browser');
+    expect(existsSync(join(service.getSessionDir()!, 'memory-pressure.latest.json'))).toBe(true);
+
+    const report = readFileSync(reportPath, 'utf8');
+    expect(report).toContain('# ECHO Next Memory Pressure Report');
+    expect(report).toContain('Total working set');
+    expect(report).toContain('Browser');
+    expect(report).toContain('## Top App Processes');
+    expect(report).not.toContain('D:\\Music\\private-song.flac');
+
+    const openedPath = await service.openMemoryPressureReportFile();
+    expect(openedPath).toBe(reportPath);
     const { shell } = await import('electron');
     expect(shell.openPath).toHaveBeenCalledWith(reportPath);
   });

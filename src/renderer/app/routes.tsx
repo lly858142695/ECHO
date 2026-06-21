@@ -43,8 +43,9 @@ import {
 import { EmptyState } from '../components/ui/EmptyState';
 import type { TranslationKey } from '../i18n/locales';
 import type { SidebarRouteId } from '../../shared/types/sidebar';
+import type { PluginPanelContribution, PluginSummary } from '../../shared/types/plugins';
 
-export type AppRouteId = SidebarRouteId | 'lyrics';
+export type AppRouteId = SidebarRouteId | 'lyrics' | `plugin:${string}`;
 
 export type AppRoute = {
   id: AppRouteId;
@@ -72,6 +73,58 @@ const PlaceholderPage = ({
     <EmptyState icon={icon} title={title} description={description} meta="This view still uses the shared ECHO Next shell." />
   </div>
 );
+
+const fileUrlFromPath = (path: string): string => {
+  const normalized = path.replace(/\\/gu, '/');
+  const prefixed = normalized.startsWith('/') ? normalized : `/${normalized}`;
+  return `file://${prefixed}`;
+};
+
+const PluginIframePanelPage = ({ plugin, panel }: { plugin: PluginSummary; panel: PluginPanelContribution }): JSX.Element => {
+  if (!panel.path) {
+    return <EmptyState icon={EchoPluginsIcon} title={panel.title} description="This plugin panel is missing a panel file." meta={plugin.id} />;
+  }
+
+  return (
+    <div className="plugin-route-panel">
+      <iframe
+        title={`${plugin.name}: ${panel.title}`}
+        sandbox="allow-scripts"
+        src={fileUrlFromPath(`${plugin.directory.replace(/\\/gu, '/')}/${panel.path}`)}
+      />
+    </div>
+  );
+};
+
+export const createPluginPanelRoutes = (plugins: PluginSummary[]): AppRoute[] =>
+  plugins.flatMap((plugin) => {
+    if (!plugin.enabled || plugin.disabledByHost || plugin.status === 'error') {
+      return [];
+    }
+
+    const panels = plugin.contributes.panels ?? [];
+    return panels.map((panel): AppRoute => {
+      if (panel.hostPage === 'osu-downloader') {
+        return {
+          id: 'osu-downloader',
+          label: panel.title || plugin.name,
+          description: 'osu! beatmap audio downloader.',
+          icon: EchoDownloadsIcon,
+          placement: panel.placement ?? 'main',
+          element: <DownloadsPage variant="osu" />,
+        };
+      }
+
+      return {
+        id: `plugin:${plugin.id}:${panel.id}`,
+        label: panel.title || plugin.name,
+        description: `${plugin.name} plugin panel.`,
+        icon: EchoPluginsIcon,
+        placement: panel.placement ?? 'main',
+        element: <PluginIframePanelPage plugin={plugin} panel={panel} />,
+      };
+    });
+  });
 
 export const appRoutes: AppRoute[] = [
   {

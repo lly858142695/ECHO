@@ -1241,7 +1241,7 @@ describe('PlayerBar', () => {
     }
   });
 
-  it('shows a short audiohost timeout message in the footer', async () => {
+  it('keeps audiohost errors out of the footer', async () => {
     const track = makeTrack(12);
     const rawError =
       'echo-audio-host timeout_waiting_for_ready; host="echo-audio-host.exe"; args="-sr 44100 -ch 2"; mode="shared"; elapsedMs=15000; stderrTail="[echo-audio-host] createDevice is still waiting"';
@@ -1281,12 +1281,15 @@ describe('PlayerBar', () => {
     } as unknown as Window['echo'];
 
     render(
-      <PlaybackQueueProvider>
-        <PlayerBar />
-      </PlaybackQueueProvider>,
+      <I18nProvider>
+        <PlaybackQueueProvider>
+          <PlayerBar />
+        </PlaybackQueueProvider>
+      </I18nProvider>,
     );
 
-    expect(await screen.findByText('音频输出启动超时，可能是驱动初始化太慢、设备被占用，或采样率/缓冲设置被拒绝。')).toBeTruthy();
+    await screen.findByText('Song 12');
+    expect(document.querySelector('.player-error')).toBeNull();
     expect(screen.queryByText(/timeout_waiting_for_ready/)).toBeNull();
   });
 

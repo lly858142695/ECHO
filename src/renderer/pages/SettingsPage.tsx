@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import {
+  BookOpen,
   Captions,
   Check,
   Clock3,
@@ -100,7 +101,7 @@ import {
 import type { AppCacheInventory, CoverCacheMigrationResult } from '../../shared/types/coverCache';
 import type { LastCrashSummary } from '../../shared/types/diagnostics';
 import type { DiscordPresenceStatus } from '../../shared/types/discordPresence';
-import type { DownloadSettings, DownloadToolsStatus } from '../../shared/types/downloads';
+import type { DownloadSettings } from '../../shared/types/downloads';
 import type { DataBackupProgress, DataBackupStatus } from '../../shared/types/settingsBackup';
 import type { LastFmStatus } from '../../shared/types/lastfm';
 import type { PlaybackStatus } from '../../shared/types/playback';
@@ -675,18 +676,6 @@ type SettingsSearchResult = {
   score: number;
 };
 
-type SettingsStatusBadgeTone = 'good' | 'warning' | 'neutral' | 'muted';
-
-type SettingsStatusBadge = {
-  id: string;
-  icon: LucideIcon;
-  label: string;
-  detail: string;
-  tone: SettingsStatusBadgeTone;
-  sectionKey: SettingsNavKey;
-  targetId?: string;
-};
-
 type FontPickerTarget = 'main' | 'chinese' | 'fallback';
 type AlbumMergeStrategy = AppSettings['albumMergeStrategy'];
 type ArtistMergeStrategy = NonNullable<AppSettings['artistMergeStrategy']>;
@@ -989,6 +978,7 @@ const sidebarSettingsRouteItems: SidebarSettingsRouteItem[] = [
   { id: 'home', labelKey: 'route.home.label', placement: 'main' },
   { id: 'songs', labelKey: 'route.songs.label', placement: 'main' },
   { id: 'downloads', labelKey: 'route.downloads.label', placement: 'main' },
+  { id: 'osu-downloader', labelKey: 'route.osuDownloader.label', placement: 'main' },
   { id: 'albums', labelKey: 'route.albums.label', placement: 'main' },
   { id: 'artists', labelKey: 'route.artists.label', placement: 'main' },
   { id: 'folders', labelKey: 'route.folders.label', placement: 'main' },
@@ -4445,8 +4435,6 @@ export const SettingsPage = (): JSX.Element => {
   const [cacheInventory, setCacheInventory] = useState<AppCacheInventory | null>(null);
   const [cacheInventoryBusy, setCacheInventoryBusy] = useState(false);
   const [downloadSettings, setDownloadSettings] = useState<DownloadSettings | null>(null);
-  const [downloadToolsStatus, setDownloadToolsStatus] = useState<DownloadToolsStatus | null>(null);
-  const [downloadToolsChecked, setDownloadToolsChecked] = useState(false);
   const [downloadDirectoryBusy, setDownloadDirectoryBusy] = useState(false);
   const [downloadDirectoryMessage, setDownloadDirectoryMessage] = useState<string | null>(null);
   const [downloadUnlockInput, setDownloadUnlockInput] = useState('');
@@ -4640,7 +4628,7 @@ export const SettingsPage = (): JSX.Element => {
         targetId: 'settings-row-first-run-wizard',
         title: t('settings.general.firstRunWizard.title'),
         description: t('settings.general.firstRunWizard.description'),
-        terms: [t('settings.general.firstRunWizard.title'), t('settings.general.firstRunWizard.description'), '首次启动指引', '新手指引', '新手引导', '向导', '引导', '標準輸出', '標準出力', '标准输出', '系统音频', 'システムオーディオ', 'guide', 'onboarding', 'first run', 'welcome', 'system audio'],
+        terms: [t('settings.general.firstRunWizard.title'), t('settings.general.firstRunWizard.description'), '首次启动指引', '新手教程', '新手指引', '新手引导', '向导', '引导', '標準輸出', '標準出力', '标准输出', '系统音频', 'システムオーディオ', 'guide', 'beginner guide', 'onboarding', 'first run', 'welcome', 'system audio'],
       },
       {
         id: 'row-sidebar-auto-hide',
@@ -5644,24 +5632,6 @@ export const SettingsPage = (): JSX.Element => {
     }
   }, []);
 
-  const refreshDownloadToolsStatus = useCallback(async () => {
-    const downloads = getDownloadsBridge();
-
-    if (!downloads?.checkTools) {
-      setDownloadToolsStatus(null);
-      setDownloadToolsChecked(true);
-      return;
-    }
-
-    try {
-      setDownloadToolsStatus(await downloads.checkTools());
-    } catch {
-      setDownloadToolsStatus(null);
-    } finally {
-      setDownloadToolsChecked(true);
-    }
-  }, []);
-
   const copyAudioDiagnostics = useCallback(async (): Promise<void> => {
     const audio = getAudioBridge();
 
@@ -5965,9 +5935,8 @@ export const SettingsPage = (): JSX.Element => {
         void refreshStatus();
         void refreshDevices();
         void refreshDiscordPresenceStatus();
-        void refreshDownloadToolsStatus();
       }),
-    [refreshDevices, refreshDiscordPresenceStatus, refreshDownloadToolsStatus, refreshStatus],
+    [refreshDevices, refreshDiscordPresenceStatus, refreshStatus],
   );
 
   useEffect(() => {
@@ -9143,7 +9112,7 @@ export const SettingsPage = (): JSX.Element => {
     patchAppSettings({ hideToTrayOnClose: nextHideToTrayOnClose });
   };
 
-  const handleFirstRunWizardToggle = (): void => {
+  const handleOpenFirstRunWizard = (): void => {
     patchAppSettings({ onboardingCompleted: false });
   };
 
@@ -11007,132 +10976,6 @@ export const SettingsPage = (): JSX.Element => {
       : t('settings.playback.replayGain.mode.track');
   const replayGainAppliedLabel = Number.isFinite(status?.replayGainAppliedDb) ? `${status?.replayGainAppliedDb?.toFixed(2)} dB` : '0 dB';
   const replayGainProgressLabel = replayGainAnalysisJob ? `${replayGainAnalysisJob.processedTracks}/${replayGainAnalysisJob.totalTracks}` : t('settings.playback.replayGain.notRun');
-  const settingsStatusBadges = useMemo<SettingsStatusBadge[]>(() => {
-    const asioDevices = devices.filter((device) => device.outputMode === 'asio');
-    const asioActive = effectiveAudioStatus?.outputMode === 'asio';
-    const asioDetail = !advancedNativeOutputAvailable
-      ? t('settings.status.asio.unsupported')
-      : !audioDevicesChecked
-        ? t('settings.status.asio.checking')
-        : asioDevices.length > 0
-          ? asioActive
-            ? t('settings.status.asio.active')
-            : t('settings.status.asio.available', { count: asioDevices.length })
-          : t('settings.status.asio.missing');
-    const asioTone: SettingsStatusBadgeTone = !advancedNativeOutputAvailable
-      ? 'muted'
-      : !audioDevicesChecked
-        ? 'neutral'
-        : asioDevices.length > 0
-          ? 'good'
-          : 'warning';
-
-    const eqSectionVisible = settingsNavigationItems.some((item) => item.key === 'eq');
-    const eqChangingSound = effectiveAudioStatus?.dspActive === true || effectiveAudioStatus?.eqEnabled === true;
-    const eqClippingRisk = effectiveAudioStatus?.dspClippingRisk === true || effectiveAudioStatus?.clippingRisk === true;
-    const eqDetail = !effectiveAudioStatus
-      ? t('settings.status.eq.checking')
-      : eqClippingRisk
-        ? t('settings.status.eq.clipping')
-        : eqChangingSound
-          ? effectiveAudioStatus.eqEnabled
-            ? t('settings.status.eq.active', { preset: effectiveAudioStatus.eqPresetName ?? t('settings.status.eq.custom') })
-            : t('settings.status.eq.dspActive')
-          : t('settings.status.eq.off');
-    const eqTone: SettingsStatusBadgeTone = !effectiveAudioStatus ? 'neutral' : eqChangingSound ? 'warning' : 'muted';
-
-    const discordDetail = !discordPresenceStatus
-      ? t('settings.status.discord.checking')
-      : !discordPresenceStatus.enabled
-        ? t('settings.status.discord.disabled')
-        : discordPresenceStatus.connected
-          ? t('settings.status.discord.connected')
-          : discordPresenceStatus.lastError
-            ? t('settings.status.discord.error', { error: discordPresenceStatus.lastError })
-            : discordPresenceStatus.available
-              ? t('settings.status.discord.notConnected')
-              : t('settings.status.discord.notRunning');
-    const discordTone: SettingsStatusBadgeTone = !discordPresenceStatus
-      ? 'neutral'
-      : !discordPresenceStatus.enabled
-        ? 'muted'
-        : discordPresenceStatus.connected
-          ? 'good'
-          : 'warning';
-
-    const missingDownloadTools = downloadToolsStatus
-      ? [
-          downloadToolsStatus.ytDlpAvailable ? null : 'yt-dlp',
-          downloadToolsStatus.ffmpegAvailable ? null : 'ffmpeg',
-        ].filter((tool): tool is string => Boolean(tool))
-      : [];
-    const downloadToolsDetail = appSettings?.downloadsFeatureUnlocked !== true
-      ? t('settings.status.downloadTools.locked')
-      : !downloadToolsChecked
-        ? t('settings.status.downloadTools.checking')
-        : !downloadToolsStatus
-          ? t('settings.status.downloadTools.unavailable')
-          : missingDownloadTools.length === 0
-            ? t('settings.status.downloadTools.ready')
-            : t('settings.status.downloadTools.missing', { tools: missingDownloadTools.join(' / ') });
-    const downloadToolsTone: SettingsStatusBadgeTone = appSettings?.downloadsFeatureUnlocked !== true
-      ? 'muted'
-      : !downloadToolsChecked
-        ? 'neutral'
-        : downloadToolsStatus && missingDownloadTools.length === 0
-          ? 'good'
-          : 'warning';
-
-    return [
-      {
-        id: 'asio',
-        icon: Headphones,
-        label: t('settings.status.asio.title'),
-        detail: asioDetail,
-        tone: asioTone,
-        sectionKey: 'playback',
-        targetId: 'settings-row-output-device',
-      },
-      {
-        id: 'eq',
-        icon: SlidersHorizontal,
-        label: t('settings.status.eq.title'),
-        detail: eqDetail,
-        tone: eqTone,
-        sectionKey: eqSectionVisible ? 'eq' : 'playback',
-        targetId: eqSectionVisible ? undefined : 'settings-row-audio-status',
-      },
-      {
-        id: 'discord',
-        icon: Link2,
-        label: t('settings.status.discord.title'),
-        detail: discordDetail,
-        tone: discordTone,
-        sectionKey: 'integrations',
-        targetId: 'settings-row-discord-presence',
-      },
-      {
-        id: 'download-tools',
-        icon: Download,
-        label: t('settings.status.downloadTools.title'),
-        detail: downloadToolsDetail,
-        tone: downloadToolsTone,
-        sectionKey: 'library',
-        targetId: appSettings?.downloadsFeatureUnlocked === true ? 'settings-row-streaming-download-actions' : undefined,
-      },
-    ];
-  }, [
-    advancedNativeOutputAvailable,
-    appSettings?.downloadsFeatureUnlocked,
-    audioDevicesChecked,
-    devices,
-    discordPresenceStatus,
-    downloadToolsChecked,
-    downloadToolsStatus,
-    effectiveAudioStatus,
-    settingsNavigationItems,
-    t,
-  ]);
 
   return (
     <div className="settings-page no-drag">
@@ -11178,28 +11021,6 @@ export const SettingsPage = (): JSX.Element => {
             </div>
           ) : null}
         </label>
-        <div className="settings-status-overview" aria-label={t('settings.status.aria')}>
-          {settingsStatusBadges.map((badge) => {
-            const Icon = badge.icon;
-            return (
-              <button
-                className={`settings-status-badge settings-status-badge--${badge.tone}`}
-                key={badge.id}
-                type="button"
-                title={badge.detail}
-                onClick={() => jumpToSettingsSection(badge.sectionKey, { clearSearch: true, targetId: badge.targetId })}
-              >
-                <span className="settings-status-badge-icon">
-                  <Icon size={14} aria-hidden="true" />
-                </span>
-                <span className="settings-status-badge-copy">
-                  <strong>{badge.label}</strong>
-                  <em>{badge.detail}</em>
-                </span>
-              </button>
-            );
-          })}
-        </div>
       </header>
 
       <div className="settings-body">
@@ -11267,11 +11088,15 @@ export const SettingsPage = (): JSX.Element => {
                 title={t('settings.general.firstRunWizard.title')}
                 description={t('settings.general.firstRunWizard.description')}
               >
-                <ToggleButton
-                  active={appSettings?.onboardingCompleted === false}
+                <button
+                  className="settings-action-button settings-first-run-guide-button"
+                  type="button"
                   disabled={!appSettings}
-                  onClick={handleFirstRunWizardToggle}
-                />
+                  onClick={handleOpenFirstRunWizard}
+                >
+                  <BookOpen size={15} />
+                  {t('settings.general.firstRunWizard.action')}
+                </button>
               </SettingRow>
               <SettingRow title={t('settings.general.closeToTray')}>
                 <ToggleButton

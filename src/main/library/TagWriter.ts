@@ -87,6 +87,7 @@ const { parentPort, workerData } = module['require']('node:worker_threads');
     year: tags.year ?? 0,
     genre: tags.genre ?? '',
     bpm: tags.bpm ?? undefined,
+    comment: tags.comment ?? undefined,
   });
 
   if (coverData) {

@@ -238,6 +238,34 @@ describe('DownloadService', () => {
     );
   });
 
+  it('uses the dedicated osu output directory for osu beatmap downloads', async () => {
+    const outputDirectory = makeTempRoot();
+    const osuOutputDirectory = makeTempRoot();
+    const archiveBytes = makeOsuArchive('audio.mp3', [44, 55, 66]);
+    const fetchRunner = vi.fn(async () =>
+      new Response(responseBody(archiveBytes), {
+        status: 200,
+        headers: {
+          'content-type': 'application/x-osu-beatmap-archive',
+          'content-length': String(archiveBytes.length),
+        },
+      }),
+    ) as unknown as typeof fetch;
+    const service = new DownloadService(undefined, undefined, {
+      fetch: fetchRunner,
+      getAccountCredentials: (provider) => ({ provider }),
+      writeEmbeddedTrackTags: vi.fn(async () => undefined),
+    });
+    service.setSettings({ outputDirectory, osuOutputDirectory, importToLibrary: false });
+
+    const job = service.createUrlJob('https://osu.ppy.sh/beatmapsets/2492872#fruits/5477400', { importToLibrary: false });
+    const completedJob = await waitForJob(service, job.id);
+
+    expect(completedJob.status).toBe('completed');
+    expect(completedJob.outputPath?.startsWith(osuOutputDirectory)).toBe(true);
+    expect(existsSync(join(outputDirectory, 'Artist - Song.mp3'))).toBe(false);
+  });
+
   it('never binds MV links for imported osu beatmap audio', async () => {
     const outputDirectory = makeTempRoot();
     const archiveBytes = makeOsuArchive('audio.mp3', [44, 55, 66]);
@@ -361,6 +389,31 @@ describe('DownloadService', () => {
     expect(completedJob.status).toBe('completed');
     expect(completedJob.outputPath).toMatch(/Artist - Song\.mp3$/u);
     expect([...readFileSync(completedJob.outputPath!)]).toEqual([5, 6, 7, 8]);
+  });
+
+  it('uses the selected osu mirror without probing the other mirrors first', async () => {
+    const outputDirectory = makeTempRoot();
+    const archiveBytes = makeOsuArchive('sayobot.mp3', [8, 6, 4, 2]);
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
+      new Response(responseBody(archiveBytes), {
+        status: 200,
+        headers: { 'content-type': 'application/x-osu-beatmap-archive' },
+      }),
+    );
+    const service = new DownloadService(undefined, undefined, {
+      fetch: fetchMock as unknown as typeof fetch,
+      getAccountCredentials: (provider) => ({ provider }),
+      writeEmbeddedTrackTags: vi.fn(async () => undefined),
+    });
+    service.setSettings({ outputDirectory, importToLibrary: false, osuDownloadMirror: 'sayobot' });
+
+    const job = service.createUrlJob('https://osu.ppy.sh/beatmapsets/2492872#osu/5477400', { importToLibrary: false });
+    const completedJob = await waitForJob(service, job.id);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://dl.sayobot.cn/beatmaps/download/novideo/2492872');
+    expect(completedJob.status).toBe('completed');
+    expect([...readFileSync(completedJob.outputPath!)]).toEqual([8, 6, 4, 2]);
   });
 
   it('loads and saves download settings through the settings store', () => {
@@ -1391,6 +1444,7 @@ describe('DownloadService', () => {
               suggestedArtist: 'Artist',
               suggestedAlbum: null,
               suggestedAlbumArtist: null,
+              suggestedComment: null,
               suggestedCoverUrl: null,
               suggestedCoverData: null,
               webpageUrl: null,

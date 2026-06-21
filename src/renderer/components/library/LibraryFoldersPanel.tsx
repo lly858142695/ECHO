@@ -16,6 +16,7 @@ import {
 import { getLibraryBridge } from '../../utils/echoBridge';
 import { translateFallback, useOptionalI18n } from '../../i18n/I18nProvider';
 import type { TranslationKey } from '../../i18n/locales';
+import { formatUserFacingError, getRawErrorMessage } from '../../utils/userFacingError';
 
 type LibraryFoldersPanelProps = {
   autoRefresh?: boolean;
@@ -80,7 +81,7 @@ const phaseLabel = (phase: LibraryScanStatus['phase'], t: Translate): string => 
 };
 
 const formatFolderError = (error: unknown, t: Translate): string => {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = getRawErrorMessage(error);
   const upper = message.toUpperCase();
 
   if (upper.includes('ENOENT')) {
@@ -99,7 +100,7 @@ const formatFolderError = (error: unknown, t: Translate): string => {
     return t('mediaLibrary.folders.error.alreadyExists');
   }
 
-  return message || t('mediaLibrary.folders.error.importFailed');
+  return formatUserFacingError(error, { context: 'folders', fallback: t('mediaLibrary.folders.error.importFailed') });
 };
 
 export const LibraryFoldersPanel = ({

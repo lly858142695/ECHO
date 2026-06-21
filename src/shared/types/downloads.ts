@@ -19,11 +19,17 @@ export type DownloadSearchScope = DownloadSearchProvider | 'all';
 
 export type DownloadAudioStrategy = 'best_available';
 
+export const osuDownloadMirrorValues = ['auto', 'official', 'sayobot', 'catboy', 'nerinyan'] as const;
+
+export type OsuDownloadMirror = (typeof osuDownloadMirrorValues)[number];
+
 export type DownloadSettings = {
   audioStrategy: DownloadAudioStrategy;
   importToLibrary: boolean;
   bindMvAfterImport: boolean;
   outputDirectory: string | null;
+  osuOutputDirectory: string | null;
+  osuDownloadMirror: OsuDownloadMirror;
 };
 
 export type DownloadJob = {
@@ -33,6 +39,7 @@ export type DownloadJob = {
   audioStrategy: DownloadAudioStrategy;
   status: DownloadJobStatus;
   title: string | null;
+  artist?: string | null;
   durationSeconds: number | null;
   thumbnailUrl: string | null;
   webpageUrl: string | null;
@@ -50,6 +57,7 @@ export type DownloadJob = {
 };
 
 export type CreateDownloadUrlJobOptions = Partial<Pick<DownloadSettings, 'importToLibrary' | 'bindMvAfterImport'>> & {
+  providerLock?: DownloadSearchProvider;
   title?: string;
   artist?: string;
   album?: string;
@@ -72,6 +80,7 @@ export type DownloadSearchRequest = {
   query: string;
   limitPerProvider?: number;
   provider?: DownloadSearchScope;
+  providerLock?: DownloadSearchProvider;
 };
 
 export type DownloadSearchResult = {

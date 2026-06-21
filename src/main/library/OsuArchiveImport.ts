@@ -19,6 +19,7 @@ export type OsuArchiveMetadata = {
   artist: string | null;
   creator: string | null;
   version: string | null;
+  beatmapId: string | null;
   beatmapSetId: string | null;
 };
 
@@ -160,6 +161,7 @@ export const parseOsuFileMetadata = (content: string): OsuArchiveMetadata => {
     artist: null,
     creator: null,
     version: null,
+    beatmapId: null,
     beatmapSetId: null,
   };
 
@@ -202,6 +204,8 @@ export const parseOsuFileMetadata = (content: string): OsuArchiveMetadata => {
         metadata.creator = value;
       } else if (key === 'Version') {
         metadata.version = value;
+      } else if (key === 'BeatmapID') {
+        metadata.beatmapId = cleanBeatmapSetId(value);
       } else if (key === 'BeatmapSetID') {
         metadata.beatmapSetId = cleanBeatmapSetId(value);
       }
@@ -229,6 +233,7 @@ const pickOsuArchiveMetadata = (entries: OsuArchiveEntry[]): OsuArchiveMetadata 
         artist: null,
         creator: null,
         version: null,
+        beatmapId: null,
         beatmapSetId: null,
       };
 };
@@ -362,6 +367,7 @@ const buildTags = (
   const title = cleanText(metadata.title) ?? (beatmapsetId ? `osu! beatmapset ${beatmapsetId}` : fallbackName);
   const artist = cleanText(metadata.artist) ?? 'Unknown Artist';
   const album = beatmapsetId ? `osu! beatmapset ${beatmapsetId}` : fallbackName;
+  const mapId = cleanBeatmapSetId(metadata.beatmapId) ?? beatmapsetId;
 
   return {
     title,
@@ -372,6 +378,7 @@ const buildTags = (
     discNo: null,
     year: null,
     genre: null,
+    comment: mapId ? `mapid:${mapId}` : null,
   };
 };
 

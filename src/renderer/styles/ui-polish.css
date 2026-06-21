@@ -1255,6 +1255,7 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
 .track-context-menu,
 .track-playlist-submenu,
 .editable-context-menu,
+.sidebar-context-menu,
 .album-context-menu,
 .album-playlist-submenu,
 .font-picker-modal {
@@ -1270,6 +1271,7 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
 .playlist-quality-menu button,
 .track-context-menu button,
 .editable-context-menu button,
+.sidebar-context-menu button,
 .track-playlist-submenu-item,
 .album-menu-item,
 .album-playlist-submenu-item {
@@ -1285,6 +1287,7 @@ html[data-theme="dark"] .app-shell:has(.lyrics-page) .player-tags .tag-bpm {
 .playlist-quality-menu button:hover,
 .track-context-menu button:hover,
 .editable-context-menu button:hover,
+.sidebar-context-menu button:hover,
 .track-playlist-submenu-item:hover,
 .album-menu-item:hover,
 .album-playlist-submenu-item:hover {

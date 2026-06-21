@@ -184,10 +184,15 @@ describe('QueuePage', () => {
     fireEvent.click(screen.getByRole('button', { name: /临时插播/u }));
 
     await waitFor(() => expect(screen.getByLabelText('queue-order').textContent).toBe('order:Track 1>Track 3>Track 4>Track 2'));
-    expect(screen.getByText(/已把 2 首插到当前播放后面/u)).toBeTruthy();
+    const receipt = document.querySelector('.queue-action-receipt');
+    expect(receipt?.textContent ?? '').toContain('已临时插播 2 首');
+    expect(receipt?.textContent ?? '').toContain('Track 3');
+    expect(receipt?.textContent ?? '').toContain('Track 4');
+    expect(document.querySelectorAll('.queue-row[data-recent-change="true"]').length).toBe(2);
 
-    fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+    fireEvent.click(screen.getByRole('button', { name: '撤销这次操作' }));
     await waitFor(() => expect(screen.getByLabelText('queue-order').textContent).toBe('order:Track 1>Track 2>Track 3>Track 4'));
+    expect(screen.getByText('已撤销')).toBeTruthy();
   });
 
   it('removes selected queue items and restores them with undo', async () => {
@@ -200,9 +205,12 @@ describe('QueuePage', () => {
     fireEvent.click(screen.getByRole('button', { name: /移除所选/u }));
 
     await waitFor(() => expect(screen.getByLabelText('queue-order').textContent).toBe('order:Track 1>Track 4'));
-    expect(screen.getByText(/已移除 2 首/u)).toBeTruthy();
+    const receipt = document.querySelector('.queue-action-receipt');
+    expect(receipt?.textContent ?? '').toContain('已移除 2 首');
+    expect(receipt?.textContent ?? '').toContain('Track 2');
+    expect(receipt?.textContent ?? '').toContain('Track 3');
 
-    fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+    fireEvent.click(screen.getByRole('button', { name: '撤销这次操作' }));
     await waitFor(() => expect(screen.getByLabelText('queue-order').textContent).toBe('order:Track 1>Track 2>Track 3>Track 4'));
   });
 

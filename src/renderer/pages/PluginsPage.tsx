@@ -17,6 +17,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { useOptionalI18n } from '../i18n/I18nProvider';
 import type { Locale } from '../i18n/locales';
 import { getPluginsBridge } from '../utils/echoBridge';
+import { formatUserFacingError } from '../utils/userFacingError';
 
 const pluginPageTextZhCN = {
   'action.create': '新建',
@@ -335,7 +336,8 @@ const interpolatePluginText = (text: string, options?: PluginPageTranslateOption
   );
 };
 
-const formatError = (error: unknown, fallback: string): string => (error instanceof Error ? error.message : String(error || fallback));
+const formatError = (error: unknown, fallback: string): string =>
+  formatUserFacingError(error, { context: 'plugins', fallback });
 
 const fileUrlFromPath = (path: string): string => `file:///${path.replace(/\\/gu, '/')}`;
 

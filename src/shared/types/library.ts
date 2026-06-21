@@ -1157,6 +1157,7 @@ export type EditableTrackTags = {
   year: number | null;
   genre: string | null;
   bpm?: number | null;
+  comment?: string | null;
 };
 
 export type BpmAnalysisResult = {

@@ -4224,6 +4224,82 @@ html[data-theme="dark"] .tag-editor-actions {
   white-space: nowrap;
 }
 
+.osu-timing-field-grid,
+.osu-timing-control-stack {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.osu-timing-field,
+.osu-timing-control-stack > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.osu-timing-field span,
+.osu-timing-control-stack > div > span {
+  color: var(--osu-drawer-subtle-text);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.osu-timing-field input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--theme-glass-bg-soft);
+  border-radius: 10px;
+  background: rgba(13, 18, 26, 0.24);
+  color: var(--osu-drawer-soft-text);
+  font: inherit;
+  font-weight: 700;
+}
+
+.osu-timing-field input::placeholder {
+  color: var(--osu-drawer-subtle-text);
+}
+
+.osu-timing-field input:focus {
+  border-color: rgba(255, 255, 255, 0.32);
+  outline: 2px solid color-mix(in srgb, var(--theme-accent-solid-bg) 42%, transparent);
+  outline-offset: 2px;
+}
+
+.osu-timing-snap-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.osu-timing-snap-grid span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid var(--theme-glass-bg-soft);
+  border-radius: 10px;
+  background: rgba(13, 18, 26, 0.22);
+}
+
+.osu-timing-snap-grid em {
+  color: var(--osu-drawer-subtle-text);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.osu-timing-snap-grid strong {
+  overflow: hidden;
+  color: var(--osu-drawer-soft-text);
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .osu-timing-note,
 .osu-timing-warning,
 .osu-timing-message,
@@ -4283,6 +4359,12 @@ html[data-theme="dark"] .tag-editor-actions {
   padding: 0 13px;
 }
 
+.osu-timing-button-row--compact button {
+  min-height: 32px;
+  padding: 0 11px;
+  font-size: 0.82rem;
+}
+
 .osu-timing-step-row button:hover,
 .osu-timing-button-row button:not(:disabled):hover,
 .osu-timing-segmented button:not(:disabled):hover,
@@ -4323,6 +4405,11 @@ html[data-theme="dark"] .tag-editor-actions {
   white-space: pre;
 }
 
+.osu-timing-output--secondary {
+  background: rgba(13, 18, 26, 0.24);
+  color: var(--osu-drawer-muted-text);
+}
+
 .osu-timing-copy {
   align-self: flex-start;
   color: var(--theme-on-accent);
@@ -4346,6 +4433,15 @@ html[data-theme="dark"] .tag-editor-actions {
 
   .osu-timing-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .osu-timing-field-grid,
+  .osu-timing-control-stack {
+    grid-template-columns: 1fr;
+  }
+
+  .osu-timing-snap-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

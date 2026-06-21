@@ -33,6 +33,7 @@ const allowedRemoteImageHosts = new Set([
   'p4.music.126.net',
   'y.gtimg.cn',
   'qpic.y.qq.com',
+  'assets.ppy.sh',
 ]);
 
 const isCoverVariant = (value: string): value is CoverVariant =>

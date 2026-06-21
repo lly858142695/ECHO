@@ -57,6 +57,7 @@ import { useImeAwareDebouncedSearch } from '../utils/imeInput';
 import type { TranslationKey } from '../i18n/locales';
 import { openAlbumDetailForTrack } from '../utils/albumNavigation';
 import { readStoredLibrarySort, writeStoredLibrarySort } from '../utils/librarySortMemory';
+import { formatUserFacingError, getRawErrorMessage } from '../utils/userFacingError';
 
 type FolderTarget = {
   folderId: string;
@@ -430,7 +431,7 @@ const phaseLabel = (phase: LibraryScanStatus['phase'], t: (key: TranslationKey) 
 };
 
 const formatFolderError = (error: unknown, t: (key: TranslationKey) => string): string => {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = getRawErrorMessage(error);
   const upper = message.toUpperCase();
 
   if (upper.includes('ENOENT')) {
@@ -445,7 +446,7 @@ const formatFolderError = (error: unknown, t: (key: TranslationKey) => string): 
     return t('folders.error.permission');
   }
 
-  return message || t('folders.error.actionFailed');
+  return formatUserFacingError(error, { context: 'folders', fallback: t('folders.error.actionFailed') });
 };
 
 const overviewToTarget = (overview: LibraryFolderOverview): FolderTarget => ({

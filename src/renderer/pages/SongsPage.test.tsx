@@ -8,6 +8,7 @@ import {
   readSongsStartupLoadDiagnostics,
   writeSongsFirstPageSnapshot,
 } from '../stores/songsFirstPageSnapshot';
+import { showAudioErrorNoticeEvent } from '../utils/audioErrorNotice';
 
 vi.mock('../components/library/TrackList', () => ({
   TrackList: ({
@@ -730,6 +731,24 @@ describe('SongsPage', () => {
 
     await waitFor(() => expect(screen.getByTestId('track-list').getAttribute('data-total-count')).toBe('10000'));
     expect(screen.getByTestId('track-list').getAttribute('data-loaded-count')).toBe('100');
+  });
+
+  it('routes playback failures to the upper-left audio notice instead of the page error banner', async () => {
+    const track = makeTrack();
+    const { playLocalFile } = installEcho([track]);
+    playLocalFile.mockRejectedValueOnce(new Error('Error invoking remote method playback:play-local-file: echo-audio-host runtime_error'));
+    const notices: Event[] = [];
+    window.addEventListener(showAudioErrorNoticeEvent, (event) => notices.push(event));
+
+    await renderSongsPage();
+    await screen.findByText('Song One');
+    fireEvent.click(screen.getByText('Song One'));
+
+    await waitFor(() => expect(notices).toHaveLength(1));
+    expect((notices[0] as CustomEvent).detail).toEqual({
+      message: 'Error invoking remote method playback:play-local-file: echo-audio-host runtime_error',
+    });
+    expect(document.querySelector('.audio-error')).toBeNull();
   });
 
   it('hides the local and cloud source switch when no remote source is connected', async () => {

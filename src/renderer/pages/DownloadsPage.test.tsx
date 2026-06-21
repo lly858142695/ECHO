@@ -19,6 +19,8 @@ const defaultSettings: DownloadSettings = {
   importToLibrary: true,
   bindMvAfterImport: true,
   outputDirectory: 'D:\\Downloads',
+  osuOutputDirectory: 'D:\\osu',
+  osuDownloadMirror: 'auto',
 };
 
 const toolsStatus: DownloadToolsStatus = {
@@ -59,7 +61,8 @@ const searchResponse: DownloadSearchResponse = {
       title: "t+pazolite - intrO - Don't be Foolish",
       uploader: 'SspoksS',
       durationSeconds: 79,
-      thumbnailUrl: 'echo-image://remote/https%3A%2F%2Fassets.ppy.sh%2Fbeatmaps%2F2492872%2Fcovers%2Fcard.jpg?referer=https%3A%2F%2Fosu.ppy.sh%2F',
+      thumbnailUrl:
+        'echo-image://remote/https%3A%2F%2Fassets.ppy.sh%2Fbeatmaps%2F2492872%2Fcovers%2Fcard.jpg?referer=https%3A%2F%2Fosu.ppy.sh%2F',
       webpageUrl: 'https://osu.ppy.sh/beatmapsets/2492872',
       viewCount: 6400,
       publishedAt: '2026-05-17T13:23:21Z',
@@ -92,7 +95,7 @@ const updateJob = (jobId: string, patch: Partial<DownloadJob>): void => {
   emitJobs();
 };
 
-const makeJob = (sourceUrl: string): DownloadJob => {
+const makeJob = (sourceUrl: string, options: CreateDownloadUrlJobOptions = {}): DownloadJob => {
   const now = new Date().toISOString();
   const provider = sourceUrl.includes('osu.ppy.sh')
     ? 'osu'
@@ -107,7 +110,8 @@ const makeJob = (sourceUrl: string): DownloadJob => {
     provider,
     audioStrategy: settings.audioStrategy,
     status: 'queued',
-    title: null,
+    title: options.title ?? null,
+    artist: options.artist ?? null,
     durationSeconds: null,
     thumbnailUrl: null,
     webpageUrl: null,
@@ -153,8 +157,8 @@ const scheduleSimulation = (jobId: string): void => {
 
 const downloadsBridge = {
   getJobs: vi.fn(async () => jobs),
-  createUrlJob: vi.fn(async (sourceUrl: string, _options?: CreateDownloadUrlJobOptions) => {
-    const job = makeJob(sourceUrl);
+  createUrlJob: vi.fn(async (sourceUrl: string, options?: CreateDownloadUrlJobOptions) => {
+    const job = makeJob(sourceUrl, options);
     jobs = [job, ...jobs];
     emitJobs();
     scheduleSimulation(job.id);
@@ -179,8 +183,8 @@ const downloadsBridge = {
     settings = { ...settings, ...patch };
     return settings;
   }),
-  chooseOutputDirectory: vi.fn(async () => {
-    settings = { ...settings, outputDirectory: 'D:\\Downloads' };
+  chooseOutputDirectory: vi.fn(async (target?: 'default' | 'osu') => {
+    settings = target === 'osu' ? { ...settings, osuOutputDirectory: 'D:\\osu' } : { ...settings, outputDirectory: 'D:\\Downloads' };
     return settings;
   }),
   search: vi.fn(async (_request: string | DownloadSearchRequest) => nextSearchResponse),
@@ -203,7 +207,7 @@ const createJobFromUi = async (): Promise<void> => {
   });
   fireEvent.click(screen.getByRole('button', { name: /加入队列/ }));
   await act(async () => {});
-  expect(screen.getByText('Untitled download')).toBeTruthy();
+  expect(screen.getAllByText('Untitled download').length).toBeGreaterThan(0);
 };
 
 beforeEach(() => {
@@ -236,7 +240,7 @@ describe('DownloadsPage', () => {
       'https://www.youtube.com/watch?v=echo',
       expect.objectContaining({ importToLibrary: true, bindMvAfterImport: true }),
     );
-    expect(screen.getByText('https://www.youtube.com/watch?v=echo')).toBeTruthy();
+    expect(screen.getAllByText('https://www.youtube.com/watch?v=echo').length).toBeGreaterThan(0);
   });
 
   it('searches and renders merged YouTube, Bilibili, and osu results', async () => {
@@ -252,6 +256,19 @@ describe('DownloadsPage', () => {
     expect(screen.getByText("t+pazolite - intrO - Don't be Foolish")).toBeTruthy();
     expect(screen.getByText('SspoksS')).toBeTruthy();
     expect(screen.getByText('1.2 万次播放 · 2026-05-14')).toBeTruthy();
+  });
+
+  it('does not show no-results state until a search is submitted', async () => {
+    nextSearchResponse = { results: [], errors: [] };
+    render(<DownloadsPage variant="osu" />);
+    await act(async () => {});
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'ukigumo Hige Driver' } });
+    expect(screen.queryByText('暂无搜索结果')).toBeNull();
+    expect(downloadsBridge.search).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /搜索|鎼滅储/ }));
+    expect(await screen.findByText('暂无搜索结果')).toBeTruthy();
   });
 
   it('searches with the selected provider scope', async () => {
@@ -294,6 +311,58 @@ describe('DownloadsPage', () => {
         }),
       ),
     );
+  });
+
+  it('locks the standalone osu downloader page to osu searches and osu URL jobs', async () => {
+    render(<DownloadsPage variant="osu" />);
+    await act(async () => {});
+
+    expect(screen.getByRole('heading', { name: 'osu downloader' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'YouTube' })).toBeNull();
+    expect(screen.getByText('D:\\osu')).toBeTruthy();
+    expect(screen.getByText('Catboy / Mino')).toBeTruthy();
+    expect(screen.getByText('NeriNyan')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Sayobot镜像站$/u }));
+    await waitFor(() => expect(downloadsBridge.setSettings).toHaveBeenCalledWith({ osuDownloadMirror: 'sayobot' }));
+
+    fireEvent.change(screen.getByPlaceholderText('Paste an osu! beatmapset link'), {
+      target: { value: 'https://www.youtube.com/watch?v=probe' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /加入队列|鍔犲叆闃熷垪/ }));
+
+    expect(screen.getAllByText('osu downloader 只能下载 osu! beatmapset 链接。').length).toBeGreaterThan(0);
+    expect(downloadsBridge.createUrlJob).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'a hisa' } });
+    fireEvent.click(screen.getByRole('button', { name: /搜索|鎼滅储/ }));
+
+    await screen.findByText("t+pazolite - intrO - Don't be Foolish");
+    expect(downloadsBridge.search).toHaveBeenCalledWith({
+      query: 'a hisa',
+      limitPerProvider: 10,
+      provider: 'osu',
+      providerLock: 'osu',
+    });
+    expect(document.querySelector('.download-search-thumb img')?.getAttribute('src')).toBe(
+      'echo-image://remote/https%3A%2F%2Fassets.ppy.sh%2Fbeatmaps%2F2492872%2Fcovers%2Fcard.jpg?referer=https%3A%2F%2Fosu.ppy.sh%2F',
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: /下载音频|涓嬭浇闊抽/ })[0]);
+
+    await waitFor(() =>
+      expect(downloadsBridge.createUrlJob).toHaveBeenCalledWith(
+        'https://osu.ppy.sh/beatmapsets/2492872',
+        expect.objectContaining({
+          importToLibrary: true,
+          bindMvAfterImport: false,
+          providerLock: 'osu',
+        }),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /鏇存崲鏂囦欢澶|更换文件夹/ }));
+    await waitFor(() => expect(downloadsBridge.chooseOutputDirectory).toHaveBeenCalledWith('osu'));
   });
 
   it('downloads a single search result into the queue', async () => {
@@ -387,8 +456,8 @@ describe('DownloadsPage', () => {
       vi.advanceTimersByTime(2100);
     });
 
-    expect(screen.getByText('已完成')).toBeTruthy();
-    expect(screen.getByText('100%')).toBeTruthy();
+    expect(screen.getAllByText('已完成').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('100%').length).toBeGreaterThan(0);
   });
 
   it('cancels queued and downloading jobs', async () => {
@@ -396,7 +465,7 @@ describe('DownloadsPage', () => {
     await createJobFromUi();
     fireEvent.click(screen.getByLabelText('取消任务'));
     await act(async () => {});
-    expect(screen.getByText('已取消')).toBeTruthy();
+    expect(screen.getAllByText('已取消').length).toBeGreaterThan(0);
 
     cleanup();
     listeners.clear();
@@ -405,11 +474,11 @@ describe('DownloadsPage', () => {
     await act(async () => {
       vi.advanceTimersByTime(800);
     });
-    expect(screen.getByText('下载中')).toBeTruthy();
+    expect(screen.getAllByText('下载中').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByLabelText('取消任务'));
     await act(async () => {});
 
-    expect(screen.getByText('已取消')).toBeTruthy();
+    expect(screen.getAllByText('已取消').length).toBeGreaterThan(0);
   });
 
   it('clears completed jobs', async () => {
@@ -419,7 +488,7 @@ describe('DownloadsPage', () => {
     await act(async () => {
       vi.advanceTimersByTime(2100);
     });
-    expect(screen.getByText('已完成')).toBeTruthy();
+    expect(screen.getAllByText('已完成').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: '清除已完成' }));
     await act(async () => {});
 

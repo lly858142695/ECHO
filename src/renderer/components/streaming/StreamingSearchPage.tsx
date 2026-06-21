@@ -26,6 +26,7 @@ import { translateCurrentLocale, useI18n } from '../../i18n/I18nProvider';
 import { isPlaybackCancellationError, usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { getAccountsBridge, getAppBridge, getDownloadsBridge, getStreamingBridge } from '../../utils/echoBridge';
 import { useImeAwareDebouncedSearch } from '../../utils/imeInput';
+import { formatUserFacingError } from '../../utils/userFacingError';
 import {
   readStreamingSearchMemory,
   updateStreamingSearchMemory,
@@ -608,7 +609,7 @@ export const StreamingSearchPage = (): JSX.Element => {
             return;
           }
 
-          setError(searchError instanceof Error ? searchError.message : '流媒体服务暂时不可用');
+          setError(formatUserFacingError(searchError, { context: 'streaming', fallback: '流媒体服务暂时不可用' }));
           setResult(null);
         }
       } finally {
@@ -692,7 +693,7 @@ export const StreamingSearchPage = (): JSX.Element => {
       })
       .catch((detailError) => {
         if (isMounted) {
-          setAlbumDetailError(detailError instanceof Error ? detailError.message : String(detailError));
+          setAlbumDetailError(formatUserFacingError(detailError, { context: 'streaming', fallback: '专辑详情暂时不可用' }));
         }
       })
       .finally(() => {
@@ -739,7 +740,7 @@ export const StreamingSearchPage = (): JSX.Element => {
       })
       .catch((detailError) => {
         if (isMounted) {
-          setArtistDetailError(detailError instanceof Error ? detailError.message : String(detailError));
+          setArtistDetailError(formatUserFacingError(detailError, { context: 'streaming', fallback: '艺人详情暂时不可用' }));
         }
       })
       .finally(() => {
@@ -859,7 +860,7 @@ export const StreamingSearchPage = (): JSX.Element => {
           return;
         }
 
-        setActionError(qualityError instanceof Error ? qualityError.message : t('streaming.quality.switchFailed'));
+        setActionError(formatUserFacingError(qualityError, { context: 'streaming', fallback: t('streaming.quality.switchFailed') }));
         setActionMessage(null);
       });
     },
@@ -893,7 +894,7 @@ export const StreamingSearchPage = (): JSX.Element => {
           return;
         }
 
-        setActionError(playError instanceof Error ? playError.message : '流媒体服务暂时不可用');
+        setActionError(formatUserFacingError(playError, { context: 'streaming', fallback: '流媒体服务暂时不可用' }));
       } finally {
         if (playActionIdRef.current === playActionId) {
           setResolvingTrackKey(null);
@@ -942,7 +943,7 @@ export const StreamingSearchPage = (): JSX.Element => {
       setActionError(null);
       setActionMessage(result.favorite ? `已收藏：${track.title}` : `已取消收藏：${track.title}`);
     } catch (favoriteError) {
-      setActionError(favoriteError instanceof Error ? favoriteError.message : String(favoriteError));
+      setActionError(formatUserFacingError(favoriteError, { context: 'streaming', fallback: '收藏操作没有成功' }));
       setActionMessage(null);
     } finally {
       setFavoriteTrackKey((current) => (current === track.stableKey ? null : current));
@@ -1004,7 +1005,7 @@ export const StreamingSearchPage = (): JSX.Element => {
       setDownloadJobIdsByTrackKey((current) => ({ ...current, [track.stableKey]: job.id }));
       setActionMessage(`已加入下载队列：${track.title}`);
     } catch (downloadError) {
-      setActionError(downloadError instanceof Error ? downloadError.message : '添加下载任务失败');
+      setActionError(formatUserFacingError(downloadError, { context: 'downloads', fallback: '添加下载任务失败' }));
       setActionMessage(null);
     } finally {
       setDownloadingTrackKey((current) => (current === track.stableKey ? null : current));
@@ -1122,7 +1123,7 @@ export const StreamingSearchPage = (): JSX.Element => {
             ? { ...current, failedToQueue: failedToQueueCount }
             : current,
         );
-        setActionError(downloadError instanceof Error ? downloadError.message : '添加专辑下载任务失败');
+        setActionError(formatUserFacingError(downloadError, { context: 'downloads', fallback: '添加专辑下载任务失败' }));
       } finally {
         setDownloadingTrackKey((current) => (current === track.stableKey ? null : current));
       }
@@ -1166,7 +1167,7 @@ export const StreamingSearchPage = (): JSX.Element => {
       setActionMessage(`已添加歌单：${imported.playlistName}，共 ${imported.importedCount} 首。可在播放列表页播放。`);
       window.dispatchEvent(new Event('library:playlists-changed'));
     } catch (importError) {
-      setActionError(importError instanceof Error ? importError.message : '添加流媒体歌单失败');
+      setActionError(formatUserFacingError(importError, { context: 'streaming', fallback: '添加流媒体歌单失败' }));
       setActionMessage(null);
     } finally {
       setIsImportingPlaylist(false);
@@ -1194,7 +1195,7 @@ export const StreamingSearchPage = (): JSX.Element => {
       setActionMessage(`已添加歌单：${imported.playlistName}，共 ${imported.importedCount} 首。可在播放列表页播放。`);
       window.dispatchEvent(new Event('library:playlists-changed'));
     } catch (importError) {
-      setActionError(importError instanceof Error ? importError.message : '添加流媒体歌单失败');
+      setActionError(formatUserFacingError(importError, { context: 'streaming', fallback: '添加流媒体歌单失败' }));
       setActionMessage(null);
     } finally {
       setImportingPlaylistKey((current) => (current === playlist.id ? null : current));
@@ -1284,7 +1285,7 @@ export const StreamingSearchPage = (): JSX.Element => {
         return;
       }
 
-      setAlbumDetailError(playError instanceof Error ? playError.message : String(playError));
+      setAlbumDetailError(formatUserFacingError(playError, { context: 'streaming', fallback: '播放专辑没有成功' }));
     }
   }, [quality, queue, selectedAlbumDetail]);
 
@@ -1513,7 +1514,7 @@ export const StreamingSearchPage = (): JSX.Element => {
         return;
       }
 
-      setArtistDetailError(playError instanceof Error ? playError.message : String(playError));
+      setArtistDetailError(formatUserFacingError(playError, { context: 'streaming', fallback: '播放艺人歌曲没有成功' }));
     }
   }, [quality, queue, selectedArtistDetail]);
 

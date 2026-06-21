@@ -12,6 +12,7 @@ import type { PlaybackStatus } from '../../shared/types/playback';
 import { useAnimatedBackNavigation } from '../hooks/useAnimatedBackNavigation';
 import { setPlaybackStatusSnapshot, useSharedPlaybackStatus } from '../stores/playbackStatusStore';
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
+import { showAudioErrorNoticeEvent } from '../utils/audioErrorNotice';
 
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
@@ -168,6 +169,7 @@ afterEach(() => {
     error: null,
   });
   window.sessionStorage.clear();
+  window.localStorage.removeItem('echo:diagnostics:crash-notice-enabled');
   vi.useRealTimers();
   vi.restoreAllMocks();
   setViewportSize(1024, 768);
@@ -770,8 +772,36 @@ describe('AppLayout standalone routes', () => {
     expect(setLocked).toHaveBeenCalledTimes(1);
   });
 
-  it('opens a markdown crash report from the abnormal-exit notice', async () => {
+  it('keeps the abnormal-exit notice off by default', () => {
+    const getLastCrashSummary = vi.fn().mockResolvedValue({
+      sessionId: 'session-1',
+      startedAt: '2026-05-18T00:00:00.000Z',
+      detectedAt: '2026-05-18T00:01:00.000Z',
+      sessionBasename: 'session-1',
+      sessionPathHash: 'hash',
+      reason: 'abnormalExit',
+    });
+
+    window.echo = {
+      diagnostics: {
+        getLastCrashSummary,
+        openCrashReport: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    expect(getLastCrashSummary).not.toHaveBeenCalled();
+    expect(screen.queryByText(/did not exit normally/i)).toBeNull();
+  });
+
+  it('opens a markdown crash report from the opt-in abnormal-exit notice', async () => {
     const openCrashReport = vi.fn().mockResolvedValue('D:\\ECHO\\crash-report.md');
+    window.localStorage.setItem('echo:diagnostics:crash-notice-enabled', 'true');
 
     window.echo = {
       diagnostics: {
@@ -799,7 +829,7 @@ describe('AppLayout standalone routes', () => {
       throw new Error('diagnostics notice was not rendered');
     }
     await waitFor(() => expect(diagnosticsNotice.className).toContain('is-visible'));
-    fireEvent.click(within(diagnosticsNotice as HTMLElement).getByRole('button', { name: /打开报告|Open Report/i }));
+    fireEvent.click(within(diagnosticsNotice as HTMLElement).getByRole('button', { name: /打开 Markdown|Open Markdown/i }));
 
     await waitFor(() => expect(openCrashReport).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/Markdown 报告已打开|Markdown report opened/i)).toBeTruthy();
@@ -1077,6 +1107,43 @@ describe('AppLayout standalone routes', () => {
     await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy());
   });
 
+  it('plays the first-run wizard exit state before unmounting', async () => {
+    const getSettings = vi.fn().mockResolvedValue({ onboardingCompleted: true, smtcEnabled: true });
+    window.echo = {
+      app: {
+        getSettings,
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('settings:changed', { detail: { onboardingCompleted: false } }));
+    });
+
+    await waitFor(() => expect(screen.getByRole('dialog').getAttribute('data-state')).toBe('open'));
+
+    vi.useFakeTimers();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('settings:changed', { detail: { onboardingCompleted: true } }));
+    });
+
+    expect(screen.getByRole('dialog').getAttribute('data-state')).toBe('closing');
+
+    act(() => {
+      vi.advanceTimersByTime(221);
+    });
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('applies saved sidebar visibility and order from settings', async () => {
     window.localStorage.clear();
     const getSettings = vi.fn().mockResolvedValue({
@@ -1114,6 +1181,42 @@ describe('AppLayout standalone routes', () => {
     await waitFor(() => {
       expect(within(sidebar).queryByRole('button', { name: 'Songs' })).toBeNull();
       expect(within(sidebar).getAllByRole('button').map((button) => button.textContent?.trim())).toEqual(['Queue', 'Home']);
+    });
+  });
+
+  it('hides a sidebar route from the route context menu', async () => {
+    window.localStorage.clear();
+    const getSettings = vi.fn().mockResolvedValue({
+      downloadsFeatureUnlocked: true,
+      sidebarRouteOrder: ['home', 'songs', 'settings'],
+      sidebarHiddenRouteIds: [],
+    });
+    const setSettings = vi.fn().mockImplementation(async (patch) => patch);
+    window.echo = {
+      app: {
+        getSettings,
+        setSettings,
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routesWithSettings} />
+      </AppProviders>,
+    );
+
+    const sidebar = screen.getByRole('complementary', { name: 'Main navigation' });
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+
+    fireEvent.contextMenu(within(sidebar).getByRole('button', { name: 'Songs' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '隐藏' }));
+
+    await waitFor(() => {
+      expect(setSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sidebarHiddenRouteIds: expect.arrayContaining(['songs']),
+        }),
+      );
     });
   });
 
@@ -1723,6 +1826,7 @@ describe('AppLayout standalone routes', () => {
   it('shows an upper-left audio error notice with a report action', async () => {
     const audioStatusHandlers: Array<(status: { error: string | null; state: string }) => void> = [];
     const openAudioCrashReport = vi.fn().mockResolvedValue('D:\\ECHO\\audio-crash-report.md');
+    const openAudioCrashTextReport = vi.fn().mockResolvedValue('D:\\ECHO\\audio-crash-report.txt');
     const audioOnStatus = vi.fn((handler) => {
       audioStatusHandlers.push(handler as (status: { error: string | null; state: string }) => void);
       return vi.fn();
@@ -1755,6 +1859,7 @@ describe('AppLayout standalone routes', () => {
       diagnostics: {
         getLastCrashSummary: vi.fn().mockResolvedValue(null),
         openAudioCrashReport,
+        openAudioCrashTextReport,
       },
       library: {
         getTrack: vi.fn().mockResolvedValue(null),
@@ -1780,11 +1885,13 @@ describe('AppLayout standalone routes', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     await waitFor(() => expect(screen.getByRole('alert').className).toContain('is-visible'));
-    expect(screen.getByText(/音频错误|Audio Error/i)).toBeTruthy();
-    expect(screen.getByText(/Markdown (诊断报告|diagnostics report)/i)).toBeTruthy();
+    expect(screen.getByText(/播放遇到问题|Playback needs attention/i)).toBeTruthy();
+    expect(screen.getByText(/完整原始错误|original error/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: /打开报告|Open Report/i }));
+    fireEvent.click(screen.getByRole('button', { name: /打开 Markdown|Open Markdown/i }));
     await waitFor(() => expect(openAudioCrashReport).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: /打开 TXT|Open TXT/i }));
+    await waitFor(() => expect(openAudioCrashTextReport).toHaveBeenCalledTimes(1));
   });
 
   it('clears transient audio error notices after playback recovers', async () => {
@@ -1821,6 +1928,7 @@ describe('AppLayout standalone routes', () => {
       diagnostics: {
         getLastCrashSummary: vi.fn().mockResolvedValue(null),
         openAudioCrashReport: vi.fn().mockResolvedValue('D:\\ECHO\\audio-crash-report.md'),
+        openAudioCrashTextReport: vi.fn().mockResolvedValue('D:\\ECHO\\audio-crash-report.txt'),
       },
       library: {
         getTrack: vi.fn().mockResolvedValue(null),
@@ -1893,6 +2001,7 @@ describe('AppLayout standalone routes', () => {
       diagnostics: {
         getLastCrashSummary: vi.fn().mockResolvedValue(null),
         openAudioCrashReport: vi.fn().mockResolvedValue('D:\\ECHO\\audio-crash-report.md'),
+        openAudioCrashTextReport: vi.fn().mockResolvedValue('D:\\ECHO\\audio-crash-report.txt'),
       },
       library: {
         getTrack: vi.fn().mockResolvedValue(null),
@@ -1933,6 +2042,38 @@ describe('AppLayout standalone routes', () => {
     });
 
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows dispatched playback errors as an upper-left audio error notice', async () => {
+    window.echo = {
+      app: {
+        getSettings: vi.fn().mockResolvedValue({ lyricsPlayerBarDrawerEnabled: false, smtcEnabled: true }),
+      },
+      diagnostics: {
+        getLastCrashSummary: vi.fn().mockResolvedValue(null),
+        openAudioCrashReport: vi.fn(),
+        openAudioCrashTextReport: vi.fn(),
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(showAudioErrorNoticeEvent, {
+          detail: { message: 'Error invoking remote method playback:play-local-file: echo-audio-host runtime_error' },
+        }),
+      );
+    });
+
+    const notice = await screen.findByRole('alert');
+    expect(notice.textContent).toContain('播放没有成功');
+    expect(notice.textContent).not.toContain('echo-audio-host runtime_error');
+    expect(document.querySelector('.chrome-notice--audio-error')).toBeTruthy();
   });
 
   it('shows an upper-left notice when an account login expires', async () => {
