@@ -84,10 +84,7 @@ export const registerConnectIpc = (): void => {
     requireConnectDonatorUnlock();
     return service.refreshDevices();
   });
-  ipcMain.handle(IpcChannels.ConnectGetStatus, (): ConnectSessionStatus => {
-    requireConnectDonatorUnlock();
-    return service.getStatus();
-  });
+  ipcMain.handle(IpcChannels.ConnectGetStatus, (): ConnectSessionStatus => service.getStatus());
   ipcMain.handle(IpcChannels.ConnectConnect, (_event, request: unknown): Promise<ConnectSessionStatus> =>
     {
       requireConnectDonatorUnlock();
