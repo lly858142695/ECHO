@@ -3,6 +3,10 @@ import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join, normalize, sep } from 'node:path';
 import { app, dialog } from 'electron';
+import {
+  createEntitlementDiagnosticSnapshot,
+  type EntitlementDiagnosticSnapshot,
+} from './entitlementDiagnostics';
 
 export type PackageIntegrityManifestFile = {
   path: string;
@@ -25,6 +29,7 @@ export type PackageIntegrityVerificationResult = {
   verified: string[];
   warnings: string[];
   errors: string[];
+  entitlementDiagnostic?: EntitlementDiagnosticSnapshot;
 };
 
 const integrityManifestFileName = 'echo-integrity.json';
@@ -85,6 +90,7 @@ export const verifyPackageIntegrity = async ({
       verified: [],
       warnings: [],
       errors: [],
+      ...(isPackaged ? { entitlementDiagnostic: createEntitlementDiagnosticSnapshot('package-integrity', 'disabled') } : {}),
     };
   }
 
@@ -102,6 +108,7 @@ export const verifyPackageIntegrity = async ({
       verified,
       warnings,
       errors: [`manifest: ${error instanceof Error ? error.message : String(error)}`],
+      entitlementDiagnostic: createEntitlementDiagnosticSnapshot('package-integrity', 'manifest'),
     };
   }
 
@@ -148,6 +155,7 @@ export const verifyPackageIntegrity = async ({
     verified,
     warnings,
     errors,
+    ...(errors.length > 0 ? { entitlementDiagnostic: createEntitlementDiagnosticSnapshot('package-integrity', errors.join('|')) } : {}),
   };
 };
 

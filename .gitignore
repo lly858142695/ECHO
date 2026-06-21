@@ -65,6 +65,7 @@ prd-sleep-timer.md
 /src/main/plugins/EchoProAccountService.ts
 /src/main/plugins/MachineIdentity.ts
 /src/main/plugins/ProFeatureGate.ts
+/src/main/plugins/privateOverlayRuntime.local.ts
 /src/main/protection/
 /src/shared/types/echoProAccount.ts
 /src/**/echoPro*.ts

@@ -1,9 +1,23 @@
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 
+const privateOverlayRuntimeCandidates = [
+  resolve(__dirname, 'src/main/plugins/privateOverlayRuntime.local.ts'),
+  resolve(__dirname, '..', 'ECHOPrivate', 'overlay/src/main/plugins/privateOverlayRuntime.ts'),
+];
+
+const privateOverlayRuntime = privateOverlayRuntimeCandidates.find((candidate) => existsSync(candidate))
+  ?? resolve(__dirname, 'src/main/plugins/privateOverlayRuntime.ts');
+
 export default defineConfig({
   main: {
+    resolve: {
+      alias: {
+        '#echo-private-overlay-runtime': privateOverlayRuntime,
+      },
+    },
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {

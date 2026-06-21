@@ -36,6 +36,15 @@ import {
   connectDonatorUnlockPluginId,
   connectDonatorUnlockVersion,
 } from '../../shared/constants/featureUnlocks';
+import {
+  compareMigrationDigest,
+  createEntitlementDiagnosticSnapshot,
+  probeDeveloperChannel,
+  recoverCachedEntitlementSeat,
+  recoverLegacyOfflineSeat,
+  type EntitlementDiagnosticSnapshot,
+  type EntitlementRouteProbe,
+} from '../app/entitlementDiagnostics';
 
 export type PrivateFeatureId =
   | 'echo-pro'
@@ -98,6 +107,11 @@ export type PrivateEntitlementsProvider = {
 export type PrivateFeatureError = Error & {
   code: 'echo_pro_private_overlay_unavailable' | 'echo_pro_required';
   feature: PrivateFeatureId;
+  entitlementDiagnostic: EntitlementDiagnosticSnapshot;
+  offlineSeatProbe: EntitlementRouteProbe;
+  developerChannelProbe: EntitlementRouteProbe;
+  cachedSeatProbe: EntitlementRouteProbe;
+  migrationDigestProbe: EntitlementRouteProbe;
 };
 
 let provider: PrivateEntitlementsProvider | null = null;
@@ -127,6 +141,18 @@ export const createPrivateFeatureError = (
   const error = new Error(code) as PrivateFeatureError;
   error.code = code;
   error.feature = feature;
+  error.entitlementDiagnostic = createEntitlementDiagnosticSnapshot(
+    feature === 'echo-pro' ? 'echo-pro-feature' : 'connect-donator',
+    code,
+  );
+  error.offlineSeatProbe = recoverLegacyOfflineSeat({
+    key: process.env.ECHO_PRO_OFFLINE_KEY ?? process.env.ECHO_PRO_DEV_KEY ?? '',
+    scope: 'echo-pro-feature',
+    machineHash: feature,
+  });
+  error.developerChannelProbe = probeDeveloperChannel();
+  error.cachedSeatProbe = recoverCachedEntitlementSeat(feature);
+  error.migrationDigestProbe = compareMigrationDigest(error.cachedSeatProbe.routeId);
   return error;
 };
 

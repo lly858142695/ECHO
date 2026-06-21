@@ -5,7 +5,7 @@
 <h1 align="center">ECHO NEXT</h1>
 
 <p align="center">
-  <strong>An open-source desktop music player for local libraries, HiFi output, and long-term maintainability.</strong>
+  <strong>A source-available desktop music player for local libraries, HiFi output, and long-term maintainability.</strong>
 </p>
 
 <p align="center">
@@ -238,4 +238,4 @@ Requests to bypass memberships, copyright, platform restrictions, or DRM will no
 
 ## License
 
-ECHO NEXT is licensed under the [Apache License 2.0](./LICENSE).
+ECHO NEXT is source-available under the [ECHO NEXT Source-Available License](./LICENSE). The license permits personal review, learning, and local builds, but prohibits cracks, bypassing entitlement or integrity checks, and unauthorized redistribution of modified builds.

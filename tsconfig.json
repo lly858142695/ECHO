@@ -12,6 +12,10 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "#echo-private-overlay-runtime": ["src/main/plugins/privateOverlayRuntime.ts"]
+    },
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
