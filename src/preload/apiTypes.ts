@@ -13,6 +13,7 @@ import type { ConnectDonatorUnlockStatus } from '../shared/constants/featureUnlo
 import type {
   EchoProAccountCredentials,
   EchoProAccountStatus,
+  EchoProAccountStatusOptions,
   EchoProKeyRedeemResult,
   EchoProReleaseDevicesResult,
   EchoProSettingsCloudApplyResult,
@@ -346,7 +347,7 @@ export type EchoApi = {
     openExternalUrl: (url: string) => Promise<void>;
     showTouchKeyboard: () => Promise<boolean>;
     testNetworkProxy: (patch?: Partial<AppSettings>) => Promise<NetworkProxyTestResult>;
-    getEchoProAccountStatus: () => Promise<EchoProAccountStatus>;
+    getEchoProAccountStatus: (options?: EchoProAccountStatusOptions) => Promise<EchoProAccountStatus>;
     loginEchoProAccount: (credentials: EchoProAccountCredentials) => Promise<EchoProAccountStatus>;
     registerEchoProAccount: (credentials: EchoProAccountCredentials) => Promise<EchoProAccountStatus>;
     logoutEchoProAccount: () => Promise<EchoProAccountStatus>;

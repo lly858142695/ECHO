@@ -1107,6 +1107,36 @@ describe('AppLayout standalone routes', () => {
     await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy());
   });
 
+  it('does not flash the user notice while settings are still loading', async () => {
+    let resolveSettings: (settings: { onboardingCompleted: boolean; smtcEnabled: boolean }) => void = () => undefined;
+    const getSettings = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSettings = resolve;
+        }),
+    );
+    window.echo = {
+      app: {
+        getSettings,
+      },
+    } as unknown as Window['echo'];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={routes} />
+      </AppProviders>,
+    );
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    await act(async () => {
+      resolveSettings({ onboardingCompleted: true, smtcEnabled: true });
+    });
+
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('plays the first-run wizard exit state before unmounting', async () => {
     const getSettings = vi.fn().mockResolvedValue({ onboardingCompleted: true, smtcEnabled: true });
     window.echo = {
@@ -1182,6 +1212,46 @@ describe('AppLayout standalone routes', () => {
       expect(within(sidebar).queryByRole('button', { name: 'Songs' })).toBeNull();
       expect(within(sidebar).getAllByRole('button').map((button) => button.textContent?.trim())).toEqual(['Queue', 'Home']);
     });
+  });
+
+  it('keeps the Streaming sidebar entry locked hidden after Pro unlock', async () => {
+    window.localStorage.clear();
+    const getSettings = vi.fn().mockResolvedValue({
+      sidebarRouteOrder: ['home', 'streaming', 'songs'],
+      sidebarHiddenRouteIds: [],
+    });
+    window.echo = {
+      app: {
+        getSettings,
+      },
+      connect: {
+        getDonatorUnlockStatus: vi.fn().mockResolvedValue(unlockedDonatorStatus),
+      },
+    } as unknown as Window['echo'];
+
+    const localRoutes: AppRoute[] = [
+      routesWithHome[0],
+      {
+        id: 'streaming',
+        label: 'Streaming',
+        labelKey: 'route.streaming.label',
+        description: 'Streaming',
+        icon: Music2,
+        placement: 'main',
+        element: <div>Streaming shell</div>,
+      },
+      routes[0],
+    ];
+
+    render(
+      <AppProviders>
+        <AppLayout routes={localRoutes} />
+      </AppProviders>,
+    );
+
+    const sidebar = screen.getByRole('complementary', { name: 'Main navigation' });
+    await waitFor(() => expect(within(sidebar).queryByRole('button', { name: 'Streaming' })).toBeNull());
+    expect(within(sidebar).getByRole('button', { name: 'Home' })).toBeTruthy();
   });
 
   it('keeps the Connect sidebar entry visible before Pro unlock', async () => {

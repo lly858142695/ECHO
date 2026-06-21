@@ -15,6 +15,10 @@ export type EchoProAccountCredentials = {
   password: string;
 };
 
+export type EchoProAccountStatusOptions = {
+  force?: boolean;
+};
+
 export type EchoProKeyRedeemResult = {
   ok: boolean;
   redeemedAt: string;

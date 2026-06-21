@@ -18164,6 +18164,50 @@ html[data-theme="dark"] .downloads-toast[data-tone="error"] {
   font-size: 12px;
 }
 
+.settings-account-field-wrap {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.settings-account-field-wrap input {
+  padding-right: 38px;
+}
+
+.settings-account-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--color-muted);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.settings-account-password-toggle:hover {
+  color: var(--echo-heading-text);
+  background: var(--theme-chip-bg);
+}
+
+.settings-account-password-toggle:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.settings-account-field-warning {
+  display: inline-flex;
+  margin-top: 5px;
+  color: #a15f00;
+  font-size: 10px;
+  font-weight: 780;
+}
+
 .downloads-page--osu .download-search-copy small {
   color: color-mix(in srgb, var(--color-muted) 78%, transparent);
 }

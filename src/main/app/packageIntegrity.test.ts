@@ -23,10 +23,17 @@ afterEach(() => {
 });
 
 describe('isPackageIntegrityEnforced', () => {
-  it('only enforces in packaged builds unless explicitly disabled', () => {
+  it('only enforces in packaged builds', () => {
     expect(isPackageIntegrityEnforced(false, {})).toBe(false);
     expect(isPackageIntegrityEnforced(true, {})).toBe(true);
-    expect(isPackageIntegrityEnforced(true, { ECHO_DISABLE_PACKAGE_INTEGRITY: '1' })).toBe(false);
+  });
+
+  it('requires an explicit unsafe dev override before packaged integrity can be disabled', () => {
+    expect(isPackageIntegrityEnforced(true, { ECHO_DISABLE_PACKAGE_INTEGRITY: '1' })).toBe(true);
+    expect(isPackageIntegrityEnforced(true, {
+      ECHO_DISABLE_PACKAGE_INTEGRITY: '1',
+      ECHO_ALLOW_UNSAFE_PACKAGE_INTEGRITY_DISABLE: '1',
+    })).toBe(false);
   });
 });
 

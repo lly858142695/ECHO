@@ -4297,7 +4297,7 @@ const normalizeEchoProErrorCode = (error: unknown): string => {
   if (lowered.includes('username') && lowered.includes('3-40')) {
     return 'echo_pro_username_use_qq';
   }
-  if (lowered.includes('password') && lowered.includes('10-200')) {
+  if (lowered.includes('password') && (lowered.includes('8-200') || lowered.includes('10-200'))) {
     return 'echo_pro_password_length';
   }
   if (lowered.includes('password') && lowered.includes('releasing')) {
@@ -4314,8 +4314,8 @@ const formatEchoProError = (error: unknown, locale: Locale): string => {
   const zh = locale === 'zh-CN';
   const messages: Record<string, { zh: string; en: string }> = {
     invalid_credentials: {
-      zh: '账号或密码不正确。注册/登录账号建议直接填写你的 QQ 号，密码至少 10 位。',
-      en: 'The account or password is incorrect. Use your QQ number as the account name, with a password of at least 10 characters.',
+      zh: '账号或密码不正确。注册/登录账号建议直接填写你的 QQ 号，密码至少 8 位。',
+      en: 'The account or password is incorrect. Use your QQ number as the account name, with a password of at least 8 characters.',
     },
     registration_disabled: {
       zh: '服务器暂时关闭公开注册。请使用已授权账号登录，或联系管理员。',
@@ -4354,8 +4354,8 @@ const formatEchoProError = (error: unknown, locale: Locale): string => {
       en: 'Registration is temporarily unavailable. Make sure the latest server is deployed, and use your QQ number as the account name.',
     },
     echo_pro_http_400: {
-      zh: '提交的信息格式不正确。账号建议填写 QQ 号，密码至少 10 位。',
-      en: 'The submitted information is invalid. Use your QQ number as the account name and a password of at least 10 characters.',
+      zh: '提交的信息格式不正确。账号建议填写 QQ 号，密码至少 8 位。',
+      en: 'The submitted information is invalid. Use your QQ number as the account name and a password of at least 8 characters.',
     },
     echo_pro_http_401: {
       zh: '认证失败。请检查账号、密码，或重新登录。',
@@ -4382,8 +4382,8 @@ const formatEchoProError = (error: unknown, locale: Locale): string => {
       en: 'Use your QQ number as the account name. It must be 3-40 characters and may contain letters, numbers, dot, underscore, @, or dash.',
     },
     echo_pro_password_length: {
-      zh: '密码长度需要 10-200 位。',
-      en: 'Password length must be 10-200 characters.',
+      zh: '密码长度需要 8-200 位。',
+      en: 'Password length must be 8-200 characters.',
     },
     echo_pro_release_password_required: {
       zh: '解绑所有设备前，请输入当前 ECHO Pro 账号密码。',
@@ -4569,6 +4569,8 @@ export const SettingsPage = (): JSX.Element => {
   const [echoProAccountStatus, setEchoProAccountStatus] = useState<EchoProAccountStatus | null>(null);
   const [echoProUsername, setEchoProUsername] = useState('');
   const [echoProPassword, setEchoProPassword] = useState('');
+  const [echoProPasswordVisible, setEchoProPasswordVisible] = useState(false);
+  const [echoProCapsLockEnabled, setEchoProCapsLockEnabled] = useState(false);
   const [echoProRedeemKey, setEchoProRedeemKey] = useState('');
   const [echoProBusyAction, setEchoProBusyAction] = useState<'login' | 'register' | 'logout' | 'refresh' | 'redeem' | 'release-devices' | null>(null);
   const [echoProSettingsCloudStatus, setEchoProSettingsCloudStatus] = useState<EchoProSettingsCloudStatus | null>(null);
@@ -5993,7 +5995,7 @@ export const SettingsPage = (): JSX.Element => {
     }
   }, []);
 
-  const refreshEchoProAccountStatus = useCallback(async (): Promise<void> => {
+  const refreshEchoProAccountStatus = useCallback(async (options?: { force?: boolean }): Promise<void> => {
     const app = getAppBridge();
     if (!app?.getEchoProAccountStatus) {
       setEchoProAccountStatus(null);
@@ -6004,7 +6006,7 @@ export const SettingsPage = (): JSX.Element => {
     setEchoProBusyAction('refresh');
     setEchoProError(null);
     try {
-      setEchoProAccountStatus(await app.getEchoProAccountStatus());
+      setEchoProAccountStatus(await app.getEchoProAccountStatus(options));
     } catch (accountError) {
       setEchoProError(formatEchoProError(accountError, locale));
     } finally {
@@ -8466,7 +8468,8 @@ export const SettingsPage = (): JSX.Element => {
         void refreshEchoProSettingsCloudStatus();
       }
       setEchoProPassword('');
-      setEchoProMessage(action === 'login' ? '已登录 ECHO Pro 账号。' : '账号已创建。Pro 资格需要服务器授权后生效。');
+      window.dispatchEvent(new Event('echo-pro:status-changed'));
+      setEchoProMessage(action === 'login' ? '已登录 ECHO Pro 账号。下次启动会自动保持登录。' : '账号已创建。下次启动会自动保持登录，Pro 资格需要服务器授权或兑换 Key 后生效。');
     } catch (accountError) {
       setEchoProError(formatEchoProError(accountError, locale));
     } finally {
@@ -8487,6 +8490,7 @@ export const SettingsPage = (): JSX.Element => {
     try {
       setEchoProAccountStatus(await app.logoutEchoProAccount());
       setEchoProSettingsCloudStatus(null);
+      window.dispatchEvent(new Event('echo-pro:status-changed'));
       setEchoProMessage('已退出 ECHO Pro 账号。');
     } catch (accountError) {
       setEchoProError(formatEchoProError(accountError, locale));
@@ -8509,6 +8513,7 @@ export const SettingsPage = (): JSX.Element => {
       const result = await app.redeemEchoProKey(echoProRedeemKey);
       setEchoProAccountStatus(result.status);
       setEchoProRedeemKey('');
+      window.dispatchEvent(new Event('echo-pro:status-changed'));
       setEchoProMessage(`ECHO Pro key redeemed at ${formatProtectionTimestamp(result.redeemedAt)}.`);
       if (result.status.pro === true) {
         void refreshEchoProSettingsCloudStatus();
@@ -8530,7 +8535,7 @@ export const SettingsPage = (): JSX.Element => {
       setEchoProError('Please log in before releasing ECHO Pro devices.');
       return;
     }
-    if (echoProPassword.length < 10) {
+    if (!echoProPassword) {
       setEchoProError('Enter your current ECHO Pro password before releasing all devices.');
       return;
     }
@@ -8545,6 +8550,7 @@ export const SettingsPage = (): JSX.Element => {
       const result = await app.releaseEchoProDevices(echoProPassword);
       setEchoProAccountStatus(result.status);
       setEchoProPassword('');
+      window.dispatchEvent(new Event('echo-pro:status-changed'));
       setEchoProMessage(`已解绑 ${result.releasedCount} 台设备，时间 ${formatProtectionTimestamp(result.releasedAt)}。`);
     } catch (releaseError) {
       setEchoProError(formatEchoProError(releaseError, locale));
@@ -8552,6 +8558,10 @@ export const SettingsPage = (): JSX.Element => {
       setEchoProBusyAction(null);
     }
   }, [echoProAccountStatus?.loggedIn, echoProPassword, locale]);
+
+  const updateEchoProCapsLock = useCallback((event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    setEchoProCapsLockEnabled(event.getModifierState('CapsLock'));
+  }, []);
 
   const saveEchoProSettingsCloud = useCallback(async (): Promise<void> => {
     const app = getAppBridge();
@@ -11708,14 +11718,30 @@ export const SettingsPage = (): JSX.Element => {
                         />
                       </label>
                       <label className="settings-account-cookie-field">
+                        <span className="settings-account-field-wrap">
                         <input
-                          type="password"
+                          type={echoProPasswordVisible ? 'text' : 'password'}
                           value={echoProPassword}
                           autoComplete={echoProAccountStatus?.loggedIn ? 'current-password' : 'new-password'}
                           placeholder="密码"
                           disabled={echoProBusyAction !== null}
                           onChange={(event) => setEchoProPassword(event.target.value)}
+                          onKeyDown={updateEchoProCapsLock}
+                          onKeyUp={updateEchoProCapsLock}
+                          onBlur={() => setEchoProCapsLockEnabled(false)}
                         />
+                          <button
+                            className="settings-account-password-toggle"
+                            type="button"
+                            aria-label={echoProPasswordVisible ? '隐藏密码' : '显示密码'}
+                            title={echoProPasswordVisible ? '隐藏密码' : '显示密码'}
+                            disabled={echoProBusyAction !== null}
+                            onClick={() => setEchoProPasswordVisible((visible) => !visible)}
+                          >
+                            {echoProPasswordVisible ? <EyeOff size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
+                          </button>
+                        </span>
+                        {echoProCapsLockEnabled ? <span className="settings-account-field-warning">大写锁定已开启</span> : null}
                       </label>
                       <label className="settings-account-cookie-field">
                         <input
@@ -11736,7 +11762,7 @@ export const SettingsPage = (): JSX.Element => {
                           <User size={14} aria-hidden="true" />
                           {echoProBusyAction === 'register' ? '注册中' : '注册'}
                         </button>
-                        <button className="settings-action-button" type="button" disabled={echoProBusyAction !== null} onClick={() => void refreshEchoProAccountStatus()}>
+                        <button className="settings-action-button" type="button" disabled={echoProBusyAction !== null} onClick={() => void refreshEchoProAccountStatus({ force: true })}>
                           <RefreshCw size={14} aria-hidden="true" />
                           {echoProBusyAction === 'refresh' ? '检查中' : '检查'}
                         </button>
@@ -11747,7 +11773,7 @@ export const SettingsPage = (): JSX.Element => {
                         <button className="settings-danger-button" type="button" disabled={echoProBusyAction !== null || !echoProAccountStatus?.loggedIn} onClick={() => void logoutEchoProAccount()}>
                           {echoProBusyAction === 'logout' ? '退出中' : '退出'}
                         </button>
-                        <button className="settings-danger-button" type="button" disabled={echoProBusyAction !== null || !echoProAccountStatus?.loggedIn || echoProPassword.length < 10} onClick={() => void releaseEchoProDevices()}>
+                        <button className="settings-danger-button" type="button" disabled={echoProBusyAction !== null || !echoProAccountStatus?.loggedIn || echoProPassword.length === 0} onClick={() => void releaseEchoProDevices()}>
                           {echoProBusyAction === 'release-devices' ? '解绑中' : '解绑所有设备'}
                         </button>
                       </div>

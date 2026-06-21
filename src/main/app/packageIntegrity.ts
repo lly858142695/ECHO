@@ -34,6 +34,7 @@ export type PackageIntegrityVerificationResult = {
 
 const integrityManifestFileName = 'echo-integrity.json';
 const disableIntegrityEnv = 'ECHO_DISABLE_PACKAGE_INTEGRITY';
+const allowUnsafeIntegrityDisableEnv = 'ECHO_ALLOW_UNSAFE_PACKAGE_INTEGRITY_DISABLE';
 const getDefaultIsPackaged = (): boolean => app?.isPackaged === true;
 
 export const resolvePackageIntegrityManifestPath = (resourcesPath = process.resourcesPath): string =>
@@ -42,7 +43,13 @@ export const resolvePackageIntegrityManifestPath = (resourcesPath = process.reso
 export const isPackageIntegrityEnforced = (
   isPackaged = getDefaultIsPackaged(),
   env: NodeJS.ProcessEnv = process.env,
-): boolean => isPackaged && env[disableIntegrityEnv] !== '1';
+): boolean => {
+  if (!isPackaged) {
+    return false;
+  }
+
+  return !(env[disableIntegrityEnv] === '1' && env[allowUnsafeIntegrityDisableEnv] === '1');
+};
 
 const isSafeRelativeResourcePath = (value: string): boolean => {
   if (!value || isAbsolute(value)) {

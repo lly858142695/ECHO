@@ -1705,7 +1705,10 @@ const echoApi: EchoApi = {
     showTouchKeyboard: () => ipcRenderer.invoke(IpcChannels.AppShowTouchKeyboard),
     testNetworkProxy: (patch) =>
       patch === undefined ? ipcRenderer.invoke(IpcChannels.AppTestNetworkProxy) : ipcRenderer.invoke(IpcChannels.AppTestNetworkProxy, patch),
-    getEchoProAccountStatus: () => ipcRenderer.invoke(IpcChannels.AppEchoProAccountGetStatus),
+    getEchoProAccountStatus: (options) =>
+      options === undefined
+        ? ipcRenderer.invoke(IpcChannels.AppEchoProAccountGetStatus)
+        : ipcRenderer.invoke(IpcChannels.AppEchoProAccountGetStatus, options),
     loginEchoProAccount: (credentials) => ipcRenderer.invoke(IpcChannels.AppEchoProAccountLogin, credentials),
     registerEchoProAccount: (credentials) => ipcRenderer.invoke(IpcChannels.AppEchoProAccountRegister, credentials),
     logoutEchoProAccount: () => ipcRenderer.invoke(IpcChannels.AppEchoProAccountLogout),

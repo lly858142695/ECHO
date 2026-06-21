@@ -1552,6 +1552,18 @@ export const normalizeChannelBalanceSettings = (value: unknown): ChannelBalanceS
   };
 };
 
+const normalizeUserNoticeAcceptedVersion = (settings: Partial<AppSettings>): number => {
+  if (settings.userNoticeAcceptedVersion === currentUserNoticeVersion) {
+    return currentUserNoticeVersion;
+  }
+
+  if (currentUserNoticeVersion === 1 && settings.onboardingCompleted === true) {
+    return currentUserNoticeVersion;
+  }
+
+  return 0;
+};
+
 export const normalizeSettings = (value: unknown, options: NormalizeSettingsOptions = {}): AppSettings => {
   if (!value || typeof value !== 'object') {
     return { ...defaultSettings };
@@ -1677,7 +1689,7 @@ export const normalizeSettings = (value: unknown, options: NormalizeSettingsOpti
   return {
     appMemoryVersion,
     onboardingCompleted: settings.onboardingCompleted !== false,
-    userNoticeAcceptedVersion: settings.userNoticeAcceptedVersion === currentUserNoticeVersion ? currentUserNoticeVersion : 0,
+    userNoticeAcceptedVersion: normalizeUserNoticeAcceptedVersion(settings),
     locale: normalizeLocale(settings.locale),
     appearanceTheme: normalizeAppearanceTheme(settings.appearanceTheme),
     appearanceThemeScheduleEnabled: settings.appearanceThemeScheduleEnabled === true,
@@ -2068,6 +2080,10 @@ const shouldPersistFinalThemeRelock = (source: Partial<AppSettings>, normalized:
   );
 };
 
+const shouldPersistUserNoticeMigration = (source: Partial<AppSettings>, normalized: AppSettings): boolean =>
+  normalized.userNoticeAcceptedVersion === currentUserNoticeVersion &&
+  source.userNoticeAcceptedVersion !== currentUserNoticeVersion;
+
 const persistNormalizedSettings = (settings: AppSettings): void => {
   const settingsPath = getSettingsPath();
   mkdirSync(dirname(settingsPath), { recursive: true });
@@ -2098,7 +2114,7 @@ export const getAppSettings = (options: NormalizeSettingsOptions = {}): AppSetti
 
   const sourceSettings = cachedSettingsSource ?? defaultSettings;
   const settings = normalizeSettings(sourceSettings, options);
-  if (shouldPersistFinalThemeRelock(sourceSettings, settings)) {
+  if (shouldPersistFinalThemeRelock(sourceSettings, settings) || shouldPersistUserNoticeMigration(sourceSettings, settings)) {
     persistNormalizedSettings(settings);
     cachedSettingsSource = settings;
   }

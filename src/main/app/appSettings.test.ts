@@ -306,8 +306,26 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({ upcomingTrackNoticeEnabled: true }).upcomingTrackNoticeEnabled).toBe(true);
     expect(normalizeSettings({ upcomingTrackNoticeEnabled: 'true' as never }).upcomingTrackNoticeEnabled).toBe(false);
     expect(normalizeSettings({}).userNoticeAcceptedVersion).toBe(0);
+    expect(normalizeSettings({ onboardingCompleted: true }).userNoticeAcceptedVersion).toBe(currentUserNoticeVersion);
     expect(normalizeSettings({ userNoticeAcceptedVersion: currentUserNoticeVersion }).userNoticeAcceptedVersion).toBe(currentUserNoticeVersion);
     expect(normalizeSettings({ userNoticeAcceptedVersion: currentUserNoticeVersion + 1 }).userNoticeAcceptedVersion).toBe(0);
+  });
+
+  it('persists migrated user notice acceptance for legacy completed onboarding', async () => {
+    vi.resetModules();
+    const { currentUserNoticeVersion } = await import('../../shared/types/appSettings');
+    userDataPath = join(tmpdir(), `echo-next-settings-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    tempRoots.push(userDataPath);
+    mkdirSync(userDataPath, { recursive: true });
+    const settingsPath = join(userDataPath, 'echo-settings.json');
+    writeFileSync(settingsPath, `${JSON.stringify({ onboardingCompleted: true }, null, 2)}\n`, 'utf8');
+
+    const { getAppSettings } = await import('./appSettings');
+    const settings = getAppSettings();
+    const persisted = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>;
+
+    expect(settings.userNoticeAcceptedVersion).toBe(currentUserNoticeVersion);
+    expect(persisted.userNoticeAcceptedVersion).toBe(currentUserNoticeVersion);
   });
 
   it('normalizes data protection disable as an explicit opt-in', async () => {

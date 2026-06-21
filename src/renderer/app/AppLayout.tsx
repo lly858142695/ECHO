@@ -918,7 +918,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const isStandaloneRoute = activeRoute.chrome === 'standalone';
   const isLyricsRoute = activeRouteId === 'lyrics';
   const shouldRenderDragDropImportOverlay = !isStandaloneRoute && activeRouteId !== 'plugins';
-  const shouldRenderUserNoticeGate = !userNoticeSettingsLoaded || !userNoticeAccepted || userNoticeReviewOpen;
+  const shouldRenderUserNoticeGate = userNoticeReviewOpen || (userNoticeSettingsLoaded && !userNoticeAccepted);
   const shouldRenderFirstRunWizard = !shouldRenderUserNoticeGate && (isFirstRunWizardOpen || isFirstRunWizardClosing);
   const shouldUseLyricsPlayerDrawer =
     isLyricsRoute &&
@@ -1173,11 +1173,17 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
 
       setFirstRunSettings((current) => ({ ...(current ?? {}), ...settings }) as AppSettings);
       const hasUserNoticeAcceptedVersion = Object.prototype.hasOwnProperty.call(settings, 'userNoticeAcceptedVersion');
-      const nextUserNoticeAccepted = hasUserNoticeAcceptedVersion
-        ? settings.userNoticeAcceptedVersion === currentUserNoticeVersion
-        : userNoticeAccepted;
+      let nextUserNoticeAccepted = userNoticeAccepted;
+      if (hasUserNoticeAcceptedVersion) {
+        nextUserNoticeAccepted = settings.userNoticeAcceptedVersion === currentUserNoticeVersion;
+      } else if (settings.onboardingCompleted === true) {
+        nextUserNoticeAccepted = true;
+      }
       if (hasUserNoticeAcceptedVersion) {
         setUserNoticeAccepted(nextUserNoticeAccepted);
+        setUserNoticeSettingsLoaded(true);
+      } else if (settings.onboardingCompleted === true) {
+        setUserNoticeAccepted(true);
         setUserNoticeSettingsLoaded(true);
       }
 
@@ -1373,8 +1379,16 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
       refreshPluginPanelRoutes();
       window.dispatchEvent(new Event('settings:changed'));
     };
+    const handleEchoProStatusChanged = (): void => {
+      refreshConnectFeatureUnlock();
+      window.dispatchEvent(new Event('settings:changed'));
+    };
     window.addEventListener('plugins:changed', handlePluginsChanged);
-    return () => window.removeEventListener('plugins:changed', handlePluginsChanged);
+    window.addEventListener('echo-pro:status-changed', handleEchoProStatusChanged);
+    return () => {
+      window.removeEventListener('plugins:changed', handlePluginsChanged);
+      window.removeEventListener('echo-pro:status-changed', handleEchoProStatusChanged);
+    };
   }, [refreshConnectFeatureUnlock, refreshPluginPanelRoutes]);
 
   useEffect(() => {

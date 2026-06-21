@@ -23,6 +23,7 @@ import type {
 import type {
   EchoProAccountCredentials,
   EchoProAccountStatus,
+  EchoProAccountStatusOptions,
   EchoProKeyRedeemResult,
   EchoProReleaseDevicesResult,
   EchoProSettingsCloudApplyResult,
@@ -70,7 +71,7 @@ export type PrivateEntitlementsProvider = {
   getConnectStatus?: () => ConnectDonatorUnlockStatus;
   refreshConnectStatus?: () => Promise<ConnectDonatorUnlockStatus>;
   getDownloadStatus?: () => DownloadFeatureUnlockStatus;
-  getAccountStatus?: () => Promise<EchoProAccountStatus>;
+  getAccountStatus?: (options?: EchoProAccountStatusOptions) => Promise<EchoProAccountStatus>;
   loginAccount?: (credentials: EchoProAccountCredentials) => Promise<EchoProAccountStatus>;
   registerAccount?: (credentials: EchoProAccountCredentials) => Promise<EchoProAccountStatus>;
   logoutAccount?: () => Promise<EchoProAccountStatus>;
@@ -200,8 +201,8 @@ export const getDefaultConnectDonatorUnlockStatus = (): ConnectDonatorUnlockStat
   checkedAt: nowIso(),
 });
 
-export const getEchoProAccountStatus = async (): Promise<EchoProAccountStatus> =>
-  provider?.getAccountStatus ? provider.getAccountStatus() : getDefaultEchoProAccountStatus();
+export const getEchoProAccountStatus = async (options?: EchoProAccountStatusOptions): Promise<EchoProAccountStatus> =>
+  provider?.getAccountStatus ? provider.getAccountStatus(options) : getDefaultEchoProAccountStatus();
 
 export const loginEchoProAccount = async (credentials: EchoProAccountCredentials): Promise<EchoProAccountStatus> => {
   if (!provider?.loginAccount) {

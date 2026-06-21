@@ -703,7 +703,13 @@ export const registerIpc = (): void => {
       session.fromPartition(`network-proxy-test-${randomUUID()}`),
     ),
   );
-  ipcMain.handle(IpcChannels.AppEchoProAccountGetStatus, (): Promise<unknown> => getEchoProAccountStatus());
+  ipcMain.handle(IpcChannels.AppEchoProAccountGetStatus, (_event: IpcMainInvokeEvent, options?: unknown): Promise<unknown> =>
+    getEchoProAccountStatus(
+      options && typeof options === 'object'
+        ? { force: (options as { force?: unknown }).force === true }
+        : undefined,
+    ),
+  );
   ipcMain.handle(IpcChannels.AppEchoProAccountLogin, (_event: IpcMainInvokeEvent, credentials: unknown): Promise<unknown> =>
     loginEchoProAccount(credentials as { username: string; password: string }),
   );
