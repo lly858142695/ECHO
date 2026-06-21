@@ -58,7 +58,7 @@ import type { LibraryTrack } from '../../../shared/types/library';
 import { useI18n } from '../../i18n/I18nProvider';
 import type { TranslationKey } from '../../i18n/locales';
 import { usePlaybackQueue } from '../../stores/PlaybackQueueProvider';
-import { getAppBridge, getConnectBridge, getRemoteSourcesBridge } from '../../utils/echoBridge';
+import { getAppBridge, getRemoteSourcesBridge } from '../../utils/echoBridge';
 import { hideSidebarRouteEntry } from '../../utils/sidebarRouteVisibility';
 
 type Tab = {
@@ -801,7 +801,6 @@ const credentialTextForSource = (source: RemoteSource): string => {
 
 export const RemoteSourcesPanel = (): JSX.Element => {
   const appApi = getAppBridge();
-  const connectApi = getConnectBridge();
   const remoteApi = getRemoteSourcesBridge();
   const { t } = useI18n();
   const { appendToQueue, playTrack } = usePlaybackQueue();
@@ -883,21 +882,21 @@ export const RemoteSourcesPanel = (): JSX.Element => {
   }, [appApi]);
 
   const refreshRemoteSourcesProUnlock = useCallback(async (): Promise<void> => {
-    if (!connectApi?.getDonatorUnlockStatus) {
+    if (!appApi?.getEchoProAccountStatus) {
       setRemoteSourcesProUnlocked(false);
       return;
     }
     try {
-      const status = await connectApi.getDonatorUnlockStatus();
-      setRemoteSourcesProUnlocked(status.unlocked === true);
-      if (status.unlocked !== true) {
+      const status = await appApi.getEchoProAccountStatus();
+      setRemoteSourcesProUnlocked(status.pro === true);
+      if (status.pro !== true) {
         setMessage('网盘功能需要 ECHO Pro 账号完成云端验证。');
       }
     } catch {
       setRemoteSourcesProUnlocked(false);
       setMessage('网盘功能需要 ECHO Pro 账号完成云端验证。');
     }
-  }, [connectApi]);
+  }, [appApi]);
 
   useEffect(() => {
     void refreshRemoteSourcesProUnlock();

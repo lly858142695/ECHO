@@ -147,7 +147,7 @@ describe('connect IPC receiver autostart', () => {
 
     registerConnectIpc();
 
-    await expect(mocks.handlers[IpcChannels.ConnectGetDonatorUnlockStatus]!(null)).resolves.toEqual({ unlocked: true });
+    expect(mocks.handlers[IpcChannels.ConnectGetDonatorUnlockStatus]!(null)).toEqual({ unlocked: true });
     expect(() => mocks.handlers[IpcChannels.ConnectListDevices]!(null)).toThrow('connect_donator_unlock_required');
     expect(mocks.connectService.listDevices).not.toHaveBeenCalled();
   });

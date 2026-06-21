@@ -16,7 +16,7 @@ import type {
 import { EmptyState } from '../components/ui/EmptyState';
 import { useOptionalI18n } from '../i18n/I18nProvider';
 import type { Locale } from '../i18n/locales';
-import { getConnectBridge, getPluginsBridge } from '../utils/echoBridge';
+import { getAppBridge, getPluginsBridge } from '../utils/echoBridge';
 import { formatUserFacingError } from '../utils/userFacingError';
 
 const pluginPageTextZhCN = {
@@ -547,7 +547,7 @@ export const PluginsPage = (): JSX.Element => {
     return interpolatePluginText(localText[key], options);
   }, [localText]);
   const pluginsApi = getPluginsBridge();
-  const connectApi = getConnectBridge();
+  const appApi = getAppBridge();
   const panelFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [pluginDirectory, setPluginDirectory] = useState('');
@@ -569,14 +569,14 @@ export const PluginsPage = (): JSX.Element => {
   }, []);
 
   const refreshPluginsProUnlock = useCallback(async (): Promise<void> => {
-    if (!connectApi?.getDonatorUnlockStatus) {
+    if (!appApi?.getEchoProAccountStatus) {
       setPluginsProUnlocked(false);
       return;
     }
     try {
-      const status = await connectApi.getDonatorUnlockStatus();
-      setPluginsProUnlocked(status.unlocked === true);
-      if (status.unlocked !== true) {
+      const status = await appApi.getEchoProAccountStatus();
+      setPluginsProUnlocked(status.pro === true);
+      if (status.pro !== true) {
         setMessage('插件功能需要 ECHO Pro 账号完成云端验证。');
       } else {
         setMessage(null);
@@ -585,7 +585,7 @@ export const PluginsPage = (): JSX.Element => {
       setPluginsProUnlocked(false);
       setMessage('插件功能需要 ECHO Pro 账号完成云端验证。');
     }
-  }, [connectApi]);
+  }, [appApi]);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!pluginsApi || pluginsProUnlocked !== true) {

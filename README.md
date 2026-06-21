@@ -54,6 +54,28 @@
   <img src="./docs/img.png" alt="ECHO NEXT interface preview" width="100%" />
 </p>
 
+## ECHO Next Pro
+
+<p align="center">
+  <img src="./lmao.jpeg" alt="ECHO Next Pro" width="720" />
+</p>
+
+ECHO Next Pro 是给长期支持 ECHO NEXT 的用户准备的进阶权益入口。通过爱发电支持项目后，可以获得更多实验性与扩展能力；所有为项目做出贡献的 GitHub 用户也将免费获得此权益。
+
+> [!NOTE]
+> GitHub Contributors Only: 所有为 ECHO NEXT 项目做出贡献的用户将免费获得 ECHO Next Pro 权益。
+
+ECHO Next Pro 当前包含：
+
+- 解锁 ECHO Connect 功能，可以连接 ECHO Mobile 安卓端并共享曲库。
+- 抢先体验 ECHO 手机版。
+- 解锁所有主题。
+- 解锁网盘连接功能。
+- 解锁 ECHO 插件功能。
+- 加入 ECHO Donators 群。
+
+支持入口：[https://afdian.com/a/echonext](https://afdian.com/a/echonext)
+
 > [!TIP]
 > Debug 小提示：遇到设备或播放异常，先到 **设置 > 播放** 打开 **低负载播放模式**；反馈问题时请到 **设置 > 关于 > 打开控制台**，复制报错或导出日志。若只有某一首歌异常，请先换其他歌曲确认，单曲问题通常更可能来自文件本身。第三方音频驱动/包装层导致的问题不作为有效 issue 受理。
 > 更新优先级：**音频稳定性 > HiFi > 杂项功能 > 流媒体**。

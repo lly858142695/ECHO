@@ -6179,15 +6179,15 @@ export const SettingsPage = (): JSX.Element => {
   useEffect(() => {
     let disposed = false;
     const plugins = getPluginsBridge();
-    const connect = getConnectBridge();
+    const app = getAppBridge();
 
     void Promise.all([
       plugins?.list().catch(() => null) ?? Promise.resolve(null),
-      connect?.getDonatorUnlockStatus?.().catch(() => null) ?? Promise.resolve(null),
+      app?.getEchoProAccountStatus?.().catch(() => null) ?? Promise.resolve(null),
     ])
-      .then(([pluginResult, donatorStatus]) => {
+      .then(([pluginResult, echoProStatus]) => {
         if (!disposed) {
-          setFinalThemeUnlocked(donatorStatus?.unlocked === true || finalThemeMarkerUnlockedRef.current);
+          setFinalThemeUnlocked(echoProStatus?.pro === true || finalThemeMarkerUnlockedRef.current);
           setFinalThemeUnlockChecked(true);
           if (activeSection === 'appearance') {
             setPluginThemeOptions(pluginResult ? collectPluginThemeOptions(pluginResult.plugins) : []);

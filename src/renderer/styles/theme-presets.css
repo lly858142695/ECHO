@@ -13606,6 +13606,32 @@ html .app-shell.app-shell--acrylic:not(.app-shell--wallpaper) :is(
   backdrop-filter: blur(16px) saturate(1.1);
 }
 
+html .app-shell.app-shell--acrylic:not(.app-shell--wallpaper) .eq-preset-menu {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-panel-bg-strong) 98%, var(--theme-field-bg) 2%),
+      color-mix(in srgb, var(--theme-panel-bg) 96%, var(--theme-field-bg) 4%)
+    ) !important;
+  border-color: color-mix(in srgb, var(--theme-border-color) 82%, transparent) !important;
+  box-shadow:
+    0 18px 44px rgb(var(--preset-shadow-rgb, 28 47 67) / 0.22),
+    0 2px 8px rgb(var(--preset-shadow-rgb, 28 47 67) / 0.1) !important;
+  backdrop-filter: blur(18px) saturate(1.16);
+}
+
+html .app-shell.app-shell--acrylic:not(.app-shell--wallpaper) .eq-preset-menu .eq-preset-option {
+  background: color-mix(in srgb, var(--theme-field-bg) 92%, var(--theme-panel-bg) 8%) !important;
+}
+
+html .app-shell.app-shell--acrylic:not(.app-shell--wallpaper) .eq-preset-menu .eq-preset-option:hover {
+  background: color-mix(in srgb, var(--theme-field-bg) 76%, var(--theme-accent-solid-bg) 24%) !important;
+}
+
+html .app-shell.app-shell--acrylic:not(.app-shell--wallpaper) .eq-preset-menu .eq-preset-option[data-selected="true"] {
+  background: color-mix(in srgb, var(--theme-accent-solid-bg) 16%, var(--theme-field-bg) 84%) !important;
+}
+
 html .app-shell.app-shell--acrylic:not(.app-shell--wallpaper) :is(
   .dsp-chain-icon,
   .eq-enable-pill,

@@ -381,7 +381,6 @@ const settingsBackNavigationEvent = 'app:navigate:settings-back';
 const showChromeNoticeEvent = 'app:show-chrome-notice';
 const pendingRouteStorageKey = 'echo-next.pending-route';
 const pendingSettingsSectionStorageKey = 'echo-next.settings.pending-section';
-const proUnlockNoticeStoragePrefix = 'echo-next.pro-unlock-thanks';
 const settingsSectionNavigationEvent = 'app:navigate:settings-section';
 const lyricsMiniPlayerAutoHideDistancePx = 150;
 const lyricsMiniPlayerAutoHideRevealBandPx = 164;
@@ -598,35 +597,6 @@ const readInitialRouteId = (routes: AppRoute[]): AppRouteId => {
   return fallbackRouteId;
 };
 
-const readProUnlockNoticeStorageKey = (status: {
-  pluginId?: string;
-  requiredVersion?: string;
-  hwidHash?: string;
-}): string =>
-  [
-    proUnlockNoticeStoragePrefix,
-    status.pluginId || 'unknown-plugin',
-    status.requiredVersion || 'unknown-version',
-    status.hwidHash || 'unknown-hwid',
-  ].join(':');
-
-const shouldShowProUnlockNotice = (status: {
-  pluginId?: string;
-  requiredVersion?: string;
-  hwidHash?: string;
-}): boolean => {
-  const storageKey = readProUnlockNoticeStorageKey(status);
-  try {
-    if (window.localStorage.getItem(storageKey) === 'shown') {
-      return false;
-    }
-    window.localStorage.setItem(storageKey, 'shown');
-  } catch {
-    // Fall back to the in-memory guard for privacy modes or unavailable storage.
-  }
-  return true;
-};
-
 const diagnosticsCrashNoticeOptInStorageKey = 'echo:diagnostics:crash-notice-enabled';
 
 const shouldAutoShowDiagnosticsCrashNotice = (): boolean => {
@@ -780,7 +750,6 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const touchKeyboardLastRequestAtRef = useRef(0);
   const lastAudioErrorRef = useRef<string | null>(null);
   const notifiedWindowsAudioDefaultFormatKeysRef = useRef<Set<string>>(new Set());
-  const proUnlockNoticeShownRef = useRef(false);
   const previousRouteIdRef = useRef<AppRouteId>('songs');
   const routeSwitchSequenceRef = useRef(0);
   const routeSwitchTraceRef = useRef<RouteSwitchTrace | null>(null);
@@ -860,25 +829,15 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   );
 
   const refreshConnectFeatureUnlock = useCallback((): void => {
-    const getDonatorUnlockStatus = window.echo?.connect?.getDonatorUnlockStatus;
-    if (!getDonatorUnlockStatus) {
+    const getEchoProAccountStatus = window.echo?.app?.getEchoProAccountStatus;
+    if (!getEchoProAccountStatus) {
       return;
     }
 
-    void getDonatorUnlockStatus()
+    void getEchoProAccountStatus()
       .then((status) => {
-        const unlocked = status.unlocked === true;
+        const unlocked = status.pro === true;
         setConnectDonatorUnlocked(unlocked);
-        if (
-          unlocked
-          && !notificationsDisabledRef.current
-          && !proUnlockNoticeShownRef.current
-          && shouldShowProUnlockNotice(status)
-        ) {
-          proUnlockNoticeShownRef.current = true;
-          setChromeNotice('Pro 已解锁，感谢你的赞助。');
-          setIsChromeNoticeVisible(true);
-        }
       })
       .catch(() => setConnectDonatorUnlocked(false));
   }, []);

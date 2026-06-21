@@ -45,6 +45,10 @@ const copy = {
   decline: '\u4e0d\u540c\u610f\uff0c\u9000\u51fa',
   accept: '\u6211\u5df2\u9605\u8bfb\u5e76\u540c\u610f',
   imageAlt: 'ECHO AI \u5f00\u53d1\u8005\u7528\u6237\u987b\u77e5\u914d\u56fe',
+  evidenceKicker: '\u89e6\u53d1\u80cc\u666f',
+  evidenceTitle: '\u6c38\u4e50\u5927\u5178',
+  evidenceDescription:
+    '\u8fd9\u6bb5\u5bf9\u8bdd\u662f\u672c\u987b\u77e5\u7684\u89e6\u53d1\u80cc\u666f\u3002\u76f8\u5173\u8fb9\u754c\u5df2\u6574\u7406\u5728\u53f3\u4fa7\uff0c\u7ee7\u7eed\u524d\u8bf7\u9010\u6761\u786e\u8ba4\u3002',
 } as const;
 
 const openExternalUrl = (url: string): void => {
@@ -115,42 +119,51 @@ export const UserNoticeGate = ({ onAccepted }: UserNoticeGateProps): JSX.Element
           <p id="user-notice-description">{copy.description}</p>
         </header>
 
-        <figure className="user-notice-media" aria-label={copy.imageAlt}>
-          <img src={userNoticeImageUrl} alt={copy.imageAlt} />
-        </figure>
+        <div className="user-notice-body">
+          <aside className="user-notice-evidence">
+            <div className="user-notice-evidence-copy">
+              <span>{copy.evidenceKicker}</span>
+              <strong>{copy.evidenceTitle}</strong>
+              <p>{copy.evidenceDescription}</p>
+            </div>
+            <figure className="user-notice-media" aria-label={copy.imageAlt}>
+              <img src={userNoticeImageUrl} alt={copy.imageAlt} />
+            </figure>
+          </aside>
 
-        <ol className="user-notice-list">
-          <li>
-            <ShieldCheck size={15} aria-hidden="true" />
-            <span>
-              {copy.docsPrefix}
-              <NoticeLink url={echoDocumentationUrl}>{echoDocumentationUrl}</NoticeLink>
-              {copy.docsSuffix}
-            </span>
-          </li>
-          <li>
-            <ShieldCheck size={15} aria-hidden="true" />
-            <span>
-              {copy.boundariesPrefix}
-              <NoticeLink url={echoCommunityBoundariesUrl}>{echoCommunityBoundariesUrl}</NoticeLink>
-              {copy.boundariesSuffix}
-            </span>
-          </li>
-          <li>
-            <ShieldCheck size={15} aria-hidden="true" />
-            <span>
-              {copy.partnersPrefix}
-              <NoticeLink url={openAiPartnersUrl}>{openAiPartnersUrl}</NoticeLink>
-              {copy.partnersSuffix}
-            </span>
-          </li>
-          {[copy.locked, copy.dmca, copy.aiNotice, copy.antiCrack].map((item) => (
-            <li key={item}>
+          <ol className="user-notice-list">
+            <li>
               <ShieldCheck size={15} aria-hidden="true" />
-              <span>{item}</span>
+              <span>
+                {copy.docsPrefix}
+                <NoticeLink url={echoDocumentationUrl}>{echoDocumentationUrl}</NoticeLink>
+                {copy.docsSuffix}
+              </span>
             </li>
-          ))}
-        </ol>
+            <li>
+              <ShieldCheck size={15} aria-hidden="true" />
+              <span>
+                {copy.boundariesPrefix}
+                <NoticeLink url={echoCommunityBoundariesUrl}>{echoCommunityBoundariesUrl}</NoticeLink>
+                {copy.boundariesSuffix}
+              </span>
+            </li>
+            <li>
+              <ShieldCheck size={15} aria-hidden="true" />
+              <span>
+                {copy.partnersPrefix}
+                <NoticeLink url={openAiPartnersUrl}>{openAiPartnersUrl}</NoticeLink>
+                {copy.partnersSuffix}
+              </span>
+            </li>
+            {[copy.locked, copy.dmca, copy.aiNotice, copy.antiCrack].map((item) => (
+              <li key={item}>
+                <ShieldCheck size={15} aria-hidden="true" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
 
         <div className="user-notice-actions">
           <button className="settings-action-button" type="button" onClick={() => openExternalUrl(echoDocumentationUrl)}>

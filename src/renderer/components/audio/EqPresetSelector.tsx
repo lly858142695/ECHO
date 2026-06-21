@@ -1,5 +1,5 @@
 import { ChevronDown, Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EqPreset } from '../../../shared/types/eq';
 import { useI18n } from '../../i18n/I18nProvider';
 import { describePreset, type PresetCategory } from './eqPanelUtils';
@@ -15,6 +15,8 @@ export const EqPresetSelector = ({ presets, value, onChange }: EqPresetSelectorP
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<PresetCategory | 'all' | 'built-in'>('all');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuMounted, setMenuMounted] = useState(false);
+  const closeTimerRef = useRef<number | null>(null);
   const normalizedQuery = query.trim().toLowerCase();
   const filterOptions: Array<{ value: PresetCategory | 'all' | 'built-in'; label: string }> = [
     { value: 'all', label: t('settings.eq.preset.filter.all') },
@@ -47,6 +49,31 @@ export const EqPresetSelector = ({ presets, value, onChange }: EqPresetSelectorP
     : visiblePresets;
   const builtInPresets = safeVisiblePresets.filter((preset) => preset.readonly);
   const userPresets = safeVisiblePresets.filter((preset) => !preset.readonly);
+
+  useEffect(() => {
+    if (closeTimerRef.current) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+
+    if (menuOpen) {
+      setMenuMounted(true);
+      return undefined;
+    }
+
+    closeTimerRef.current = window.setTimeout(() => {
+      setMenuMounted(false);
+      closeTimerRef.current = null;
+    }, 150);
+
+    return () => {
+      if (closeTimerRef.current) {
+        window.clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+  }, [menuOpen]);
+
   const choosePreset = (presetId: string): void => {
     onChange(presetId);
     setMenuOpen(false);
@@ -87,8 +114,8 @@ export const EqPresetSelector = ({ presets, value, onChange }: EqPresetSelectorP
           <span>{selectedLabel}</span>
           <ChevronDown size={16} aria-hidden="true" />
         </button>
-        {menuOpen ? (
-        <div className="eq-preset-menu" role="listbox" aria-label={t('settings.eq.preset.selectorAria')}>
+        {menuMounted ? (
+        <div className="eq-preset-menu" data-state={menuOpen ? 'open' : 'closing'} role="listbox" aria-label={t('settings.eq.preset.selectorAria')}>
           {builtInPresets.length > 0 ? (
             <section>
               <span className="eq-preset-menu-heading">{t('settings.eq.preset.builtIn')}</span>
