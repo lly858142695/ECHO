@@ -353,6 +353,7 @@ export type EchoApi = {
     logoutEchoProAccount: () => Promise<EchoProAccountStatus>;
     redeemEchoProKey: (key: string) => Promise<EchoProKeyRedeemResult>;
     releaseEchoProDevices: (password: string) => Promise<EchoProReleaseDevicesResult>;
+    getEchoProMachineCode: () => Promise<string>;
     getEchoProSettingsCloudStatus: () => Promise<EchoProSettingsCloudStatus>;
     saveEchoProSettingsCloud: () => Promise<EchoProSettingsCloudSaveResult>;
     pullEchoProSettingsCloud: () => Promise<EchoProSettingsCloudPullResult>;

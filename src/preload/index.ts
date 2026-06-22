@@ -1714,6 +1714,7 @@ const echoApi: EchoApi = {
     logoutEchoProAccount: () => ipcRenderer.invoke(IpcChannels.AppEchoProAccountLogout),
     redeemEchoProKey: (key) => ipcRenderer.invoke(IpcChannels.AppEchoProAccountRedeemKey, key),
     releaseEchoProDevices: (password) => ipcRenderer.invoke(IpcChannels.AppEchoProAccountReleaseDevices, password),
+    getEchoProMachineCode: () => ipcRenderer.invoke(IpcChannels.AppEchoProMachineCodeGet),
     getEchoProSettingsCloudStatus: () => ipcRenderer.invoke(IpcChannels.AppEchoProSettingsCloudGetStatus),
     saveEchoProSettingsCloud: () => ipcRenderer.invoke(IpcChannels.AppEchoProSettingsCloudSave),
     pullEchoProSettingsCloud: () => ipcRenderer.invoke(IpcChannels.AppEchoProSettingsCloudPull),

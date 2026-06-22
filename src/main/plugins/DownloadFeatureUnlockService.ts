@@ -6,11 +6,30 @@ import {
   type DownloadFeatureUnlockStatus,
 } from '../../shared/constants/featureUnlocks';
 import { getPrivateEntitlementsProvider } from './privateEntitlements';
+import { getPluginService } from './PluginService';
 
 const nowIso = (): string => new Date().toISOString();
 
 export class DownloadFeatureUnlockService {
   getStatus(): DownloadFeatureUnlockStatus {
+    try {
+      const proLicenseStatus = getPluginService().getEchoProLicenseStatus();
+      if (proLicenseStatus.valid && proLicenseStatus.enabled && proLicenseStatus.features.includes('downloads')) {
+        return {
+          featureId: downloadFeatureUnlockFeatureId,
+          pluginId: downloadFeatureUnlockPluginId,
+          requiredVersion: downloadFeatureUnlockVersion,
+          unlocked: true,
+          pluginInstalled: true,
+          pluginEnabled: true,
+          reason: 'unlocked',
+          checkedAt: proLicenseStatus.checkedAt,
+        };
+      }
+    } catch {
+      // If the plugin host is unavailable, keep the feature locked.
+    }
+
     const privateStatus = getPrivateEntitlementsProvider()?.getDownloadStatus?.();
     if (privateStatus) {
       return privateStatus;

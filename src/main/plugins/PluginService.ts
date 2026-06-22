@@ -66,6 +66,14 @@ import { getAudioSession } from '../audio/AudioSession';
 import { getLibraryService } from '../library/LibraryService';
 import { fetchWithNetworkProxy } from '../network/networkFetch';
 import { normalizePluginManifest } from './PluginManifest';
+import {
+  echoProLicenseFileName,
+  echoProLicenseSignatureFileName,
+  getEchoProPluginLicenseStatus,
+  isEchoProUnlockManifest,
+  normalizeEchoProPluginLicense,
+  type EchoProPluginLicenseStatus,
+} from './EchoProLicensePlugin';
 
 type PluginState = {
   enabled?: boolean;
@@ -195,10 +203,12 @@ const legacyPluginPackageExtension = '.echo-plugin.json';
 const maxPluginPackageBytes = 2 * 1024 * 1024;
 const maxPluginPackageFiles = 32;
 const maxPluginPackageFileBytes = 512 * 1024;
-const exportablePluginFileExtensions = new Set(['.js', '.mjs', '.cjs', '.html', '.css', '.json', '.md', '.txt']);
+const exportablePluginFileExtensions = new Set(['.js', '.mjs', '.cjs', '.html', '.css', '.json', '.md', '.txt', '.sig']);
 const pluginPackageExcludedFiles = new Set([stateFileName, storageFileName]);
 const pluginSettingsFileName = 'plugin-settings.json';
 pluginPackageExcludedFiles.add(pluginSettingsFileName);
+pluginPackageExcludedFiles.add(echoProLicenseFileName);
+pluginPackageExcludedFiles.add(echoProLicenseSignatureFileName);
 const allowedPluginNetworkMethods = new Set(['GET', 'POST']);
 
 export const normalizePluginCommandTimeoutMs = (value: unknown, trustedPermissions: PluginPermission[]): number => {
@@ -1056,6 +1066,12 @@ export class PluginService {
     if (!record.manifest) {
       throw new Error(record.error ?? 'plugin_manifest_invalid');
     }
+    if (isEchoProUnlockManifest(record.manifest)) {
+      const licenseStatus = getEchoProPluginLicenseStatus(record.manifest, record.directory, true);
+      if (!licenseStatus.valid) {
+        throw new Error(`echo_pro_license_${licenseStatus.reason}`);
+      }
+    }
 
     const requestedPermissions = record.manifest.permissions ?? [];
     const trustedPermissions = this.normalizeTrustedPermissions(request.trustedPermissions ?? [], requestedPermissions);
@@ -1149,12 +1165,21 @@ export class PluginService {
     }
 
     const files = this.collectPluginPackageFiles(record);
+    const licensePath = join(record.directory, echoProLicenseFileName);
+    const signaturePath = join(record.directory, echoProLicenseSignatureFileName);
+    const license = isEchoProUnlockManifest(record.manifest) && existsSync(licensePath)
+      ? normalizeEchoProPluginLicense(JSON.parse(readFileSync(join(record.directory, echoProLicenseFileName), 'utf8')))
+      : null;
+    const licenseSignature = isEchoProUnlockManifest(record.manifest) && existsSync(signaturePath)
+      ? readFileSync(signaturePath, 'utf8').trim()
+      : undefined;
     const payload: PluginPackage = {
       type: pluginPackageType,
       version: pluginPackageVersion,
       exportedAt: new Date().toISOString(),
       manifest: record.manifest,
       files,
+      ...(license ? { license, licenseSignature } : {}),
     };
     assertJsonByteLimit(payload, maxPluginPackageBytes, 'plugin_package_too_large');
 
@@ -1204,8 +1229,20 @@ export class PluginService {
     try {
       mkdirSync(targetDirectory, { recursive: true });
       writeFileSync(join(targetDirectory, manifestFileName), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+      if (isEchoProUnlockManifest(manifest)) {
+        const license = normalizeEchoProPluginLicense((parsed as PluginPackage).license);
+        const signatureValue = (parsed as PluginPackage).licenseSignature;
+        const signature = typeof signatureValue === 'string'
+          ? signatureValue.trim()
+          : '';
+        if (!license || !signature) {
+          throw new Error('echo_pro_license_missing');
+        }
+        writeFileSync(join(targetDirectory, echoProLicenseFileName), `${JSON.stringify(license, null, 2)}\n`, 'utf8');
+        writeFileSync(join(targetDirectory, echoProLicenseSignatureFileName), `${signature}\n`, 'utf8');
+      }
 
-      let importedFileCount = 1;
+      let importedFileCount = isEchoProUnlockManifest(manifest) ? 3 : 1;
       for (const file of parsed.files) {
         if (!isPluginPackageFile(file)) {
           continue;
@@ -1560,6 +1597,12 @@ export class PluginService {
     return this.logs.filter((entry) => !pluginId || entry.pluginId === pluginId);
   }
 
+  getEchoProLicenseStatus(): EchoProPluginLicenseStatus {
+    this.scan();
+    const record = this.records.get('echo.pro-unlock');
+    return getEchoProPluginLicenseStatus(record?.manifest ?? null, record?.directory ?? null, record?.enabled === true);
+  }
+
   emitLibraryChanged(payload: unknown): void {
     this.dispatchEvent('library:changed', payload);
   }
@@ -1568,6 +1611,7 @@ export class PluginService {
     mkdirSync(this.pluginDirectory, { recursive: true });
     this.state = this.readState();
     const seen = new Set<string>();
+    let stateChanged = false;
 
     for (const item of readdirSync(this.pluginDirectory, { withFileTypes: true })) {
       if (!item.isDirectory()) {
@@ -1591,7 +1635,33 @@ export class PluginService {
       seen.add(id);
       const persisted = this.state.plugins[id] ?? {};
       const current = this.records.get(id);
-      const disabledByHost = persisted.disabledByHost === true;
+      let disabledByHost = persisted.disabledByHost === true;
+      let hostError = disabledByHost ? persisted.lastError ?? current?.error ?? null : null;
+      if (isEchoProUnlockManifest(manifest)) {
+        const licenseStatus = getEchoProPluginLicenseStatus(manifest, directory, persisted.enabled === true);
+        if (!licenseStatus.valid) {
+          disabledByHost = true;
+          hostError = `echo_pro_license_${licenseStatus.reason}`;
+          this.state.plugins[id] = {
+            ...persisted,
+            enabled: false,
+            disabledByHost: true,
+            lastError: hostError,
+            lastErrorAt: licenseStatus.checkedAt,
+          };
+          stateChanged = true;
+        } else if (disabledByHost && hostError?.startsWith('echo_pro_license_')) {
+          disabledByHost = false;
+          hostError = null;
+          this.state.plugins[id] = {
+            ...persisted,
+            disabledByHost: false,
+            lastError: undefined,
+            lastErrorAt: undefined,
+          };
+          stateChanged = true;
+        }
+      }
       const enabled = persisted.enabled === true && !disabledByHost;
       this.records.set(id, {
         manifest,
@@ -1599,7 +1669,7 @@ export class PluginService {
         enabled,
         trustedPermissions: this.normalizeTrustedPermissions(persisted.trustedPermissions ?? [], manifest?.permissions ?? []),
         status: enabled ? current?.status ?? 'enabled' : 'disabled',
-        error: error ?? (disabledByHost ? persisted.lastError ?? current?.error ?? null : current?.error ?? null),
+        error: error ?? (disabledByHost ? hostError ?? current?.error ?? null : current?.error ?? null),
         disabledByHost,
       });
     }
@@ -1609,6 +1679,9 @@ export class PluginService {
         this.stopPlugin(id);
         this.records.delete(id);
       }
+    }
+    if (stateChanged) {
+      this.writeState();
     }
   }
 

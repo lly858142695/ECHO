@@ -45,6 +45,7 @@ export const IpcChannels = {
   AppEchoProAccountLogout: 'app:echo-pro-account:logout',
   AppEchoProAccountRedeemKey: 'app:echo-pro-account:redeem-key',
   AppEchoProAccountReleaseDevices: 'app:echo-pro-account:release-devices',
+  AppEchoProMachineCodeGet: 'app:echo-pro-machine-code:get',
   AppEchoProSettingsCloudGetStatus: 'app:echo-pro-settings-cloud:get-status',
   AppEchoProSettingsCloudSave: 'app:echo-pro-settings-cloud:save',
   AppEchoProSettingsCloudPull: 'app:echo-pro-settings-cloud:pull',

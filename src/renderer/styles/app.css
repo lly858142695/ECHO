@@ -15164,6 +15164,25 @@ html[data-theme="dark"] .settings-lyrics-panel .lyrics-source-filters button[dat
   gap: 8px;
 }
 
+.settings-hwid-preview {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  max-width: 210px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--theme-border) 78%, transparent);
+  border-radius: 8px;
+  overflow: hidden;
+  color: var(--color-muted);
+  background: color-mix(in srgb, var(--theme-panel-bg-muted) 72%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .settings-account-panel-toggle svg {
   transition: transform 160ms ease;
 }

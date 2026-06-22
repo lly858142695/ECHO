@@ -687,6 +687,8 @@ export type PluginPackage = {
   exportedAt: string;
   manifest: PluginManifest;
   files: PluginPackageFile[];
+  license?: unknown;
+  licenseSignature?: string;
 };
 
 export type PluginImportPackageResult = {

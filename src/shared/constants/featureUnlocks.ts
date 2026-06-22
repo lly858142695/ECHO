@@ -1,6 +1,9 @@
 export const downloadFeatureUnlockFeatureId = 'downloads';
 export const downloadFeatureUnlockPluginId = 'echo.downloads-unlock';
 export const downloadFeatureUnlockVersion = `plugin:${downloadFeatureUnlockPluginId}:v1`;
+export const echoProUnlockPluginId = 'echo.pro-unlock';
+export const echoProUnlockLicenseFormat = 'echo-pro-plugin-license';
+export const echoProUnlockLicenseVersion = 1;
 export const connectDonatorUnlockFeatureId = 'connect';
 export const connectDonatorUnlockPluginId = 'echo.connect-donator-unlock';
 export const connectDonatorUnlockVersion = `plugin:${connectDonatorUnlockPluginId}:v1`;

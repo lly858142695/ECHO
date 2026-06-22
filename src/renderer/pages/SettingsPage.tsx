@@ -4575,6 +4575,8 @@ export const SettingsPage = (): JSX.Element => {
   const [echoProBusyAction, setEchoProBusyAction] = useState<'login' | 'register' | 'logout' | 'refresh' | 'redeem' | 'release-devices' | null>(null);
   const [echoProSettingsCloudStatus, setEchoProSettingsCloudStatus] = useState<EchoProSettingsCloudStatus | null>(null);
   const [echoProSettingsCloudBusyAction, setEchoProSettingsCloudBusyAction] = useState<'status' | 'save' | 'pull' | null>(null);
+  const [echoProMachineCode, setEchoProMachineCode] = useState<string | null>(null);
+  const [echoProMachineCodeCopied, setEchoProMachineCodeCopied] = useState(false);
   const [echoProMessage, setEchoProMessage] = useState<string | null>(null);
   const [echoProError, setEchoProError] = useState<string | null>(null);
   const [youtubeBrowser, setYoutubeBrowser] = useState<YouTubeBrowser>('none');
@@ -6042,10 +6044,51 @@ export const SettingsPage = (): JSX.Element => {
     }
   }, []);
 
+  const copyTextToClipboard = useCallback(async (value: string): Promise<void> => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', 'true');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    if (!copied) {
+      throw new Error('clipboard unavailable');
+    }
+  }, []);
+
+  const copyEchoProMachineCode = useCallback(async (): Promise<void> => {
+    const app = getAppBridge();
+    if (!app?.getEchoProMachineCode) {
+      setEchoProError('ECHO Pro machine code bridge unavailable.');
+      return;
+    }
+
+    setEchoProError(null);
+    try {
+      const machineCode = echoProMachineCode ?? await app.getEchoProMachineCode();
+      setEchoProMachineCode(machineCode);
+      await copyTextToClipboard(machineCode);
+      setEchoProMachineCodeCopied(true);
+      setEchoProMessage('HWID 已复制，可粘贴到 ECHO Pro 激活页面生成专属插件。');
+      window.setTimeout(() => setEchoProMachineCodeCopied(false), 1800);
+    } catch (copyError) {
+      setEchoProError(copyError instanceof Error ? copyError.message : String(copyError));
+    }
+  }, [copyTextToClipboard, echoProMachineCode]);
+
   useEffect(() => {
     if (echoProAccountPanelExpanded) {
       void refreshEchoProAccountStatus();
       void refreshEchoProSettingsCloudStatus();
+      void getAppBridge()?.getEchoProMachineCode?.().then(setEchoProMachineCode).catch(() => undefined);
     }
   }, [echoProAccountPanelExpanded, refreshEchoProAccountStatus, refreshEchoProSettingsCloudStatus]);
 
@@ -11684,6 +11727,19 @@ export const SettingsPage = (): JSX.Element => {
                     <span className={`list-filter-chip ${echoProAccountStatus?.pro ? 'active' : ''}`}>
                       {echoProAccountStatus?.pro ? 'Pro 已启用' : echoProAccountStatus?.loggedIn ? '未授权 Pro' : '未登录'}
                     </span>
+                    {echoProMachineCode ? (
+                      <span className="settings-hwid-preview" title={echoProMachineCode}>
+                        HWID {echoProMachineCode.slice(0, 8)}...{echoProMachineCode.slice(-6)}
+                      </span>
+                    ) : null}
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => void copyEchoProMachineCode()}
+                    >
+                      {echoProMachineCodeCopied ? <Check size={14} aria-hidden="true" /> : <Clipboard size={14} aria-hidden="true" />}
+                      {echoProMachineCodeCopied ? 'HWID 已复制' : '显示 HWID'}
+                    </button>
                     <button
                       className="settings-action-button settings-account-panel-toggle"
                       type="button"
@@ -11781,7 +11837,17 @@ export const SettingsPage = (): JSX.Element => {
                         <span>状态: {echoProAccountStatus?.loggedIn ? '已登录' : '未登录'} / {echoProAccountStatus?.pro ? 'Pro 有效' : 'Pro 未授权'}</span>
                         <span>设备: {echoProAccountStatus?.machineCount ?? 0}/{echoProAccountStatus?.maxMachineCount ?? 2}</span>
                         <span>{locale === 'zh-CN' ? '注册提示: 请优先使用 QQ 号作为账号，方便人工核对授权。' : 'Registration tip: use your QQ number as the account name so authorization can be matched reliably.'}</span>
-                        <span>验证: 云端账号 session + 本机 HWID；插件解锁已停用。</span>
+                        <span>验证: 云端账号或签名 Pro 插件 + 本机机器码。</span>
+                      </div>
+                      <div className="settings-account-meta">
+                        <span>本机 HWID: {echoProMachineCode ? `${echoProMachineCode.slice(0, 12)}...${echoProMachineCode.slice(-8)}` : '读取中'}</span>
+                        <span>HWID 是稳定哈希，用于生成绑定当前设备的 ECHO Pro 插件。</span>
+                      </div>
+                      <div className="settings-account-actions">
+                        <button className="settings-action-button" type="button" onClick={() => void copyEchoProMachineCode()}>
+                          {echoProMachineCodeCopied ? <Check size={14} aria-hidden="true" /> : <Clipboard size={14} aria-hidden="true" />}
+                          {echoProMachineCodeCopied ? 'HWID 已复制' : '复制 HWID'}
+                        </button>
                       </div>
                       <div className="settings-account-meta">
                         <span>云端设置: {echoProSettingsCloudStatus?.available ? '已保存' : '暂无云端备份'}</span>

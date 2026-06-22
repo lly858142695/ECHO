@@ -1,9 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import {
+  echoProUnlockLicenseFormat,
+  echoProUnlockLicenseVersion,
+  echoProUnlockPluginId,
+} from '../../shared/constants/featureUnlocks';
 import type { AudioStatus } from '../../shared/types/audio';
 import type { PluginManifest } from '../../shared/types/plugins';
+import {
+  canonicalizeEchoProLicense,
+  type EchoProPluginLicense,
+} from './EchoProLicensePlugin';
+import { getEchoProMachineCode } from './MachineIdentity';
 import { normalizePluginCommandTimeoutMs, PluginService } from './PluginService';
 
 const mocks = vi.hoisted(() => {
@@ -151,6 +162,7 @@ describe('PluginService', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     rmSync(pluginRoot, { recursive: true, force: true });
   });
 
@@ -361,6 +373,120 @@ describe('PluginService', () => {
     } finally {
       rmSync(importRoot, { recursive: true, force: true });
     }
+  });
+
+  it('imports, enables, and re-exports a signed machine-bound ECHO Pro plugin package', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    vi.stubEnv('ECHO_PRO_LICENSE_PUBLIC_KEY_PEM', publicKey.export({ type: 'spki', format: 'pem' }).toString());
+    const machineCodeHash = createHash('sha256').update(getEchoProMachineCode(), 'utf8').digest('hex');
+    const license: EchoProPluginLicense = {
+      format: echoProUnlockLicenseFormat,
+      version: echoProUnlockLicenseVersion,
+      licenseId: 'license-test-pro',
+      activationId: 'activation-test-pro',
+      qq: '12345678',
+      plan: 'pro',
+      features: ['echo-pro', 'downloads', 'connect'],
+      pluginId: echoProUnlockPluginId,
+      machineCodeHash,
+      issuedAt: '2026-06-21T00:00:00.000Z',
+      expiresAt: null,
+      encryptedWatermark: 'v1.watermark',
+    };
+    const packagePath = join(pluginRoot, 'echo.pro-unlock.echo');
+    writeFileSync(packagePath, `${JSON.stringify({
+      type: 'echo-next-plugin-package',
+      version: 1,
+      exportedAt: '2026-06-21T00:00:00.000Z',
+      manifest: {
+        id: echoProUnlockPluginId,
+        name: 'ECHO Pro Unlock',
+        version: '1.0.0',
+        apiVersion: 2,
+        entry: 'plugin.js',
+        permissions: [],
+      },
+      files: [{ path: 'plugin.js', content: "echo.log.info('ECHO Pro unlock plugin loaded');\n" }],
+      license,
+      licenseSignature: sign(null, Buffer.from(canonicalizeEchoProLicense(license), 'utf8'), privateKey).toString('base64'),
+    }, null, 2)}\n`, 'utf8');
+
+    await expect(service.importPluginPackage(packagePath)).resolves.toMatchObject({
+      pluginId: echoProUnlockPluginId,
+      importedFileCount: 4,
+    });
+    expect(service.getEchoProLicenseStatus()).toMatchObject({
+      valid: true,
+      reason: 'plugin-disabled',
+      features: ['echo-pro', 'downloads', 'connect'],
+    });
+
+    expect(service.enable({ pluginId: echoProUnlockPluginId, trustedPermissions: [] })).toMatchObject({
+      id: echoProUnlockPluginId,
+      enabled: true,
+      disabledByHost: false,
+    });
+    expect(service.getEchoProLicenseStatus()).toMatchObject({ valid: true, reason: 'unlocked' });
+
+    const exportedPath = join(pluginRoot, 'echo.pro-unlock-export.echo');
+    await expect(service.exportPluginPackage(echoProUnlockPluginId, exportedPath)).resolves.toBe(exportedPath);
+    const exported = JSON.parse(readFileSync(exportedPath, 'utf8')) as { license?: unknown; licenseSignature?: unknown; files: Array<{ path: string }> };
+    expect(exported.license).toMatchObject({ licenseId: 'license-test-pro', qq: '12345678' });
+    expect(typeof exported.licenseSignature).toBe('string');
+    expect(exported.files.map((file) => file.path)).not.toContain('echo-pro-license.json');
+  });
+
+  it('keeps a shared ECHO Pro plugin disabled when the license targets another machine code', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    vi.stubEnv('ECHO_PRO_LICENSE_PUBLIC_KEY_PEM', publicKey.export({ type: 'spki', format: 'pem' }).toString());
+    const license: EchoProPluginLicense = {
+      format: echoProUnlockLicenseFormat,
+      version: echoProUnlockLicenseVersion,
+      licenseId: 'license-shared-copy',
+      activationId: 'activation-shared-copy',
+      qq: '12345678',
+      plan: 'pro',
+      features: ['echo-pro'],
+      pluginId: echoProUnlockPluginId,
+      machineCodeHash: '0'.repeat(64),
+      issuedAt: '2026-06-21T00:00:00.000Z',
+      expiresAt: null,
+    };
+    const directory = join(pluginRoot, echoProUnlockPluginId);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, 'echo.plugin.json'), `${JSON.stringify({
+      id: echoProUnlockPluginId,
+      name: 'ECHO Pro Unlock',
+      version: '1.0.0',
+      apiVersion: 2,
+      entry: 'plugin.js',
+      permissions: [],
+    }, null, 2)}\n`, 'utf8');
+    writeFileSync(join(directory, 'plugin.js'), "echo.log.info('copied pro plugin');\n", 'utf8');
+    writeFileSync(join(directory, 'echo-pro-license.json'), `${JSON.stringify(license, null, 2)}\n`, 'utf8');
+    writeFileSync(
+      join(directory, 'echo-pro-license.sig'),
+      `${sign(null, Buffer.from(canonicalizeEchoProLicense(license), 'utf8'), privateKey).toString('base64')}\n`,
+      'utf8',
+    );
+    writeFileSync(join(pluginRoot, 'plugin-state.json'), JSON.stringify({
+      plugins: {
+        [echoProUnlockPluginId]: {
+          enabled: true,
+          trustedPermissions: [],
+        },
+      },
+    }, null, 2), 'utf8');
+
+    const summary = service.list().plugins[0];
+    expect(summary).toMatchObject({
+      id: echoProUnlockPluginId,
+      enabled: false,
+      disabledByHost: true,
+      error: 'echo_pro_license_machine-mismatch',
+    });
+    expect(() => service.enable({ pluginId: echoProUnlockPluginId, trustedPermissions: [] }))
+      .toThrow('echo_pro_license_machine-mismatch');
   });
 
   it('uses .echo as the default plugin package extension', async () => {

@@ -54,6 +54,7 @@ import { setDiscordPresenceEnabled } from '../integrations/discord/getDiscordPre
 import { getLastFmService } from '../integrations/lastfm/getLastFmService';
 import { getConnectDonatorUnlockService } from '../plugins/ConnectDonatorUnlockService';
 import { getDownloadFeatureUnlockService } from '../plugins/DownloadFeatureUnlockService';
+import { getEchoProMachineCode } from '../plugins/MachineIdentity';
 import {
   applyEchoProSettingsCloud,
   getEchoProAccountStatus,
@@ -723,6 +724,7 @@ export const registerIpc = (): void => {
   ipcMain.handle(IpcChannels.AppEchoProAccountReleaseDevices, (_event: IpcMainInvokeEvent, password: unknown): Promise<unknown> =>
     releaseEchoProDevices(typeof password === 'string' ? password : ''),
   );
+  ipcMain.handle(IpcChannels.AppEchoProMachineCodeGet, (): string => getEchoProMachineCode());
   ipcMain.handle(IpcChannels.AppEchoProSettingsCloudGetStatus, (): Promise<EchoProSettingsCloudStatus> =>
     getEchoProSettingsCloudStatus(),
   );

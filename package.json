@@ -19,6 +19,8 @@
     "verify:airplay-package": "node scripts/verify-airplay-package.mjs",
     "pro:status": "node scripts/echo-private-overlay.mjs status",
     "pro:pull": "node scripts/echo-private-overlay.mjs pull",
+    "pro:generate-plugin": "node scripts/echo-pro-generate-plugin.mjs",
+    "pro:decrypt-watermark": "node scripts/echo-pro-decrypt-watermark.mjs",
     "test:audio-engine": "node scripts/test-audio-engine.mjs",
     "smoke:audio-host": "node scripts/smoke-audio-host.mjs",
     "presmoke:native-scanner": "node scripts/build-native-scanner.mjs",
