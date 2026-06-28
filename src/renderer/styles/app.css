@@ -3314,6 +3314,27 @@ html[data-theme="dark"] .user-notice-link:focus-visible {
   border-bottom: 0;
 }
 
+.settings-subsection-header {
+  padding: 20px 0 8px;
+  margin: 12px -10px 0 -10px;
+  padding-left: 10px;
+  border-top: 1px solid var(--theme-border-subtle);
+}
+
+.settings-subsection-header:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.settings-subsection-header h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--theme-accent-text-strong);
+  letter-spacing: 0.3px;
+}
+
 .setting-row--full {
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;

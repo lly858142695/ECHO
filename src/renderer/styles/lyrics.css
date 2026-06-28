@@ -1121,7 +1121,7 @@ html:not([data-theme="dark"]) .lyrics-page[data-background="customWallpaper"]:ha
   justify-content: space-between;
   gap: 10px;
   padding: 0 10px;
-  color: rgba(244, 248, 255, 0.9);
+  color: var(--theme-text);
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -1134,14 +1134,14 @@ html:not([data-theme="dark"]) .lyrics-page[data-background="customWallpaper"]:ha
 
 .lyrics-background-select__option:hover,
 .lyrics-background-select__option:focus-visible {
-  color: rgba(255, 255, 255, 0.98);
+  color: var(--theme-text);
   outline: 0;
-  background: rgba(255, 255, 255, 0.11);
+  background: var(--theme-panel-bg-muted);
 }
 
 .lyrics-background-select__option[aria-selected="true"] {
-  color: var(--theme-legacy-heading-text);
-  background: rgba(255, 255, 255, 0.16);
+  color: var(--theme-accent-text-strong);
+  background: var(--theme-panel-bg-muted);
 }
 
 .lyrics-background-select__option span {

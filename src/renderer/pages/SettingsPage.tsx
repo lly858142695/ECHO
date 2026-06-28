@@ -417,7 +417,6 @@ const autoUpdateSourceOptions: Array<{ source: AutoUpdateSource; label: string; 
 const playbackAdvancedPanelExpandedStorageKey = 'echo:settings:playback:advanced-panel-expanded';
 const integrationsAccountPanelExpandedStorageKey = 'echo:settings:integrations:account-panel-expanded';
 const generalEchoProAccountPanelExpandedStorageKey = 'echo:settings:general:echo-pro-account-panel-expanded';
-const openUserNoticeEvent = 'app:open-user-notice';
 const integrationsCredentialPanelExpandedStorageKey = 'echo:settings:integrations:credential-panel-expanded';
 const integrationCredentialSettingIds = new Set([
   'settings-row-spotify-auth-config',
@@ -9710,10 +9709,6 @@ export const SettingsPage = (): JSX.Element => {
     patchAppSettings({ onboardingCompleted: false });
   };
 
-  const handleOpenUserNotice = (): void => {
-    window.dispatchEvent(new Event(openUserNoticeEvent));
-  };
-
   const handleLiveLibraryUpdatesToggle = (): void => {
     const nextEnabled = !(appSettings?.liveLibraryUpdatesEnabled ?? false);
     patchAppSettings({
@@ -11671,7 +11666,8 @@ export const SettingsPage = (): JSX.Element => {
           <div className="settings-scroll-shell" ref={settingsScrollShellRef}>
             <div className="settings-content">
             <SettingSection activeKey={activeSection} icon={MessageSquare} id="general" title={t('settings.nav.general.label')}>
-              <SettingRow title={t('settings.general.language.title')} description={t('settings.general.language.description')}>
+                          <div className="settings-subsection-header"><h4>基础设置</h4></div>
+                          <SettingRow title={t('settings.general.language.title')} description={t('settings.general.language.description')}>
                 <div className="settings-chip-row">
                   {localeOptions.map((option) => (
                     <ChipButton active={locale === option.locale} key={option.locale} onClick={() => setLocale(option.locale)}>
@@ -11696,36 +11692,6 @@ export const SettingsPage = (): JSX.Element => {
                   {t('settings.general.firstRunWizard.action')}
                 </button>
               </SettingRow>
-              <SettingRow
-                id="settings-row-user-notice"
-                highlighted={highlightedSettingId === 'settings-row-user-notice'}
-                title={t('settings.general.userNotice.title')}
-                description={t('settings.general.userNotice.description')}
-              >
-                <button
-                  className="settings-action-button settings-user-notice-button"
-                  type="button"
-                  onClick={handleOpenUserNotice}
-                >
-                  <ShieldCheck size={15} />
-                  {t('settings.general.userNotice.action')}
-                </button>
-              </SettingRow>
-              <div
-                className="settings-account-panel settings-echo-pro-account-panel"
-                data-expanded={false}
-                id="settings-row-echo-pro-account"
-              >
-                <header className="settings-account-panel-header">
-                  <div>
-                    <h3>ECHO Pro</h3>
-                    <p>所有 Pro 功能已解锁。</p>
-                  </div>
-                  <div className="settings-account-panel-actions">
-                    <span className="list-filter-chip active">Pro 已启用</span>
-                  </div>
-                </header>
-              </div>
               <SettingRow title={t('settings.general.closeToTray')}>
                 <ToggleButton
                   active={appSettings?.hideToTrayOnClose ?? false}
@@ -11749,6 +11715,7 @@ export const SettingsPage = (): JSX.Element => {
                   }
                 />
               </SettingRow>
+              <div className="settings-subsection-header"><h4>界面显示</h4></div>
               <SettingRow
                 id="settings-row-sidebar-auto-hide"
                 highlighted={highlightedSettingId === 'settings-row-sidebar-auto-hide'}
@@ -11781,18 +11748,6 @@ export const SettingsPage = (): JSX.Element => {
                       sidebarAutoHideEnabled: appSettings?.sidebarIconOnlyEnabled === true ? (appSettings?.sidebarAutoHideEnabled ?? false) : false,
                     })
                   }
-                />
-              </SettingRow>
-              <SettingRow
-                id="settings-row-settings-optional-sections"
-                highlighted={highlightedSettingId === 'settings-row-settings-optional-sections'}
-                title={t('settings.general.settingsOptionalSections.title')}
-                description={t('settings.general.settingsOptionalSections.description')}
-              >
-                <ToggleButton
-                  active={appSettings?.settingsOptionalSectionsVisible === true}
-                  disabled={!appSettings}
-                  onClick={() => patchAppSettings({ settingsOptionalSectionsVisible: !(appSettings?.settingsOptionalSectionsVisible ?? false) })}
                 />
               </SettingRow>
               <SettingRow
@@ -11981,6 +11936,7 @@ export const SettingsPage = (): JSX.Element => {
                   }
                 />
               </SettingRow>
+              <div className="settings-subsection-header"><h4>搜索与信息</h4></div>
               <SettingRow title={t('settings.general.searchTraditionalVariants.title')} description={t('settings.general.searchTraditionalVariants.description')}>
                 <ToggleButton
                   active={appSettings?.chineseCrossScriptSearchEnabled ?? true}
@@ -12114,6 +12070,7 @@ export const SettingsPage = (): JSX.Element => {
                   {devConsoleMessage ? <p className="settings-inline-note">{devConsoleMessage}</p> : null}
                 </div>
               </SettingRow>
+              <div className="settings-subsection-header"><h4>备份与数据</h4></div>
               <SettingRow title={t('settings.general.backup.title')} description={t('settings.general.backup.description')}>
                 <div className="settings-chip-row">
                   <button
@@ -12274,11 +12231,12 @@ export const SettingsPage = (): JSX.Element => {
             </SettingSection>
 
             <SettingSection activeKey={activeSection} icon={Zap} id="playback" title={t('settings.nav.playback.label')}>
-              <SettingRow
-                className="setting-row--full setting-row--compact-panel"
-                title={t('settings.playback.audioDrawerNotice.title')}
-                description={t('settings.playback.audioDrawerNotice.description')}
-              >
+                          <div className="settings-subsection-header"><h4>输出</h4></div>
+                          <SettingRow
+                            className="setting-row--full setting-row--compact-panel"
+                            title={t('settings.playback.audioDrawerNotice.title')}
+                            description={t('settings.playback.audioDrawerNotice.description')}
+                          >
                 <StatusText tone="muted">{t('settings.playback.audioDrawerNotice.status')}</StatusText>
               </SettingRow>
               <SettingRow title={t('settings.playback.outputMode.title')} description={t('settings.playback.outputMode.description')}>
@@ -12317,6 +12275,7 @@ export const SettingsPage = (): JSX.Element => {
                   showFilterIcon={false}
                 />
               </SettingRow>
+              <div className="settings-subsection-header"><h4>播放模式</h4></div>
               <SettingRow
                 id="settings-row-low-load-playback"
                 highlighted={highlightedSettingId === 'settings-row-low-load-playback'}
@@ -12369,6 +12328,7 @@ export const SettingsPage = (): JSX.Element => {
               </SettingRow>
               {playbackAdvancedPanelExpanded ? (
                 <div className="settings-expanded-panel settings-expanded-panel--playback">
+              <div className="settings-subsection-header"><h4>故障排除</h4></div>
               <SettingRow title={t('settings.playback.troubleshooting.title')} description={t('settings.playback.troubleshooting.description')}>
                 <div className="settings-chip-row">
                   <button
@@ -12415,6 +12375,7 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() => void handleJuceOutputToggle()}
                 />
               </SettingRow>
+              <div className="settings-subsection-header"><h4>解码</h4></div>
               <SettingRow title={t('settings.playback.nativeDecode.title')} description={t('settings.playback.nativeDecode.description')}>
                 <ToggleButton
                   active={appSettings?.audioUseJuceDecode === true}
@@ -12503,6 +12464,7 @@ export const SettingsPage = (): JSX.Element => {
                   ))}
                 </div>
               </SettingRow>
+              <div className="settings-subsection-header"><h4>音量</h4></div>
               <SettingRow
                 id="settings-row-fixed-volume"
                 highlighted={highlightedSettingId === 'settings-row-fixed-volume'}
@@ -14870,7 +14832,8 @@ export const SettingsPage = (): JSX.Element => {
             </SettingSection>
 
             <SettingSection activeKey={activeSection} icon={Download} id="library" title={t('settings.nav.library.label')}>
-              <div id="settings-row-library-folders" data-search-highlight={highlightedSettingId === 'settings-row-library-folders' ? 'true' : undefined}>
+                          <div className="settings-subsection-header"><h4>扫描</h4></div>
+                          <div id="settings-row-library-folders" data-search-highlight={highlightedSettingId === 'settings-row-library-folders' ? 'true' : undefined}>
                 <LibraryFoldersPanel autoRefresh={libraryDeferredRefreshReady} defaultCollapsed pollScanStatuses={false} />
               </div>
               <SettingRow
@@ -14935,6 +14898,7 @@ export const SettingsPage = (): JSX.Element => {
                   </div>
                 </div>
               </SettingRow>
+              <div className="settings-subsection-header"><h4>维护</h4></div>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
                 id="settings-row-library-quality"
@@ -14944,6 +14908,7 @@ export const SettingsPage = (): JSX.Element => {
               >
                 <LibraryQualityPanel autoRefresh={libraryDeferredRefreshReady} networkMetadataEnabled={networkMetadataEnabled} />
               </SettingRow>
+              <div className="settings-subsection-header"><h4>内容获取</h4></div>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
                 id="settings-row-library-lyrics-backfill"
@@ -15412,6 +15377,7 @@ export const SettingsPage = (): JSX.Element => {
                   {embeddedTagRescanMessage ? <p className="settings-inline-note">{embeddedTagRescanMessage}</p> : null}
                 </div>
               </SettingRow>
+              <div className="settings-subsection-header"><h4>存储目录</h4></div>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
                 title={t('mediaLibrary.settings.coverCache.title')}

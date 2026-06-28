@@ -2946,20 +2946,6 @@ export const LyricsSettingsPanel = ({ className, currentTrackTools, variant = 'd
             </div>
             <p>{t('lyricsSettings.background.modeDescription')}</p>
 
-            <label className="audio-toggle-row lyrics-background-network-cover-toggle">
-              <span>
-                <ImageIcon size={17} />
-                <strong>{t('lyricsSettings.background.highResolutionCover')}</strong>
-              </span>
-              <input
-                type="checkbox"
-                checked={effectiveSettings.lyricsHighResolutionNetworkCoverEnabled === true}
-                disabled={isBusy || effectiveSettings.lyricsBackgroundMode !== 'cover'}
-                onChange={(event) => void patchSettings({ lyricsHighResolutionNetworkCoverEnabled: event.currentTarget.checked })}
-              />
-            </label>
-            <p>{t('lyricsSettings.background.highResolutionCoverDescription')}</p>
-
             <div className={`lyrics-cover-tuning${isBackgroundTuningOpen ? ' lyrics-cover-tuning--open' : ''}`}>
               <button
                 className="lyrics-background-tuning-collapse-button"
