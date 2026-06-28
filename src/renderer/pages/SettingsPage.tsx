@@ -14832,7 +14832,7 @@ export const SettingsPage = (): JSX.Element => {
             </SettingSection>
 
             <SettingSection activeKey={activeSection} icon={Download} id="library" title={t('settings.nav.library.label')}>
-                          <div className="settings-subsection-header"><h4>扫描</h4></div>
+              <div className="settings-subsection-header"><h4>文件夹与扫描</h4></div>
                           <div id="settings-row-library-folders" data-search-highlight={highlightedSettingId === 'settings-row-library-folders' ? 'true' : undefined}>
                 <LibraryFoldersPanel autoRefresh={libraryDeferredRefreshReady} defaultCollapsed pollScanStatuses={false} />
               </div>
@@ -14847,297 +14847,6 @@ export const SettingsPage = (): JSX.Element => {
                   disabled={!appSettings}
                   onClick={handleLiveLibraryUpdatesToggle}
                 />
-              </SettingRow>
-              <SettingRow
-                id="settings-row-native-file-scanner"
-                highlighted={highlightedSettingId === 'settings-row-native-file-scanner'}
-                title={t('mediaLibrary.settings.nativeFileScanner.title')}
-                description={t('mediaLibrary.settings.nativeFileScanner.description')}
-              >
-                <div className="settings-native-experiment-control">
-                  <div className="settings-inline-toggle settings-inline-toggle--compact">
-                    <span>{appSettings?.nativeFileScannerEnabled ? t('mediaLibrary.settings.nativeFileScanner.enabled') : t('mediaLibrary.settings.nativeFileScanner.typescript')}</span>
-                    <ToggleButton
-                      active={appSettings?.nativeFileScannerEnabled === true}
-                      disabled={!appSettings}
-                      onClick={() => patchAppSettings({ nativeFileScannerEnabled: !(appSettings?.nativeFileScannerEnabled ?? false) })}
-                    />
-                  </div>
-                  <div
-                    className="settings-native-experiment-status"
-                    data-state={nativeFileScannerState}
-                    title={nativeFileScannerDiagnostics?.binaryPath ?? undefined}
-                  >
-                    <span>{nativeFileScannerStatusText}</span>
-                    <em>{nativeFileScannerStatsText}</em>
-                  </div>
-                </div>
-              </SettingRow>
-              <SettingRow
-                id="settings-row-native-metadata-reader"
-                highlighted={highlightedSettingId === 'settings-row-native-metadata-reader'}
-                title={t('mediaLibrary.settings.nativeMetadataReader.title')}
-                description={t('mediaLibrary.settings.nativeMetadataReader.description')}
-              >
-                <div className="settings-native-experiment-control">
-                  <div className="settings-inline-toggle settings-inline-toggle--compact">
-                    <span>{appSettings?.nativeMetadataReaderEnabled ? t('mediaLibrary.settings.nativeMetadataReader.enabled') : t('mediaLibrary.settings.nativeMetadataReader.typescript')}</span>
-                    <ToggleButton
-                      active={appSettings?.nativeMetadataReaderEnabled === true}
-                      disabled={!appSettings}
-                      onClick={() => patchAppSettings({ nativeMetadataReaderEnabled: !(appSettings?.nativeMetadataReaderEnabled ?? false) })}
-                    />
-                  </div>
-                  <div
-                    className="settings-native-experiment-status"
-                    data-state={nativeMetadataReaderState}
-                    title={nativeMetadataReaderDiagnostics?.binaryPath ?? undefined}
-                  >
-                    <span>{nativeMetadataReaderStatusText}</span>
-                    <em>{nativeMetadataReaderStatsText}</em>
-                  </div>
-                </div>
-              </SettingRow>
-              <div className="settings-subsection-header"><h4>维护</h4></div>
-              <SettingRow
-                className="setting-row--full setting-row--compact-panel"
-                id="settings-row-library-quality"
-                highlighted={highlightedSettingId === 'settings-row-library-quality'}
-                title={t('mediaLibrary.quality.title')}
-                description={t('mediaLibrary.settings.quality.description')}
-              >
-                <LibraryQualityPanel autoRefresh={libraryDeferredRefreshReady} networkMetadataEnabled={networkMetadataEnabled} />
-              </SettingRow>
-              <div className="settings-subsection-header"><h4>内容获取</h4></div>
-              <SettingRow
-                className="setting-row--full setting-row--compact-panel"
-                id="settings-row-library-lyrics-backfill"
-                highlighted={highlightedSettingId === 'settings-row-library-lyrics-backfill'}
-                title={t('mediaLibrary.settings.lyrics.title')}
-                description={t('mediaLibrary.settings.lyrics.description')}
-              >
-                <div className="settings-cache-panel settings-cache-panel--lyrics-backfill">
-                  <div className="settings-inline-control">
-                    <span>{t('mediaLibrary.settings.lyrics.hitRate')}</span>
-                    <NumberRangeField
-                      min={30}
-                      max={95}
-                      step={1}
-                      suffix="%"
-                      value={lyricsBackfillAutoAcceptPercent}
-                      onChange={(value) => patchAppSettings({ lyricsBackfillAutoAcceptScore: value / 100 })}
-                    />
-                  </div>
-                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      disabled={lyricsBackfillBusy || lyricsBackfillRunning}
-                      onClick={() => void handleStartLyricsBackfill('quick')}
-                    >
-                      <Zap size={15} />
-                      {t('mediaLibrary.settings.lyrics.action.quick')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      disabled={lyricsBackfillBusy || lyricsBackfillRunning}
-                      onClick={() => void handleStartLyricsBackfill('complete')}
-                    >
-                      <Search size={15} />
-                      {t('mediaLibrary.settings.lyrics.action.complete')}
-                    </button>
-                    {lyricsBackfillRunning ? (
-                      <button
-                        className="settings-danger-button"
-                        type="button"
-                        onClick={() => void handleCancelLyricsBackfill()}
-                      >
-                        <X size={15} />
-                        {t('mediaLibrary.settings.action.cancel')}
-                      </button>
-                    ) : null}
-                  </div>
-                  {lyricsBackfillMessage ? <p className="settings-inline-note">{lyricsBackfillMessage}</p> : null}
-                  {lyricsBackfillJob ? (
-                    <div className="settings-update-progress settings-lyrics-backfill-progress" role="status" aria-live="polite">
-                      <div className="settings-update-progress-label">
-                        <strong>{t('mediaLibrary.settings.lyrics.progressTitle', { status: lyricsBackfillStatusLabel })}</strong>
-                        <span>
-                          {lyricsBackfillProgressDone} / {lyricsBackfillJob.totalTracks || 0}
-                        </span>
-                      </div>
-                      <div
-                        className="settings-update-progress-track"
-                        role="progressbar"
-                        aria-label={t('mediaLibrary.settings.lyrics.progressAria')}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={lyricsBackfillProgressPercent}
-                      >
-                        <span style={{ width: `${lyricsBackfillProgressPercent}%` }} />
-                      </div>
-                      <div className="settings-update-progress-meta">
-                        <span>
-                          {t('mediaLibrary.settings.lyrics.progressMeta', {
-                            matched: lyricsBackfillJob.matchedTracks,
-                            notFound: lyricsBackfillJob.notFoundTracks,
-                            cached: lyricsBackfillJob.alreadyCachedTracks,
-                            errors: lyricsBackfillJob.errorCount,
-                          })}
-                        </span>
-                        <span>{lyricsBackfillJob.currentTrackTitle ?? (lyricsBackfillJob.mode === 'complete' ? t('mediaLibrary.settings.lyrics.mode.complete') : t('mediaLibrary.settings.lyrics.mode.quick'))}</span>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </SettingRow>
-              <SettingRow
-                className="setting-row--full setting-row--compact-panel"
-                id="settings-row-library-health-report"
-                highlighted={highlightedSettingId === 'settings-row-library-health-report'}
-                title={t('mediaLibrary.health.title')}
-                description={t('mediaLibrary.settings.health.description')}
-              >
-                <LibraryHealthReportPanel />
-              </SettingRow>
-              <div id="settings-row-library-lab" data-search-highlight={highlightedSettingId === 'settings-row-library-lab' ? 'true' : undefined}>
-                <LibraryDiagnosticsPanel />
-              </div>
-              <SettingRow
-                id="settings-row-artist-wall-artwork"
-                highlighted={highlightedSettingId === 'settings-row-artist-wall-artwork'}
-                title={t('mediaLibrary.settings.artistWallArtwork.title')}
-                description={t('mediaLibrary.settings.artistWallArtwork.description')}
-              >
-                <ToggleButton active={appSettings?.artistWallAlbumArtwork ?? false} disabled={!appSettings} onClick={handleArtistWallAlbumArtworkToggle} />
-              </SettingRow>
-              <SettingRow
-                className="setting-row--full setting-row--compact-panel"
-                id="settings-row-artist-avatars"
-                highlighted={highlightedSettingId === 'settings-row-artist-avatars'}
-                title={t('settings.appearance.artistAvatars.title')}
-                description={t('settings.appearance.artistAvatars.description')}
-              >
-                <div className="settings-cache-panel settings-cache-panel--artist-avatars">
-                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <div className="settings-inline-toggle">
-                      <span>{t('settings.appearance.artistAvatars.toggle')}</span>
-                      <ToggleButton
-                        active={appSettings?.autoFetchArtistImages ?? false}
-                        disabled={!appSettings || artistImageBusyAction !== null}
-                        onClick={handleAutoFetchArtistImagesToggle}
-                      />
-                    </div>
-                    <div className="settings-inline-toggle">
-                      <span>{t('settings.appearance.artistAvatars.fallback')}</span>
-                      <ToggleButton
-                        active={appSettings?.artistWallAlbumFallbackForMissingAvatars ?? false}
-                        disabled={!appSettings}
-                        onClick={handleArtistWallAlbumFallbackForMissingAvatarsToggle}
-                      />
-                    </div>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
-                      onClick={() => void handleRefreshMissingArtistImages()}
-                    >
-                      <RotateCw className={artistImageBusyAction === 'refresh' ? 'spinning-icon' : undefined} size={15} />
-                      {artistImageBusyAction === 'refresh'
-                        ? t('settings.appearance.artistAvatars.action.queueing')
-                        : t('settings.appearance.artistAvatars.action.refreshMissing')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
-                      onClick={() => void handleArtistImagePauseToggle()}
-                    >
-                      {artistImagePaused ? <Play size={15} /> : <Pause size={15} />}
-                      {artistImagePaused ? t('mediaLibrary.settings.artistImages.action.resume') : t('mediaLibrary.settings.artistImages.action.pause')}
-                    </button>
-                    <button
-                      className="settings-danger-button"
-                      type="button"
-                      disabled={artistImageBusyAction !== null}
-                      onClick={() => void handleClearArtistImageCache()}
-                    >
-                      <Trash2 size={15} />
-                      {t('settings.appearance.artistAvatars.action.clear')}
-                    </button>
-                  </div>
-                  {artistImageMessage ? <p className="settings-inline-note">{artistImageMessage}</p> : null}
-                  {artistImageProgress ? (
-                    <div className="settings-update-progress settings-artist-image-progress" role="status" aria-live="polite">
-                      <div className="settings-update-progress-label">
-                        <strong>{t('mediaLibrary.settings.artistImages.progressTitle', { status: artistImageStatusLabel })}</strong>
-                        <span>
-                          {artistImageProgressDone} / {artistImageProgressTotal}
-                        </span>
-                      </div>
-                      <div
-                        className="settings-update-progress-track"
-                        role="progressbar"
-                        aria-label={t('mediaLibrary.settings.artistImages.progressAria')}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={artistImageProgressPercent}
-                      >
-                        <span style={{ width: `${artistImageProgressPercent}%` }} />
-                      </div>
-                      <div className="settings-update-progress-meta">
-                        <span>
-                          {t('mediaLibrary.settings.artistImages.progressMeta', {
-                            active: artistImageActive,
-                            pending: artistImageSummary.pending,
-                            cached: artistImageSummary.matched,
-                            notFound: artistImageSummary.notFound,
-                            failed: artistImageFailed,
-                          })}
-                        </span>
-                        <span>{t('mediaLibrary.settings.artistImages.skipped', { count: artistImageProgress.lastQueued.skipped })}</span>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </SettingRow>
-              <SettingRow
-                className="setting-row--full setting-row--compact-panel"
-                title="歌手头像保存目录"
-                description="配置歌手头像的保存位置。留空则使用默认目录（data/artist-images）。"
-              >
-                <div className="settings-cache-panel">
-                  <div className="settings-cache-path">
-                    <em>当前目录</em>
-                    <strong title={appSettings?.artistImageSaveDir ?? ''}>{appSettings?.artistImageSaveDir || '默认 (data/artist-images)'}</strong>
-                  </div>
-                  <div className="settings-chip-row settings-chip-row--left">
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void (async () => {
-                        const currentDir = appSettings?.artistImageSaveDir || '';
-                        const dir = await getAppBridge()?.chooseLyricsDirectory?.(currentDir, 'artistImage');
-                        if (dir !== undefined) {
-                          await patchAppSettings({ artistImageSaveDir: dir || null });
-                        }
-                      })()}
-                    >
-                      <FolderOpen size={15} />
-                      选择目录
-                    </button>
-                    {appSettings?.artistImageSaveDir ? (
-                      <button
-                        className="settings-action-button"
-                        type="button"
-                        onClick={() => void patchAppSettings({ artistImageSaveDir: null })}
-                      >
-                        恢复默认
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
               </SettingRow>
               {downloadsFeatureUnlocked ? (
                 <>
@@ -15194,6 +14903,98 @@ export const SettingsPage = (): JSX.Element => {
                     onClick={() => patchAppSettings({ playlistBackupsEnabled: !(appSettings?.playlistBackupsEnabled ?? true) })}
                   />
                 </div>
+              </SettingRow>
+              <SettingRow
+                title={t('mediaLibrary.settings.scanPerformance.title')}
+                description={t('mediaLibrary.settings.scanPerformance.description')}
+              >
+                <div className="settings-chip-row">
+                  {[
+                    ['low', t('mediaLibrary.settings.scanPerformance.low')],
+                    ['balanced', t('mediaLibrary.settings.scanPerformance.balanced')],
+                    ['performance', t('mediaLibrary.settings.scanPerformance.performance')],
+                  ].map(([mode, label]) => (
+                    <ChipButton
+                      active={(appSettings?.scanPerformanceMode ?? 'balanced') === mode}
+                      key={mode}
+                      onClick={() => patchAppSettings({ scanPerformanceMode: mode as AppSettings['scanPerformanceMode'] })}
+                    >
+                      {label}
+                    </ChipButton>
+                  ))}
+                </div>
+              </SettingRow>
+              <SettingRow
+                id="settings-row-native-file-scanner"
+                highlighted={highlightedSettingId === 'settings-row-native-file-scanner'}
+                title={t('mediaLibrary.settings.nativeFileScanner.title')}
+                description={t('mediaLibrary.settings.nativeFileScanner.description')}
+              >
+                <div className="settings-native-experiment-control">
+                  <div className="settings-inline-toggle settings-inline-toggle--compact">
+                    <span>{appSettings?.nativeFileScannerEnabled ? t('mediaLibrary.settings.nativeFileScanner.enabled') : t('mediaLibrary.settings.nativeFileScanner.typescript')}</span>
+                    <ToggleButton
+                      active={appSettings?.nativeFileScannerEnabled === true}
+                      disabled={!appSettings}
+                      onClick={() => patchAppSettings({ nativeFileScannerEnabled: !(appSettings?.nativeFileScannerEnabled ?? false) })}
+                    />
+                  </div>
+                  <div
+                    className="settings-native-experiment-status"
+                    data-state={nativeFileScannerState}
+                    title={nativeFileScannerDiagnostics?.binaryPath ?? undefined}
+                  >
+                    <span>{nativeFileScannerStatusText}</span>
+                    <em>{nativeFileScannerStatsText}</em>
+                  </div>
+                </div>
+              </SettingRow>
+              <SettingRow
+                id="settings-row-native-metadata-reader"
+                highlighted={highlightedSettingId === 'settings-row-native-metadata-reader'}
+                title={t('mediaLibrary.settings.nativeMetadataReader.title')}
+                description={t('mediaLibrary.settings.nativeMetadataReader.description')}
+              >
+                <div className="settings-native-experiment-control">
+                  <div className="settings-inline-toggle settings-inline-toggle--compact">
+                    <span>{appSettings?.nativeMetadataReaderEnabled ? t('mediaLibrary.settings.nativeMetadataReader.enabled') : t('mediaLibrary.settings.nativeMetadataReader.typescript')}</span>
+                    <ToggleButton
+                      active={appSettings?.nativeMetadataReaderEnabled === true}
+                      disabled={!appSettings}
+                      onClick={() => patchAppSettings({ nativeMetadataReaderEnabled: !(appSettings?.nativeMetadataReaderEnabled ?? false) })}
+                    />
+                  </div>
+                  <div
+                    className="settings-native-experiment-status"
+                    data-state={nativeMetadataReaderState}
+                    title={nativeMetadataReaderDiagnostics?.binaryPath ?? undefined}
+                  >
+                    <span>{nativeMetadataReaderStatusText}</span>
+                    <em>{nativeMetadataReaderStatsText}</em>
+                  </div>
+                </div>
+              </SettingRow>
+              <div id="settings-row-library-lab" data-search-highlight={highlightedSettingId === 'settings-row-library-lab' ? 'true' : undefined}>
+                <LibraryDiagnosticsPanel />
+              </div>
+              <div className="settings-subsection-header"><h4>维护与清理</h4></div>
+                            <SettingRow
+                              className="setting-row--full setting-row--compact-panel"
+                              id="settings-row-library-quality"
+                              highlighted={highlightedSettingId === 'settings-row-library-quality'}
+                title={t('mediaLibrary.quality.title')}
+                description={t('mediaLibrary.settings.quality.description')}
+              >
+                <LibraryQualityPanel autoRefresh={libraryDeferredRefreshReady} networkMetadataEnabled={networkMetadataEnabled} />
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                id="settings-row-library-health-report"
+                highlighted={highlightedSettingId === 'settings-row-library-health-report'}
+                title={t('mediaLibrary.health.title')}
+                description={t('mediaLibrary.settings.health.description')}
+              >
+                <LibraryHealthReportPanel />
               </SettingRow>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
@@ -15340,6 +15141,49 @@ export const SettingsPage = (): JSX.Element => {
               </SettingRow>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
+                title={t('mediaLibrary.settings.bpm.title')}
+                description={t('mediaLibrary.settings.bpm.description')}
+              >
+                <div className="settings-cache-panel settings-cache-panel--bpm-analysis">
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                    <div className="settings-inline-toggle">
+                      <span>{t('mediaLibrary.settings.bpm.enable')}</span>
+                      <ToggleButton
+                        active={appSettings?.audioAnalysisEnabled ?? false}
+                        disabled={!appSettings || bpmAnalysisBusy}
+                        onClick={() => patchAppSettings({ audioAnalysisEnabled: !(appSettings?.audioAnalysisEnabled ?? false) })}
+                      />
+                    </div>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={!appSettings?.audioAnalysisEnabled || bpmAnalysisBusy}
+                      onClick={() => void handleStartBpmAnalysis()}
+                    >
+                      <RotateCw className={bpmAnalysisBusy ? 'spinning-icon' : undefined} size={15} />
+                      {bpmAnalysisBusy ? t('mediaLibrary.settings.bpm.action.analyzing') : t('mediaLibrary.settings.bpm.action.analyzeMissing')}
+                    </button>
+                  </div>
+                  <div className="settings-status-grid">
+                    <span>
+                      <em>{t('mediaLibrary.settings.bpm.status')}</em>
+                      <strong>{appSettings?.audioAnalysisEnabled ? t('common.enabled') : t('common.disabled')}</strong>
+                    </span>
+                    <span>
+                      <em>{t('mediaLibrary.settings.bpm.progress')}</em>
+                      <strong>{bpmAnalysisJob ? `${bpmAnalysisJob.processedTracks}/${bpmAnalysisJob.totalTracks}` : t('mediaLibrary.settings.bpm.notRun')}</strong>
+                    </span>
+                    <span>
+                      <em>{t('mediaLibrary.settings.bpm.updated')}</em>
+                      <strong>{bpmAnalysisJob?.updatedTracks ?? 0}</strong>
+                    </span>
+                  </div>
+                  {bpmAnalysisMessage ? <p className="settings-inline-note">{bpmAnalysisMessage}</p> : null}
+                  {bpmAnalysisJob?.errorCount ? <p className="settings-inline-error">{t('mediaLibrary.settings.bpm.errorCount', { count: bpmAnalysisJob.errorCount })}</p> : null}
+                </div>
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
                 title={t('mediaLibrary.settings.embeddedRescan.title')}
                 description={t('mediaLibrary.settings.embeddedRescan.description')}
               >
@@ -15377,7 +15221,142 @@ export const SettingsPage = (): JSX.Element => {
                   {embeddedTagRescanMessage ? <p className="settings-inline-note">{embeddedTagRescanMessage}</p> : null}
                 </div>
               </SettingRow>
-              <div className="settings-subsection-header"><h4>存储目录</h4></div>
+              <div className="settings-subsection-header"><h4>数据补全</h4></div>
+              <SettingRow
+                id="settings-row-artist-wall-artwork"
+                highlighted={highlightedSettingId === 'settings-row-artist-wall-artwork'}
+                title={t('mediaLibrary.settings.artistWallArtwork.title')}
+                description={t('mediaLibrary.settings.artistWallArtwork.description')}
+              >
+                <ToggleButton active={appSettings?.artistWallAlbumArtwork ?? false} disabled={!appSettings} onClick={handleArtistWallAlbumArtworkToggle} />
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                id="settings-row-artist-avatars"
+                highlighted={highlightedSettingId === 'settings-row-artist-avatars'}
+                title={t('settings.appearance.artistAvatars.title')}
+                description={t('settings.appearance.artistAvatars.description')}
+              >
+                <div className="settings-cache-panel settings-cache-panel--artist-avatars">
+                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
+                    <div className="settings-inline-toggle">
+                      <span>{t('settings.appearance.artistAvatars.toggle')}</span>
+                      <ToggleButton
+                        active={appSettings?.autoFetchArtistImages ?? false}
+                        disabled={!appSettings || artistImageBusyAction !== null}
+                        onClick={handleAutoFetchArtistImagesToggle}
+                      />
+                    </div>
+                    <div className="settings-inline-toggle">
+                      <span>{t('settings.appearance.artistAvatars.fallback')}</span>
+                      <ToggleButton
+                        active={appSettings?.artistWallAlbumFallbackForMissingAvatars ?? false}
+                        disabled={!appSettings}
+                        onClick={handleArtistWallAlbumFallbackForMissingAvatarsToggle}
+                      />
+                    </div>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
+                      onClick={() => void handleRefreshMissingArtistImages()}
+                    >
+                      <RotateCw className={artistImageBusyAction === 'refresh' ? 'spinning-icon' : undefined} size={15} />
+                      {artistImageBusyAction === 'refresh'
+                        ? t('settings.appearance.artistAvatars.action.queueing')
+                        : t('settings.appearance.artistAvatars.action.refreshMissing')}
+                    </button>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={!appSettings?.autoFetchArtistImages || artistImageBusyAction !== null}
+                      onClick={() => void handleArtistImagePauseToggle()}
+                    >
+                      {artistImagePaused ? <Play size={15} /> : <Pause size={15} />}
+                      {artistImagePaused ? t('mediaLibrary.settings.artistImages.action.resume') : t('mediaLibrary.settings.artistImages.action.pause')}
+                    </button>
+                    <button
+                      className="settings-danger-button"
+                      type="button"
+                      disabled={artistImageBusyAction !== null}
+                      onClick={() => void handleClearArtistImageCache()}
+                    >
+                      <Trash2 size={15} />
+                      {t('settings.appearance.artistAvatars.action.clear')}
+                    </button>
+                  </div>
+                  {artistImageMessage ? <p className="settings-inline-note">{artistImageMessage}</p> : null}
+                  {artistImageProgress ? (
+                    <div className="settings-update-progress settings-artist-image-progress" role="status" aria-live="polite">
+                      <div className="settings-update-progress-label">
+                        <strong>{t('mediaLibrary.settings.artistImages.progressTitle', { status: artistImageStatusLabel })}</strong>
+                        <span>
+                          {artistImageProgressDone} / {artistImageProgressTotal}
+                        </span>
+                      </div>
+                      <div
+                        className="settings-update-progress-track"
+                        role="progressbar"
+                        aria-label={t('mediaLibrary.settings.artistImages.progressAria')}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={artistImageProgressPercent}
+                      >
+                        <span style={{ width: `${artistImageProgressPercent}%` }} />
+                      </div>
+                      <div className="settings-update-progress-meta">
+                        <span>
+                          {t('mediaLibrary.settings.artistImages.progressMeta', {
+                            active: artistImageActive,
+                            pending: artistImageSummary.pending,
+                            cached: artistImageSummary.matched,
+                            notFound: artistImageSummary.notFound,
+                            failed: artistImageFailed,
+                          })}
+                        </span>
+                        <span>{t('mediaLibrary.settings.artistImages.skipped', { count: artistImageProgress.lastQueued.skipped })}</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                title="歌手头像保存目录"
+                description="配置歌手头像的保存位置。留空则使用默认目录（data/artist-images）。"
+              >
+                <div className="settings-cache-panel">
+                  <div className="settings-cache-path">
+                    <em>当前目录</em>
+                    <strong title={appSettings?.artistImageSaveDir ?? ''}>{appSettings?.artistImageSaveDir || '默认 (data/artist-images)'}</strong>
+                  </div>
+                  <div className="settings-chip-row settings-chip-row--left">
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => void (async () => {
+                        const currentDir = appSettings?.artistImageSaveDir || '';
+                        const dir = await getAppBridge()?.chooseLyricsDirectory?.(currentDir, 'artistImage');
+                        if (dir !== undefined) {
+                          await patchAppSettings({ artistImageSaveDir: dir || null });
+                        }
+                      })()}
+                    >
+                      <FolderOpen size={15} />
+                      选择目录
+                    </button>
+                    {appSettings?.artistImageSaveDir ? (
+                      <button
+                        className="settings-action-button"
+                        type="button"
+                        onClick={() => void patchAppSettings({ artistImageSaveDir: null })}
+                      >
+                        恢复默认
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </SettingRow>
               <SettingRow
                 className="setting-row--full setting-row--compact-panel"
                 title={t('mediaLibrary.settings.coverCache.title')}
@@ -15497,66 +15476,86 @@ export const SettingsPage = (): JSX.Element => {
                 </div>
               </SettingRow>
               <SettingRow
-                title={t('mediaLibrary.settings.scanPerformance.title')}
-                description={t('mediaLibrary.settings.scanPerformance.description')}
-              >
-                <div className="settings-chip-row">
-                  {[
-                    ['low', t('mediaLibrary.settings.scanPerformance.low')],
-                    ['balanced', t('mediaLibrary.settings.scanPerformance.balanced')],
-                    ['performance', t('mediaLibrary.settings.scanPerformance.performance')],
-                  ].map(([mode, label]) => (
-                    <ChipButton
-                      active={(appSettings?.scanPerformanceMode ?? 'balanced') === mode}
-                      key={mode}
-                      onClick={() => patchAppSettings({ scanPerformanceMode: mode as AppSettings['scanPerformanceMode'] })}
-                    >
-                      {label}
-                    </ChipButton>
-                  ))}
-                </div>
-              </SettingRow>
-              <SettingRow
                 className="setting-row--full setting-row--compact-panel"
-                title={t('mediaLibrary.settings.bpm.title')}
-                description={t('mediaLibrary.settings.bpm.description')}
+                id="settings-row-library-lyrics-backfill"
+                highlighted={highlightedSettingId === 'settings-row-library-lyrics-backfill'}
+                title={t('mediaLibrary.settings.lyrics.title')}
+                description={t('mediaLibrary.settings.lyrics.description')}
               >
-                <div className="settings-cache-panel settings-cache-panel--bpm-analysis">
+                <div className="settings-cache-panel settings-cache-panel--lyrics-backfill">
+                  <div className="settings-inline-control">
+                    <span>{t('mediaLibrary.settings.lyrics.hitRate')}</span>
+                    <NumberRangeField
+                      min={30}
+                      max={95}
+                      step={1}
+                      suffix="%"
+                      value={lyricsBackfillAutoAcceptPercent}
+                      onChange={(value) => patchAppSettings({ lyricsBackfillAutoAcceptScore: value / 100 })}
+                    />
+                  </div>
                   <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <div className="settings-inline-toggle">
-                      <span>{t('mediaLibrary.settings.bpm.enable')}</span>
-                      <ToggleButton
-                        active={appSettings?.audioAnalysisEnabled ?? false}
-                        disabled={!appSettings || bpmAnalysisBusy}
-                        onClick={() => patchAppSettings({ audioAnalysisEnabled: !(appSettings?.audioAnalysisEnabled ?? false) })}
-                      />
-                    </div>
                     <button
                       className="settings-action-button"
                       type="button"
-                      disabled={!appSettings?.audioAnalysisEnabled || bpmAnalysisBusy}
-                      onClick={() => void handleStartBpmAnalysis()}
+                      disabled={lyricsBackfillBusy || lyricsBackfillRunning}
+                      onClick={() => void handleStartLyricsBackfill('quick')}
                     >
-                      <RotateCw className={bpmAnalysisBusy ? 'spinning-icon' : undefined} size={15} />
-                      {bpmAnalysisBusy ? t('mediaLibrary.settings.bpm.action.analyzing') : t('mediaLibrary.settings.bpm.action.analyzeMissing')}
+                      <Zap size={15} />
+                      {t('mediaLibrary.settings.lyrics.action.quick')}
                     </button>
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      disabled={lyricsBackfillBusy || lyricsBackfillRunning}
+                      onClick={() => void handleStartLyricsBackfill('complete')}
+                    >
+                      <Search size={15} />
+                      {t('mediaLibrary.settings.lyrics.action.complete')}
+                    </button>
+                    {lyricsBackfillRunning ? (
+                      <button
+                        className="settings-danger-button"
+                        type="button"
+                        onClick={() => void handleCancelLyricsBackfill()}
+                      >
+                        <X size={15} />
+                        {t('mediaLibrary.settings.action.cancel')}
+                      </button>
+                    ) : null}
                   </div>
-                  <div className="settings-status-grid">
-                    <span>
-                      <em>{t('mediaLibrary.settings.bpm.status')}</em>
-                      <strong>{appSettings?.audioAnalysisEnabled ? t('common.enabled') : t('common.disabled')}</strong>
-                    </span>
-                    <span>
-                      <em>{t('mediaLibrary.settings.bpm.progress')}</em>
-                      <strong>{bpmAnalysisJob ? `${bpmAnalysisJob.processedTracks}/${bpmAnalysisJob.totalTracks}` : t('mediaLibrary.settings.bpm.notRun')}</strong>
-                    </span>
-                    <span>
-                      <em>{t('mediaLibrary.settings.bpm.updated')}</em>
-                      <strong>{bpmAnalysisJob?.updatedTracks ?? 0}</strong>
-                    </span>
-                  </div>
-                  {bpmAnalysisMessage ? <p className="settings-inline-note">{bpmAnalysisMessage}</p> : null}
-                  {bpmAnalysisJob?.errorCount ? <p className="settings-inline-error">{t('mediaLibrary.settings.bpm.errorCount', { count: bpmAnalysisJob.errorCount })}</p> : null}
+                  {lyricsBackfillMessage ? <p className="settings-inline-note">{lyricsBackfillMessage}</p> : null}
+                  {lyricsBackfillJob ? (
+                    <div className="settings-update-progress settings-lyrics-backfill-progress" role="status" aria-live="polite">
+                      <div className="settings-update-progress-label">
+                        <strong>{t('mediaLibrary.settings.lyrics.progressTitle', { status: lyricsBackfillStatusLabel })}</strong>
+                        <span>
+                          {lyricsBackfillProgressDone} / {lyricsBackfillJob.totalTracks || 0}
+                        </span>
+                      </div>
+                      <div
+                        className="settings-update-progress-track"
+                        role="progressbar"
+                        aria-label={t('mediaLibrary.settings.lyrics.progressAria')}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={lyricsBackfillProgressPercent}
+                      >
+                        <span style={{ width: `${lyricsBackfillProgressPercent}%` }} />
+                      </div>
+                      <div className="settings-update-progress-meta">
+                        <span>
+                          {t('mediaLibrary.settings.lyrics.progressMeta', {
+                            matched: lyricsBackfillJob.matchedTracks,
+                            notFound: lyricsBackfillJob.notFoundTracks,
+                            cached: lyricsBackfillJob.alreadyCachedTracks,
+                            errors: lyricsBackfillJob.errorCount,
+                          })}
+                        </span>
+                        <span>{lyricsBackfillJob.currentTrackTitle ?? (lyricsBackfillJob.mode === 'complete' ? t('mediaLibrary.settings.lyrics.mode.complete') : t('mediaLibrary.settings.lyrics.mode.quick'))}</span>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </SettingRow>
               <SettingRow title={t('settings.library.network.title')} description={t('settings.library.network.description')}>
