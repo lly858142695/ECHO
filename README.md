@@ -40,6 +40,9 @@
   <a href="#开发与构建">开发与构建</a>
 </p>
 
+> [!IMPORTANT]
+> ECHO 仓库已分离，当前主仓库仅供参考。如需参与 ECHO NEXT 开发，请申请加入 [ECHO 开发者计划](https://echonext.moe/zh/developer/)，或发送申请邮件至 [nyafairy233@gmail.com](mailto:nyafairy233@gmail.com)。
+
 <p align="center"><strong>反馈问题请保持礼貌；提问前建议先查阅 <a href="https://echonext.moe/zh/docs/">官方文档</a>、README 和相关教程。</strong></p>
 
 <p align="center">
