@@ -52,7 +52,7 @@ import {
 import { usePlaybackQueue } from '../stores/PlaybackQueueProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { resolvePlaylistForTrackAdd } from '../utils/appPrompt';
-import { getRemoteSourcesBridge } from '../utils/echoBridge';
+import { getAppBridge, getRemoteSourcesBridge } from '../utils/echoBridge';
 import { useImeAwareDebouncedSearch } from '../utils/imeInput';
 import type { TranslationKey } from '../i18n/locales';
 import { openAlbumDetailForTrack } from '../utils/albumNavigation';
@@ -78,7 +78,7 @@ type TrackMenuState = {
   position: { x: number; y: number };
 };
 
-type FolderMode = 'local' | 'remote';
+type FolderMode = 'local' | 'import';
 
 type RemoteFolderTarget = {
   sourceId: string;
@@ -671,6 +671,7 @@ export const FoldersPage = (): JSX.Element => {
   const [tagEditorError, setTagEditorError] = useState<string | null>(null);
   const [isSavingTags, setIsSavingTags] = useState(false);
   const [draggedFolderRootId, setDraggedFolderRootId] = useState<string | null>(null);
+  const draggedFolderRootIdRef = useRef<string | null>(null);
   const [dropTargetFolderRootId, setDropTargetFolderRootId] = useState<string | null>(null);
   const [remoteSources, setRemoteSources] = useState<RemoteSource[]>([]);
   const [selectedRemote, setSelectedRemote] = useState<RemoteFolderTarget | null>(null);
@@ -691,6 +692,7 @@ export const FoldersPage = (): JSX.Element => {
   const [isLoadingRemoteDirectory, setIsLoadingRemoteDirectory] = useState(false);
   const [isLoadingRemoteTracks, setIsLoadingRemoteTracks] = useState(false);
   const [remoteLoadingTrackId, setRemoteLoadingTrackId] = useState<string | null>(null);
+  const [settings, setSettings] = useState<Record<string, string | null> | null>(null);
   const trackRequestIdRef = useRef(0);
   const bulkRequestIdRef = useRef(0);
   const refreshedTerminalScanIdsRef = useRef<Set<string>>(new Set());
@@ -815,7 +817,7 @@ export const FoldersPage = (): JSX.Element => {
         : null,
     [selectedRemote],
   );
-  const activeTracks = mode === 'remote' ? remoteTracks : tracks;
+  const activeTracks = mode === 'import' ? [] : tracks;
   const selectedTracks = useMemo(
     () => activeTracks.filter((track) => selectedTrackIds[track.id] === true && !track.unavailable),
     [activeTracks, selectedTrackIds],
@@ -826,6 +828,27 @@ export const FoldersPage = (): JSX.Element => {
   useEffect(() => {
     setSelectedTrackIds({});
   }, [mode, recursive, search, selected?.folderId, selected?.path, selectedRemote?.sourceId, selectedRemote?.path, sort]);
+
+  const loadSettings = useCallback(async (): Promise<void> => {
+    const app = window.echo?.app;
+    if (!app?.getSettings) {
+      return;
+    }
+    try {
+      const s = await app.getSettings();
+      setSettings({
+        lyricsSaveDir: s.lyricsSaveDir ?? null,
+        coverSaveDir: s.coverSaveDir ?? null,
+        artistImageSaveDir: s.artistImageSaveDir ?? null,
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
 
   const refreshOverviews = useCallback(async (): Promise<void> => {
     const library = window.echo?.library;
@@ -891,9 +914,6 @@ export const FoldersPage = (): JSX.Element => {
   const loadRemoteSources = useCallback(async (): Promise<void> => {
     if (!remoteApi) {
       setRemoteSources([]);
-      if (mode === 'remote') {
-        setError('桌面桥接不可用。请在 ECHO Next 桌面端浏览网盘文件夹。');
-      }
       return;
     }
 
@@ -916,11 +936,7 @@ export const FoldersPage = (): JSX.Element => {
     }
   }, [mode, remoteApi]);
 
-  useEffect(() => {
-    if (mode === 'remote') {
-      void loadRemoteSources();
-    }
-  }, [loadRemoteSources, mode]);
+  
 
   const loadRemoteTrackPage = useCallback(
     async (target: RemoteFolderTarget | null, nextPage: number, loadMode: 'replace' | 'append'): Promise<LibraryPage<LibraryTrack> | null> => {
@@ -1063,89 +1079,6 @@ export const FoldersPage = (): JSX.Element => {
     [remoteApi, remoteDirectoryChildrenByParent, t],
   );
 
-  useEffect(() => {
-    if (mode === 'remote') {
-      void loadRemoteDirectory(selectedRemote);
-    }
-  }, [loadRemoteDirectory, mode, selectedRemote]);
-
-  useEffect(() => {
-    if (mode !== 'remote' || !remoteApi || !selectedRemoteSource) {
-      setRemoteSyncStatus(null);
-      setRemoteJobStatus(null);
-      return undefined;
-    }
-
-    let disposed = false;
-    const refreshRemoteProgress = async (): Promise<void> => {
-      try {
-        const [syncStatus, jobStatus] = await Promise.all([
-          remoteApi.getSyncStatus(selectedRemoteSource.id),
-          remoteApi.getJobStatus(selectedRemoteSource.id),
-        ]);
-        if (disposed) {
-          return;
-        }
-
-        setRemoteSyncStatus(syncStatus);
-        setRemoteJobStatus(jobStatus);
-
-        if (selectedRemote) {
-          const selectedKey = remoteTreeKey(selectedRemote.sourceId, selectedRemote.path);
-          const refreshState = remoteIndexedRefreshRef.current.key === selectedKey
-            ? remoteIndexedRefreshRef.current
-            : { key: selectedKey, jobUpdatedAt: null, refreshedAt: 0, syncStatus: null };
-          const now = Date.now();
-          const hasCompletedJobs = Object.values(jobStatus.completed).some((count) => count > 0);
-          const syncJustCompleted = refreshState.syncStatus === 'running' && syncStatus.status === 'completed';
-          const jobStatusChanged = Boolean(jobStatus.updatedAt && jobStatus.updatedAt !== refreshState.jobUpdatedAt);
-          const refreshIntervalElapsed = now - refreshState.refreshedAt >= remoteIndexedRefreshMinIntervalMs;
-          const shouldRefreshIndexedTracks =
-            syncJustCompleted ||
-            (hasCompletedJobs && jobStatusChanged && refreshIntervalElapsed);
-
-          remoteIndexedRefreshRef.current = {
-            key: selectedKey,
-            jobUpdatedAt: jobStatus.updatedAt,
-            refreshedAt: shouldRefreshIndexedTracks ? now : refreshState.refreshedAt,
-            syncStatus: syncStatus.status,
-          };
-
-          if (shouldRefreshIndexedTracks) {
-            const [stats, pageResult] = await Promise.all([
-              remoteApi.getIndexedFolderStats
-                ? remoteApi.getIndexedFolderStats(selectedRemote.sourceId, remoteIndexedRootPath(selectedRemote)).catch(() => null)
-                : Promise.resolve(null),
-              remoteApi.listIndexedTracksPage
-                ? remoteApi.listIndexedTracksPage(selectedRemote.sourceId, { rootPath: remoteIndexedRootPath(selectedRemote), page: 1, pageSize, search, sort }).catch(() => null)
-                : Promise.resolve(null),
-            ]);
-            if (!disposed) {
-              setRemoteFolderStats(stats);
-              if (pageResult) {
-                setRemoteCachedTracks(pageResult.items);
-                setRemotePage(pageResult.page);
-                setRemoteHasMore(pageResult.hasMore);
-              }
-            }
-          }
-        }
-      } catch {
-        if (!disposed) {
-          setRemoteSyncStatus(null);
-          setRemoteJobStatus(null);
-        }
-      }
-    };
-
-    void refreshRemoteProgress();
-    const timer = window.setInterval(refreshRemoteProgress, 900);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [mode, remoteApi, search, selectedRemote, selectedRemoteSource, sort]);
-
   const loadChildren = useCallback(
     async (folderId: string, parentPath: string, force = false): Promise<void> => {
       const library = window.echo?.library;
@@ -1249,7 +1182,7 @@ export const FoldersPage = (): JSX.Element => {
       const library = window.echo?.library;
       const target = selected;
 
-      if (mode === 'remote') {
+      if (mode === 'import') {
         setTracks([]);
         setPage(1);
         setHasMore(false);
@@ -1351,38 +1284,8 @@ export const FoldersPage = (): JSX.Element => {
       const library = window.echo?.library;
       const target = selected;
 
-      if (mode === 'remote') {
-        if (!remoteApi?.listIndexedTracksPage || !selectedRemote) {
-          const items = sortMode === 'random' ? [...remoteTracks].sort(() => Math.random() - 0.5) : remoteTracks;
-          return { items: items.slice(0, maxBulkTracks), total: items.length };
-        }
-
-        const requestId = bulkRequestIdRef.current + 1;
-        bulkRequestIdRef.current = requestId;
-        const items: LibraryTrack[] = [];
-        let nextPage = 1;
-        let totalTracks = 0;
-        let result: LibraryPage<LibraryTrack> | null = null;
-
-        do {
-          result = await remoteApi.listIndexedTracksPage(selectedRemote.sourceId, {
-            rootPath: remoteIndexedRootPath(selectedRemote),
-            page: nextPage,
-            pageSize: bulkPageSize,
-            search,
-            sort: sortMode,
-          });
-
-          if (bulkRequestIdRef.current !== requestId) {
-            return { items: [], total: 0 };
-          }
-
-          totalTracks = result.total;
-          items.push(...result.items);
-          nextPage += 1;
-        } while (result.hasMore && items.length < maxBulkTracks);
-
-        return { items: items.slice(0, maxBulkTracks), total: totalTracks };
+      if (mode === 'import') {
+        return { items: [], total: 0 };
       }
 
       if (!target || !library?.getFolderTracks) {
@@ -1422,7 +1325,7 @@ export const FoldersPage = (): JSX.Element => {
   );
 
   const handleSelectAllTracks = useCallback(async (): Promise<void> => {
-    if ((mode === 'local' && !selected) || (mode === 'remote' && !selectedRemote)) {
+    if (mode === 'import' || !selected) {
       return;
     }
 
@@ -1440,15 +1343,9 @@ export const FoldersPage = (): JSX.Element => {
       const result = await fetchBulkTracks(sort);
       const selectableTracks = result.items.filter((track) => !track.unavailable);
 
-      if (mode === 'remote') {
-        setRemoteCachedTracks(result.items);
-        setRemotePage(Math.max(1, Math.ceil(result.items.length / pageSize)));
-        setRemoteHasMore(result.total > result.items.length);
-      } else {
-        setTracks(result.items);
-        setPage(Math.max(1, Math.ceil(result.items.length / pageSize)));
-        setHasMore(result.total > result.items.length);
-      }
+      setTracks(result.items);
+      setPage(Math.max(1, Math.ceil(result.items.length / pageSize)));
+      setHasMore(result.total > result.items.length);
 
       setSelectedTrackIds(Object.fromEntries(selectableTracks.map((track) => [track.id, true])));
     } catch (selectError) {
@@ -1456,7 +1353,7 @@ export const FoldersPage = (): JSX.Element => {
     } finally {
       setIsBulkLoading(false);
     }
-  }, [activeTracks, fetchBulkTracks, mode, selected, selectedRemote, selectedTrackIds, sort, t]);
+  }, [activeTracks, fetchBulkTracks, mode, selected, selectedTrackIds, sort, t]);
 
   useEffect(() => {
     const handleSelectAllKeyDown = (event: KeyboardEvent): void => {
@@ -1469,7 +1366,7 @@ export const FoldersPage = (): JSX.Element => {
         return;
       }
 
-      const hasFolderSelection = mode === 'remote' ? Boolean(selectedRemote) : Boolean(selected);
+      const hasFolderSelection = mode === 'import' ? false : Boolean(selected);
       if (!hasFolderSelection || activeTracks.length === 0) {
         return;
       }
@@ -1485,12 +1382,10 @@ export const FoldersPage = (): JSX.Element => {
   const runBulkAction = useCallback(
     async (action: 'play' | 'shuffle' | 'append'): Promise<void> => {
       const sortMode = action === 'shuffle' ? 'random' : sort === 'random' && action === 'play' ? 'default' : sort;
-      const queueSource = mode === 'remote'
-        ? remoteSource
-        : folderSource
-          ? { ...folderSource, search: search || undefined, sort: sortMode }
-          : null;
-      if (!queueSource || (mode === 'local' && !selected) || (mode === 'remote' && !selectedRemote)) {
+      const queueSource = folderSource
+        ? { ...folderSource, search: search || undefined, sort: sortMode }
+        : null;
+      if (!queueSource || mode === 'import' || !selected) {
         return;
       }
 
@@ -1511,9 +1406,6 @@ export const FoldersPage = (): JSX.Element => {
           if (isShuffleEnabled) {
             toggleShuffle();
           }
-          if (mode === 'remote') {
-            setRemoteLoadingTrackId(result.items[0].id);
-          }
           await playTrack(result.items[0], {
             replaceQueueWith: result.items,
             source: queueSource,
@@ -1528,13 +1420,10 @@ export const FoldersPage = (): JSX.Element => {
       } catch (bulkError) {
         setError(formatFolderError(bulkError, t));
       } finally {
-        if (mode === 'remote') {
-          setRemoteLoadingTrackId(null);
-        }
         setIsBulkLoading(false);
       }
     },
-    [appendTracksToQueue, fetchBulkTracks, folderSource, isShuffleEnabled, mode, playTrack, remoteSource, search, selected, selectedRemote, sort, t, toggleShuffle],
+    [appendTracksToQueue, fetchBulkTracks, folderSource, isShuffleEnabled, mode, playTrack, search, selected, sort, t, toggleShuffle],
   );
 
   const handleChooseFolder = useCallback(async (): Promise<void> => {
@@ -1822,17 +1711,7 @@ export const FoldersPage = (): JSX.Element => {
         return;
       }
 
-      if (mode === 'remote') {
-        if (!selectedRemote || !selectedRemoteSource || !remoteParentPath(selectedRemoteSource, selectedRemote.path)) {
-          return;
-        }
-
-        event.preventDefault();
-        handleRemoteUp();
-        return;
-      }
-
-      if (!selected || !selectedOverview || !localParentPath(selectedOverview.path, selected.path)) {
+      if (mode === 'import' || !selected || !selectedOverview || !localParentPath(selectedOverview.path, selected.path)) {
         return;
       }
 
@@ -1845,55 +1724,22 @@ export const FoldersPage = (): JSX.Element => {
   }, [editingTrack, handleLocalUp, handleRemoteUp, isTagEditorOpen, mode, osuTimingTrack, selected, selectedOverview, selectedRemote, selectedRemoteSource, trackMenu]);
 
   const handleLoadMore = useCallback((): void => {
-    if (mode === 'remote') {
-      if (!isLoadingRemoteTracks && remoteHasMore) {
-        void loadRemoteTrackPage(selectedRemote, remotePage + 1, 'append');
-      }
+    if (mode === 'import') {
       return;
     }
 
     if (!isLoadingTracks && hasMore) {
       void loadTracks(page + 1, 'append');
     }
-  }, [hasMore, isLoadingRemoteTracks, isLoadingTracks, loadRemoteTrackPage, loadTracks, mode, page, remoteHasMore, remotePage, selectedRemote]);
+  }, [hasMore, isLoadingTracks, loadTracks, mode, page]);
 
   const hydrateRemoteMissingCovers = useCallback(
-    (trackIds: string[]): void => {
-      if (mode !== 'remote' || selectedRemoteSource?.provider !== 'subsonic' || !remoteApi?.hydrateVisibleTracks) {
-        return;
-      }
-
-      const visibleTracksById = new Map(remoteTracks.map((track) => [track.id, track]));
-      const pending = remoteVisibleHydrationInFlightRef.current;
-      const targetIds = trackIds
-        .map((trackId) => visibleTracksById.get(trackId))
-        .filter((track): track is LibraryTrack => Boolean(track && track.mediaType === 'remote' && !track.coverThumb && !pending.has(track.id)))
-        .map((track) => track.id);
-
-      if (targetIds.length === 0) {
-        return;
-      }
-
-      for (const trackId of targetIds) {
-        pending.add(trackId);
-      }
-
-      void remoteApi
-        .hydrateVisibleTracks(targetIds, { metadata: false, cover: true, immediateCover: true, priority: 20 })
-        .then((hydratedTracks) => {
-          setRemoteCachedTracks((current) => mergeTracksById(current, hydratedTracks));
-        })
-        .finally(() => {
-          for (const trackId of targetIds) {
-            pending.delete(trackId);
-          }
-        });
-    },
-    [mode, remoteApi, remoteTracks, selectedRemoteSource?.provider],
+    (_trackIds: string[]): void => {},
+    [],
   );
 
   useRemoteCoverPreloader({
-    active: mode === 'remote',
+    active: false,
     tracks: remoteTracks,
     visibleTrackIds: remoteVisibleTrackIds,
     hydrateMissingCovers: hydrateRemoteMissingCovers,
@@ -1905,29 +1751,22 @@ export const FoldersPage = (): JSX.Element => {
 
   const handlePlayTrack = useCallback(
     async (track: LibraryTrack): Promise<void> => {
-      const queueSource = mode === 'remote' ? remoteSource : folderSource;
+      const queueSource = folderSource;
       if (!queueSource) {
         return;
       }
 
       try {
         setSelectedTrackIds({});
-        if (mode === 'remote' && track.mediaType === 'remote') {
-          setRemoteLoadingTrackId(track.id);
-        }
         await playTrack(track, {
           replaceQueueWith: activeTracks,
           source: queueSource,
         });
       } catch (playError) {
         setError(formatFolderError(playError, t));
-      } finally {
-        if (mode === 'remote' && track.mediaType === 'remote') {
-          setRemoteLoadingTrackId((current) => (current === track.id ? null : current));
-        }
       }
     },
-    [activeTracks, folderSource, mode, playTrack, remoteSource, t],
+    [activeTracks, folderSource, playTrack, t],
   );
 
   const handleToggleTrackSelected = useCallback((track: LibraryTrack): void => {
@@ -2006,7 +1845,7 @@ export const FoldersPage = (): JSX.Element => {
         switch (action) {
           case 'play-next':
             {
-              const queueSource = mode === 'remote' ? remoteSource : folderSource;
+              const queueSource = folderSource;
               if (queueSource) {
                 actionTracks.forEach((item) => playTrackNext(item, queueSource));
               }
@@ -2014,7 +1853,7 @@ export const FoldersPage = (): JSX.Element => {
             return;
           case 'add-to-queue':
             {
-              const queueSource = mode === 'remote' ? remoteSource : folderSource;
+              const queueSource = folderSource;
               if (queueSource) {
                 if (actionTracks.length > 1) {
                   appendTracksToQueue(actionTracks, queueSource);
@@ -2150,43 +1989,52 @@ export const FoldersPage = (): JSX.Element => {
         return;
       }
 
+      draggedFolderRootIdRef.current = overview.id;
       setDraggedFolderRootId(overview.id);
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData(folderRootDragMime, overview.id);
       event.dataTransfer.setData('text/plain', overview.id);
+      console.log('[DRAG] start', overview.id, overview.name);
     },
     [canReorderFolderRoots],
   );
 
   const handleFolderRootDragOver = useCallback(
     (event: DragEvent<HTMLButtonElement>, overview: LibraryFolderOverview): void => {
-      if (!canReorderFolderRoots || !draggedFolderRootId || draggedFolderRootId === overview.id) {
+      const draggedId = draggedFolderRootIdRef.current;
+      if (!canReorderFolderRoots || !draggedId || draggedId === overview.id) {
         return;
       }
 
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
       setDropTargetFolderRootId((current) => (current === overview.id ? current : overview.id));
+      console.log('[DRAG] over', overview.id, overview.name);
     },
-    [canReorderFolderRoots, draggedFolderRootId],
+    [canReorderFolderRoots],
   );
 
   const handleFolderRootDrop = useCallback(
     (event: DragEvent<HTMLButtonElement>, targetOverview: LibraryFolderOverview): void => {
       event.preventDefault();
       const sourceFolderId =
-        draggedFolderRootId ||
+        draggedFolderRootIdRef.current ||
         event.dataTransfer.getData(folderRootDragMime) ||
         event.dataTransfer.getData('text/plain');
 
+      console.log('[DRAG] drop', { sourceFolderId, targetId: targetOverview.id, targetName: targetOverview.name, ref: draggedFolderRootIdRef.current });
+
+      draggedFolderRootIdRef.current = null;
       setDraggedFolderRootId(null);
       setDropTargetFolderRootId(null);
 
       if (!canReorderFolderRoots || !sourceFolderId || sourceFolderId === targetOverview.id) {
+        console.log('[DRAG] drop skipped', { canReorderFolderRoots, sourceFolderId, sameTarget: sourceFolderId === targetOverview.id });
         return;
       }
 
       const nextOrderIds = moveFolderRootId(orderedOverviews, sourceFolderId, targetOverview.id);
+      console.log('[DRAG] moveResult', nextOrderIds);
       if (!nextOrderIds) {
         return;
       }
@@ -2196,10 +2044,11 @@ export const FoldersPage = (): JSX.Element => {
       setError(null);
       setMessage('文件夹顺序已保存');
     },
-    [canReorderFolderRoots, draggedFolderRootId, orderedOverviews],
+    [canReorderFolderRoots, orderedOverviews],
   );
 
   const handleFolderRootDragEnd = useCallback((): void => {
+    draggedFolderRootIdRef.current = null;
     setDraggedFolderRootId(null);
     setDropTargetFolderRootId(null);
   }, []);
@@ -2363,24 +2212,24 @@ export const FoldersPage = (): JSX.Element => {
   };
 
   return (
-    <div className="folders-workbench" ref={workbenchRef}>
+    <div className="folders-workbench" data-mode={mode} ref={workbenchRef}>
       <aside className="folders-sidebar">
         <div className="folders-pane-header">
           <div>
-            <span className="panel-kicker">{mode === 'remote' ? '网盘' : t('folders.sidebar.kicker')}</span>
+            <span className="panel-kicker">{mode === 'import' ? '导入' : t('folders.sidebar.kicker')}</span>
             <h1>{t('folders.sidebar.title')}</h1>
           </div>
           <div className="folders-header-tools">
             <div className="folder-source-switch" role="tablist" aria-label="文件夹来源">
               <button type="button" className={mode === 'local' ? 'active' : ''} onClick={() => setMode('local')}>本地</button>
-              <button type="button" className={mode === 'remote' ? 'active' : ''} onClick={() => setMode('remote')}>网盘</button>
+              <button type="button" className={mode === 'import' ? 'active' : ''} onClick={() => setMode('import')}>导入</button>
             </div>
             <button
               className="tool-button"
               type="button"
               aria-label={t('folders.action.refresh')}
               title={t('folders.action.refresh')}
-              onClick={() => mode === 'remote' ? void loadRemoteSources() : void refreshOverviews()}
+              onClick={() => void refreshOverviews()}
             >
               <RefreshCw className={isLoadingOverviews || isLoadingRemoteSources ? 'spinning-icon' : undefined} size={17} />
             </button>
@@ -2395,51 +2244,7 @@ export const FoldersPage = (): JSX.Element => {
         ) : null}
 
         <div className="folders-root-list">
-          {mode === 'remote' ? (
-            remoteSources.length === 0 ? (
-              <div className="folders-empty-state">
-                <p className="folders-empty">{isLoadingRemoteSources ? t('common.loading') : '还没有网盘来源。请先在设置里添加 WebDAV / 百度网盘等来源。'}</p>
-                {!isLoadingRemoteSources ? (
-                  <button className="folders-empty-action" type="button" onClick={handleOpenRemoteSourceSettings}>
-                    <FolderPlus size={14} />
-                    添加网盘来源
-                  </button>
-                ) : null}
-              </div>
-            ) : (
-              remoteSources.map((source) => {
-                const isSourceSelected = selectedRemote?.sourceId === source.id;
-                const currentPath = isSourceSelected ? selectedRemote?.path ?? remoteRootPathForSource(source) : remoteRootPathForSource(source);
-                const credentialHint = remoteCredentialHintFor(source);
-                return (
-                  <div className="folder-root-group" key={source.id}>
-                    <button className="folder-root-button" data-active={isSourceSelected && currentPath === remoteRootPathForSource(source)} type="button" onClick={() => handleRemoteNavigate(remoteTargetFromSource(source))}>
-                      <span className="folder-expand-hit" data-hidden="true" />
-                      <FolderOpen size={17} />
-                      <span>
-                        <strong>{source.displayName}</strong>
-                        <small>{remoteProviderLabels[source.provider]} · {remoteStatusLabels[source.status]}{credentialHint ? ` · ${credentialHint}` : ''}</small>
-                      </span>
-                      <em>{source.indexedTrackCount}</em>
-                    </button>
-                    {isSourceSelected ? (
-                      <div className="folder-tree-children">
-                        {currentPath !== remoteRootPathForSource(source) ? (
-                          <button className="folder-tree-node" type="button" onClick={handleRemoteUp}>
-                            <span className="folder-expand-hit" data-hidden="true" />
-                            <Folder size={15} />
-                            <span>..</span>
-                            <em />
-                          </button>
-                        ) : null}
-                        {renderRemoteChildNodes(source, remoteRootPathForSource(source))}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })
-            )
-          ) : overviews.length === 0 ? (
+          {overviews.length === 0 ? (
             <p className="folders-empty">{t('folders.empty.roots')}</p>
           ) : (
             orderedOverviews.map((overview) => {
@@ -2467,7 +2272,7 @@ export const FoldersPage = (): JSX.Element => {
                       }
                     }}
                   >
-                    <GripVertical className="folder-root-drag-handle" size={15} aria-hidden="true" />
+                    {canReorderFolderRoots ? <GripVertical className="folder-root-drag-handle" size={15} aria-hidden="true" /> : null}
                     <span
                       className="folder-expand-hit"
                       data-hidden={overview.childFolderCount === 0}
@@ -2485,7 +2290,7 @@ export const FoldersPage = (): JSX.Element => {
                       <strong>{overview.name}</strong>
                       <small>{scan ? statusLabel(scan.status, t) : t('folders.count.tracks', { count: overview.trackCount })}</small>
                     </span>
-                    <em>{overview.childFolderCount}</em>
+                    <em data-hidden={overview.trackCount === 0}>{overview.trackCount}</em>
                   </button>
                   {renderChildNodes(overview.id, overview.path)}
                 </div>
@@ -2495,265 +2300,166 @@ export const FoldersPage = (): JSX.Element => {
         </div>
       </aside>
 
-      <main className="folders-main">
-        <header className="folder-detail-header">
-          <div className="folder-cover-stack" data-cover-count={mode === 'remote' ? 0 : Math.min(selected?.coverThumbs.length ?? 0, 4)} aria-hidden="true">
-            {mode === 'local' ? (selected?.coverThumbs ?? []).slice(0, 4).map((cover, index) => (
-              <img alt="" key={cover} src={cover} style={{ '--cover-index': index } as CSSProperties} />
-            )) : null}
-            {mode === 'local' && selected?.coverThumbs.length ? null : <FolderOpen size={34} />}
+      {mode === 'import' ? (
+        <div className="folders-actions-panel">
+          <div className="folders-import-top-row">
+            <section>
+              <div className="folders-panel-heading">
+                <h2>导入</h2>
+              </div>
+              <div className="folder-action-grid" style={{ gridTemplateColumns: '1fr' }}>
+                <button type="button" onClick={() => void handleChooseFolder()}>
+                  <FolderPlus size={15} />
+                  导入文件夹
+                </button>
+              </div>
+            </section>
+
+            <section>
+              <div className="folders-panel-heading">
+                <h2>管理</h2>
+              </div>
+              <div className="folder-action-grid">
+                <button type="button" disabled={!selected} onClick={() => void handleOpenSelectedPath()}>
+                  <FolderOpen size={15} />
+                  打开文件夹
+                </button>
+                <button type="button" className="danger" disabled={!selected} onClick={() => void handleRemoveRoot()}>
+                  <Trash2 size={15} />
+                  移除文件夹
+                </button>
+              </div>
+            </section>
           </div>
-          <div className="folder-detail-title">
-            <span>
-              {mode === 'remote'
-                ? selectedRemote
-                  ? `${selectedRemote.sourceName} / ${selectedRemoteSource && selectedRemote.path === remoteRootPathForSource(selectedRemoteSource) ? '根目录' : '网盘文件夹'}`
-                  : '网盘文件夹'
-                : selected
+
+          <section>
+            <div className="folders-panel-heading">
+              <h2>扫描</h2>
+            </div>
+            <div className="folder-action-grid">
+              <button type="button" disabled={!selected || isSelectedScanning} onClick={() => void handleScanSelected()}>
+                <RefreshCw size={15} />
+                全量扫描
+              </button>
+              <button type="button" disabled={!isSelectedRoot || isSelectedScanning} onClick={() => void handleScanSelectedChanges()}>
+                <RotateCw size={15} />
+                增量扫描
+              </button>
+              <button type="button" disabled={!selected || isSelectedScanning} onClick={() => void handleRescanSelectedEmbeddedTags()}>
+                <RefreshCw size={15} />
+                重新读取标签
+              </button>
+              <button type="button" disabled={!isSelectedScanning} onClick={() => void handleCancelScan()}>
+                <XCircle size={15} />
+                取消扫描
+              </button>
+            </div>
+            {selectedScan ? (
+              <div className="folder-scan-card" data-running={runningStatuses.has(selectedScan.status)}>
+                <strong>{statusLabel(selectedScan.status, t)}</strong>
+                <p>{phaseLabel(selectedScan.phase, t)}</p>
+              </div>
+            ) : null}
+          </section>
+
+          {error || message ? (
+            <div className="folders-status-line">
+              <span>{error ?? message}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <main className="folders-main">
+          <header className="folder-detail-header">
+            <div className="folder-cover-stack" data-cover-count={Math.min(selected?.coverThumbs.length ?? 0, 4)} aria-hidden="true">
+              {(selected?.coverThumbs ?? []).slice(0, 4).map((cover, index) => (
+                <img alt="" key={cover} src={cover} style={{ '--cover-index': index } as CSSProperties} />
+              ))}
+              {selected?.coverThumbs.length ? null : <FolderOpen size={34} />}
+            </div>
+            <div className="folder-detail-title">
+              <span>
+                {selected
                   ? `${selected.rootName} / ${selected.path === selected.rootPath ? t('folders.detail.root') : t('folders.detail.subfolder')}`
                   : t('folders.detail.libraryFolders')}
+              </span>
+              <h2>{selected?.name ?? t('folders.detail.selectFolder')}</h2>
+              <p>{selected?.path ?? t('folders.detail.importHint')}</p>
+            </div>
+            <div className="folder-detail-actions">
+              <button className="primary-action" type="button" disabled={!selected || selected.trackCount === 0 || isBulkLoading} onClick={() => void runBulkAction('play')}>
+                <Play size={16} fill="currentColor" />
+                {t('folders.action.play')}
+              </button>
+              <button className="secondary-action" type="button" disabled={!selected || selected.trackCount === 0 || isBulkLoading} onClick={() => void runBulkAction('shuffle')}>
+                <Shuffle size={16} />
+                {t('folders.action.random')}
+              </button>
+              <button className="secondary-action" type="button" disabled={!selected || selected.trackCount === 0 || isBulkLoading} onClick={() => void runBulkAction('append')}>
+                <ListPlus size={16} />
+                {t('folders.action.queue')}
+              </button>
+            </div>
+          </header>
+
+          <section className="folder-metrics" aria-label={t('folders.metrics.label')}>
+            <span>
+              <strong>{selected?.trackCount ?? 0}</strong>
+              {t('folders.metrics.tracks')}
             </span>
-            <h2>{mode === 'remote' ? selectedRemote?.name ?? '选择网盘来源' : selected?.name ?? t('folders.detail.selectFolder')}</h2>
-            <p>{mode === 'remote' ? selectedRemote?.path ?? '添加网盘来源后，可以按目录浏览和播放。' : selected?.path ?? t('folders.detail.importHint')}</p>
-          </div>
-          <div className="folder-detail-actions">
-            <button className="primary-action" type="button" disabled={(mode === 'local' ? !selected : !selectedRemote || ((remoteFolderStats?.trackCount ?? remoteTracks.length) === 0)) || isBulkLoading} onClick={() => void runBulkAction('play')}>
-              <Play size={16} fill="currentColor" />
-              {t('folders.action.play')}
-            </button>
-            <button className="secondary-action" type="button" disabled={(mode === 'local' ? !selected : !selectedRemote || ((remoteFolderStats?.trackCount ?? remoteTracks.length) === 0)) || isBulkLoading} onClick={() => void runBulkAction('shuffle')}>
-              <Shuffle size={16} />
-              {t('folders.action.random')}
-            </button>
-            <button className="secondary-action" type="button" disabled={(mode === 'local' ? !selected : !selectedRemote || ((remoteFolderStats?.trackCount ?? remoteTracks.length) === 0)) || isBulkLoading} onClick={() => void runBulkAction('append')}>
-              <ListPlus size={16} />
-              {t('folders.action.queue')}
-            </button>
-          </div>
-        </header>
+            <span>
+              <strong>{formatDuration(selected?.totalDuration ?? 0, t)}</strong>
+              {t('folders.metrics.duration')}
+            </span>
+            <span>
+              <strong>{formatBytes(selected?.totalSizeBytes ?? 0)}</strong>
+              {t('folders.metrics.size')}
+            </span>
+            <span>
+              <strong>{selected?.childFolderCount ?? 0}</strong>
+              {t('folders.metrics.subfolders')}
+            </span>
+          </section>
 
-        <section className="folder-metrics" aria-label={t('folders.metrics.label')}>
-          <span>
-            <strong>{mode === 'remote' ? remoteFolderStats?.trackCount ?? remoteTracks.length : selected?.trackCount ?? 0}</strong>
-            {mode === 'remote' ? '可播放' : t('folders.metrics.tracks')}
-          </span>
-          <span>
-            <strong>{mode === 'remote' ? remoteFolderStats?.artistCount ?? 0 : formatDuration(selected?.totalDuration ?? 0, t)}</strong>
-            {mode === 'remote' ? '艺术家' : t('folders.metrics.duration')}
-          </span>
-          <span>
-            <strong>{mode === 'remote' ? formatBytes(remoteFolderStats?.totalSizeBytes ?? remoteItems.reduce((total, item) => total + (item.sizeBytes ?? 0), 0)) : formatBytes(selected?.totalSizeBytes ?? 0)}</strong>
-            {t('folders.metrics.size')}
-          </span>
-          <span>
-            <strong>{mode === 'remote' ? remoteFolderStats?.albumCount ?? 0 : selected?.childFolderCount ?? 0}</strong>
-            {mode === 'remote' ? '专辑' : t('folders.metrics.subfolders')}
-          </span>
-        </section>
-
-        <section className="folder-track-toolbar" aria-label={t('folders.filters.label')}>
-          <label className="search-box">
-            <Search size={18} aria-hidden="true" />
-            <input type="search" placeholder={t('folders.filters.searchPlaceholder')} {...searchInputProps} />
-          </label>
-          {mode === 'remote' ? (
-            <button className="folder-toggle" type="button" disabled={!selectedRemoteSource || isLoadingRemoteDirectory} onClick={() => void loadRemoteDirectory(selectedRemote)}>
-              <RefreshCw size={14} className={isLoadingRemoteDirectory ? 'spinning-icon' : undefined} />
-              <span>刷新目录</span>
-            </button>
-          ) : (
+          <section className="folder-track-toolbar" aria-label={t('folders.filters.label')}>
+            <label className="search-box">
+              <Search size={18} aria-hidden="true" />
+              <input type="search" placeholder={t('folders.filters.searchPlaceholder')} {...searchInputProps} />
+            </label>
             <label className="folder-toggle">
               <input type="checkbox" checked={recursive} onChange={(event) => setRecursive(event.target.checked)} />
               <span>{t('folders.filters.includeSubfolders')}</span>
             </label>
-          )}
-          <StyledSelect
-            className="folder-sort-control"
-            value={sort}
-            options={localizedSortOptions}
-            onChange={setSort}
-            ariaLabel={t('folders.filters.label')}
+            <StyledSelect
+              className="folder-sort-control"
+              value={sort}
+              options={localizedSortOptions}
+              onChange={setSort}
+              ariaLabel={t('folders.filters.label')}
+            />
+          </section>
+
+          <TrackList
+            tracks={activeTracks}
+            currentTrackId={currentTrackId}
+            canLoadMore={hasMore && !isLoadingTracks}
+            isLoadingMore={isLoadingTracks}
+            selectedTrackIds={selectedTrackIds}
+            onToggleSelected={handleToggleTrackSelected}
+            onEndReached={handleLoadMore}
+            onOpenTrackMenu={handleOpenTrackMenu}
+            onPlay={(track) => void handlePlayTrack(track)}
           />
-        </section>
 
-        <TrackList
-          tracks={activeTracks}
-          currentTrackId={currentTrackId}
-          loadingTrackId={mode === 'remote' ? remoteLoadingTrackId : null}
-          canLoadMore={mode === 'remote' ? remoteHasMore && !isLoadingRemoteTracks : hasMore && !isLoadingTracks}
-          isLoadingMore={mode === 'remote' ? isLoadingRemoteTracks : isLoadingTracks}
-          totalCount={mode === 'remote' ? remoteFolderStats?.trackCount ?? remoteTracks.length : undefined}
-          loadedCount={mode === 'remote' ? remoteTracks.length : undefined}
-          onAddToQueue={(track) => {
-            const queueSource = mode === 'remote' ? remoteSource : folderSource;
-            if (queueSource) {
-              appendToQueue(track, queueSource);
-            }
-          }}
-          selectedTrackIds={selectedTrackIds}
-          onToggleSelected={handleToggleTrackSelected}
-          onEndReached={handleLoadMore}
-          onOpenTrackMenu={handleOpenTrackMenu}
-          onPlay={(track) => void handlePlayTrack(track)}
-          onVisibleTrackIdsChange={mode === 'remote' ? handleVisibleRemoteTrackIdsChange : undefined}
-        />
-
-        {error || message || isLoadingTracks || isBulkLoading || isLoadingRemoteDirectory || isLoadingRemoteTracks ? (
-          <div className="folders-status-line">
-            <span>{error ?? message ?? (isBulkLoading ? t('folders.statusLine.preparingQueue') : mode === 'remote' ? '正在读取网盘目录...' : t('folders.statusLine.loadingTracks'))}</span>
-          </div>
-        ) : null}
-      </main>
-
-      <aside className="folders-actions-panel">
-        {mode === 'local' ? (
-          <section>
-            <div className="folders-panel-heading">
-              <span className="panel-kicker">{t('folders.panel.import')}</span>
-              <h2>{t('folders.panel.addFolder')}</h2>
-            </div>
-            <div className="folder-import-box">
-              <input type="text" placeholder="D:\\Music" value={folderPath} onChange={(event) => setFolderPath(event.target.value)} />
-              <button type="button" onClick={() => void handleChooseFolder()}>
-                <FolderPlus size={16} />
-                {t('folders.action.browse')}
-              </button>
-              <button type="button" disabled={!folderPath.trim()} onClick={() => void handleAddPath()}>
-                <RotateCw size={16} />
-                {t('folders.action.addScan')}
-              </button>
-            </div>
-          </section>
-        ) : (
-          <section>
-            <div className="folders-panel-heading">
-              <span className="panel-kicker">来源</span>
-              <h2>网盘文件夹</h2>
-            </div>
-            <div className="folder-scan-card" data-running={isLoadingRemoteDirectory}>
-              <strong>{selectedRemoteSource?.displayName ?? '未选择网盘来源'}</strong>
-              <span>{selectedRemote?.path ?? '添加来源后可浏览目录'}</span>
-              <em>{remoteDirectoryItems.length} 个文件夹，{remoteAudioItems.length} 个音频</em>
-            </div>
-          </section>
-        )}
-
-        <section>
-          <div className="folders-panel-heading">
-            <span className="panel-kicker">{mode === 'remote' ? '网盘' : t('folders.panel.manage')}</span>
-            <h2>{mode === 'remote' ? '当前目录' : t('folders.panel.selectedRoot')}</h2>
-          </div>
-          <div className="folder-action-grid">
-            {mode === 'remote' ? (
-              <>
-                <button type="button" disabled={!selectedRemoteSource || !remoteParentPath(selectedRemoteSource, selectedRemote?.path ?? '/')} onClick={handleRemoteUp}>
-                  <FolderOpen size={16} />
-                  上级
-                </button>
-                <button type="button" disabled={!selectedRemote || isLoadingRemoteDirectory} onClick={() => void loadRemoteDirectory(selectedRemote)}>
-                  <RefreshCw size={16} />
-                  刷新
-                </button>
-                <button type="button" disabled={!selectedRemoteSource} onClick={() => void handleRemoteSync()}>
-                  <RotateCw size={16} />
-                  同步索引
-                </button>
-                <button type="button" onClick={handleOpenRemoteSourceSettings}>
-                  <FolderPlus size={16} />
-                  添加来源
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" disabled={!selected} onClick={() => void handleOpenSelectedPath()}>
-                  <FolderOpen size={16} />
-                  {t('folders.action.open')}
-                </button>
-                <button type="button" disabled={!selected || isSelectedScanning} onClick={() => void handleScanSelected()}>
-                  <RotateCw size={16} />
-                  {t('folders.action.scan')}
-                </button>
-                <button type="button" disabled={!isSelectedRoot || isSelectedScanning} onClick={() => void handleScanSelectedChanges()}>
-                  <RefreshCw size={16} />
-                  {t('folders.action.scanChanges')}
-                </button>
-                <button type="button" disabled={!selected || isSelectedScanning} onClick={() => void handleRescanSelectedEmbeddedTags()}>
-                  <RefreshCw size={16} />
-                  {t('folders.action.rescanEmbeddedTags')}
-                </button>
-                <button type="button" disabled={!isSelectedScanning} onClick={() => void handleCancelScan()}>
-                  <XCircle size={16} />
-                  {t('folders.action.cancel')}
-                </button>
-                <button className="danger" type="button" disabled={!selectedOverview} onClick={() => void handleRemoveRoot()}>
-                  <Trash2 size={16} />
-                  {t('folders.action.remove')}
-                </button>
-              </>
-            )}
-          </div>
-          {hasRunningLocalScan ? (
-            <div className="folders-scan-warning folders-scan-warning--panel" role="note">
-              <AlertTriangle size={15} />
-              <span>{t('folders.scan.patientWarning')}</span>
+          {error || message || isLoadingTracks || isBulkLoading ? (
+            <div className="folders-status-line">
+              <span>{error ?? message ?? (isBulkLoading ? t('folders.statusLine.preparingQueue') : t('folders.statusLine.loadingTracks'))}</span>
             </div>
           ) : null}
-        </section>
+        </main>
+      )}
 
-        {mode === 'local' ? (
-          <section>
-          <div className="folders-panel-heading">
-            <span className="panel-kicker">{t('folders.panel.scan')}</span>
-            <h2>{t('folders.panel.status')}</h2>
-          </div>
-          {selectedScan ? (
-            <div className="folder-scan-card" data-running={runningStatuses.has(selectedScan.status)}>
-              <strong>{statusLabel(selectedScan.status, t)}</strong>
-              <span>{phaseLabel(selectedScan.phase, t)}</span>
-              <em>
-                {t('folders.scan.progress', {
-                  processed: selectedScan.processedFiles,
-                  total: selectedScan.totalFiles,
-                  errors: selectedScan.errorCount,
-                })}
-              </em>
-              {selectedScan.errors.length > 0 ? <p>{selectedScan.errors[0]}</p> : null}
-            </div>
-          ) : (
-            <p className="folders-empty">{t('folders.empty.noScan')}</p>
-          )}
-          </section>
-        ) : (
-          <section>
-            <div className="folders-panel-heading">
-              <span className="panel-kicker">说明</span>
-              <h2>低负载浏览</h2>
-            </div>
-            <p className="folders-empty">网盘模式只读取当前目录；播放时按需取流，同步索引才会启动后台扫描。</p>
-          </section>
-        )}
-        {mode === 'remote' ? (
-          <section>
-            <div className={`remote-scan-progress${remoteBackgroundActive ? ' remote-scan-progress--active' : ''}`}>
-              <div className="remote-scan-progress-head">
-                <span>{remoteSyncRunning ? '正在扫描目录' : remoteBackgroundActive ? '正在补全元数据 / 封面' : '索引状态'}</span>
-                <strong>{remoteProgressPercent}%</strong>
-              </div>
-              <div className="remote-scan-progress-track" aria-hidden="true">
-                <span style={{ width: `${remoteProgressPercent}%` }} />
-              </div>
-              <small>
-                {remoteSyncStatus
-                  ? `发现 ${remoteSyncStatus.discoveredCount}，写入 ${remoteSyncStatus.writtenCount}，失败 ${remoteSyncStatus.failedCount}`
-                  : '还没有扫描进度'}
-                {remoteJobStatus
-                  ? `；后台 待处理 ${remoteJobPendingCount}，运行 ${remoteJobRunningCount}，完成 ${remoteJobCompletedCount}`
-                  : ''}
-              </small>
-            </div>
-          </section>
-        ) : null}
-      </aside>
+
 
       {trackMenu ? (
         <TrackContextMenu

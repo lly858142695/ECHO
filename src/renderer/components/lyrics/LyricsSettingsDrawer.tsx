@@ -35,6 +35,7 @@ import type { LyricsProviderId, LyricsSearchCandidate, LyricsSource, LyricsTrack
 import { neteaseDjRadioPlaylistPrefix } from '../../../shared/types/streaming';
 import { registerAppearanceFontFile } from '../../preferences/appearancePreferences';
 import { translateFallback, useOptionalI18n } from '../../i18n/I18nProvider';
+import { getAppBridge } from '../../utils/echoBridge';
 import type { TranslationKey } from '../../i18n/locales';
 import { useOptionalPlaybackQueue } from '../../stores/PlaybackQueueProvider';
 import { DrawerSmartSearch } from '../common/DrawerSmartSearch';
@@ -121,6 +122,9 @@ type LyricsDrawerSettings = Pick<
   | 'lyricsCoverBlurPx'
   | 'lyricsCoverBrightnessPercent'
   | 'lyricsBackgroundScalePercent'
+  | 'lyricsSaveDir'
+  | 'coverSaveDir'
+  | 'artistImageSaveDir'
   | 'desktopLyricsFontSizePx'
   | 'desktopLyricsSecondaryFontSizePx'
   | 'desktopLyricsFontFamily'
@@ -193,6 +197,9 @@ const fallbackSettings: LyricsDrawerSettings = {
   desktopLyricsRomanizationEnabled: true,
   desktopLyricsTranslationEnabled: true,
   desktopLyricsHideWhenNoLyricsEnabled: false,
+  lyricsSaveDir: null,
+  coverSaveDir: null,
+  artistImageSaveDir: null,
 };
 
 const colorSwatches = ['#314054', '#FFFFFF', '#F6D365', '#8FCFBD', '#A8C7FA', '#FF8A80'];
@@ -718,6 +725,9 @@ const selectLyricsSettings = (settings: AppSettings): LyricsDrawerSettings => ({
   desktopLyricsRomanizationEnabled: settings.desktopLyricsRomanizationEnabled ?? fallbackSettings.desktopLyricsRomanizationEnabled,
   desktopLyricsTranslationEnabled: settings.desktopLyricsTranslationEnabled ?? fallbackSettings.desktopLyricsTranslationEnabled,
   desktopLyricsHideWhenNoLyricsEnabled: settings.desktopLyricsHideWhenNoLyricsEnabled === true,
+  lyricsSaveDir: settings.lyricsSaveDir ?? fallbackSettings.lyricsSaveDir,
+  coverSaveDir: settings.coverSaveDir ?? fallbackSettings.coverSaveDir,
+  artistImageSaveDir: settings.artistImageSaveDir ?? fallbackSettings.artistImageSaveDir,
 });
 
 export const LyricsSettingsPanel = ({ className, currentTrackTools, variant = 'drawer' }: LyricsSettingsPanelProps): JSX.Element => {
@@ -3202,6 +3212,40 @@ export const LyricsSettingsPanel = ({ className, currentTrackTools, variant = 'd
             />
           </label>
           <p>{t('lyricsSettings.online.autoSaveSidecarDescription')}</p>
+
+          <div style={{ marginTop: '12px', padding: '8px', background: 'var(--theme-panel-bg-muted)', borderRadius: '8px' }}>
+            <div className="settings-cache-path" style={{ marginBottom: '8px' }}>
+              <em>歌词保存目录</em>
+              <strong title={effectiveSettings.lyricsSaveDir ?? ''}>{effectiveSettings.lyricsSaveDir || '默认 (data/lyrics)'}</strong>
+            </div>
+            <div className="settings-chip-row settings-chip-row--left">
+              <button
+                className="settings-action-button"
+                type="button"
+                disabled={isBusy}
+                onClick={() => void (async () => {
+                  const currentDir = effectiveSettings.lyricsSaveDir || '';
+                  const dir = await getAppBridge()?.chooseLyricsDirectory?.(currentDir, 'lyrics');
+                  if (dir) {
+                    void patchSettings({ lyricsSaveDir: dir });
+                  }
+                })()}
+              >
+                <FolderOpen size={14} />
+                选择目录
+              </button>
+              {effectiveSettings.lyricsSaveDir ? (
+                <button
+                  className="settings-action-button"
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => void patchSettings({ lyricsSaveDir: null })}
+                >
+                  恢复默认
+                </button>
+              ) : null}
+            </div>
+          </div>
         </section>
 
         {showPersistentControls ? (

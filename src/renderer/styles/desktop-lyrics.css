@@ -148,6 +148,40 @@ html[data-theme-preset="darkSideMoon"] .desktop-lyrics-app[data-color-mode="them
   -webkit-app-region: no-drag;
 }
 
+.desktop-lyrics-lock-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  cursor: default;
+}
+
+.desktop-lyrics-unlock-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 150ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-lyrics-unlock-btn:hover {
+  opacity: 1;
+}
+
 .desktop-lyrics-line-text {
   display: grid;
   width: fit-content;

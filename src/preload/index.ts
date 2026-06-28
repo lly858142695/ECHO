@@ -1688,6 +1688,7 @@ const echoApi: EchoApi = {
     chooseAppWallpaper: () => ipcRenderer.invoke(IpcChannels.AppChooseAppWallpaper),
     loadFontFile: (path) => ipcRenderer.invoke(IpcChannels.AppLoadFontFile, path),
     chooseCacheDirectory: () => ipcRenderer.invoke(IpcChannels.AppChooseCacheDirectory),
+    chooseLyricsDirectory: (defaultPath?: string, type?: string) => ipcRenderer.invoke(IpcChannels.AppChooseLyricsDirectory, defaultPath, type),
     getDefaultCacheDirectory: () => ipcRenderer.invoke(IpcChannels.AppGetDefaultCacheDirectory),
     getCacheInventory: () => ipcRenderer.invoke(IpcChannels.AppGetCacheInventory),
     setCoverCacheDirectory: (request) => ipcRenderer.invoke(IpcChannels.AppSetCoverCacheDirectory, request),

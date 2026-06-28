@@ -7,7 +7,7 @@ import { setImmediate as yieldToMainLoop, setTimeout as delay } from 'node:timer
 import electron from 'electron';
 import { SCANNABLE_AUDIO_EXTENSIONS } from '../../shared/constants/audioExtensions';
 import { IpcChannels } from '../../shared/constants/ipcChannels';
-import { defaultSettings, getAppSettings, setAppSettings } from '../app/appSettings';
+import { defaultSettings, getAppSettings, getDefaultCoverSaveDir, setAppSettings } from '../app/appSettings';
 import { DEFAULT_REPLAY_GAIN_TARGET_LUFS } from '../../shared/constants/replayGain';
 import {
   assertProtectedLibraryAvailable,
@@ -2327,7 +2327,7 @@ export class LibraryService {
   }
 
   getDefaultCoverCacheDir(): string {
-    return getDefaultCoverCacheDir(this.databasePath);
+    return getDefaultCoverSaveDir();
   }
 
   setCoverCacheDir(coverCacheDir: string): void {
@@ -3162,7 +3162,7 @@ export const createLibraryService = (
   const replayGainAnalysisJobQueue = new ReplayGainAnalysisJobQueue(store, {
     getTargetLufs: () => readSettings().replayGainTargetLufs ?? DEFAULT_REPLAY_GAIN_TARGET_LUFS,
   });
-  const artistImageCacheDir = resolve(dependencies.artistImageCacheDir ?? join(dirname(databasePath), 'artist-images'));
+  const artistImageCacheDir = resolve(dependencies.artistImageCacheDir ?? readSettings().artistImageSaveDir ?? join(dirname(databasePath), 'artist-images'));
   const artistImageCacheService = new ArtistImageCacheService(database, {
     cacheRoot: artistImageCacheDir,
     providers: dependencies.artistImageProviders,

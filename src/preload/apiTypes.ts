@@ -337,6 +337,7 @@ export type EchoApi = {
     chooseAppWallpaper: () => Promise<string | null>;
     loadFontFile: (path: string) => Promise<FontFileAsset>;
     chooseCacheDirectory: () => Promise<string | null>;
+    chooseLyricsDirectory: (defaultPath?: string, type?: string) => Promise<string | null>;
     getDefaultCacheDirectory: () => Promise<string>;
     getCacheInventory: () => Promise<AppCacheInventory>;
     setCoverCacheDirectory: (request: SetCoverCacheDirectoryRequest) => Promise<CoverCacheMigrationResult | null>;

@@ -476,6 +476,48 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
     };
   }, [activeTab, isOpen, selectedPluginMetadataProviderKey]);
 
+  // Auto-search local lyrics when switching to lyrics tab (no network)
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'lyrics' || isSearchingLyrics || lyricsCandidates.length > 0 || !track) {
+      return;
+    }
+
+    const searchLocalOnly = async (): Promise<void> => {
+      const lyricsApi = window.echo?.lyrics;
+      if (!lyricsApi?.searchCandidates) {
+        return;
+      }
+
+      const requestId = lyricsSearchRequestIdRef.current + 1;
+      lyricsSearchRequestIdRef.current = requestId;
+      const searchText = [form.title || track.title, form.artist || track.artist].filter(Boolean).join(' ');
+
+      setIsSearchingLyrics(true);
+      setLyricsMessage('正在查找本地歌词...');
+
+      try {
+        const results = await lyricsApi.searchCandidates(track.id, searchText, 'local');
+        if (lyricsSearchRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setLyricsCandidates(results);
+        setLyricsMessage(results.length ? null : '未找到本地歌词。点击"搜索歌词"可联网搜索。');
+      } catch {
+        if (lyricsSearchRequestIdRef.current === requestId) {
+          setLyricsCandidates([]);
+          setLyricsMessage('本地歌词查找失败。');
+        }
+      } finally {
+        if (lyricsSearchRequestIdRef.current === requestId) {
+          setIsSearchingLyrics(false);
+        }
+      }
+    };
+
+    void searchLocalOnly();
+  }, [activeTab, isOpen]);
+
   const requestClose = (): void => {
     if (isSaving) {
       return;
@@ -1289,12 +1331,12 @@ export const TrackTagEditorDrawer = ({ track, isOpen, isSaving, error, onClose, 
                             data-lyrics-kind={candidateKind}
                           >
                             <div className="tag-editor-lyrics-candidate__main">
-                              <span className="tag-editor-kicker">{candidate.sourceLabel || lyricProviderLabels[candidate.provider]}</span>
                               <strong>{candidate.title || '未知标题'}</strong>
                               <em>{candidate.artist || '未知艺术家'}</em>
                               <small>{[candidate.album, formatDuration(candidate.durationSeconds)].filter(Boolean).join(' · ')}</small>
                             </div>
                             <div className="tag-editor-lyrics-badges">
+                              <span className="tag-editor-badge-source">{lyricProviderLabels[candidate.provider] || candidate.sourceLabel}</span>
                               <span>{formatLyricsScore(candidate.score)}</span>
                               <span>{candidate.risk ? lyricRiskLabels[candidate.risk] : '普通匹配'}</span>
                               <span>{lyricCandidateDisplayLabels[candidateKind]}</span>

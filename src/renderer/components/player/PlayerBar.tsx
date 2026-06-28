@@ -63,7 +63,6 @@ const maxInterpolatedStatusGapSeconds = 1.6;
 const maxStaleStatusRegressionSeconds = 2.5;
 const minVisibleStaleRegressionSeconds = 0.02;
 const seekAnchorMaxAgeSeconds = 3;
-const seekAnchorSettleToleranceSeconds = 0.25;
 const playbackRateChangeDiscontinuitySeconds = 0.35;
 const endedAutoAdvanceGraceSeconds = 5;
 const endedAutoAdvanceRetryDelayMs = 1200;
@@ -1800,12 +1799,10 @@ export const PlayerBar = ({
           seekAnchor.positionSeconds + (progressState === 'playing' ? elapsedSeconds * playbackRate : 0),
           durationLimit,
         );
-        const sourceReachedSeekTarget = boundedSourcePosition >= seekAnchor.positionSeconds;
-        const isStaleStatusAfterSeek =
-          elapsedSeconds < seekAnchorMaxAgeSeconds &&
-          (!sourceReachedSeekTarget || Math.abs(boundedSourcePosition - expectedSeekPosition) > seekAnchorSettleToleranceSeconds);
 
-        if (isStaleStatusAfterSeek) {
+        if (elapsedSeconds < seekAnchorMaxAgeSeconds) {
+          // Keep anchor alive for the full window — trust the seek target,
+          // not the source position which may briefly report a stale value.
           nextPositionSeconds = expectedSeekPosition;
         } else {
           seekAnchorRef.current = null;

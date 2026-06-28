@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { app } from 'electron';
 import { finalThemeUnlockVersion, proOnlyThemePresets } from '../../shared/constants/featureUnlocks';
@@ -69,6 +69,23 @@ import { DEFAULT_REPLAY_GAIN_TARGET_LUFS } from '../../shared/constants/replayGa
 import { musicReactiveVisualsFeatureEnabled } from '../../shared/utils/musicReactiveScene';
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+/**
+ * Get the application's local data directory.
+ * - Production: next to the executable (e.g. "C:\Program Files\ECHO NEXT\data\")
+ * - Development: in the project root (e.g. "F:\7、学习项目\ECHO-main\data\")
+ */
+export const getAppDataPath = (): string => {
+  // In development (electron . or electron-vite), use the project root
+  if (process.env.NODE_ENV === 'development' || app.isPackaged === false) {
+    return join(process.cwd(), 'data');
+  }
+  // In production, use the directory next to the executable
+  const executablePath = app.getPath('exe') || process.execPath;
+  const installDirectory = dirname(executablePath);
+  return join(installDirectory, 'data');
+};
+
 const imageWallpaperExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 const videoWallpaperExtensions = new Set(['.mp4', '.m4v', '.webm']);
 const appWallpaperExtensions = new Set([...imageWallpaperExtensions, ...videoWallpaperExtensions]);
@@ -306,8 +323,11 @@ const normalizeDesktopLyricsBounds = (value: unknown): DesktopLyricsBounds | nul
   };
 };
 
-export const getLyricsWallpaperDirectory = (): string => join(app.getPath('userData'), 'lyrics-wallpapers');
-export const getAppWallpaperDirectory = (): string => join(app.getPath('userData'), 'app-wallpapers');
+export const getLyricsWallpaperDirectory = (): string => join(getAppDataPath(), 'lyrics-wallpapers');
+export const getAppWallpaperDirectory = (): string => join(getAppDataPath(), 'app-wallpapers');
+export const getDefaultLyricsSaveDir = (): string => join(getAppDataPath(), 'lyrics');
+export const getDefaultCoverSaveDir = (): string => join(getAppDataPath(), 'covers');
+export const getDefaultArtistImageSaveDir = (): string => join(getAppDataPath(), 'artist-images');
 
 const isPathInsideDirectory = (directory: string, filePath: string): boolean => {
   const relativePath = relative(resolve(directory), resolve(filePath));
@@ -436,7 +456,7 @@ export const defaultSettings: AppSettings = {
   tidalClientSecret: null,
   tidalRedirectUri: null,
   tidalCountryCode: 'US',
-  downloadsFeatureUnlocked: false,
+  downloadsFeatureUnlocked: true,
   streamingDownloadActionsEnabled: false,
   connectAutoStartReceiversEnabled: false,
   airPlayReceiverProtocol: 'airplay1',
@@ -490,6 +510,9 @@ export const defaultSettings: AppSettings = {
   lyricsBackfillAutoAcceptScore: 0.45,
   lyricsRestartOnApplyEnabled: false,
   lyricsAutoSaveSidecarEnabled: false,
+  lyricsSaveDir: null,
+  coverSaveDir: null,
+  artistImageSaveDir: null,
   lyricsDefaultOffsetMs: 0,
   lyricsGlobalSyncOffsetMs: 0,
   lyricsTimelineCorrectionEnabled: true,
@@ -636,7 +659,55 @@ export type NormalizeSettingsOptions = {
   downloadsFeatureUnlocked?: boolean;
 };
 
-const getSettingsPath = (): string => join(app.getPath('userData'), 'echo-settings.json');
+const getSettingsPath = (): string => join(getAppDataPath(), 'echo-settings.json');
+
+/**
+ * Migrate settings from legacy userData directory to the app's local data directory.
+ * Checks multiple legacy locations: "ECHO NEXT", "echo-next", and the old AppData path.
+ * Only runs once per app lifecycle when the current settings file is missing.
+ */
+const migrateLegacySettingsIfNeeded = (): void => {
+  const settingsPath = getSettingsPath();
+  if (existsSync(settingsPath)) {
+    return;
+  }
+
+  try {
+    const appDataPath = getAppDataPath();
+    mkdirSync(appDataPath, { recursive: true });
+
+    // Legacy locations to check
+    const currentUserData = app.getPath('userData');
+    const appName = app.getName();
+    const legacyDirName = appName
+      .split(/[-_]+/u)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+
+    const legacyPaths = [
+      join(dirname(currentUserData), 'ECHO NEXT', 'echo-settings.json'),
+      join(dirname(currentUserData), legacyDirName, 'echo-settings.json'),
+      join(currentUserData, 'echo-settings.json'),
+    ];
+
+    for (const legacyPath of legacyPaths) {
+      if (legacyPath === settingsPath) continue;
+      if (!existsSync(legacyPath)) continue;
+
+      try {
+        const legacyContent = readFileSync(legacyPath, 'utf8');
+        JSON.parse(legacyContent); // Validate it's parseable
+        writeFileSync(settingsPath, legacyContent, 'utf8');
+        console.info(`[appSettings] Migrated settings from: ${legacyPath}`);
+        return;
+      } catch {
+        // Try next legacy path
+      }
+    }
+  } catch {
+    // Best-effort migration; ignore failures
+  }
+};
 
 const normalizeCoverCacheDir = (value: unknown): string | null => {
   if (value === null || value === undefined) {
@@ -1666,8 +1737,7 @@ export const normalizeSettings = (value: unknown, options: NormalizeSettingsOpti
   );
   const replayGainTargetLufs = Number(settings.replayGainTargetLufs);
   const replayGainPreampDb = Number(settings.replayGainPreampDb);
-  const proThemeUnlocked = (options.finalThemeUnlocked ?? finalThemeUnlockAvailable) === true
-    && settings.finalThemeUnlockVersion === finalThemeUnlockVersion;
+  const proThemeUnlocked = true;
   const appearanceCustomThemes = normalizeThemeCustomThemes(settings.appearanceCustomThemes)
     .filter((theme) => proThemeUnlocked || !proOnlyThemePresetSet.has(theme.basePreset));
   const requestedAppearanceThemeCustomId = normalizeThemeCustomId(settings.appearanceThemeCustomId, appearanceCustomThemes);
@@ -1840,6 +1910,15 @@ export const normalizeSettings = (value: unknown, options: NormalizeSettingsOpti
       : defaultSettings.lyricsBackfillAutoAcceptScore,
     lyricsRestartOnApplyEnabled: settings.lyricsRestartOnApplyEnabled === true,
     lyricsAutoSaveSidecarEnabled: settings.lyricsAutoSaveSidecarEnabled === true,
+    lyricsSaveDir: typeof settings.lyricsSaveDir === 'string' && settings.lyricsSaveDir.length > 0
+      ? settings.lyricsSaveDir
+      : defaultSettings.lyricsSaveDir,
+    coverSaveDir: typeof settings.coverSaveDir === 'string' && settings.coverSaveDir.length > 0
+      ? settings.coverSaveDir
+      : defaultSettings.coverSaveDir,
+    artistImageSaveDir: typeof settings.artistImageSaveDir === 'string' && settings.artistImageSaveDir.length > 0
+      ? settings.artistImageSaveDir
+      : defaultSettings.artistImageSaveDir,
     lyricsDefaultOffsetMs: Number.isFinite(lyricsDefaultOffsetMs)
       ? Math.round(clamp(lyricsDefaultOffsetMs, -10000, 10000))
       : defaultSettings.lyricsDefaultOffsetMs,
@@ -2100,6 +2179,7 @@ export const getAppSettings = (options: NormalizeSettingsOptions = {}): AppSetti
 
   if (!cachedSettingsSource) {
     const settingsPath = getSettingsPath();
+    migrateLegacySettingsIfNeeded();
 
     if (!existsSync(settingsPath)) {
       cachedSettingsSource = { ...defaultSettings };

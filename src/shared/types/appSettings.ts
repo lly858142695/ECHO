@@ -306,6 +306,9 @@ export type AppSettings = {
   lyricsBackfillAutoAcceptScore?: number;
   lyricsRestartOnApplyEnabled?: boolean;
   lyricsAutoSaveSidecarEnabled?: boolean;
+  lyricsSaveDir?: string | null;
+  coverSaveDir?: string | null;
+  artistImageSaveDir?: string | null;
   lyricsDefaultOffsetMs: number;
   lyricsGlobalSyncOffsetMs: number;
   lyricsTimelineCorrectionEnabled?: boolean;

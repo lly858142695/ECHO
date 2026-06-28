@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import electron from 'electron';
 import type { EchoDatabase } from '../database/createDatabase';
 import { getLibraryDatabaseManager } from '../database/LibraryDatabaseManager';
-import { defaultSettings, getAppSettings } from '../app/appSettings';
+import { defaultSettings, getAppSettings, getDefaultLyricsSaveDir } from '../app/appSettings';
 import { assertProtectedLibraryAvailable } from '../app/dataProtection';
 import { getLibraryService } from '../library/LibraryService';
 import type { LibraryTrack } from '../../shared/types/library';
@@ -62,6 +62,7 @@ type LyricsSettings = Pick<
   | 'lyricsRomanizationEnabled'
   | 'lyricsUtatenKanaEnabled'
   | 'lyricsTranslationEnabled'
+  | 'lyricsSaveDir'
 >;
 
 export type LyricsLookupOptions = {
@@ -275,10 +276,10 @@ const toManualSearchQuery = (track: LibraryTrack, searchText?: string | null): L
   return {
     trackId: track.id,
     title: normalizedSearchText,
-    artist: '',
-    album: null,
-    durationSeconds: null,
-    filePath: null,
+    artist: track.artist || track.albumArtist || '',
+    album: track.album || null,
+    durationSeconds: track.duration > 0 ? track.duration : null,
+    filePath: track.mediaType === 'remote' || track.mediaType === 'streaming' ? null : track.path,
   };
 };
 
@@ -701,6 +702,7 @@ const safeSettings = (readSettings: () => AppSettings): LyricsSettings => {
       lyricsRomanizationEnabled: settings.lyricsRomanizationEnabled !== false,
       lyricsUtatenKanaEnabled: settings.lyricsUtatenKanaEnabled === true,
       lyricsTranslationEnabled: settings.lyricsTranslationEnabled !== false,
+      lyricsSaveDir: settings.lyricsSaveDir ?? defaultSettings.lyricsSaveDir,
     };
   } catch {
     return {
@@ -763,7 +765,7 @@ export class LyricsService {
   constructor(
     private readonly database: EchoDatabase,
     private readonly library: LibraryLookup,
-    private readonly localProvider: LocalProvider = new LocalLyricsProvider(),
+    private readonly localProvider: LocalProvider = new LocalLyricsProvider(() => this.readAppSettings()),
     private readonly onlineProvider: OnlineProvider = new LrclibProvider(),
     private readonly readAppSettings: () => AppSettings = getAppSettings,
     private readonly closeDatabase: () => void = () => this.database.close(),
@@ -1375,20 +1377,16 @@ export class LyricsService {
       return;
     }
 
-    const audioFolder = dirname(query.filePath);
+    // 优先使用用户配置的歌词保存目录，否则使用默认歌词目录
+    const lyricsDir = settings.lyricsSaveDir || getDefaultLyricsSaveDir();
     const audioBaseName = basename(query.filePath, extname(query.filePath));
-    const existingSidecarPath = sidecarLyricsExtensions
-      .map((extension) => join(audioFolder, `${audioBaseName}${extension}`))
-      .find((candidatePath) => existsSync(candidatePath));
-    if (existingSidecarPath) {
-      return;
-    }
+    const targetPath = join(lyricsDir, `${audioBaseName}${sidecar.extension}`);
 
-    const targetPath = join(audioFolder, `${audioBaseName}${sidecar.extension}`);
     try {
+      mkdirSync(lyricsDir, { recursive: true });
       writeFileSync(targetPath, `${sidecar.text.trim()}\n`, 'utf8');
     } catch (error) {
-      console.warn('[lyrics] Failed to auto-save sidecar lyrics', {
+      console.warn('[lyrics] Failed to save lyrics', {
         trackId: query.trackId,
         targetPath,
         provider: lyrics.provider,

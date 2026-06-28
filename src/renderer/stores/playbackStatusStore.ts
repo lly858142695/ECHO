@@ -140,6 +140,32 @@ const isStaleStatusForVisualIntent = (status: AudioStatus | PlaybackStatus, inte
     return false;
   }
 
+  // Seek intent: if track changed and new track is playing/loading, accept immediately
+  if (
+    intent.type === 'seek' &&
+    !playbackMatchesIntent(status, intent) &&
+    (status.state === 'playing' || status.state === 'loading')
+  ) {
+    return false;
+  }
+
+  // Track-switch intent: only check track identity, not position.
+  // Position can be wildly stale if intent was created with stale playbackStatus.
+  if (intent.type === 'track-switch') {
+    // Same track → always accept (position irrelevant for track-switch)
+    if (playbackMatchesIntent(status, intent)) {
+      return false;
+    }
+    // Different track + intent is old + new track is playing/loading → accept (natural advance)
+    if (
+      Date.now() - intent.startedAtMs > trackSwitchPositionGuardMs &&
+      (status.state === 'playing' || status.state === 'loading')
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   const now = Date.now();
   return !playbackMatchesIntent(status, intent) || !playbackPositionMatchesIntent(status, intent, now);
 };
@@ -191,6 +217,11 @@ const shouldClearVisualIntentForPatch = (
   }
 
   if (shouldApplyPlaybackStatus && patch.playbackStatus?.state === 'error') {
+    return true;
+  }
+
+  // Clear visual intent when audio ends — no reason to keep masking after track finishes.
+  if (patch.audioStatus?.state === 'ended') {
     return true;
   }
 

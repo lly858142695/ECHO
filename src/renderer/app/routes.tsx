@@ -182,7 +182,7 @@ export const appRoutes: AppRoute[] = [
     description: 'Remote sources.',
     descriptionKey: 'route.remote.description',
     icon: EchoRemoteIcon,
-    placement: 'main',
+    placement: 'utility',
     element: <RemoteSourcesPanel />,
   },
   {
@@ -192,7 +192,7 @@ export const appRoutes: AppRoute[] = [
     description: 'DLNA and AirPlay wireless playback.',
     descriptionKey: 'route.connect.description',
     icon: EchoConnectIcon,
-    placement: 'main',
+    placement: 'utility',
     element: <ConnectPage />,
   },
   {
@@ -202,7 +202,7 @@ export const appRoutes: AppRoute[] = [
     description: 'Signal-chain tuning workbench.',
     descriptionKey: 'route.dsp.description',
     icon: EchoDspIcon,
-    placement: 'main',
+    placement: 'utility',
     element: <DspPage />,
   },
   {
@@ -262,7 +262,7 @@ export const appRoutes: AppRoute[] = [
     description: 'Local editable plugins.',
     descriptionKey: 'route.plugins.description',
     icon: EchoPluginsIcon,
-    placement: 'main',
+    placement: 'utility',
     element: <PluginsPage />,
   },
   {
@@ -272,7 +272,7 @@ export const appRoutes: AppRoute[] = [
     description: 'Saved tracks.',
     descriptionKey: 'route.liked.description',
     icon: EchoLikedIcon,
-    placement: 'utility',
+    placement: 'main',
     element: <LikedPage />,
   },
   {

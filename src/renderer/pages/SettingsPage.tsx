@@ -990,18 +990,18 @@ const sidebarSettingsRouteItems: SidebarSettingsRouteItem[] = [
   { id: 'albums', labelKey: 'route.albums.label', placement: 'main' },
   { id: 'artists', labelKey: 'route.artists.label', placement: 'main' },
   { id: 'folders', labelKey: 'route.folders.label', placement: 'main' },
-  { id: 'remote', labelKey: 'route.remote.label', placement: 'main' },
-  { id: 'connect', labelKey: 'route.connect.label', placement: 'main' },
-  { id: 'dsp', labelKey: 'route.dsp.label', placement: 'main' },
-  { id: 'streaming', labelKey: 'route.streaming.label', placement: 'main' },
   { id: 'queue', labelKey: 'route.queue.label', placement: 'main' },
   { id: 'history', labelKey: 'route.history.label', placement: 'main' },
   { id: 'playlists', labelKey: 'route.playlists.label', placement: 'main' },
+  { id: 'liked', labelKey: 'route.liked.label', placement: 'main' },
   { id: 'inbox', labelKey: 'route.inbox.label', placement: 'main' },
-  { id: 'plugins', labelKey: 'route.plugins.label', placement: 'main' },
-  { id: 'liked', labelKey: 'route.liked.label', placement: 'utility' },
-  { id: 'settings', labelKey: 'route.settings.label', placement: 'utility' },
+  { id: 'streaming', labelKey: 'route.streaming.label', placement: 'main' },
+  { id: 'dsp', labelKey: 'route.dsp.label', placement: 'utility' },
   { id: 'audio-settings', labelKey: 'route.audioSettings.label', placement: 'utility' },
+  { id: 'remote', labelKey: 'route.remote.label', placement: 'utility' },
+  { id: 'connect', labelKey: 'route.connect.label', placement: 'utility' },
+  { id: 'plugins', labelKey: 'route.plugins.label', placement: 'utility' },
+  { id: 'settings', labelKey: 'route.settings.label', placement: 'utility' },
   { id: 'lyrics-settings', labelKey: 'route.lyricsSettings.label', placement: 'utility' },
   { id: 'import-folder', labelKey: 'route.importFolder.label', placement: 'utility' },
   { id: 'import-file', labelKey: 'route.importFile.label', placement: 'utility' },
@@ -9503,14 +9503,12 @@ export const SettingsPage = (): JSX.Element => {
     }
   };
 
-  const currentCacheDirectory = appSettings?.coverCacheDir ?? defaultCacheDirectory ?? '';
-  const currentCacheDirectoryLabel = appSettings?.coverCacheDir
-    ? appSettings.coverCacheDir
-    : defaultCacheDirectory
-      ? t('mediaLibrary.settings.coverCache.defaultPath', { path: defaultCacheDirectory })
-      : t('mediaLibrary.settings.coverCache.defaultLoading');
+  const currentCacheDirectory = appSettings?.coverSaveDir ?? defaultCacheDirectory ?? '';
+  const currentCacheDirectoryLabel = appSettings?.coverSaveDir
+    ? appSettings.coverSaveDir
+    : '默认 (data/covers)';
   const pendingResolvedCacheDirectory =
-    pendingCacheDirectory === undefined ? null : pendingCacheDirectory ?? defaultCacheDirectory;
+    pendingCacheDirectory === undefined ? null : pendingCacheDirectory ?? '默认 (data/covers)';
   const currentDownloadDirectoryLabel = downloadSettings?.outputDirectory ?? t('mediaLibrary.settings.download.path.notSelected');
   const downloadsFeatureUnlocked = appSettings?.downloadsFeatureUnlocked === true;
   const networkMetadataEnabled = appSettings?.networkMetadataEnabled ?? true;
@@ -9641,7 +9639,8 @@ export const SettingsPage = (): JSX.Element => {
         return;
       }
 
-      const directory = await app.chooseCacheDirectory();
+      const currentDir = appSettings?.coverSaveDir ?? appSettings?.coverCacheDir ?? '';
+      const directory = await app.chooseLyricsDirectory(currentDir, 'cover');
       if (!directory) {
         return;
       }
@@ -9682,14 +9681,14 @@ export const SettingsPage = (): JSX.Element => {
         return;
       }
 
-      const settings = await app.getSettings();
-      setAppSettings(settings);
+      // Directly update local state instead of re-fetching from main process
+      patchAppSettings({ coverSaveDir: pendingCacheDirectory, coverCacheDir: null });
       await refreshCacheInventory();
       setPendingCacheDirectory(undefined);
       const migratedNothing = migrate && result && result.copiedFiles === 0 && result.skippedFiles === 0 && result.updatedCoverRows === 0;
       setCacheDirectoryMessage(
         migratedNothing
-          ? '缓存目录已切换；旧缓存不可用或没有可迁移文件，请点击上方“重扫缺失封面的歌曲”重新生成封面。'
+          ? '缓存目录已切换；旧缓存不可用或没有可迁移文件，请点击上方"重扫缺失封面的歌曲"重新生成封面。'
           : migrate
             ? '缓存目录已切换，封面缓存路径已更新。'
             : '缓存目录已切换，后续扫描会按需重新生成封面缓存。',
@@ -11714,187 +11713,18 @@ export const SettingsPage = (): JSX.Element => {
               </SettingRow>
               <div
                 className="settings-account-panel settings-echo-pro-account-panel"
-                data-expanded={echoProAccountPanelExpanded}
-                data-search-highlight={highlightedSettingId === 'settings-row-echo-pro-account' ? 'true' : undefined}
+                data-expanded={false}
                 id="settings-row-echo-pro-account"
               >
                 <header className="settings-account-panel-header">
                   <div>
-                    <h3>ECHO Pro 账号</h3>
-                    <p>{locale === 'zh-CN' ? '登录云端账号后，Pro 资格只由服务器验证。本地不会保存密码。注册时建议使用 QQ 号作为账号。' : 'After signing in, Pro eligibility is verified only by the server. Passwords are not stored locally. Use your QQ number as the account name when registering.'}</p>
+                    <h3>ECHO Pro</h3>
+                    <p>所有 Pro 功能已解锁。</p>
                   </div>
                   <div className="settings-account-panel-actions">
-                    <span className={`list-filter-chip ${echoProAccountStatus?.pro ? 'active' : ''}`}>
-                      {echoProAccountStatus?.pro ? 'Pro 已启用' : echoProAccountStatus?.loggedIn ? '未授权 Pro' : '未登录'}
-                    </span>
-                    {echoProMachineCode ? (
-                      <span className="settings-hwid-preview" title={echoProMachineCode}>
-                        HWID {echoProMachineCode.slice(0, 8)}...{echoProMachineCode.slice(-6)}
-                      </span>
-                    ) : null}
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void copyEchoProMachineCode()}
-                    >
-                      {echoProMachineCodeCopied ? <Check size={14} aria-hidden="true" /> : <Clipboard size={14} aria-hidden="true" />}
-                      {echoProMachineCodeCopied ? 'HWID 已复制' : '显示 HWID'}
-                    </button>
-                    <button
-                      className="settings-action-button settings-account-panel-toggle"
-                      type="button"
-                      aria-controls="settings-echo-pro-account-body"
-                      aria-expanded={echoProAccountPanelExpanded}
-                      aria-label={echoProAccountPanelExpanded ? '折叠 ECHO Pro 账号' : '展开 ECHO Pro 账号'}
-                      onClick={toggleEchoProAccountPanelExpanded}
-                    >
-                      {echoProAccountPanelExpanded ? '折叠' : '展开'}
-                      <ChevronDown size={15} />
-                    </button>
+                    <span className="list-filter-chip active">Pro 已启用</span>
                   </div>
                 </header>
-                {echoProAccountPanelExpanded ? (
-                  <div className="settings-account-list settings-echo-pro-account-body" id="settings-echo-pro-account-body">
-                    <article className="settings-account-row">
-                      <div className="settings-account-summary">
-                        <User size={18} aria-hidden="true" />
-                        <div>
-                          <h3>{echoProAccountStatus?.displayName ?? echoProAccountStatus?.username ?? 'ECHO Pro'}</h3>
-                          <p>{echoProAccountStatus?.checkedAt ? `上次检查 ${echoProAccountStatus.checkedAt}` : locale === 'zh-CN' ? '使用 QQ 号注册/登录后联网检查 Pro 资格。' : 'Register or sign in with your QQ number to check Pro eligibility online.'}</p>
-                        </div>
-                      </div>
-                      <label className="settings-account-cookie-field">
-                        <input
-                          type="text"
-                          value={echoProUsername}
-                          autoComplete="username"
-                          placeholder={locale === 'zh-CN' ? 'QQ号（作为账号）' : 'QQ number (account name)'}
-                          disabled={echoProBusyAction !== null}
-                          onChange={(event) => setEchoProUsername(event.target.value)}
-                        />
-                      </label>
-                      <label className="settings-account-cookie-field">
-                        <span className="settings-account-field-wrap">
-                        <input
-                          type={echoProPasswordVisible ? 'text' : 'password'}
-                          value={echoProPassword}
-                          autoComplete={echoProAccountStatus?.loggedIn ? 'current-password' : 'new-password'}
-                          placeholder="密码"
-                          disabled={echoProBusyAction !== null}
-                          onChange={(event) => setEchoProPassword(event.target.value)}
-                          onKeyDown={updateEchoProCapsLock}
-                          onKeyUp={updateEchoProCapsLock}
-                          onBlur={() => setEchoProCapsLockEnabled(false)}
-                        />
-                          <button
-                            className="settings-account-password-toggle"
-                            type="button"
-                            aria-label={echoProPasswordVisible ? '隐藏密码' : '显示密码'}
-                            title={echoProPasswordVisible ? '隐藏密码' : '显示密码'}
-                            disabled={echoProBusyAction !== null}
-                            onClick={() => setEchoProPasswordVisible((visible) => !visible)}
-                          >
-                            {echoProPasswordVisible ? <EyeOff size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
-                          </button>
-                        </span>
-                        {echoProCapsLockEnabled ? <span className="settings-account-field-warning">大写锁定已开启</span> : null}
-                      </label>
-                      <label className="settings-account-cookie-field">
-                        <input
-                          type="text"
-                          value={echoProRedeemKey}
-                          autoComplete="off"
-                          placeholder="ECHO Pro Key"
-                          disabled={echoProBusyAction !== null}
-                          onChange={(event) => setEchoProRedeemKey(event.target.value)}
-                        />
-                      </label>
-                      <div className="settings-account-actions">
-                        <button className="settings-action-button settings-account-login-button" type="button" disabled={echoProBusyAction !== null} onClick={() => void submitEchoProAccount('login')}>
-                          <LogIn size={14} aria-hidden="true" />
-                          {echoProBusyAction === 'login' ? '登录中' : '登录'}
-                        </button>
-                        <button className="settings-action-button" type="button" disabled={echoProBusyAction !== null} onClick={() => void submitEchoProAccount('register')}>
-                          <User size={14} aria-hidden="true" />
-                          {echoProBusyAction === 'register' ? '注册中' : '注册'}
-                        </button>
-                        <button className="settings-action-button" type="button" disabled={echoProBusyAction !== null} onClick={() => void refreshEchoProAccountStatus({ force: true })}>
-                          <RefreshCw size={14} aria-hidden="true" />
-                          {echoProBusyAction === 'refresh' ? '检查中' : '检查'}
-                        </button>
-                        <button className="settings-action-button" type="button" disabled={echoProBusyAction !== null || !echoProAccountStatus?.loggedIn || echoProRedeemKey.trim().length === 0} onClick={() => void redeemEchoProKey()}>
-                          <KeyRound size={14} aria-hidden="true" />
-                          {echoProBusyAction === 'redeem' ? '兑换中' : '兑换 Key'}
-                        </button>
-                        <button className="settings-danger-button" type="button" disabled={echoProBusyAction !== null || !echoProAccountStatus?.loggedIn} onClick={() => void logoutEchoProAccount()}>
-                          {echoProBusyAction === 'logout' ? '退出中' : '退出'}
-                        </button>
-                        <button className="settings-danger-button" type="button" disabled={echoProBusyAction !== null || !echoProAccountStatus?.loggedIn || echoProPassword.length === 0} onClick={() => void releaseEchoProDevices()}>
-                          {echoProBusyAction === 'release-devices' ? '解绑中' : '解绑所有设备'}
-                        </button>
-                      </div>
-                      <div className="settings-account-meta">
-                        <span>状态: {echoProAccountStatus?.loggedIn ? '已登录' : '未登录'} / {echoProAccountStatus?.pro ? 'Pro 有效' : 'Pro 未授权'}</span>
-                        <span>设备: {echoProAccountStatus?.machineCount ?? 0}/{echoProAccountStatus?.maxMachineCount ?? 2}</span>
-                        <span>{locale === 'zh-CN' ? '注册提示: 请优先使用 QQ 号作为账号，方便人工核对授权。' : 'Registration tip: use your QQ number as the account name so authorization can be matched reliably.'}</span>
-                        <span>验证: 云端账号或签名 Pro 插件 + 本机机器码。</span>
-                      </div>
-                      <div className="settings-account-meta">
-                        <span>本机 HWID: {echoProMachineCode ? `${echoProMachineCode.slice(0, 12)}...${echoProMachineCode.slice(-8)}` : '读取中'}</span>
-                        <span>HWID 是稳定哈希，用于生成绑定当前设备的 ECHO Pro 插件。</span>
-                      </div>
-                      <div className="settings-account-actions">
-                        <button className="settings-action-button" type="button" onClick={() => void copyEchoProMachineCode()}>
-                          {echoProMachineCodeCopied ? <Check size={14} aria-hidden="true" /> : <Clipboard size={14} aria-hidden="true" />}
-                          {echoProMachineCodeCopied ? 'HWID 已复制' : '复制 HWID'}
-                        </button>
-                      </div>
-                      <div className="settings-account-meta">
-                        <span>云端设置: {echoProSettingsCloudStatus?.available ? '已保存' : '暂无云端备份'}</span>
-                        <span>同步日期: {formatProtectionTimestamp(echoProSettingsCloudStatus?.lastSavedAt)}</span>
-                        <span>云端歌单: {echoProSettingsCloudStatus?.librarySyncPlaylistCount ?? 0} 个网络歌单 / {echoProSettingsCloudStatus?.librarySyncFavoriteTrackCount ?? 0} 首流媒体收藏</span>
-                        {echoProSettingsCloudStatus?.appVersion ? <span>来源版本: {echoProSettingsCloudStatus.appVersion}</span> : null}
-                        {echoProSettingsCloudStatus?.lastError ? <span>同步状态: {echoProSettingsCloudStatus.lastError}</span> : null}
-                      </div>
-                      <p className="settings-inline-note settings-account-note">
-                        {locale === 'zh-CN'
-                          ? '云端同步会保存设置、网络歌单和流媒体收藏；不会保存网易云 / QQ 音乐 / Spotify 等平台登录态。另一台设备同步后如不能播放，请先在账号设置里登录对应平台。'
-                          : 'Cloud sync saves settings, online playlists, and streaming favorites. It does not save NetEase / QQ Music / Spotify account sessions, so sign in to the matching provider before playback on another device.'}
-                      </p>
-                      <div className="settings-account-actions">
-                        <button
-                          className="settings-action-button"
-                          type="button"
-                          disabled={echoProSettingsCloudBusyAction !== null || echoProAccountStatus?.pro !== true}
-                          onClick={() => void saveEchoProSettingsCloud()}
-                        >
-                          <Save size={14} aria-hidden="true" />
-                          {echoProSettingsCloudBusyAction === 'save' ? '保存中' : '保存设置到云端'}
-                        </button>
-                        <button
-                          className="settings-action-button"
-                          type="button"
-                          disabled={echoProSettingsCloudBusyAction !== null || echoProAccountStatus?.pro !== true || echoProSettingsCloudStatus?.available !== true}
-                          onClick={() => void applyEchoProSettingsCloud()}
-                        >
-                          <Download size={14} aria-hidden="true" />
-                          {echoProSettingsCloudBusyAction === 'pull' ? '同步中' : '从云端同步'}
-                        </button>
-                        <button
-                          className="settings-action-button"
-                          type="button"
-                          disabled={echoProSettingsCloudBusyAction !== null || echoProAccountStatus?.pro !== true}
-                          onClick={() => void refreshEchoProSettingsCloudStatus()}
-                        >
-                          <RefreshCw size={14} aria-hidden="true" />
-                          {echoProSettingsCloudBusyAction === 'status' ? '刷新中' : '刷新同步日期'}
-                        </button>
-                      </div>
-                      {echoProMessage ? <p className="settings-inline-note settings-account-note">{echoProMessage}</p> : null}
-                      {echoProError ? <p className="settings-inline-error settings-account-note">{echoProError}</p> : null}
-                    </article>
-                  </div>
-                ) : null}
               </div>
               <SettingRow title={t('settings.general.closeToTray')}>
                 <ToggleButton
@@ -15307,6 +15137,43 @@ export const SettingsPage = (): JSX.Element => {
                   ) : null}
                 </div>
               </SettingRow>
+              <SettingRow
+                className="setting-row--full setting-row--compact-panel"
+                title="歌手头像保存目录"
+                description="配置歌手头像的保存位置。留空则使用默认目录（data/artist-images）。"
+              >
+                <div className="settings-cache-panel">
+                  <div className="settings-cache-path">
+                    <em>当前目录</em>
+                    <strong title={appSettings?.artistImageSaveDir ?? ''}>{appSettings?.artistImageSaveDir || '默认 (data/artist-images)'}</strong>
+                  </div>
+                  <div className="settings-chip-row settings-chip-row--left">
+                    <button
+                      className="settings-action-button"
+                      type="button"
+                      onClick={() => void (async () => {
+                        const currentDir = appSettings?.artistImageSaveDir || '';
+                        const dir = await getAppBridge()?.chooseLyricsDirectory?.(currentDir, 'artistImage');
+                        if (dir !== undefined) {
+                          await patchAppSettings({ artistImageSaveDir: dir || null });
+                        }
+                      })()}
+                    >
+                      <FolderOpen size={15} />
+                      选择目录
+                    </button>
+                    {appSettings?.artistImageSaveDir ? (
+                      <button
+                        className="settings-action-button"
+                        type="button"
+                        onClick={() => void patchAppSettings({ artistImageSaveDir: null })}
+                      >
+                        恢复默认
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </SettingRow>
               {downloadsFeatureUnlocked ? (
                 <>
                   <SettingRow
@@ -15594,7 +15461,7 @@ export const SettingsPage = (): JSX.Element => {
                         setCacheDirectoryResult(null);
                         setCacheDirectoryMessage(null);
                       }}
-                      disabled={cacheDirectoryBusy || !defaultCacheDirectory}
+                      disabled={cacheDirectoryBusy}
                     >
                       {t('mediaLibrary.settings.coverCache.action.restoreDefault')}
                     </button>
@@ -15603,7 +15470,7 @@ export const SettingsPage = (): JSX.Element => {
                     <div className="settings-cache-confirm">
                       <span>
                         <em>{t('mediaLibrary.settings.coverCache.currentShort')}</em>
-                        <strong title={currentCacheDirectory}>{currentCacheDirectory || t('mediaLibrary.settings.coverCache.loading')}</strong>
+                        <strong title={currentCacheDirectory}>{currentCacheDirectoryLabel}</strong>
                       </span>
                       <span>
                         <em>{t('mediaLibrary.settings.coverCache.newDirectory')}</em>
@@ -15755,194 +15622,6 @@ export const SettingsPage = (): JSX.Element => {
             <SettingSection activeKey={activeSection} icon={Info} id="about" title={t('settings.nav.about.label')}>
               <SettingRow title={t('settings.about.version.title')} description={t('settings.about.version.description')}>
                 <StatusText tone={appVersion ? 'neutral' : 'muted'}>{appVersion ?? t('common.checking')}</StatusText>
-              </SettingRow>
-              <SettingRow
-                title={t('settings.about.pro.title')}
-                description={t(finalThemeUnlocked ? 'settings.about.pro.descriptionUnlocked' : 'settings.about.pro.description')}
-              >
-                <button className="settings-action-button" type="button" onClick={() => void handleOpenExternalUrl(afdianSponsorUrl)}>
-                  {finalThemeUnlocked ? <Check size={15} /> : <ExternalLink size={15} />}
-                  {t(finalThemeUnlocked ? 'settings.about.pro.actionUnlocked' : 'settings.about.pro.action')}
-                </button>
-              </SettingRow>
-              <SettingRow
-                className="setting-row--full setting-row--compact-panel"
-                title={t('settings.about.updates.title')}
-                description={t('settings.about.updates.description')}
-              >
-                <div className="settings-cache-panel settings-cache-panel--updates">
-                  <div className="settings-status-grid settings-status-grid--updates">
-                    <span>
-                      <em>{t('settings.about.updates.currentVersion')}</em>
-                      <strong>{appVersion ?? updateStatus?.currentVersion ?? t('common.checking')}</strong>
-                    </span>
-                    <span>
-                      <em>{t('settings.about.updates.latestVersion')}</em>
-                      <strong>{updateStatus?.latestVersion ?? 'n/a'}</strong>
-                    </span>
-                    <span>
-                      <em>{t('settings.about.updates.status')}</em>
-                      <strong>{t(getUpdateStateLabel(updateStatus?.state ?? (appSettings?.autoUpdateEnabled === false ? 'disabled' : 'idle')))}</strong>
-                    </span>
-                    <span>
-                      <em>{t('settings.about.updates.lastChecked')}</em>
-                      <strong>{updateStatus?.checkedAt ? new Date(updateStatus.checkedAt).toLocaleString() : 'n/a'}</strong>
-                    </span>
-                  </div>
-                  {showUpdateDownloadProgress ? (
-                    <div className="settings-update-progress" role="status" aria-live="polite">
-                      <div className="settings-update-progress-label">
-                        <span>{updateStatus?.state === 'downloaded' ? t('settings.about.updates.progress.ready') : t('settings.about.updates.progress.downloading')}</span>
-                        <strong>{updateDownloadPercent}%</strong>
-                      </div>
-                      <div
-                        aria-label={t('settings.about.updates.progress.aria', { percent: updateDownloadPercent })}
-                        aria-valuemax={100}
-                        aria-valuemin={0}
-                        aria-valuenow={updateDownloadPercent}
-                        className="settings-update-progress-track"
-                        role="progressbar"
-                      >
-                        <span style={{ width: `${updateDownloadPercent}%` }} />
-                      </div>
-                      <div className="settings-update-progress-meta">
-                        <span>{updateDownloadSizeLabel}</span>
-                        <span>{updateDownloadSpeedLabel}</span>
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="settings-chip-row settings-chip-row--left settings-chip-row--actions">
-                    <div className="settings-inline-toggle">
-                      <span>{t('settings.about.updates.autoCheck')}</span>
-                      <ToggleButton
-                        active={appSettings?.autoUpdateEnabled ?? true}
-                        disabled={!appSettings}
-                        onClick={() => patchAppSettings({ autoUpdateEnabled: !(appSettings?.autoUpdateEnabled ?? true) })}
-                      />
-                    </div>
-                    <div className="settings-update-source-picker">
-                      <span>{t('settings.about.updates.downloadSource')}</span>
-                      <StyledSelect
-                        ariaLabel={t('settings.about.updates.downloadSourceAria')}
-                        className="settings-update-source-select"
-                        disabled={!appSettings}
-                        options={autoUpdateSourceOptions.map((option) => ({
-                          value: option.source,
-                          label: `${option.label} · ${option.description}`,
-                        }))}
-                        showFilterIcon={false}
-                        value={currentAutoUpdateSource}
-                        onChange={handleAutoUpdateSourceSelect}
-                      />
-                    </div>
-                    {currentAutoUpdateSource === 'custom' ? (
-                      <div className="settings-update-custom-source">
-                        <span>{t('settings.about.updates.customGenericSource')}</span>
-                        <input
-                          disabled={!appSettings}
-                          placeholder="https://example.com/echo/releases/latest/download"
-                          type="url"
-                          value={autoUpdateCustomUrlDraft}
-                          onChange={(event) => setAutoUpdateCustomUrlDraft(event.target.value)}
-                        />
-                        <button className="settings-action-button" type="button" disabled={!appSettings} onClick={handleAutoUpdateCustomUrlSave}>
-                          <Save size={15} />
-                          {t('settings.about.updates.action.save')}
-                        </button>
-                      </div>
-                    ) : null}
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      disabled={updateBusy || appSettings?.autoUpdateEnabled === false}
-                      onClick={() => void handleCheckForUpdates()}
-                    >
-                      <RotateCw className={updateBusy ? 'spinning-icon' : undefined} size={15} />
-                      {updateBusy ? t('settings.about.updates.action.checking') : t('settings.about.updates.action.check')}
-                    </button>
-                    <button className="settings-action-button" type="button" onClick={() => void handleOpenRepository()}>
-                      <Github size={15} />
-                      ECHO NEXT
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void handleOpenExternalUrl(officialWebsiteUrl)}
-                    >
-                      <Globe2 size={15} />
-                      {t('settings.about.links.officialWebsite')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void handleOpenExternalUrl(userDocumentationUrl)}
-                    >
-                      <ExternalLink size={15} />
-                      {t('settings.about.links.documentation')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void handleOpenExternalUrl(baiduPanShareUrl)}
-                    >
-                      <ExternalLink size={15} />
-                      {t('settings.about.links.baiduPan')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void handleOpenExternalUrl(bilibiliSpaceUrl)}
-                    >
-                      <ExternalLink size={15} />
-                      {t('settings.about.links.bilibili')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void handleOpenExternalUrl(afdianSponsorUrl)}
-                    >
-                      <ExternalLink size={15} />
-                      {t('settings.about.updates.action.afdian')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void handleOpenExternalUrl('https://github.com/moekotori/echo/releases')}
-                    >
-                      <History size={15} />
-                      {t('settings.about.updates.action.history')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void handleOpenExternalUrl('https://qm.qq.com/q/KrJE8PIqSQ')}
-                    >
-                      <ExternalLink size={15} />
-                      {t('settings.about.updates.action.qq')}
-                    </button>
-                    <button
-                      className="settings-action-button"
-                      type="button"
-                      onClick={() => void handleOpenExternalUrl('https://discord.gg/g7v4WMRq3K')}
-                    >
-                      <ExternalLink size={15} />
-                      {t('settings.about.updates.action.discord')}
-                    </button>
-                  </div>
-                  {updateStatus?.releaseNotes ? (
-                    <div className="settings-update-notes">
-                      <em>{t('settings.about.updates.releaseNotes')}</em>
-                      {deferredAboutReleaseNotes === updateStatus.releaseNotes ? (
-                        <ReleaseNotesMarkdown markdown={updateStatus.releaseNotes} />
-                      ) : (
-                        <p className="settings-inline-note">{t('settings.about.updates.releaseNotesPending')}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="settings-inline-note">{t('settings.about.updates.releaseNotesEmpty')}</p>
-                  )}
-                  {updateStatus?.error ? <p className="settings-inline-error">{updateStatus.error}</p> : null}
-                </div>
               </SettingRow>
               <SettingRow
                 id="settings-row-safe-mode"

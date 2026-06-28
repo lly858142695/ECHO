@@ -743,6 +743,8 @@ export const DesktopLyricsApp = (): JSX.Element => {
   const [enhancedLowLoadPlaybackActive, setEnhancedLowLoadPlaybackActive] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuPinnedVisible, setMenuPinnedVisible] = useState(false);
+  const [hoverUnlockVisible, setHoverUnlockVisible] = useState(false);
+  const hoverTimerRef = useRef<number | null>(null);
   const lyricsRequestRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
   const lastActiveClockLogRef = useRef<{ key: string; positionMs: number } | null>(null);
@@ -963,7 +965,25 @@ export const DesktopLyricsApp = (): JSX.Element => {
     if (settings.desktopLyricsLocked) {
       setMenuPinnedVisible(false);
       setPassthrough(true);
+
+      // In locked mode, we still need to detect mouse hover over the lock overlay
+      // so the unlock button can appear. Without this, setIgnoreMouseEvents blocks
+      // CSS hover from ever firing.
+      const updateLockedPassthrough = (event: MouseEvent): void => {
+        const target = document.elementFromPoint(event.clientX, event.clientY);
+        const overLockOverlay = Boolean(target?.closest('.desktop-lyrics-lock-overlay'));
+        setPassthrough(!overLockOverlay);
+      };
+      const lockedPassthroughOnLeave = (): void => {
+        setPassthrough(true);
+        setHoverUnlockVisible(false);
+      };
+
+      window.addEventListener('mousemove', updateLockedPassthrough);
+      window.addEventListener('mouseleave', lockedPassthroughOnLeave);
       return () => {
+        window.removeEventListener('mousemove', updateLockedPassthrough);
+        window.removeEventListener('mouseleave', lockedPassthroughOnLeave);
         desktopLyrics.setMousePassthrough(false);
       };
     }
@@ -1415,6 +1435,40 @@ export const DesktopLyricsApp = (): JSX.Element => {
     }
   }, [settings.desktopLyricsLocked]);
 
+  const handleHoverUnlockEnter = useCallback((): void => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+    }
+    hoverTimerRef.current = window.setTimeout(() => {
+      hoverTimerRef.current = null;
+      setHoverUnlockVisible(true);
+      window.echo?.desktopLyrics?.setMousePassthrough?.(false);
+    }, 1200);
+  }, []);
+
+  const handleHoverUnlockLeave = useCallback((): void => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setHoverUnlockVisible(false);
+    if (settings.desktopLyricsLocked) {
+      window.echo?.desktopLyrics?.setMousePassthrough?.(true);
+    }
+  }, [settings.desktopLyricsLocked]);
+
+  const handleHoverUnlockClick = useCallback(async (): Promise<void> => {
+    setHoverUnlockVisible(false);
+    try {
+      const state = await window.echo?.desktopLyrics?.setLocked?.(false);
+      if (state) {
+        setSettings(pickDesktopLyricsSettings(state.settings));
+      }
+    } catch {
+      // Keep the current lock state if the desktop lyrics IPC call fails.
+    }
+  }, []);
+
   const hideWindow = useCallback((): void => {
     void window.echo?.desktopLyrics?.hide?.();
   }, []);
@@ -1713,6 +1767,27 @@ export const DesktopLyricsApp = (): JSX.Element => {
               ))}
             </div>
           </div>
+
+          {settings.desktopLyricsLocked ? (
+            <div
+              className="desktop-lyrics-lock-overlay"
+              onMouseEnter={handleHoverUnlockEnter}
+              onMouseLeave={handleHoverUnlockLeave}
+            >
+              {hoverUnlockVisible ? (
+                <button
+                  className="desktop-lyrics-unlock-btn"
+                  type="button"
+                  title="解锁"
+                  aria-label="解锁"
+                  onClick={() => void handleHoverUnlockClick()}
+                  onMouseLeave={handleHoverUnlockLeave}
+                >
+                  <Lock size={14} />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           {!settings.desktopLyricsLocked ? (
             <div className="desktop-lyrics-menu" onBlur={handleMenuBlur} onFocus={handleMenuFocus}>

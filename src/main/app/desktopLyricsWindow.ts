@@ -185,7 +185,9 @@ const applyDesktopLyricsAlwaysOnTop = (window: BrowserWindow): void => {
 
 const applyDesktopLyricsLockState = (window: BrowserWindow): void => {
   const locked = getAppSettings().desktopLyricsLocked === true;
-  window.setIgnoreMouseEvents(locked || desktopLyricsMousePassthrough, { forward: true });
+  // When desktopLyricsMousePassthrough is explicitly false, allow mouse events
+  // even in locked mode (for hover-unlock UI)
+  window.setIgnoreMouseEvents(locked && desktopLyricsMousePassthrough, { forward: true });
 };
 
 const rememberDesktopLyricsBounds = (window: BrowserWindow): void => {
@@ -399,7 +401,10 @@ export const setDesktopLyricsMousePassthrough = (event: IpcMainEvent, passthroug
     return;
   }
 
-  desktopLyricsMousePassthrough = getAppSettings().desktopLyricsLocked === true || passthrough === true;
+  // When passthrough is explicitly false, allow it even when locked (for hover-unlock UI)
+  desktopLyricsMousePassthrough = passthrough === false
+    ? false
+    : getAppSettings().desktopLyricsLocked === true || passthrough === true;
   applyDesktopLyricsLockState(desktopLyricsWindow);
 };
 

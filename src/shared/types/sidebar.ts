@@ -6,18 +6,18 @@ export const sidebarRouteIds = [
   'albums',
   'artists',
   'folders',
-  'remote',
-  'connect',
-  'dsp',
-  'streaming',
   'queue',
   'history',
   'playlists',
-  'inbox',
-  'plugins',
   'liked',
-  'settings',
+  'inbox',
+  'streaming',
+  'dsp',
   'audio-settings',
+  'remote',
+  'connect',
+  'plugins',
+  'settings',
   'lyrics-settings',
   'import-folder',
   'import-file',
@@ -44,27 +44,28 @@ export const isSidebarRouteId = (value: unknown): value is SidebarRouteId =>
   typeof value === 'string' && sidebarRouteIdSet.has(value);
 
 export const normalizeSidebarRouteOrder = (value: unknown): SidebarRouteId[] => {
-  const order: SidebarRouteId[] = [];
+  if (!Array.isArray(value)) {
+    return [...defaultSidebarRouteOrder];
+  }
+
   const seen = new Set<SidebarRouteId>();
+  const result: SidebarRouteId[] = [];
 
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      if (!isSidebarRouteId(item) || seen.has(item)) {
-        continue;
-      }
-
-      order.push(item);
+  for (const item of value) {
+    if (isSidebarRouteId(item) && !seen.has(item)) {
+      result.push(item);
       seen.add(item);
     }
   }
 
-  for (const routeId of defaultSidebarRouteOrder) {
-    if (!seen.has(routeId)) {
-      order.push(routeId);
+  for (const id of defaultSidebarRouteOrder) {
+    if (!seen.has(id)) {
+      result.push(id);
+      seen.add(id);
     }
   }
 
-  return order;
+  return result;
 };
 
 export const normalizeSidebarHiddenRouteIds = (value: unknown): SidebarRouteId[] => {

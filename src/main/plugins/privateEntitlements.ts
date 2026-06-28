@@ -158,19 +158,8 @@ export const createPrivateFeatureError = (
   return error;
 };
 
-export const requirePrivateFeature = async (feature: PrivateFeatureId = 'echo-pro'): Promise<void> => {
-  try {
-    const proLicenseStatus = getPluginService().getEchoProLicenseStatus();
-    if (proLicenseStatus.valid && proLicenseStatus.enabled && proLicenseStatus.features.includes('echo-pro')) {
-      return;
-    }
-  } catch {
-    // If the plugin host is unavailable, keep the feature behind the normal provider.
-  }
-  if (!provider?.requireFeature) {
-    throw createPrivateFeatureError(feature);
-  }
-  await provider.requireFeature(feature);
+export const requirePrivateFeature = async (_feature: PrivateFeatureId = 'echo-pro'): Promise<void> => {
+  // Pro restrictions removed for personal use
 };
 
 export const getDefaultEchoProAccountStatus = (): EchoProAccountStatus => ({

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseFile, type IAudioMetadata, type ILyricsTag } from 'music-metadata';
+import { getDefaultLyricsSaveDir } from '../app/appSettings';
 import type { LyricsQuery, LyricsSearchCandidate, TrackLyrics } from '../../shared/types/lyrics';
 import { decodeTextFileBytes } from '../../shared/utils/decodeTextFile';
 import type { LyricsProvider, LyricsProviderCapability, LyricsProviderResult, LyricsProviderSearchRequest } from './LyricsProvider';
@@ -95,11 +96,10 @@ const firstNativeText = (metadata: IAudioMetadata, keys: string[]): string | nul
 const firstAsfNativeLyricsText = (filePath: string, metadata: IAudioMetadata): string | null =>
   asfLyricsExtensions.has(extname(filePath).toLowerCase()) ? firstNativeText(metadata, ['WM/Lyrics']) : null;
 
-const candidatePaths = (audioPath: string): Array<{ filePath: string; extension: LocalLyricsCandidate['extension'] }> => {
+const candidatePaths = (audioPath: string, extraDirs: string[] = []): Array<{ filePath: string; extension: LocalLyricsCandidate['extension'] }> => {
   const folder = dirname(audioPath);
   const baseName = basename(audioPath, extname(audioPath));
-
-  return [
+  const results: Array<{ filePath: string; extension: LocalLyricsCandidate['extension'] }> = [
     { filePath: join(folder, `${baseName}.lrc`), extension: '.lrc' },
     { filePath: join(folder, `${baseName}.ttml`), extension: '.ttml' },
     { filePath: join(folder, `${baseName}.txt`), extension: '.txt' },
@@ -107,14 +107,24 @@ const candidatePaths = (audioPath: string): Array<{ filePath: string; extension:
     { filePath: join(folder, 'lyrics', `${baseName}.ttml`), extension: '.ttml' },
     { filePath: join(folder, 'lyrics', `${baseName}.txt`), extension: '.txt' },
   ];
+
+  for (const dir of extraDirs) {
+    results.push(
+      { filePath: join(dir, `${baseName}.lrc`), extension: '.lrc' },
+      { filePath: join(dir, `${baseName}.ttml`), extension: '.ttml' },
+      { filePath: join(dir, `${baseName}.txt`), extension: '.txt' },
+    );
+  }
+
+  return results;
 };
 
 const localLyricsSourceLabel = (extension: LocalLyricsCandidate['extension']): string => {
   if (extension === '.ttml') {
-    return 'Local TTML';
+    return '本地 TTML';
   }
 
-  return extension === '.lrc' ? 'Local LRC' : 'Local text';
+  return extension === '.lrc' ? '本地 LRC' : '本地文本';
 };
 
 const localSidecarReasons = (query: LyricsQuery, extension: LocalLyricsCandidate['extension'], raw: string | null): string[] => {
@@ -149,6 +159,27 @@ export class LocalLyricsProvider implements LyricsProvider {
     byMusicBrainzId: false,
     needsAccount: false,
   };
+
+  private readonly readSettings?: () => { lyricsSaveDir?: string | null };
+
+  constructor(readSettings?: () => { lyricsSaveDir?: string | null }) {
+    this.readSettings = readSettings;
+  }
+
+  private getExtraLyricsDirs(): string[] {
+    const settings = this.readSettings?.();
+    const dirs: string[] = [];
+    
+    // 优先使用用户配置的歌词保存目录
+    if (settings?.lyricsSaveDir) {
+      dirs.push(settings.lyricsSaveDir);
+    }
+    
+    // 始终加入默认歌词目录
+    dirs.push(getDefaultLyricsSaveDir());
+    
+    return dirs;
+  }
 
   async search(request: LyricsProviderSearchRequest): Promise<LyricsProviderResult[]> {
     const embedded = await this.getEmbeddedResult(request.query);
@@ -196,7 +227,7 @@ export class LocalLyricsProvider implements LyricsProvider {
       return [];
     }
 
-    return candidatePaths(query.filePath)
+    return candidatePaths(query.filePath, this.getExtraLyricsDirs())
       .filter((candidate) => existsSync(candidate.filePath))
       .map((candidate): LocalLyricsCandidate => {
         const reasons = localSidecarReasons(query, candidate.extension, readTextFile(candidate.filePath));

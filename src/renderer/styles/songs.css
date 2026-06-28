@@ -3866,6 +3866,18 @@ html[data-theme="dark"] .tag-editor-lyrics-candidate--instrumental .tag-editor-l
   background: rgba(255, 183, 77, 0.22);
 }
 
+.tag-editor-badge-source {
+  color: #1d4ed8 !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  background: rgba(59, 130, 246, 0.12) !important;
+}
+
+html[data-theme="dark"] .tag-editor-badge-source {
+  color: #93c5fd !important;
+  border-color: rgba(96, 165, 250, 0.3) !important;
+  background: rgba(96, 165, 250, 0.12) !important;
+}
+
 .tag-editor-lyrics-actions {
   grid-column: 1 / -1;
   justify-content: flex-end;

@@ -133,8 +133,8 @@ export const resolveCoverCacheDir = (databasePath: string, override?: string | n
   return getDefaultCoverCacheDir(databasePath);
 };
 
-export const resolveConfiguredCoverCacheDir = (databasePath: string, settings: Pick<AppSettings, 'coverCacheDir'>): string =>
-  resolveCoverCacheDir(databasePath, settings.coverCacheDir);
+export const resolveConfiguredCoverCacheDir = (databasePath: string, settings: Pick<AppSettings, 'coverCacheDir' | 'coverSaveDir'>): string =>
+  resolveCoverCacheDir(databasePath, settings.coverSaveDir ?? settings.coverCacheDir);
 
 export const updateCoverPathsInDatabase = (
   database: EchoDatabase,

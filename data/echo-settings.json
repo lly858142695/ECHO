@@ -1,0 +1,540 @@
+{
+  "appMemoryVersion": 6,
+  "onboardingCompleted": true,
+  "userNoticeAcceptedVersion": 1,
+  "locale": "zh-CN",
+  "appearanceTheme": "light",
+  "appearanceThemeScheduleEnabled": false,
+  "appearanceThemeScheduleDarkAt": "19:00",
+  "appearanceThemeScheduleLightAt": "07:00",
+  "appearanceThemePreset": "sakuraMilk",
+  "appearanceThemePresetOverrides": {},
+  "appearanceCustomThemes": [],
+  "appearanceThemeCustomId": null,
+  "finalThemeUnlockVersion": "plugin:echo.connect-donator-unlock:pro-themes-v1",
+  "appearanceThemePresetsExpanded": true,
+  "appearanceThemeCustomExpanded": false,
+  "appearanceSidebarLayoutExpanded": false,
+  "appWindowAcrylicEnabled": false,
+  "appWindowAcrylicKeepWhenUnfocusedEnabled": false,
+  "appWindowAcrylicTransparencyPercent": 70,
+  "appearancePreferences": {
+    "mainFontFamily": "Outfit",
+    "mainFontFilePath": null,
+    "chineseFontFamily": "Microsoft YaHei",
+    "chineseFontFilePath": null,
+    "fallbackFontFamily": "Noto Sans SC",
+    "fallbackFontFilePath": null,
+    "baseFontSize": 14,
+    "lineHeight": 1.35,
+    "textDepth": 62,
+    "albumCoverShape": "rounded"
+  },
+  "hiddenPlayerBarButtonIds": [
+    "audioExport"
+  ],
+  "sidebarRouteOrder": [
+    "home",
+    "songs",
+    "downloads",
+    "osu-downloader",
+    "albums",
+    "artists",
+    "folders",
+    "queue",
+    "history",
+    "playlists",
+    "liked",
+    "inbox",
+    "streaming",
+    "dsp",
+    "audio-settings",
+    "remote",
+    "connect",
+    "plugins",
+    "settings",
+    "lyrics-settings",
+    "import-folder",
+    "import-file"
+  ],
+  "sidebarHiddenRouteIds": [
+    "streaming",
+    "inbox",
+    "import-folder",
+    "lyrics-settings",
+    "import-file"
+  ],
+  "sidebarAutoHideEnabled": false,
+  "sidebarIconOnlyEnabled": false,
+  "settingsOptionalSectionsVisible": false,
+  "featureCommentsHidden": false,
+  "trackContextMenuExtraActionsEnabled": false,
+  "touchOnScreenKeyboardEnabled": false,
+  "songsSort": "default",
+  "rememberedAudioOutput": {
+    "enabled": true,
+    "outputMode": "shared",
+    "sharedBackend": "auto",
+    "latencyProfile": "balanced"
+  },
+  "hiddenAudioDeviceKeys": [],
+  "audioUseJuceOutput": false,
+  "audioUseJuceDecode": false,
+  "audioDsdOutputMode": "pcm",
+  "audioAsioNativeDsdExperimentalEnabled": false,
+  "audioDsdAutoVolumeLockEnabled": false,
+  "audioAsioUnavailableFallbackEnabled": false,
+  "audioExclusiveInstabilityFallbackEnabled": false,
+  "audioSoxrFallbackEnabled": true,
+  "audioEchoSrcMode": "off",
+  "audioEchoSrcQualityProfile": "transparent",
+  "audioReleaseExclusiveOnPauseExperimentalEnabled": false,
+  "audioIssueDiagnosticsWindowEnabled": false,
+  "albumMergeStrategy": "standard",
+  "artistMergeStrategy": "standard",
+  "chineseCrossScriptSearchEnabled": true,
+  "artistWallAlbumArtwork": true,
+  "artistWallAlbumFallbackForMissingAvatars": true,
+  "artistStreamingAlbumsEnabled": true,
+  "artistStreamingAlbumsProvider": "qqmusic",
+  "autoFetchArtistImages": true,
+  "artistImageFetchPaused": false,
+  "liveLibraryUpdatesEnabled": false,
+  "liveLibraryAutoHideDeletedEnabled": false,
+  "safeModeEnabled": false,
+  "fastStartupEnabled": false,
+  "sqliteBalancedDurabilityEnabled": false,
+  "dataProtectionDisabled": false,
+  "autoUpdateEnabled": false,
+  "autoUpdateSource": "official",
+  "autoUpdateCustomUrl": null,
+  "autoAccountCheckOnStartup": false,
+  "suppressAccountExpiryNotices": false,
+  "notificationsDisabled": false,
+  "upcomingTrackNoticeEnabled": false,
+  "spotifyAutoLaunchOfficialPlayer": true,
+  "spotifyClientId": null,
+  "spotifyRedirectUri": null,
+  "tidalClientId": "vmtQLf79BHl9YgUT",
+  "tidalClientSecret": null,
+  "tidalRedirectUri": null,
+  "tidalCountryCode": "US",
+  "downloadsFeatureUnlocked": true,
+  "streamingDownloadActionsEnabled": true,
+  "connectAutoStartReceiversEnabled": false,
+  "airPlayReceiverProtocol": "airplay1",
+  "hqPlayer": {
+    "enabled": false,
+    "connectionMode": "localDesktop",
+    "host": "127.0.0.1",
+    "port": 4321,
+    "executablePath": null,
+    "allowLaunch": false,
+    "mediaServerEnabled": false,
+    "mediaServerPort": null,
+    "defaultPlaybackBackend": "ask",
+    "profileName": null
+  },
+  "playlistBackupsEnabled": true,
+  "autoDataBackupEnabled": false,
+  "autoDataBackupDirectory": "D:\\Echo\\back",
+  "autoDataBackupIntervalDays": 7,
+  "autoDataBackupLastRunAt": null,
+  "autoDataBackupLastPath": null,
+  "autoDataBackupLastError": null,
+  "coverCacheDir": "D:\\Echo\\cache",
+  "hideToTrayOnClose": true,
+  "rememberWindowSizeEnabled": true,
+  "rememberedWindowSize": {
+    "width": 1166,
+    "height": 814
+  },
+  "appCustomWallpaperPath": null,
+  "appPortraitWallpaperPath": null,
+  "appWallpaperMediaType": "image",
+  "appPortraitWallpaperMediaType": "image",
+  "appWallpaperScalePercent": 100,
+  "appWallpaperBlurPx": 0,
+  "appWallpaperBrightnessPercent": 100,
+  "appWallpaperUiOpacityPercent": 100,
+  "appWallpaperVisualProtectionEnabled": true,
+  "appWallpaperUnifiedOpacityEnabled": false,
+  "nowPlayingCoverColorEnabled": false,
+  "appVideoWallpaperPauseMode": "smart",
+  "networkProxyMode": "off",
+  "networkProxyUrl": null,
+  "networkProxyBypassRules": "<local>;localhost;127.0.0.1;::1;*.local;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*",
+  "networkProxyPacUrl": null,
+  "networkMetadataEnabled": true,
+  "networkMetadataProviders": [
+    "netease-cloud-music",
+    "qq-music"
+  ],
+  "onlineArtistInfoBandsintownAppId": null,
+  "onlineArtistInfoTicketmasterApiKey": null,
+  "onlineArtistInfoSeatGeekClientId": null,
+  "onlineArtistInfoRegion": null,
+  "onlineArtistInfoSources": [
+    "baidu-baike"
+  ],
+  "onlineAlbumInfoDiscogsUserToken": null,
+  "audioAnalysisEnabled": true,
+  "lyricsNetworkEnabled": true,
+  "lyricsPreferredProvider": "lrclib",
+  "lyricsEnabledProviders": [
+    "local",
+    "lrclib",
+    "netease",
+    "qqmusic",
+    "kugou",
+    "kuwo"
+  ],
+  "lyricsProviderOrder": [
+    "local",
+    "lrclib",
+    "netease",
+    "qqmusic",
+    "kugou",
+    "kuwo"
+  ],
+  "lyricsProviderTimeoutMs": 4500,
+  "lyricsTotalMatchTimeoutMs": 6000,
+  "lyricsCoverAutoAcceptScore": 0.97,
+  "lyricsDeepSearchEnabled": true,
+  "lyricsAutoSearch": true,
+  "lyricsAutoAcceptScore": 0.95,
+  "lyricsBackfillAutoAcceptScore": 0.95,
+  "lyricsRestartOnApplyEnabled": false,
+  "lyricsAutoSaveSidecarEnabled": true,
+  "lyricsSaveDir": "F:\\4、musics\\0、歌词",
+  "coverSaveDir": "F:\\4、musics\\0、封面",
+  "artistImageSaveDir": "F:\\4、musics\\0、歌手头像",
+  "lyricsDefaultOffsetMs": 0,
+  "lyricsGlobalSyncOffsetMs": 0,
+  "lyricsTimelineCorrectionEnabled": true,
+  "lyricsOffsetControlsEnabled": true,
+  "lyricsSmartAlignmentEnabled": true,
+  "lyricsEnabled": true,
+  "lyricsHeaderHidden": false,
+  "lyricsMvAutoShowTrackInfoDisabled": true,
+  "lyricsCandidatePanelAutoOpenEnabled": false,
+  "lyricsEmptyStateHidden": true,
+  "lyricsPlayerBarDrawerEnabled": true,
+  "lyricsPlayerBarDrawerAutoEnableForMv": false,
+  "lyricsPlayerBarDrawerAutoHideEnabled": true,
+  "lyricsPlayerBarDrawerOpacityPercent": 60,
+  "lyricsPlayerBarDrawerColorMode": "default",
+  "lyricsPlayerBarDrawerColor": "#232120",
+  "lyricsRomanizationEnabled": true,
+  "lyricsUtatenKanaEnabled": true,
+  "lyricsTranslationEnabled": true,
+  "lyricsWordHighlightEnabled": true,
+  "lyricsWordHighlightClarityPercent": 100,
+  "lyricsFontSizePx": 40,
+  "lyricsSecondaryFontSizePx": 22,
+  "lyricsFontFamily": "Microsoft YaHei",
+  "lyricsFontFilePath": null,
+  "lyricsTextDirection": "horizontal",
+  "lyricsLineSpacingPercent": 110,
+  "lyricsLineMaxChars": 0,
+  "lyricsContextOpacityPercent": 49,
+  "lyricsColor": "#FF8A80",
+  "lyricsSmartReadableColorsEnabled": true,
+  "lyricsImmersiveCoverStyleEnabled": false,
+  "lyricsImmersiveCoverGlassEnabled": true,
+  "lyricsImmersiveCoverGlassBlurPx": 16,
+  "lyricsHighResolutionNetworkCoverEnabled": false,
+  "lyricsMusicReactiveVisualsEnabled": false,
+  "lyricsBackgroundMode": "theme",
+  "lyricsCustomWallpaperPath": null,
+  "lyricsCoverOpacityPercent": 100,
+  "lyricsCoverBlurPx": 10,
+  "lyricsCoverBrightnessPercent": 100,
+  "lyricsBackgroundScalePercent": 100,
+  "desktopLyricsEnabled": true,
+  "desktopLyricsLocked": false,
+  "desktopLyricsFontSizePx": 34,
+  "desktopLyricsSecondaryFontSizePx": 19,
+  "desktopLyricsScalePercent": 100,
+  "desktopLyricsFontFamily": "Microsoft YaHei",
+  "desktopLyricsFontFilePath": null,
+  "desktopLyricsColorMode": "custom",
+  "desktopLyricsColor": "#F0ABFC",
+  "desktopLyricsStrokeColor": "#111827",
+  "desktopLyricsGradientStartColor": "#4F46E5",
+  "desktopLyricsGradientEndColor": "#EC4899",
+  "desktopLyricsOpacityPercent": 96,
+  "desktopLyricsTextDirection": "horizontal",
+  "desktopLyricsRomanizationEnabled": false,
+  "desktopLyricsTranslationEnabled": true,
+  "desktopLyricsHideWhenNoLyricsEnabled": false,
+  "desktopLyricsBounds": {
+    "x": 0,
+    "y": 848,
+    "width": 1600,
+    "height": 170
+  },
+  "miniPlayerEnabled": false,
+  "miniPlayerLocked": false,
+  "miniPlayerAutoHideMainWindow": true,
+  "miniPlayerBounds": {
+    "x": 1291,
+    "y": 44,
+    "width": 388,
+    "height": 74
+  },
+  "mvEnabled": true,
+  "mvEnabledProviders": [
+    "bilibili"
+  ],
+  "mvProviderOrder": [
+    "bilibili",
+    "youtube"
+  ],
+  "mvAutoSearch": true,
+  "mvAutoPreload": true,
+  "mvAutoApplyThreshold": 0.9,
+  "mvPreferHighestViewCount": true,
+  "mvImmersiveBackground": true,
+  "mvImmersiveBackgroundAutoScale": true,
+  "mvImmersiveBackgroundScalePercent": 115,
+  "mvImmersiveBackgroundOffsetXPercent": 50,
+  "mvImmersiveBackgroundOffsetYPercent": 50,
+  "mvImmersiveBackgroundBlurPx": 0,
+  "mvImmersiveBackgroundBrightnessPercent": 100,
+  "mvImmersiveBackgroundOverlayOpacityPercent": 0,
+  "mvLyricsReadabilityEnhanced": true,
+  "mvHideLyrics": false,
+  "mvRestartAudioOnLoad": false,
+  "mvSyncMode": "balanced",
+  "mvReplayAudioOnChange": true,
+  "mvMaxQuality": "max",
+  "mvAllow60fps": true,
+  "channelBalance": {
+    "enabled": false,
+    "balance": 0,
+    "leftGainDb": 0,
+    "rightGainDb": 0,
+    "bandGains": {
+      "low": {
+        "leftGainDb": 0,
+        "rightGainDb": 0
+      },
+      "mid": {
+        "leftGainDb": 0,
+        "rightGainDb": 0
+      },
+      "high": {
+        "leftGainDb": 0,
+        "rightGainDb": 0
+      }
+    },
+    "leftDelayMs": 0,
+    "rightDelayMs": 0,
+    "swapLeftRight": false,
+    "monoMode": "off",
+    "invertLeft": false,
+    "invertRight": false,
+    "constantPower": true
+  },
+  "playerVolume": 1,
+  "homeWaveformVisualizerEnabled": true,
+  "audioVisualSpectrumEnabled": false,
+  "lowLoadPlaybackModeEnabled": false,
+  "lowLoadPlaybackEnhancementsEnabled": false,
+  "homeRandomHeroTitleEnabled": true,
+  "playerWaveformProgressEnabled": false,
+  "signalPathControlEnabled": true,
+  "fixedVolumeEnabled": false,
+  "gaplessPlaybackEnabled": false,
+  "audioTransportFadeEnabled": false,
+  "audioTransportFadeInMs": 80,
+  "audioTransportFadeOutMs": 80,
+  "audioTransportFadeCurve": "smooth",
+  "replayGainEnabled": false,
+  "replayGainMode": "track",
+  "replayGainTargetLufs": -14,
+  "replayGainPreampDb": 0,
+  "replayGainPreventClipping": true,
+  "replayGainAnalyzeOnPlay": true,
+  "replayGainAnalyzeMissingOnScanOptIn": false,
+  "replayGainAnalyzeMissingOnScan": false,
+  "backgroundSpacePauseEnabled": false,
+  "localShortcuts": {
+    "playPause": {
+      "enabled": true,
+      "accelerator": "Space"
+    },
+    "previousTrack": {
+      "enabled": false,
+      "accelerator": "Ctrl+K"
+    },
+    "nextTrack": {
+      "enabled": false,
+      "accelerator": "Ctrl+J"
+    },
+    "stop": {
+      "enabled": false,
+      "accelerator": "S"
+    },
+    "volumeUp": {
+      "enabled": false,
+      "accelerator": "Ctrl+Up"
+    },
+    "volumeDown": {
+      "enabled": false,
+      "accelerator": "Ctrl+Down"
+    },
+    "seekBackward": {
+      "enabled": false,
+      "accelerator": "Left"
+    },
+    "seekForward": {
+      "enabled": false,
+      "accelerator": "Right"
+    },
+    "showMainWindow": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "bossKey": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "speedUp": {
+      "enabled": false,
+      "accelerator": "Ctrl+="
+    },
+    "speedDown": {
+      "enabled": false,
+      "accelerator": "Ctrl+-"
+    },
+    "openAudioSettings": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "openMvSettings": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "openLyricsSettings": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "locateCurrentTrack": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "toggleDesktopLyrics": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "toggleDesktopLyricsLock": {
+      "enabled": false,
+      "accelerator": null
+    }
+  },
+  "globalShortcuts": {
+    "playPause": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "previousTrack": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "nextTrack": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "stop": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "volumeUp": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "volumeDown": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "seekBackward": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "seekForward": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "showMainWindow": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "bossKey": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "speedUp": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "speedDown": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "openAudioSettings": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "openMvSettings": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "openLyricsSettings": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "locateCurrentTrack": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "toggleDesktopLyrics": {
+      "enabled": false,
+      "accelerator": null
+    },
+    "toggleDesktopLyricsLock": {
+      "enabled": false,
+      "accelerator": null
+    }
+  },
+  "audioExportFormat": "mp3",
+  "playbackSpeed": 1,
+  "playbackSpeedMode": "nightcore",
+  "scanPerformanceMode": "balanced",
+  "nativeFileScannerEnabled": false,
+  "nativeMetadataReaderEnabled": false,
+  "remoteCoverLoadPerformanceMode": "balanced",
+  "remoteAlbumMergeStrategy": "conservative",
+  "remoteBackgroundConcurrency": {
+    "metadata": 2,
+    "cover": 2,
+    "lyrics": 1,
+    "mv": 1,
+    "durationBackfill": 1
+  },
+  "duplicateTracksEnabled": true,
+  "duplicateTracksMode": "strict",
+  "duplicateTracksAutoRebuildAfterScan": false,
+  "discordRichPresenceEnabled": true,
+  "lastFmEnabled": false,
+  "lastFmUsername": null,
+  "lastFmSessionKey": null,
+  "lastFmScrobbleEnabled": true,
+  "lastFmNowPlayingEnabled": true,
+  "lastFmMinScrobbleSeconds": 30,
+  "lastFmAuthToken": null,
+  "smtcEnabled": true,
+  "smtcLyricsEnabled": true,
+  "taskbarPlaybackControlsEnabled": false
+}

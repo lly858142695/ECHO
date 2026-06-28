@@ -28,6 +28,9 @@ import {
   defaultSettings,
   getAppSettings,
   getAppWallpaperDirectory,
+  getDefaultArtistImageSaveDir,
+  getDefaultCoverSaveDir,
+  getDefaultLyricsSaveDir,
   getLyricsWallpaperDirectory,
   normalizeSettings,
   setAppSettings,
@@ -234,21 +237,9 @@ const normalizeCoverCacheRequest = (value: unknown): SetCoverCacheDirectoryReque
 
 const getAppCacheInventory = (): Promise<AppCacheInventory> => collectAppCacheInventory(app.getPath('userData'));
 
-const hasProThemeUnlock = (): boolean => {
-  try {
-    return getConnectDonatorUnlockService().getStatus().unlocked === true;
-  } catch {
-    return false;
-  }
-};
+const hasProThemeUnlock = (): boolean => true;
 
-const hasDownloadsUnlock = (): boolean => {
-  try {
-    return getDownloadFeatureUnlockService().getStatus().unlocked === true;
-  } catch {
-    return false;
-  }
-};
+const hasDownloadsUnlock = (): boolean => true;
 
 const getFeatureSettingsOptions = (): NormalizeSettingsOptions => {
   const finalThemeUnlocked = hasProThemeUnlock();
@@ -686,6 +677,24 @@ export const registerIpc = (): void => {
 
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  ipcMain.handle(IpcChannels.AppChooseLyricsDirectory, async (_event, defaultPath?: string, type?: string): Promise<string | null> => {
+    let defaultDir = defaultPath || getDefaultLyricsSaveDir();
+    if (!defaultPath) {
+      if (type === 'cover') {
+        defaultDir = getDefaultCoverSaveDir();
+      } else if (type === 'artistImage') {
+        defaultDir = getDefaultArtistImageSaveDir();
+      }
+    }
+    
+    const result = await dialog.showOpenDialog({
+      title: '选择保存目录',
+      properties: ['openDirectory'],
+      defaultPath: defaultDir,
+    });
+
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
   ipcMain.handle(IpcChannels.AppGetDefaultCacheDirectory, (): string => getLibraryService().getDefaultCoverCacheDir());
   ipcMain.handle(IpcChannels.AppGetCacheInventory, (): Promise<AppCacheInventory> => getAppCacheInventory());
   ipcMain.handle(IpcChannels.AppGetUpdateStatus, (): UpdateStatus => getUpdateStatus());
@@ -764,13 +773,13 @@ export const registerIpc = (): void => {
           return result;
         }
 
-        setAppSettings({ coverCacheDir: request.directory });
+        setAppSettings({ coverSaveDir: request.directory, coverCacheDir: null });
         libraryService.setCoverCacheDir(nextDir);
         return result;
       }
 
       await ensureCoverCacheDirectory(nextDir);
-      setAppSettings({ coverCacheDir: request.directory });
+      setAppSettings({ coverSaveDir: request.directory, coverCacheDir: null });
       libraryService.setCoverCacheDir(nextDir);
       return null;
     },

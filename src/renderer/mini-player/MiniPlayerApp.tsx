@@ -26,19 +26,10 @@ type MiniPlaybackClock = {
   updatedAtMs: number;
 };
 
-type PlaybackVisualIntentSnapshot = {
-  currentTrackId: string | null;
-  filePath: string | null;
-  expectedPositionMs: number;
-  startedAtMs: number;
-};
-
 const enhancedLowLoadProgressRenderIntervalMs = 1500;
 const minRealtimeProgressStepSeconds = 0.004;
 const forwardedSystemStatusMaxAgeMs = 30_000;
-const trackSwitchVisualIntentPositionToleranceMs = 1500;
 const seekAnchorMaxAgeSeconds = 3;
-const seekAnchorSettleToleranceSeconds = 0.25;
 const activeStates = new Set<AudioPlaybackState>(['loading', 'playing']);
 const restartStates = new Set<AudioPlaybackState>(['idle', 'stopped', 'ended']);
 
@@ -83,46 +74,6 @@ const playbackTrackKey = (audioStatus: AudioStatus | null, playbackStatus: Playb
 
 const lightweightArtworkUrl = (track: { coverThumb: string | null } | null, audioStatus: AudioStatus | null): string | null =>
   track?.coverThumb ?? audioStatus?.currentTrackCoverUrl ?? null;
-
-const audioStatusMatchesPlaybackStatus = (audioStatus: AudioStatus, playbackStatus: PlaybackStatus | null): boolean => {
-  if (!playbackStatus?.currentTrackId && !playbackStatus?.filePath) {
-    return true;
-  }
-
-  return (
-    Boolean(playbackStatus.currentTrackId && audioStatus.currentTrackId === playbackStatus.currentTrackId) ||
-    Boolean(playbackStatus.filePath && audioStatus.currentFilePath === playbackStatus.filePath)
-  );
-};
-
-const audioStatusMatchesVisualIntent = (status: AudioStatus, intent: PlaybackVisualIntentSnapshot | null | undefined): boolean => {
-  if (!intent) {
-    return true;
-  }
-
-  const matchesIntent =
-    Boolean(intent.currentTrackId && status.currentTrackId === intent.currentTrackId) ||
-    Boolean(intent.filePath && status.currentFilePath === intent.filePath);
-  if (!matchesIntent) {
-    return false;
-  }
-
-  const playbackRate = Number.isFinite(status.playbackRate) ? Math.max(0.25, Math.min(4, status.playbackRate)) : 1;
-  const elapsedMs = status.state === 'playing' || status.state === 'paused' ? Math.max(0, Date.now() - intent.startedAtMs) : 0;
-  const expectedPositionMs = intent.expectedPositionMs + elapsedMs * playbackRate;
-  return Math.round(Math.max(0, status.positionSeconds) * 1000) <= expectedPositionMs + trackSwitchVisualIntentPositionToleranceMs;
-};
-
-const isUsableAudioStatus = (
-  audioStatus: AudioStatus | null | undefined,
-  playbackStatus: PlaybackStatus | null,
-  playbackVisualIntent: PlaybackVisualIntentSnapshot | null | undefined,
-): audioStatus is AudioStatus =>
-  Boolean(
-    audioStatus &&
-      audioStatusMatchesPlaybackStatus(audioStatus, playbackStatus) &&
-      audioStatusMatchesVisualIntent(audioStatus, playbackVisualIntent),
-  );
 
 const requestMiniPlayerQueueBounds = (open: boolean): void => {
   void window.echo?.miniPlayer?.setQueueOpen?.(open).catch(() => undefined);
@@ -214,23 +165,24 @@ export const MiniPlayerApp = (): JSX.Element => {
 
   const activeAudioStatus = useMemo(() => {
     const forwarded = forwardedAudioStatus;
-    const playbackVisualIntent = sharedPlaybackStatus.playbackVisualIntent;
-    const sharedAudioStatus = isUsableAudioStatus(
-      sharedPlaybackStatus.audioStatus,
-      sharedPlaybackStatus.playbackStatus,
-      playbackVisualIntent,
-    )
-      ? sharedPlaybackStatus.audioStatus
-      : null;
-    if (
-      forwarded?.status.outputMode === 'system' &&
+    const sharedAudioStatus = sharedPlaybackStatus.audioStatus;
+    const playbackStatus = sharedPlaybackStatus.playbackStatus;
+    // Determine the expected current track identity from store (playbackStatus has priority)
+    const expectedTrackId = playbackStatus?.currentTrackId ?? sharedAudioStatus?.currentTrackId ?? null;
+    const expectedFilePath = ('filePath' in (playbackStatus ?? {}) ? playbackStatus?.filePath : null) ?? sharedAudioStatus?.currentFilePath ?? null;
+    const forwardedMatchesTrack =
+      forwarded &&
+      (
+        (expectedTrackId && forwarded.status.currentTrackId === expectedTrackId) ||
+        (expectedFilePath && forwarded.status.currentFilePath === expectedFilePath) ||
+        (!expectedTrackId && !expectedFilePath) // no identity yet, trust forwarded
+      );
+    const useForwarded =
+      forwardedMatchesTrack &&
+      forwarded.status.outputMode === 'system' &&
       Date.now() - forwarded.updatedAtMs <= forwardedSystemStatusMaxAgeMs &&
-      (!sharedAudioStatus || sharedAudioStatus.outputMode === 'system')
-    ) {
-      return forwarded.status;
-    }
-
-    return sharedAudioStatus;
+      (!sharedAudioStatus || sharedAudioStatus.outputMode === 'system');
+    return useForwarded ? forwarded.status : sharedAudioStatus;
   }, [
     forwardedAudioStatus,
     sharedPlaybackStatus.audioStatus,
@@ -284,6 +236,10 @@ export const MiniPlayerApp = (): JSX.Element => {
       (playbackStatus?.durationMs ? playbackStatus.durationMs / 1000 : currentTrack?.duration ?? 0),
   );
   const sourcePositionSeconds = Math.max(0, activeAudioStatus?.positionSeconds ?? (playbackStatus?.positionMs ?? 0) / 1000);
+  // Suppress brief "paused" flash near track end — audio engine sometimes reports paused for ~1s before track finishes.
+  const endOfTrackGuardSeconds = 2;
+  const nearTrackEnd = durationSeconds > 0 && sourcePositionSeconds >= durationSeconds - endOfTrackGuardSeconds;
+  const effectiveVisualState: AudioPlaybackState = (visualState === 'paused' && nearTrackEnd) ? 'playing' : visualState;
   const progressTrackKey = playbackTrackKey(activeAudioStatus, playbackStatus, currentTrack?.id ?? trackId);
   const positionSeconds = seekPreviewSeconds ?? realtimePositionSeconds;
   const progress = durationSeconds > 0 ? clamp(positionSeconds / durationSeconds, 0, 1) : 0;
@@ -355,8 +311,8 @@ export const MiniPlayerApp = (): JSX.Element => {
   }, [setQueueCurrentTrackId, trackId]);
 
   useEffect(() => {
-    syncQueuePlaybackState(visualState);
-  }, [syncQueuePlaybackState, visualState]);
+    syncQueuePlaybackState(effectiveVisualState);
+  }, [syncQueuePlaybackState, effectiveVisualState]);
 
   useEffect(() => {
     const now = performance.now();
@@ -367,19 +323,20 @@ export const MiniPlayerApp = (): JSX.Element => {
     const seekAnchor = seekAnchorRef.current;
 
     if (seekAnchor) {
-      if (seekAnchor.trackKey && progressTrackKey && seekAnchor.trackKey !== progressTrackKey) {
+      if (
+        seekAnchor.trackKey && progressTrackKey && seekAnchor.trackKey !== progressTrackKey ||
+        realtimePlaybackState === 'ended' || realtimePlaybackState === 'stopped'
+      ) {
         seekAnchorRef.current = null;
       } else {
         const elapsedSeconds = Math.max(0, (now - seekAnchor.updatedAtMs) / 1000);
         const expectedSeekPosition = durationSeconds > 0
           ? clamp(seekAnchor.positionSeconds + (visualState === 'playing' ? elapsedSeconds * playbackRate : 0), 0, durationSeconds)
           : Math.max(0, seekAnchor.positionSeconds + (visualState === 'playing' ? elapsedSeconds * playbackRate : 0));
-        const sourceReachedSeekTarget = boundedSourcePosition >= seekAnchor.positionSeconds;
-        const isStaleStatusAfterSeek =
-          elapsedSeconds < seekAnchorMaxAgeSeconds &&
-          (!sourceReachedSeekTarget || Math.abs(boundedSourcePosition - expectedSeekPosition) > seekAnchorSettleToleranceSeconds);
 
-        if (isStaleStatusAfterSeek) {
+        if (elapsedSeconds < seekAnchorMaxAgeSeconds) {
+          // Keep anchor alive for the full window — trust the seek target,
+          // not the source position which may briefly report a stale value.
           nextPositionSeconds = expectedSeekPosition;
         } else {
           seekAnchorRef.current = null;
@@ -408,7 +365,7 @@ export const MiniPlayerApp = (): JSX.Element => {
   }, [durationSeconds, playbackRate, progressTrackKey, sourcePositionSeconds, visualState]);
 
   useEffect(() => {
-    if (visualState !== 'playing' || realtimePlaybackState !== 'playing' || seekPreviewSeconds !== null) {
+    if (effectiveVisualState !== 'playing' || realtimePlaybackState !== 'playing' || seekPreviewSeconds !== null) {
       return undefined;
     }
 
@@ -444,7 +401,7 @@ export const MiniPlayerApp = (): JSX.Element => {
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [enhancedLowLoadPlaybackActive, realtimePlaybackState, seekPreviewSeconds, visualState]);
+  }, [enhancedLowLoadPlaybackActive, realtimePlaybackState, seekPreviewSeconds, effectiveVisualState]);
 
   useEffect(() => {
     requestMiniPlayerQueueBounds(isQueueOpen);
@@ -482,9 +439,12 @@ export const MiniPlayerApp = (): JSX.Element => {
 
   const handlePlayPause = useCallback(async (): Promise<void> => {
     const playback = window.echo?.playback;
+    // Use realtimePlaybackState (actual audio state) instead of visualState
+    // to avoid being misled by seek/track-switch visual intents.
+    const effectiveState = realtimePlaybackState;
 
     if (queue.hqPlayerTakeoverEnabled) {
-      if (activeStates.has(visualState)) {
+      if (activeStates.has(effectiveState)) {
         setError(t('miniPlayer.status.hqPlayerTakeover'));
         return;
       }
@@ -494,7 +454,7 @@ export const MiniPlayerApp = (): JSX.Element => {
     }
 
     if (isSpotifyCurrentTrack && currentTrack) {
-      await runPlaybackAction(() => (activeStates.has(visualState) ? pauseSpotifyPlayback(currentTrack) : resumeSpotifyPlayback(currentTrack)));
+      await runPlaybackAction(() => (activeStates.has(effectiveState) ? pauseSpotifyPlayback(currentTrack) : resumeSpotifyPlayback(currentTrack)));
       return;
     }
 
@@ -504,7 +464,7 @@ export const MiniPlayerApp = (): JSX.Element => {
     }
 
     await runPlaybackAction(async () => {
-      if (activeStates.has(visualState)) {
+      if (activeStates.has(effectiveState)) {
         return playback.pause();
       }
 
@@ -512,6 +472,7 @@ export const MiniPlayerApp = (): JSX.Element => {
       if (activeStates.has(latestStatus.state)) {
         return playback.pause();
       }
+
       if (restartStates.has(latestStatus.state) && queue.currentItem) {
         return queue.playQueueItem(queue.currentItem.queueId);
       }
@@ -520,13 +481,21 @@ export const MiniPlayerApp = (): JSX.Element => {
       }
       return playback.play();
     });
-  }, [currentTrack, isSpotifyCurrentTrack, queue, runPlaybackAction, t, visualState]);
+  }, [currentTrack, isSpotifyCurrentTrack, progressTrackKey, queue, realtimePlaybackState, runPlaybackAction, t]);
 
   const handlePrevious = useCallback((): void => {
+    seekAnchorRef.current = null;
+    clockRef.current = { ...clockRef.current, positionSeconds: 0, sourcePositionSeconds: 0, updatedAtMs: performance.now() };
+    setRealtimePositionSeconds(0);
+    setSeekPreviewSeconds(null);
     void runPlaybackAction(queue.playPrevious);
   }, [queue.playPrevious, runPlaybackAction]);
 
   const handleNext = useCallback((): void => {
+    seekAnchorRef.current = null;
+    clockRef.current = { ...clockRef.current, positionSeconds: 0, sourcePositionSeconds: 0, updatedAtMs: performance.now() };
+    setRealtimePositionSeconds(0);
+    setSeekPreviewSeconds(null);
     void runPlaybackAction(queue.playNext);
   }, [queue.playNext, runPlaybackAction]);
 
@@ -679,7 +648,7 @@ export const MiniPlayerApp = (): JSX.Element => {
     <main
       className={`mini-player-app ${isQueueOpen ? 'mini-player-app--queue-open' : ''}`}
       data-has-artwork={Boolean(artworkUrl)}
-      data-playback-state={visualState}
+      data-playback-state={effectiveVisualState}
       style={style}
     >
       <section className="mini-player-shell" aria-label={t('miniPlayer.aria.shell')}>
@@ -709,14 +678,14 @@ export const MiniPlayerApp = (): JSX.Element => {
                 <SkipBack size={15} />
               </button>
               <button
-                aria-label={activeStates.has(visualState) ? t('miniPlayer.action.pause') : t('miniPlayer.action.play')}
+                aria-label={activeStates.has(effectiveVisualState) ? t('miniPlayer.action.pause') : t('miniPlayer.action.play')}
                 className="mini-player-icon-button mini-player-icon-button--play"
                 disabled={!hasPlayableTarget}
-                title={activeStates.has(visualState) ? t('miniPlayer.action.pause') : t('miniPlayer.action.play')}
+                title={activeStates.has(effectiveVisualState) ? t('miniPlayer.action.pause') : t('miniPlayer.action.play')}
                 type="button"
                 onClick={() => void handlePlayPause()}
               >
-                {activeStates.has(visualState) ? <Pause size={16} /> : <Play size={16} />}
+                {activeStates.has(effectiveVisualState) ? <Pause size={16} /> : <Play size={16} />}
               </button>
               <button
                 aria-label={t('miniPlayer.action.next')}

@@ -29,6 +29,7 @@ export const IpcChannels = {
   AppChooseAppWallpaper: 'app:choose-app-wallpaper',
   AppLoadFontFile: 'app:load-font-file',
   AppChooseCacheDirectory: 'app:choose-cache-directory',
+  AppChooseLyricsDirectory: 'app:choose-lyrics-directory',
   AppGetDefaultCacheDirectory: 'app:get-default-cache-directory',
   AppGetCacheInventory: 'app:get-cache-inventory',
   AppSetCoverCacheDirectory: 'app:set-cover-cache-directory',
