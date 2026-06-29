@@ -275,6 +275,7 @@ export class TaskbarPlaybackIntegration {
       return;
     }
 
+    this.lastThumbarKey = null;
     this.sync(this.audioSession.getStatus());
   }
 
@@ -603,6 +604,9 @@ export const bindTaskbarPlaybackIntegration = (window: BrowserWindow): void => {
       currentIntegration = null;
     }
     integration.dispose();
+  });
+  window.on('show', () => {
+    integration.refresh();
   });
 };
 
