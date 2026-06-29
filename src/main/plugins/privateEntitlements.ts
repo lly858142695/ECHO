@@ -133,8 +133,40 @@ export const clearPrivateEntitlementsProvider = (): void => {
 
 export const getPrivateEntitlementsProvider = (): PrivateEntitlementsProvider | null => provider;
 
-export const getPrivatePluginOperations = (): NonNullable<PrivateEntitlementsProvider['plugins']> | null =>
-  provider?.plugins ?? null;
+export const getPrivatePluginOperations = (): NonNullable<PrivateEntitlementsProvider['plugins']> | null => {
+  if (provider?.plugins) {
+    return provider.plugins;
+  }
+
+  // Fallback: delegate to PluginService directly when no private provider is installed
+  try {
+    const svc = getPluginService();
+    return {
+      list: () => Promise.resolve(svc.list()),
+      createExample: (kind) => Promise.resolve(svc.createExample(kind)),
+      enable: (request) => Promise.resolve(svc.enable(request) as unknown as import('../../shared/types/plugins').PluginListResult),
+      disable: (pluginId) => Promise.resolve(svc.disable(pluginId) as unknown as import('../../shared/types/plugins').PluginListResult),
+      deletePlugin: (pluginId) => Promise.resolve(svc.deletePlugin(pluginId)),
+      reload: (pluginId) => Promise.resolve(svc.reload(pluginId) as unknown as import('../../shared/types/plugins').PluginListResult),
+      openDirectory: (pluginId) => svc.openDirectory(pluginId),
+      exportPackage: (_pluginId) => Promise.reject(new Error('导出功能暂不可用')),
+      importPackage: (_sourcePath) => Promise.resolve({ success: false, error: 'not supported' } as unknown as import('../../shared/types/plugins').PluginImportPackageResult),
+      runCommand: (_request) => Promise.resolve(),
+      queryMetadata: (_request) => Promise.resolve({} as import('../../shared/types/plugins').PluginMetadataLookupResult),
+      querySources: (_request) => Promise.resolve({} as import('../../shared/types/plugins').PluginSourceSearchResult),
+      resolveSourcePlayback: (_request) => Promise.resolve({} as import('../../shared/types/plugins').PluginSourcePlaybackResult),
+      queryLyrics: (_request) => Promise.resolve({} as import('../../shared/types/plugins').PluginLyricsLookupResult),
+      queryCovers: (_request) => Promise.resolve({} as import('../../shared/types/plugins').PluginCoverLookupResult),
+      getSettings: (_pluginId) => Promise.resolve({ settings: {} } as unknown as import('../../shared/types/plugins').PluginSettingsResult),
+      setSettings: (_pluginId, _patch) => Promise.resolve({ settings: {} } as unknown as import('../../shared/types/plugins').PluginSettingsResult),
+      getLogs: (_pluginId) => Promise.resolve([]),
+      scheduleAutoStart: () => svc.scheduleAutoStart(),
+    };
+  } catch (e) {
+    console.error('[getPrivatePluginOperations] fallback failed:', e);
+    return null;
+  }
+};
 
 export const createPrivateFeatureError = (
   feature: PrivateFeatureId = 'echo-pro',
