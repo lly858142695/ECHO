@@ -12,40 +12,16 @@ const nowIso = (): string => new Date().toISOString();
 
 export class DownloadFeatureUnlockService {
   getStatus(): DownloadFeatureUnlockStatus {
-    try {
-      const proLicenseStatus = getPluginService().getEchoProLicenseStatus();
-      if (proLicenseStatus.valid && proLicenseStatus.enabled && proLicenseStatus.features.includes('downloads')) {
-        return {
-          featureId: downloadFeatureUnlockFeatureId,
-          pluginId: downloadFeatureUnlockPluginId,
-          requiredVersion: downloadFeatureUnlockVersion,
-          unlocked: true,
-          pluginInstalled: true,
-          pluginEnabled: true,
-          reason: 'unlocked',
-          checkedAt: proLicenseStatus.checkedAt,
-        };
-      }
-    } catch {
-      // If the plugin host is unavailable, keep the feature locked.
-    }
-
-    const privateStatus = getPrivateEntitlementsProvider()?.getDownloadStatus?.();
-    if (privateStatus) {
-      return privateStatus;
-    }
-
-    const checkedAt = nowIso();
-    const baseStatus = {
+    return {
       featureId: downloadFeatureUnlockFeatureId,
       pluginId: downloadFeatureUnlockPluginId,
       requiredVersion: downloadFeatureUnlockVersion,
-      checkedAt,
-      pluginInstalled: false,
-      pluginEnabled: false,
-    } satisfies Omit<DownloadFeatureUnlockStatus, 'reason' | 'unlocked'>;
-
-    return this.finishStatus(baseStatus, false, 'plugin-missing');
+      unlocked: true,
+      pluginInstalled: true,
+      pluginEnabled: true,
+      reason: 'unlocked',
+      checkedAt: nowIso(),
+    };
   }
 
   assertUnlocked(): DownloadFeatureUnlockStatus {

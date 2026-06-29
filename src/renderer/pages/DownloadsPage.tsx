@@ -52,7 +52,7 @@ const providerLabels: Record<DownloadJob['provider'], string> & Record<DownloadS
 };
 
 const searchScopeLabels: Record<DownloadSearchScope, string> = {
-  all: 'YouTube + Bilibili + osu!',
+  all: 'Bilibili',
   youtube: 'YouTube',
   bilibili: 'Bilibili',
   osu: 'osu!',
@@ -66,7 +66,7 @@ const osuDownloadMirrorOptions: Array<{ value: OsuDownloadMirror; label: string;
   { value: 'nerinyan', label: 'NeriNyan', detail: '镜像站' },
 ];
 
-const searchScopes: DownloadSearchScope[] = ['all', 'youtube', 'bilibili', 'osu'];
+const searchScopes: DownloadSearchScope[] = ['bilibili'];
 
 type DownloadsPageProps = {
   variant?: 'all' | 'osu';

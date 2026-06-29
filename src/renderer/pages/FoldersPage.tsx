@@ -1276,8 +1276,9 @@ export const FoldersPage = (): JSX.Element => {
     if (terminalStatus) {
       refreshedTerminalScanIdsRef.current.add(terminalStatus.id);
       void refreshOverviews();
+      void loadTracks(1, 'replace');
     }
-  }, [refreshOverviews, scanStatuses]);
+  }, [refreshOverviews, scanStatuses, loadTracks]);
 
   const fetchBulkTracks = useCallback(
     async (sortMode: LibrarySort): Promise<{ items: LibraryTrack[]; total: number }> => {

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { app } from 'electron';
 import { finalThemeUnlockVersion, proOnlyThemePresets } from '../../shared/constants/featureUnlocks';
-import { artistOnlineInfoSources, artistStreamingAlbumProviders, autoUpdateSources, currentUserNoticeVersion, defaultArtistOnlineInfoSources, defaultArtistStreamingAlbumsProvider, playerBarButtonIds } from '../../shared/types/appSettings';
+import { artistOnlineInfoSources, artistStreamingAlbumProviders, currentUserNoticeVersion, defaultArtistOnlineInfoSources, defaultArtistStreamingAlbumsProvider, playerBarButtonIds } from '../../shared/types/appSettings';
 import { defaultSidebarHiddenRouteIds, defaultSidebarRouteOrder, normalizeSidebarHiddenRouteIds, normalizeSidebarRouteOrder } from '../../shared/types/sidebar';
 import type {
   ArtistOnlineInfoSource,
@@ -19,7 +19,6 @@ import type {
   AppVideoWallpaperPauseMode,
   AppWallpaperMediaType,
   AppSettings,
-  AutoUpdateSource,
   AudioTransportFadeCurve,
   DataBackupIntervalDays,
   DesktopLyricsColorMode,
@@ -442,9 +441,6 @@ export const defaultSettings: AppSettings = {
   fastStartupEnabled: false,
   sqliteBalancedDurabilityEnabled: false,
   dataProtectionDisabled: false,
-  autoUpdateEnabled: true,
-  autoUpdateSource: 'official',
-  autoUpdateCustomUrl: null,
   autoAccountCheckOnStartup: true,
   suppressAccountExpiryNotices: true,
   notificationsDisabled: false,
@@ -601,8 +597,6 @@ export const defaultSettings: AppSettings = {
   mvAllow60fps: true,
   channelBalance: defaultChannelBalanceSettings,
   playerVolume: 1,
-  homeWaveformVisualizerEnabled: true,
-  audioVisualSpectrumEnabled: false,
   lowLoadPlaybackModeEnabled: false,
   lowLoadPlaybackEnhancementsEnabled: false,
   homeRandomHeroTitleEnabled: false,
@@ -1436,30 +1430,6 @@ const normalizeMvMaxQuality = (value: unknown): MvSettings['maxQuality'] =>
 const normalizeMvSyncMode = (value: unknown): MvSettings['syncMode'] =>
   value === 'stable' || value === 'precise' || value === 'balanced' ? value : defaultSettings.mvSyncMode;
 
-const normalizeAutoUpdateSource = (value: unknown): AutoUpdateSource =>
-  autoUpdateSources.includes(value as AutoUpdateSource) ? (value as AutoUpdateSource) : defaultSettings.autoUpdateSource ?? 'official';
-
-const normalizeAutoUpdateCustomUrl = (value: unknown): string | null => {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const trimmed = value.replace(/[\r\n]/g, '').trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-      return null;
-    }
-    return url.toString().replace(/\/+$/u, '');
-  } catch {
-    return null;
-  }
-};
-
 const normalizeWallpaperPath = (value: unknown, directory: string, allowedExtensions: Set<string>): string | null => {
   if (typeof value !== 'string') {
     return null;
@@ -1821,9 +1791,6 @@ export const normalizeSettings = (value: unknown, options: NormalizeSettingsOpti
     fastStartupEnabled: settings.fastStartupEnabled === true,
     sqliteBalancedDurabilityEnabled: settings.sqliteBalancedDurabilityEnabled === true,
     dataProtectionDisabled: settings.dataProtectionDisabled === true,
-    autoUpdateEnabled: settings.autoUpdateEnabled !== false,
-    autoUpdateSource: normalizeAutoUpdateSource(settings.autoUpdateSource),
-    autoUpdateCustomUrl: normalizeAutoUpdateCustomUrl(settings.autoUpdateCustomUrl),
     autoAccountCheckOnStartup: settings.autoAccountCheckOnStartup !== false,
     suppressAccountExpiryNotices: settings.suppressAccountExpiryNotices !== false,
     notificationsDisabled: settings.notificationsDisabled === true,
@@ -2058,8 +2025,6 @@ export const normalizeSettings = (value: unknown, options: NormalizeSettingsOpti
     mvAllow60fps: settings.mvAllow60fps !== false,
     channelBalance: normalizeChannelBalanceSettings(settings.channelBalance),
     playerVolume: Number.isFinite(playerVolume) ? Math.max(0, Math.min(1, playerVolume)) : defaultSettings.playerVolume,
-    homeWaveformVisualizerEnabled: settings.homeWaveformVisualizerEnabled !== false,
-    audioVisualSpectrumEnabled: settings.audioVisualSpectrumEnabled === true,
     lowLoadPlaybackModeEnabled: settings.lowLoadPlaybackModeEnabled === true,
     lowLoadPlaybackEnhancementsEnabled: settings.lowLoadPlaybackEnhancementsEnabled === true,
     homeRandomHeroTitleEnabled: settings.homeRandomHeroTitleEnabled === true,

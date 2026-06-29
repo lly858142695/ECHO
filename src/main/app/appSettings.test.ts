@@ -206,7 +206,6 @@ describe('app settings normalization', () => {
     expect(settings.mvHideLyrics).toBe(false);
     expect(settings.mvMaxQuality).toBe('max');
     expect(settings.mvAllow60fps).toBe(true);
-    expect(settings.homeWaveformVisualizerEnabled).toBe(true);
     expect(settings.homeRandomHeroTitleEnabled).toBe(false);
     expect(settings.gaplessPlaybackEnabled).toBe(false);
     expect(settings.audioTransportFadeEnabled).toBe(false);
@@ -334,15 +333,6 @@ describe('app settings normalization', () => {
     expect(normalizeSettings({}).dataProtectionDisabled).toBe(false);
     expect(normalizeSettings({ dataProtectionDisabled: true }).dataProtectionDisabled).toBe(true);
     expect(normalizeSettings({ dataProtectionDisabled: 'true' }).dataProtectionDisabled).toBe(false);
-  });
-
-  it('keeps the home waveform visualizer enabled unless explicitly disabled', async () => {
-    const { normalizeSettings } = await import('./appSettings');
-
-    expect(normalizeSettings({}).homeWaveformVisualizerEnabled).toBe(true);
-    expect(normalizeSettings({ homeWaveformVisualizerEnabled: true }).homeWaveformVisualizerEnabled).toBe(true);
-    expect(normalizeSettings({ homeWaveformVisualizerEnabled: false }).homeWaveformVisualizerEnabled).toBe(false);
-    expect(normalizeSettings({ homeWaveformVisualizerEnabled: 'true' }).homeWaveformVisualizerEnabled).toBe(true);
   });
 
   it('keeps the home random hero title disabled unless explicitly enabled', async () => {

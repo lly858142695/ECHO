@@ -30,7 +30,6 @@ import type {
   DataPackageExportResult,
   SettingsImportResult,
 } from '../shared/types/settingsBackup';
-import type { UpdateStatus } from '../shared/types/updates';
 import type { AccountBrowser, AccountLoginStartResult, AccountProvider, AccountStatus, YouTubeBrowser } from '../shared/types/accounts';
 import type { AppCacheInventory, CoverCacheMigrationResult, SetCoverCacheDirectoryRequest } from '../shared/types/coverCache';
 import type { AirPlayReceiverStatus, ConnectDevice, ConnectReceiverStatus, ConnectSessionStatus, ConnectStartRequest } from '../shared/types/connect';
@@ -341,9 +340,6 @@ export type EchoApi = {
     getDefaultCacheDirectory: () => Promise<string>;
     getCacheInventory: () => Promise<AppCacheInventory>;
     setCoverCacheDirectory: (request: SetCoverCacheDirectoryRequest) => Promise<CoverCacheMigrationResult | null>;
-    getUpdateStatus: () => Promise<UpdateStatus>;
-    checkForUpdates: () => Promise<UpdateStatus>;
-    onUpdateStatus: (handler: (status: UpdateStatus) => void) => () => void;
     openRepository: () => Promise<void>;
     openExternalUrl: (url: string) => Promise<void>;
     showTouchKeyboard: () => Promise<boolean>;

@@ -281,32 +281,23 @@ const levelMeterVisualIntervalMs = 33;
 const levelMeterStatusIntervalMs = 33;
 const mainEventLoopLagSampleIntervalMs = 2_000;
 type PlaybackLoadSettings = {
-  homeWaveformVisualizerEnabled: boolean;
-  audioVisualSpectrumEnabled: boolean;
   lowLoadPlaybackModeEnabled: boolean;
 };
 const getPlaybackLoadSettings = (): PlaybackLoadSettings => {
   try {
     const settings = getAppSettings();
     return {
-      homeWaveformVisualizerEnabled: settings.homeWaveformVisualizerEnabled !== false,
-      audioVisualSpectrumEnabled: settings.audioVisualSpectrumEnabled === true,
       lowLoadPlaybackModeEnabled: settings.lowLoadPlaybackModeEnabled === true,
     };
   } catch {
     return {
-      homeWaveformVisualizerEnabled: true,
-      audioVisualSpectrumEnabled: false,
       lowLoadPlaybackModeEnabled: false,
     };
   }
 };
 const isAudioVisualSpectrumEnabled = (): boolean => {
   const settings = getPlaybackLoadSettings();
-  return (
-    (settings.homeWaveformVisualizerEnabled && settings.audioVisualSpectrumEnabled) ||
-    isWallpaperEngineBridgeVisualTelemetryActive()
-  ) && !settings.lowLoadPlaybackModeEnabled;
+  return isWallpaperEngineBridgeVisualTelemetryActive() && !settings.lowLoadPlaybackModeEnabled;
 };
 const sharedStabilityMemoryTtlMs = 30 * 60 * 1000;
 const asioFailedStartGracefulStopTimeoutMs = 1_000;

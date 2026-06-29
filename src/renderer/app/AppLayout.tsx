@@ -25,7 +25,6 @@ import { type AppSettings } from '../../shared/types/appSettings';
 import type { DiagnosticMemoryPressureEvent } from '../../shared/types/diagnostics';
 import type { DownloadJob } from '../../shared/types/downloads';
 import type { LibraryTrack } from '../../shared/types/library';
-import type { UpdateStatus } from '../../shared/types/updates';
 import { useI18n } from '../i18n/I18nProvider';
 import { likedChangedEvent, likedTracksChangedEvent } from '../hooks/useLikedMedia';
 import type { TranslationKey } from '../i18n/locales';
@@ -612,7 +611,6 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const [activeRouteId, setActiveRouteId] = useState<AppRouteId>(() => readInitialRouteId(routes));
   const [chromeNotice, setChromeNotice] = useState<string | null>(null);
   const [chromeNoticeAutoHideMs, setChromeNoticeAutoHideMs] = useState(defaultChromeNoticeAutoHideMs);
-  const [availableUpdateStatus, setAvailableUpdateStatus] = useState<UpdateStatus | null>(null);
   const [isChromeNoticeVisible, setIsChromeNoticeVisible] = useState(false);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const suppressAccountExpiryNoticesRef = useRef(false);
@@ -741,7 +739,6 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   const routeSwitchCommittedRouteIdRef = useRef<AppRouteId>(activeRouteId);
   const downloadImportedTrackIdsRef = useRef<Map<string, string | null>>(new Map());
   const downloadLibraryChangedTimerRef = useRef<number | null>(null);
-  const notifiedUpdateKeysRef = useRef<Set<string>>(new Set());
   const availableRoutes = useMemo(() => [...routes, ...pluginPanelRoutes], [pluginPanelRoutes, routes]);
 
   const visibleRoutes = useMemo(
@@ -2040,43 +2037,6 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
   }, [hasDesktopLyricsBridge]);
 
   useEffect(() => {
-    const notifyUpdateStatus = (status: UpdateStatus): void => {
-      if (status.state !== 'available' && status.state !== 'downloading' && status.state !== 'downloaded') {
-        setAvailableUpdateStatus(null);
-        return;
-      }
-
-      setAvailableUpdateStatus(status);
-      if (status.state === 'downloading') {
-        return;
-      }
-
-      if (notificationsDisabledRef.current) {
-        return;
-      }
-
-      const version = status.latestVersion ?? status.releaseName ?? '';
-      const noticeKey = `${status.state}:${version || status.checkedAt || 'unknown'}`;
-      if (notifiedUpdateKeysRef.current.has(noticeKey)) {
-        return;
-      }
-
-      notifiedUpdateKeysRef.current.add(noticeKey);
-      if (status.state === 'downloaded') {
-        showChromeNotice(version ? t('notice.updateDownloadedVersion', { version }) : t('notice.updateDownloaded'));
-        return;
-      }
-
-      showChromeNotice(version ? t('notice.updateAvailableVersion', { version }) : t('notice.updateAvailable'));
-    };
-
-    const unsubscribe = window.echo?.app?.onUpdateStatus?.(notifyUpdateStatus);
-    void window.echo?.app?.getUpdateStatus?.().then(notifyUpdateStatus).catch(() => undefined);
-
-    return () => unsubscribe?.();
-  }, [showChromeNotice, t]);
-
-  useEffect(() => {
     let cancelled = false;
 
     const refreshLyricsMiniPlayerSettings = (event?: Event): void => {
@@ -2751,21 +2711,6 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
     [isWindowFullscreen, showChromeNotice, startWindowFullscreenTransition, t],
   );
 
-  const handleOpenUpdateSettings = useCallback((): void => {
-    try {
-      window.sessionStorage.setItem(pendingSettingsSectionStorageKey, 'about');
-      window.localStorage.setItem(pendingSettingsSectionStorageKey, 'about');
-    } catch {
-      // SettingsPage falls back to the normal settings entrypoint when storage is unavailable.
-    }
-
-    setIsAudioDrawerOpen(false);
-    setIsLyricsDrawerOpen(false);
-    setIsMvDrawerOpen(false);
-    navigateRoute('settings');
-    window.dispatchEvent(new CustomEvent(settingsSectionNavigationEvent, { detail: { section: 'about' } }));
-  }, [navigateRoute]);
-
   const showReportOpenedNotice = useCallback(
     (format: 'markdown' | 'text', reportPath: string | undefined): void => {
       const messageKey = format === 'text' ? 'notice.reportOpenedText' : 'notice.reportOpenedMarkdown';
@@ -2949,9 +2894,7 @@ export const AppLayout = ({ routes }: AppLayoutProps): JSX.Element => {
         isLyricsSettingsOpen={isLyricsDrawerOpen}
         isMvSettingsOpen={isMvDrawerOpen}
         isProUnlocked={connectDonatorUnlocked}
-        updateStatus={availableUpdateStatus}
         onRouteChange={navigateRoute}
-        onOpenUpdateSettings={handleOpenUpdateSettings}
         onOpenAudioSettings={() => setIsAudioDrawerOpen(true)}
         onOpenLyricsSettings={() => setIsLyricsDrawerOpen(true)}
         onOpenMvSettings={() => setIsMvDrawerOpen(true)}

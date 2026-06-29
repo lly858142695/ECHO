@@ -851,7 +851,7 @@ export const RemoteSourcesPanel = (): JSX.Element => {
   const [isSidebarHideBusy, setIsSidebarHideBusy] = useState(false);
   const [remoteBackgroundConcurrencySaving, setRemoteBackgroundConcurrencySaving] = useState(false);
   const [testResult, setTestResult] = useState<TestRemoteSourceResult | null>(null);
-  const [remoteSourcesProUnlocked, setRemoteSourcesProUnlocked] = useState<boolean | null>(null);
+  const [remoteSourcesProUnlocked, setRemoteSourcesProUnlocked] = useState<boolean | null>(true);
   const terminalSyncEventsRef = useRef<Record<string, string>>({});
 
   const activeTab = useMemo(() => tabs.find((tab) => tab.provider === activeProvider) ?? tabs[0], [activeProvider]);
@@ -882,21 +882,9 @@ export const RemoteSourcesPanel = (): JSX.Element => {
   }, [appApi]);
 
   const refreshRemoteSourcesProUnlock = useCallback(async (): Promise<void> => {
-    if (!appApi?.getEchoProAccountStatus) {
-      setRemoteSourcesProUnlocked(false);
-      return;
-    }
-    try {
-      const status = await appApi.getEchoProAccountStatus();
-      setRemoteSourcesProUnlocked(status.pro === true);
-      if (status.pro !== true) {
-        setMessage('网盘功能需要 ECHO Pro 账号完成云端验证。');
-      }
-    } catch {
-      setRemoteSourcesProUnlocked(false);
-      setMessage('网盘功能需要 ECHO Pro 账号完成云端验证。');
-    }
-  }, [appApi]);
+    setRemoteSourcesProUnlocked(true);
+    setMessage(null);
+  }, []);
 
   useEffect(() => {
     void refreshRemoteSourcesProUnlock();

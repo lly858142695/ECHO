@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { dirname, join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -1132,24 +1132,33 @@ export class DownloadService extends EventEmitter {
       return [];
     }
 
-    const url = new URL('https://api.bilibili.com/x/web-interface/search/type');
+    const cookie = this.getCredentials('bilibili').cookie?.trim();
+    const headers: Record<string, string> = {
+      accept: 'application/json, text/plain, */*',
+      Referer: `https://search.bilibili.com/video?keyword=${encodeURIComponent(query)}`,
+      Origin: 'https://search.bilibili.com',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      ...(cookie ? { Cookie: cookie } : {}),
+    };
+
+    const wbiMixinKey = await this.getBilibiliWbiMixinKey(headers);
+    const url = new URL(
+      wbiMixinKey
+        ? 'https://api.bilibili.com/x/web-interface/wbi/search/type'
+        : 'https://api.bilibili.com/x/web-interface/search/type',
+    );
     url.searchParams.set('search_type', 'video');
     url.searchParams.set('keyword', query);
     url.searchParams.set('page', '1');
     url.searchParams.set('page_size', String(limitPerProvider));
+    if (wbiMixinKey) {
+      this.appendWbiSignature(url, wbiMixinKey);
+    }
 
-    const cookie = this.getCredentials('bilibili').cookie?.trim();
     try {
-      const response = await fetchRunner(url.toString(), {
-        headers: {
-          accept: 'application/json, text/plain, */*',
-          referer: 'https://www.bilibili.com/',
-          origin: 'https://www.bilibili.com',
-          'user-agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          ...(cookie ? { cookie } : {}),
-        },
-      });
+      const response = await fetchRunner(url.toString(), { headers });
       if (!response.ok) {
         return [];
       }
@@ -1166,6 +1175,65 @@ export class DownloadService extends EventEmitter {
     } catch {
       return [];
     }
+  }
+
+  private async getBilibiliWbiMixinKey(headers: Record<string, string>): Promise<string | null> {
+    const fetchRunner = this.dependencies.fetch ?? fetchWithNetworkProxy;
+    if (!fetchRunner) {
+      return null;
+    }
+
+    try {
+      const response = await fetchRunner('https://api.bilibili.com/x/web-interface/nav', { headers });
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = (await response.json()) as Record<string, unknown>;
+      const data = payload && typeof payload === 'object' && !Array.isArray(payload.data) ? (payload.data as Record<string, unknown>) : null;
+      const wbiImg = data && typeof data.wbi_img === 'object' && data.wbi_img !== null ? (data.wbi_img as Record<string, unknown>) : null;
+      const imgKey = this.wbiKeyPart(wbiImg?.img_url);
+      const subKey = this.wbiKeyPart(wbiImg?.sub_url);
+
+      if (!imgKey || !subKey) {
+        return null;
+      }
+
+      return this.mixinWbiKey(`${imgKey}${subKey}`);
+    } catch {
+      return null;
+    }
+  }
+
+  private wbiKeyPart(value: unknown): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    return trimmed.split('/').pop()?.split('.')[0] ?? null;
+  }
+
+  private mixinWbiKey(rawKey: string): string {
+    const encTable = [
+      46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16,
+      24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
+    ];
+    return encTable.map((index) => rawKey[index]).join('').slice(0, 32);
+  }
+
+  private appendWbiSignature(url: URL, mixinKey: string): void {
+    const sanitizeWbiValue = (value: string): string => value.replace(/[!'()*]/g, '');
+
+    url.searchParams.set('wts', String(Math.round(Date.now() / 1000)));
+    const query = Array.from(url.searchParams.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(sanitizeWbiValue(value))}`)
+      .join('&');
+
+    url.searchParams.set('w_rid', createHash('md5').update(`${query}${mixinKey}`).digest('hex'));
   }
 
   private mapBilibiliApiEntry(entry: unknown): DownloadSearchResult | null {

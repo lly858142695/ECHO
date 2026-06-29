@@ -2960,8 +2960,6 @@ export type TranslationKey =
   | 'settings.general.userNotice.title'
   | 'settings.general.homeRandomHeroTitle.description'
   | 'settings.general.homeRandomHeroTitle.title'
-  | 'settings.general.homeWaveformVisualizer.description'
-  | 'settings.general.homeWaveformVisualizer.title'
   | 'settings.general.language.description'
   | 'settings.general.language.title'
   | 'settings.general.playerWaveformProgress.description'
@@ -5935,7 +5933,7 @@ const zhCN: TranslationMap = {
   'downloads.settings.bestAvailable': '最高可用音质',
   'downloads.settings.bindMvAfterImport': '导入后绑定源 URL 为 MV',
   'downloads.settings.importToLibrary': '完成后导入曲库',
-  'downloads.settings.outputDirectory': '下载文件夹',
+  'downloads.settings.outputDirectory': '存储目录',
   'downloads.settings.title': '下载设置',
   'downloads.status.bindingMv': '绑定 MV',
   'downloads.status.cancelled': '已取消',
@@ -8536,8 +8534,6 @@ const zhCN: TranslationMap = {
   'settings.general.playerWaveformProgress.title': '波形进度条',
   'settings.general.signalPathControl.description': '在底部播放栏显示 Signal Path 入口。默认开启，歌词页始终隐藏。',
   'settings.general.signalPathControl.title': '底栏信号路径',
-  'settings.general.homeWaveformVisualizer.description': '控制主页“今日回声”的实时波形图。关闭后不渲染波形，也会跳过主页波形用的频谱分析。',
-  'settings.general.homeWaveformVisualizer.title': '主页波形图',
   'settings.general.homeRandomHeroTitle.description': '开启后，首页标题会从随机文案池里抽取，也会混入一点网络梗。关闭后使用固定标题。',
   'settings.general.homeRandomHeroTitle.title': '首页随机标题',
   'settings.general.rememberWindowSize.description': '开启后会记住你上次拖拽后的窗口宽高，下次启动自动恢复。',
@@ -12305,8 +12301,6 @@ const zhTW: TranslationMap = {
   'settings.general.playerWaveformProgress.title': '波形進度條',
   'settings.general.signalPathControl.description': '在底部播放列顯示 Signal Path 入口。預設開啟，歌詞頁一律隱藏。',
   'settings.general.signalPathControl.title': '底欄訊號路徑',
-  'settings.general.homeWaveformVisualizer.description': '控制首頁「今日回聲」的即時波形圖。關閉後不渲染波形，也會跳過首頁波形使用的頻譜分析。',
-  'settings.general.homeWaveformVisualizer.title': '首頁波形圖',
   'settings.general.homeRandomHeroTitle.description': '開啟後，首頁標題會從隨機文案池裡抽取，也會混入一點網路梗。關閉後使用固定標題。',
   'settings.general.homeRandomHeroTitle.title': '首頁隨機標題',
   'settings.general.rememberWindowSize.description': '開啟後會記住你上次拖曳後的視窗寬高，下次啟動自動恢復。',
@@ -15881,8 +15875,6 @@ const jaJP: TranslationMap = {
   'settings.general.playerWaveformProgress.title': '波形プログレスバー',
   'settings.general.signalPathControl.description': '下部プレイヤーに Signal Path 入口を表示します。既定ではオンで、歌詞ページでは常に非表示です。',
   'settings.general.signalPathControl.title': '下部信号パス',
-  'settings.general.homeWaveformVisualizer.description': 'ホームの「今日のエコー」に表示するリアルタイム波形を制御します。オフにすると波形を描画せず、ホーム波形用のスペクトラム解析もスキップします。',
-  'settings.general.homeWaveformVisualizer.title': 'ホーム波形ビジュアライザー',
   'settings.general.homeRandomHeroTitle.description': '有効にすると、ホームの見出しをランダムな文言プールから選び、少しネットネタも混ぜます。オフにすると固定の見出しを使います。',
   'settings.general.homeRandomHeroTitle.title': 'ホームのランダム見出し',
   'settings.general.rememberWindowSize.description': '有効にすると、前回ドラッグして変更したウィンドウの幅と高さを記憶し、次回起動時に自動で復元します。',
@@ -19560,8 +19552,6 @@ const enUS: TranslationMap = {
   'settings.general.playerWaveformProgress.title': 'Waveform Progress Bar',
   'settings.general.signalPathControl.description': 'Show the Signal Path entry in the bottom player. On by default, and always hidden on the lyrics page.',
   'settings.general.signalPathControl.title': 'Bottom Signal Path',
-  'settings.general.homeWaveformVisualizer.description': 'Controls the live waveform in Home > Today Echo. Turning it off hides the waveform and skips the spectrum analysis used for it.',
-  'settings.general.homeWaveformVisualizer.title': 'Home Waveform Visualizer',
   'settings.general.homeRandomHeroTitle.description': 'When enabled, Home picks from a random title pool with a few internet jokes mixed in. Turning it off uses a fixed title.',
   'settings.general.homeRandomHeroTitle.title': 'Random Home Title',
   'settings.general.rememberWindowSize.description': 'Remember the window size after you resize it, then restore it automatically on the next launch.',

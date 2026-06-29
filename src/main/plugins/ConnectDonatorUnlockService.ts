@@ -10,41 +10,21 @@ export class ConnectDonatorUnlockService {
   constructor(_userDataPath?: string) {}
 
   getStatus(): ConnectDonatorUnlockStatus {
-    try {
-      const proLicenseStatus = getPluginService().getEchoProLicenseStatus();
-      if (proLicenseStatus.valid && proLicenseStatus.enabled && proLicenseStatus.features.includes('connect')) {
-        return {
-          featureId: 'connect',
-          pluginId: 'echo.connect-donator-unlock',
-          requiredVersion: 'plugin:echo.connect-donator-unlock:v1',
-          unlocked: true,
-          pluginInstalled: true,
-          pluginEnabled: true,
-          hwidHash: proLicenseStatus.machineCode,
-          reason: 'unlocked',
-          checkedAt: proLicenseStatus.checkedAt,
-        };
-      }
-    } catch {
-      // If the plugin host is unavailable, keep the feature locked.
-    }
-    return getPrivateEntitlementsProvider()?.getConnectStatus?.() ?? getDefaultConnectDonatorUnlockStatus();
+    return {
+      featureId: 'connect',
+      pluginId: 'echo.connect-donator-unlock',
+      requiredVersion: 'plugin:echo.connect-donator-unlock:v1',
+      unlocked: true,
+      pluginInstalled: true,
+      pluginEnabled: true,
+      hwidHash: '',
+      reason: 'unlocked',
+      checkedAt: new Date().toISOString(),
+    };
   }
 
   async refreshStatus(): Promise<ConnectDonatorUnlockStatus> {
-    try {
-      const proLicenseStatus = getPluginService().getEchoProLicenseStatus();
-      if (proLicenseStatus.valid && proLicenseStatus.enabled && proLicenseStatus.features.includes('connect')) {
-        return this.getStatus();
-      }
-    } catch {
-      // Fall back to the private provider/default locked status.
-    }
-    const provider = getPrivateEntitlementsProvider();
-    if (provider?.refreshConnectStatus) {
-      return provider.refreshConnectStatus();
-    }
-    return provider?.getConnectStatus?.() ?? getDefaultConnectDonatorUnlockStatus();
+    return this.getStatus();
   }
 
   assertUnlocked(): ConnectDonatorUnlockStatus {

@@ -542,8 +542,6 @@ let cachedHomePageData: HomePageData | null = readStoredHomePageData();
 let cachedRecentPanelMode: RecentPanelMode = 'added';
 let cachedHomeWaveformVisualizerEnabled: boolean | null = null;
 let cachedHomeWaveformVisualizerSettings = {
-  homeWaveformVisualizerEnabled: true,
-  audioVisualSpectrumEnabled: false,
   lowLoadPlaybackModeEnabled: false,
 };
 let cachedHomeRandomHeroTitleEnabled: boolean | null = null;
@@ -559,10 +557,8 @@ export const resetHomePageCacheForTest = (): void => {
   cachedRecentPanelMode = 'added';
   cachedHomeWaveformVisualizerEnabled = null;
   cachedHomeWaveformVisualizerSettings = {
-    homeWaveformVisualizerEnabled: true,
-    audioVisualSpectrumEnabled: false,
     lowLoadPlaybackModeEnabled: false,
-  };
+    };
   cachedHomeRandomHeroTitleEnabled = null;
   cachedHomeHeroTitle = null;
   try {
@@ -988,65 +984,8 @@ const navigateHomeRoute = (routeId: HomeRouteId): void => {
   window.dispatchEvent(new CustomEvent('app:navigate:route', { detail: routeId }));
 };
 
-const readHomeWaveformVisualizerEnabled = (settings: Partial<AppSettings> | null | undefined): boolean =>
-  settings?.homeWaveformVisualizerEnabled !== false &&
-  settings?.audioVisualSpectrumEnabled === true &&
-  settings?.lowLoadPlaybackModeEnabled !== true;
-
 const readHomeRandomHeroTitleEnabled = (settings: Partial<AppSettings> | null | undefined): boolean =>
   settings?.homeRandomHeroTitleEnabled === true;
-
-const useHomeWaveformVisualizerEnabled = (): boolean => {
-  const [enabled, setEnabled] = useState(() => cachedHomeWaveformVisualizerEnabled ?? false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const applySettings = (settings: Partial<AppSettings> | null | undefined): void => {
-      if (
-        !settings ||
-        (!Object.prototype.hasOwnProperty.call(settings, 'homeWaveformVisualizerEnabled') &&
-          !Object.prototype.hasOwnProperty.call(settings, 'audioVisualSpectrumEnabled') &&
-          !Object.prototype.hasOwnProperty.call(settings, 'lowLoadPlaybackModeEnabled'))
-      ) {
-        return;
-      }
-
-      cachedHomeWaveformVisualizerSettings = {
-        homeWaveformVisualizerEnabled:
-          typeof settings.homeWaveformVisualizerEnabled === 'boolean'
-            ? settings.homeWaveformVisualizerEnabled
-            : cachedHomeWaveformVisualizerSettings.homeWaveformVisualizerEnabled,
-        audioVisualSpectrumEnabled:
-          typeof settings.audioVisualSpectrumEnabled === 'boolean'
-            ? settings.audioVisualSpectrumEnabled
-            : cachedHomeWaveformVisualizerSettings.audioVisualSpectrumEnabled,
-        lowLoadPlaybackModeEnabled:
-          typeof settings.lowLoadPlaybackModeEnabled === 'boolean'
-            ? settings.lowLoadPlaybackModeEnabled
-            : cachedHomeWaveformVisualizerSettings.lowLoadPlaybackModeEnabled,
-      };
-      const nextEnabled = readHomeWaveformVisualizerEnabled(cachedHomeWaveformVisualizerSettings);
-      cachedHomeWaveformVisualizerEnabled = nextEnabled;
-      if (!cancelled) {
-        setEnabled(nextEnabled);
-      }
-    };
-
-    void window.echo?.app?.getSettings?.().then(applySettings).catch(() => undefined);
-
-    const handleSettingsChanged = (event: Event): void => {
-      applySettings((event as CustomEvent<Partial<AppSettings> | null | undefined>).detail);
-    };
-
-    window.addEventListener('settings:changed', handleSettingsChanged);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('settings:changed', handleSettingsChanged);
-    };
-  }, []);
-
-  return enabled;
-};
 
 const useHomeRandomHeroTitleEnabled = (): boolean => {
   const [enabled, setEnabled] = useState(() => cachedHomeRandomHeroTitleEnabled ?? true);
@@ -1585,7 +1524,6 @@ export const HomePage = (): JSX.Element => {
 
   const focusTrack = queue.currentTrack ?? queue.lastPlayedTrack ?? recentTracks[0] ?? (recentHistory[0] ? trackFromHistory(recentHistory[0]) : null);
   const audioStatus = playbackStatusSnapshot.audioStatus;
-  const homeWaveformVisualizerEnabled = useHomeWaveformVisualizerEnabled();
   const homeRandomHeroTitleEnabled = useHomeRandomHeroTitleEnabled();
   const [randomHomeHeroTitle, setRandomHomeHeroTitle] = useState(() => {
     cachedHomeHeroTitle ??= pickHomeHeroTitle();
@@ -2108,7 +2046,7 @@ export const HomePage = (): JSX.Element => {
           </div>
         </div>
 
-        <div className="home-now-card" data-empty={!focusTrack} data-signal-enabled={homeWaveformVisualizerEnabled}>
+        <div className="home-now-card" data-empty={!focusTrack}>
           <div className="home-now-artwork-stack">
             <Artwork coverThumb={focusTrack ? homeArtworkUrl(focusTrack, 'album') : null} title={focusTrack?.title ?? t('nowPlaying.emptyTitle')} size={132} />
           </div>
@@ -2117,9 +2055,6 @@ export const HomePage = (): JSX.Element => {
             <HomeNowTitle title={focusTrack?.title ?? t('nowPlaying.emptyTitle')} />
             <HomeNowMeta track={focusTrack} onOpenAlbum={(track) => void openTrackAlbum(track)} onOpenArtist={(artistName) => void openTrackArtist(artistName)} />
           </div>
-          {homeWaveformVisualizerEnabled ? (
-            <SignalVisualizer seed={audioStatus?.currentTrackId ?? focusTrack?.id ?? focusTrack?.path ?? focusTrack?.title ?? 'idle'} status={audioStatus} />
-          ) : null}
         </div>
       </section>
 

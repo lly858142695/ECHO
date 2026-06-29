@@ -28,8 +28,6 @@ import type {
 
 const audioCoreAppSettingsMock = vi.hoisted(() => {
   const defaultValue = {
-    homeWaveformVisualizerEnabled: true,
-    audioVisualSpectrumEnabled: true,
     lowLoadPlaybackModeEnabled: false,
     audioTransportFadeEnabled: false,
     audioTransportFadeCurve: 'smooth' as 'linear' | 'smooth' | 'equalPower',

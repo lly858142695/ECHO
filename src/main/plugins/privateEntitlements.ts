@@ -191,11 +191,11 @@ export const getDefaultConnectDonatorUnlockStatus = (): ConnectDonatorUnlockStat
   featureId: connectDonatorUnlockFeatureId,
   pluginId: connectDonatorUnlockPluginId,
   requiredVersion: connectDonatorUnlockVersion,
-  unlocked: false,
-  pluginInstalled: false,
-  pluginEnabled: false,
-  hwidHash: 'private-overlay',
-  reason: 'license-invalid',
+  unlocked: true,
+  pluginInstalled: true,
+  pluginEnabled: true,
+  hwidHash: '',
+  reason: 'unlocked',
   checkedAt: nowIso(),
 });
 

@@ -1853,24 +1853,12 @@ describe('preload SMTC API', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppChooseAppWallpaper);
   });
 
-  it('exposes app update helpers through IPC', async () => {
-    const handler = vi.fn();
-    await exposedApi!.app.getUpdateStatus();
-    await exposedApi!.app.checkForUpdates();
-    const unsubscribe = exposedApi!.app.onUpdateStatus(handler);
-    const listener = listeners.get(IpcChannels.AppUpdateStatusChanged);
-    const status = { state: 'downloading', downloadPercent: 42 };
-    listener?.({}, status);
-    unsubscribe();
+  it('exposes app helpers through IPC', async () => {
     await exposedApi!.app.openRepository();
     await exposedApi!.app.openExternalUrl('https://discord.gg/g7v4WMRq3K');
     await exposedApi!.app.testNetworkProxy();
     await exposedApi!.app.showTouchKeyboard();
 
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppGetUpdateStatus);
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppCheckForUpdates);
-    expect(handler).toHaveBeenCalledWith(status);
-    expect(listeners.has(IpcChannels.AppUpdateStatusChanged)).toBe(false);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppOpenRepository);
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppOpenExternalUrl, 'https://discord.gg/g7v4WMRq3K');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IpcChannels.AppTestNetworkProxy);

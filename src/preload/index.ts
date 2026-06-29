@@ -12,7 +12,6 @@ import type {
   PlaybackStatus,
 } from '../shared/types/playback';
 import type { SmtcCommand, SmtcLyricsProgress } from '../shared/types/smtc';
-import type { UpdateStatus } from '../shared/types/updates';
 import type { DiagnosticConsoleEntry, DiagnosticMemoryPressureEvent } from '../shared/types/diagnostics';
 import type { DataBackupProgress } from '../shared/types/settingsBackup';
 import type { SleepTimerStatus, SleepTimerStartRequest } from '../shared/types/sleepTimer';
@@ -1692,15 +1691,6 @@ const echoApi: EchoApi = {
     getDefaultCacheDirectory: () => ipcRenderer.invoke(IpcChannels.AppGetDefaultCacheDirectory),
     getCacheInventory: () => ipcRenderer.invoke(IpcChannels.AppGetCacheInventory),
     setCoverCacheDirectory: (request) => ipcRenderer.invoke(IpcChannels.AppSetCoverCacheDirectory, request),
-    getUpdateStatus: () => ipcRenderer.invoke(IpcChannels.AppGetUpdateStatus),
-    checkForUpdates: () => ipcRenderer.invoke(IpcChannels.AppCheckForUpdates),
-    onUpdateStatus: (handler) => {
-      const listener = (_event: Electron.IpcRendererEvent, status: unknown): void => {
-        handler(status as UpdateStatus);
-      };
-      ipcRenderer.on(IpcChannels.AppUpdateStatusChanged, listener);
-      return () => ipcRenderer.off(IpcChannels.AppUpdateStatusChanged, listener);
-    },
     openRepository: () => ipcRenderer.invoke(IpcChannels.AppOpenRepository),
     openExternalUrl: (url) => ipcRenderer.invoke(IpcChannels.AppOpenExternalUrl, url),
     showTouchKeyboard: () => ipcRenderer.invoke(IpcChannels.AppShowTouchKeyboard),

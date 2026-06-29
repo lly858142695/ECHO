@@ -84,7 +84,6 @@ import type {
   AppThemePreset,
   AppThemePresetOverrides,
   AppThemeToneOverride,
-  AutoUpdateSource,
   NetworkProxyMode,
   NetworkProxyTestResult,
   PlayerBarButtonId,
@@ -125,7 +124,6 @@ import type {
   LyricsBackfillJobStatus,
   ReplayGainAnalysisJobStatus,
 } from '../../shared/types/library';
-import type { UpdateStatus } from '../../shared/types/updates';
 import { LibraryDiagnosticsPanel } from '../components/library/LibraryDiagnosticsPanel';
 import { LibraryHealthReportPanel } from '../components/library/LibraryHealthReportPanel';
 import { LibraryFoldersPanel } from '../components/library/LibraryFoldersPanel';
@@ -407,13 +405,6 @@ const userDocumentationUrl = 'https://echonext.moe/zh/docs/';
 const baiduPanShareUrl = 'https://pan.baidu.com/s/1ta0McyhY9knaD6FT5xW3Og?pwd=echo';
 const bilibiliSpaceUrl = 'https://space.bilibili.com/25265128';
 const afdianSponsorUrl = 'https://afdian.com/a/echonext';
-const autoUpdateSourceOptions: Array<{ source: AutoUpdateSource; label: string; description: string }> = [
-  { source: 'official', label: 'GitHub', description: '官方直连' },
-  { source: 'ghfast', label: 'ghfast.top', description: '实测可读 latest.yml' },
-  { source: 'ghproxyVip', label: 'ghproxy.vip', description: '实测可读 API 和文件' },
-  { source: 'ghproxyCxkpro', label: 'cxkpro', description: '实测可读 latest.yml' },
-  { source: 'custom', label: 'Custom', description: '自定义 generic 源' },
-];
 const playbackAdvancedPanelExpandedStorageKey = 'echo:settings:playback:advanced-panel-expanded';
 const integrationsAccountPanelExpandedStorageKey = 'echo:settings:integrations:account-panel-expanded';
 const generalEchoProAccountPanelExpandedStorageKey = 'echo:settings:general:echo-pro-account-panel-expanded';
@@ -3770,27 +3761,6 @@ const getThemeContrastWarnings = (values: ThemeEditorDefaults): string[] => {
   return warnings;
 };
 
-const getUpdateStateLabel = (state: UpdateStatus['state']): TranslationKey => {
-  switch (state) {
-    case 'checking':
-      return 'settings.about.updates.state.checking';
-    case 'available':
-      return 'settings.about.updates.state.available';
-    case 'downloading':
-      return 'settings.about.updates.state.downloading';
-    case 'downloaded':
-      return 'settings.about.updates.state.downloaded';
-    case 'not-available':
-      return 'settings.about.updates.state.notAvailable';
-    case 'error':
-      return 'settings.about.updates.state.error';
-    case 'disabled':
-      return 'settings.about.updates.state.disabled';
-    default:
-      return 'settings.about.updates.state.idle';
-  }
-};
-
 const formatUpdateBytes = (bytes: number | null | undefined): string => {
   if (!Number.isFinite(bytes) || !bytes || bytes <= 0) {
     return 'n/a';
@@ -4501,7 +4471,8 @@ export const SettingsPage = (): JSX.Element => {
   const visiblePlayerBarButtonCount = playerBarButtonSettingsItems.length - hiddenPlayerBarButtonIds.length;
   const sidebarLayoutExpanded = appSettings?.appearanceSidebarLayoutExpanded === true;
   const connectSidebarProLocked = !finalThemeUnlocked;
-  const sidebarLayoutSummary = sidebarHiddenRouteIds.length > 0 ? t('settings.appearance.sidebar.summary.hidden', { count: sidebarHiddenRouteIds.length }) : t('settings.appearance.sidebar.summary.allVisible');
+  const userHiddenSidebarCount = sidebarHiddenRouteIds.filter((id) => !lockedHiddenSidebarRouteIdSet.has(id)).length;
+  const sidebarLayoutSummary = userHiddenSidebarCount > 0 ? t('settings.appearance.sidebar.summary.hidden', { count: userHiddenSidebarCount }) : t('settings.appearance.sidebar.summary.allVisible');
   const sidebarSettingsGroups = useMemo(() => {
     const groups: Record<SidebarSettingsRouteItem['placement'], SidebarSettingsRouteItem[]> = {
       main: [],
@@ -4582,10 +4553,6 @@ export const SettingsPage = (): JSX.Element => {
   const [soundCloudBrowser, setSoundCloudBrowser] = useState<AccountBrowser>('none');
   const [lastFmAuthToken, setLastFmAuthToken] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
-  const [deferredAboutReleaseNotes, setDeferredAboutReleaseNotes] = useState<string | null>(null);
-  const [updateBusy, setUpdateBusy] = useState(false);
-  const [autoUpdateCustomUrlDraft, setAutoUpdateCustomUrlDraft] = useState('');
   const [lastCrashSummary, setLastCrashSummary] = useState<LastCrashSummary | null>(null);
   const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
   const [diagnosticsMessage, setDiagnosticsMessage] = useState<string | null>(null);
@@ -5006,32 +4973,6 @@ export const SettingsPage = (): JSX.Element => {
         title: t('settings.general.playerWaveformProgress.title'),
         description: t('settings.general.playerWaveformProgress.description'),
         terms: [t('settings.general.playerWaveformProgress.title'), t('settings.general.playerWaveformProgress.description'), '波形进度条', '波形進度條', '波形播放进度', 'waveform progress', 'waveform seekbar', 'waveform scrubber', 'roon'],
-      },
-      {
-        id: 'row-home-waveform-visualizer',
-        sectionKey: 'general',
-        targetId: 'settings-row-home-waveform-visualizer',
-        title: t('settings.general.homeWaveformVisualizer.title'),
-        description: t('settings.general.homeWaveformVisualizer.description'),
-        terms: [
-          t('settings.general.homeWaveformVisualizer.title'),
-          t('settings.general.homeWaveformVisualizer.description'),
-          '首页波形图',
-          '主页波形图',
-          '音频可视化',
-          '可视化条',
-          'waveform visualizer',
-          'audio visualizer',
-          'home visualizer',
-        ],
-      },
-      {
-        id: 'row-audio-visual-spectrum',
-        sectionKey: 'general',
-        targetId: 'settings-row-audio-visual-spectrum',
-        title: '实时频谱分析',
-        description: '默认关闭。开启后主页波形会请求主进程计算频谱；低负载播放模式会强制关闭它。',
-        terms: ['实时频谱分析', '频谱', '可视化', 'FFT', 'visual spectrum', 'spectrum', 'audio visualizer', 'mouse freeze', '卡死', '低负载'],
       },
       {
         id: 'row-home-random-hero-title',
@@ -6173,7 +6114,6 @@ export const SettingsPage = (): JSX.Element => {
       setThemeCustomThemes(customThemes);
       setActiveThemeCustomId(customThemeId);
       setSelectedThemePreset(basePreset);
-      setAutoUpdateCustomUrlDraft(settings.autoUpdateCustomUrl ?? '');
       updateThemePreferences(
         settings.appearanceTheme ?? defaultThemeMode,
         basePreset,
@@ -6192,7 +6132,6 @@ export const SettingsPage = (): JSX.Element => {
       setChannelBalanceState(settings.channelBalance ?? defaultSettingsChannelBalance);
     }).catch(() => undefined);
     void app?.getVersion().then(setAppVersion).catch(() => undefined);
-    void app?.getUpdateStatus?.().then(setUpdateStatus).catch(() => undefined);
     void app?.getDataBackupStatus?.().then((status) => {
       setDataBackupStatus(status);
       setDataBackupProgress(status.progress);
@@ -6207,16 +6146,9 @@ export const SettingsPage = (): JSX.Element => {
         }).catch(() => undefined);
       }
     });
-    const unsubscribeUpdateStatus = app?.onUpdateStatus?.((status) => {
-      setUpdateStatus(status);
-      if (status.state === 'downloading' || status.state === 'downloaded') {
-        setUpdateBusy(false);
-      }
-    });
 
     return () => {
       unsubscribeDataBackupProgress?.();
-      unsubscribeUpdateStatus?.();
     };
   }, []);
 
@@ -6410,23 +6342,6 @@ export const SettingsPage = (): JSX.Element => {
       void getDiagnosticsBridge()?.getLastCrashSummary().then(setLastCrashSummary).catch(() => undefined);
     });
   }, [activeSection]);
-
-  useEffect(() => {
-    const releaseNotes = updateStatus?.releaseNotes ?? null;
-    if (activeSection !== 'about' || !releaseNotes) {
-      setDeferredAboutReleaseNotes(null);
-      return undefined;
-    }
-
-    if (deferredAboutReleaseNotes === releaseNotes) {
-      return undefined;
-    }
-
-    setDeferredAboutReleaseNotes(null);
-    return scheduleSettingsIdleTask(() => {
-      setDeferredAboutReleaseNotes(releaseNotes);
-    });
-  }, [activeSection, deferredAboutReleaseNotes, updateStatus?.releaseNotes]);
 
   useEffect(() => {
     if (activeSection !== 'library' || !libraryDeferredRefreshReady || appSettings?.autoFetchArtistImages !== true) {
@@ -7942,9 +7857,6 @@ export const SettingsPage = (): JSX.Element => {
       .setSettings(patch)
       .then((settings) => {
         setAppSettings(settings);
-        if (Object.prototype.hasOwnProperty.call(patch, 'autoUpdateCustomUrl')) {
-          setAutoUpdateCustomUrlDraft(settings.autoUpdateCustomUrl ?? '');
-        }
         if (Object.prototype.hasOwnProperty.call(patch, 'taskbarPlaybackControlsEnabled')) {
           void refreshTaskbarPlaybackStatus();
         }
@@ -8845,38 +8757,6 @@ export const SettingsPage = (): JSX.Element => {
     [appSettings?.mvProviderOrder, patchMvSettings],
   );
 
-  const handleCheckForUpdates = async (): Promise<void> => {
-    const app = getAppBridge();
-
-    if (!app?.checkForUpdates) {
-      setError('Desktop bridge unavailable. Open ECHO Next in Electron to check for updates.');
-      return;
-    }
-
-    setUpdateBusy(true);
-    try {
-      setUpdateStatus(await app.checkForUpdates());
-    } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : String(updateError));
-    } finally {
-      setUpdateBusy(false);
-    }
-  };
-
-  const handleAutoUpdateSourceSelect = (source: AutoUpdateSource): void => {
-    patchAppSettings({
-      autoUpdateSource: source,
-      autoUpdateCustomUrl: source === 'custom' ? autoUpdateCustomUrlDraft.trim() || null : appSettings?.autoUpdateCustomUrl ?? null,
-    });
-  };
-
-  const handleAutoUpdateCustomUrlSave = (): void => {
-    patchAppSettings({
-      autoUpdateSource: 'custom',
-      autoUpdateCustomUrl: autoUpdateCustomUrlDraft.trim() || null,
-    });
-  };
-
   const handleOpenRepository = async (): Promise<void> => {
     const app = getAppBridge();
 
@@ -9537,14 +9417,6 @@ export const SettingsPage = (): JSX.Element => {
     }
   };
 
-  const updateDownloadPercent = Math.max(0, Math.min(100, Math.round(updateStatus?.downloadPercent ?? 0)));
-  const showUpdateDownloadProgress = updateStatus?.state === 'downloading' || updateStatus?.state === 'downloaded';
-  const updateDownloadSizeLabel =
-    updateStatus?.transferredBytes && updateStatus.totalBytes
-      ? `${formatUpdateBytes(updateStatus.transferredBytes)} / ${formatUpdateBytes(updateStatus.totalBytes)}`
-      : formatUpdateBytes(updateStatus?.totalBytes);
-  const updateDownloadSpeedLabel = updateStatus?.bytesPerSecond ? `${formatUpdateBytes(updateStatus.bytesPerSecond)}/s` : 'n/a';
-  const currentAutoUpdateSource = appSettings?.autoUpdateSource ?? 'official';
   const artistImageHasSummary = Boolean(artistImageProgress);
   const artistImageSummary = artistImageProgress?.summary ?? emptyArtistImageSummary;
   const artistImageQueuedTotal = artistImageProgress?.lastQueued.queued ?? 0;
@@ -11884,38 +11756,6 @@ export const SettingsPage = (): JSX.Element => {
                   onClick={() =>
                     patchAppSettings({
                       signalPathControlEnabled: !(appSettings?.signalPathControlEnabled ?? true),
-                    })
-                  }
-                />
-              </SettingRow>
-              <SettingRow
-                id="settings-row-home-waveform-visualizer"
-                highlighted={highlightedSettingId === 'settings-row-home-waveform-visualizer'}
-                title={t('settings.general.homeWaveformVisualizer.title')}
-                description={t('settings.general.homeWaveformVisualizer.description')}
-              >
-                <ToggleButton
-                  active={appSettings?.homeWaveformVisualizerEnabled !== false}
-                  disabled={!appSettings}
-                  onClick={() =>
-                    patchAppSettings({
-                      homeWaveformVisualizerEnabled: !(appSettings?.homeWaveformVisualizerEnabled ?? true),
-                    })
-                  }
-                />
-              </SettingRow>
-              <SettingRow
-                id="settings-row-audio-visual-spectrum"
-                highlighted={highlightedSettingId === 'settings-row-audio-visual-spectrum'}
-                title="实时频谱分析"
-                description="默认关闭。开启后主页波形会请求主进程计算频谱；低负载播放模式会强制关闭它。"
-              >
-                <ToggleButton
-                  active={appSettings?.audioVisualSpectrumEnabled === true}
-                  disabled={!appSettings}
-                  onClick={() =>
-                    patchAppSettings({
-                      audioVisualSpectrumEnabled: appSettings?.audioVisualSpectrumEnabled !== true,
                     })
                   }
                 />
@@ -14850,30 +14690,6 @@ export const SettingsPage = (): JSX.Element => {
               </SettingRow>
               {downloadsFeatureUnlocked ? (
                 <>
-                  <SettingRow
-                    className="setting-row--full setting-row--compact-panel"
-                    title={t('mediaLibrary.settings.download.path.title')}
-                    description={t('mediaLibrary.settings.download.path.description')}
-                  >
-                    <div className="settings-cache-panel settings-cache-panel--download">
-                      <div className="settings-cache-path">
-                        <em>{t('mediaLibrary.settings.download.path.current')}</em>
-                        <strong title={currentDownloadDirectoryLabel}>{currentDownloadDirectoryLabel}</strong>
-                      </div>
-                      <div className="settings-chip-row settings-chip-row--left">
-                        <button
-                          className="settings-action-button"
-                          type="button"
-                          onClick={() => void handleDownloadDirectoryChoose()}
-                          disabled={downloadDirectoryBusy}
-                        >
-                          <FolderOpen size={15} />
-                          {downloadSettings?.outputDirectory ? t('mediaLibrary.settings.download.path.action.change') : t('mediaLibrary.settings.download.path.action.choose')}
-                        </button>
-                      </div>
-                      {downloadDirectoryMessage ? <p className="settings-inline-note">{downloadDirectoryMessage}</p> : null}
-                    </div>
-                  </SettingRow>
                   <SettingRow
                     id="settings-row-streaming-download-actions"
                     highlighted={highlightedSettingId === 'settings-row-streaming-download-actions'}

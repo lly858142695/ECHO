@@ -160,24 +160,6 @@ vi.mock('../app/tray', () => ({
   requestAppQuit: requestAppQuitMock,
 }));
 
-vi.mock('../app/autoUpdater', () => ({
-  checkForUpdates: vi.fn(),
-  getUpdateStatus: vi.fn(() => ({
-    state: 'idle',
-    currentVersion: 'v0.0.0-test',
-    latestVersion: null,
-    releaseName: null,
-    releaseNotes: null,
-    downloadPercent: null,
-    transferredBytes: null,
-    totalBytes: null,
-    bytesPerSecond: null,
-    error: null,
-    checkedAt: null,
-  })),
-  setAutoUpdateEnabled: vi.fn(),
-}));
-
 vi.mock('../app/backgroundPlaybackShortcuts', () => ({
   refreshBackgroundSpaceRegistration: refreshGlobalShortcutRegistrationMock,
   validateGlobalShortcut: validateGlobalShortcutMock,

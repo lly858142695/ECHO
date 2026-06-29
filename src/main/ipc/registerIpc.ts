@@ -16,7 +16,6 @@ import type {
 } from '../../shared/types/settingsBackup';
 import type { TaskbarPlaybackStatus } from '../../shared/types/taskbarPlayback';
 import type { AppCacheInventory, CoverCacheMigrationResult, SetCoverCacheDirectoryRequest } from '../../shared/types/coverCache';
-import type { UpdateStatus } from '../../shared/types/updates';
 import type {
   EchoProSettingsCloudApplyResult,
   EchoProSettingsCloudPullResult,
@@ -38,7 +37,6 @@ import {
   type NormalizeSettingsOptions,
 } from '../app/appSettings';
 import { getAppCacheInventory as collectAppCacheInventory } from '../app/cacheInventory';
-import { checkForUpdates, getUpdateStatus, reconfigureAutoUpdateFeed, setAutoUpdateEnabled } from '../app/autoUpdater';
 import { refreshBackgroundSpaceRegistration, validateGlobalShortcut } from '../app/backgroundPlaybackShortcuts';
 import {
   getDataBackupStatus,
@@ -360,19 +358,6 @@ const applyAppSettingsPatch = async (
     downloadsFeatureUnlocked: options.downloadsFeatureUnlocked,
   });
   ensureTray();
-
-  const autoUpdateSourceChanged =
-    typeof settingsPatch.autoUpdateSource === 'string' ||
-    Object.prototype.hasOwnProperty.call(settingsPatch, 'autoUpdateCustomUrl');
-
-  if (typeof settingsPatch.autoUpdateEnabled === 'boolean' || autoUpdateSourceChanged) {
-    const autoUpdateEnabled = settings.autoUpdateEnabled !== false;
-    setAutoUpdateEnabled(autoUpdateEnabled);
-    if (autoUpdateEnabled) {
-      reconfigureAutoUpdateFeed();
-      void checkForUpdates();
-    }
-  }
 
   if (
     typeof settingsPatch.networkProxyMode === 'string' ||
@@ -697,8 +682,6 @@ export const registerIpc = (): void => {
   });
   ipcMain.handle(IpcChannels.AppGetDefaultCacheDirectory, (): string => getLibraryService().getDefaultCoverCacheDir());
   ipcMain.handle(IpcChannels.AppGetCacheInventory, (): Promise<AppCacheInventory> => getAppCacheInventory());
-  ipcMain.handle(IpcChannels.AppGetUpdateStatus, (): UpdateStatus => getUpdateStatus());
-  ipcMain.handle(IpcChannels.AppCheckForUpdates, (): Promise<UpdateStatus> => checkForUpdates());
   ipcMain.handle(IpcChannels.AppOpenRepository, async (): Promise<void> => {
     await shell.openExternal('https://github.com/moekotori/echo');
   });

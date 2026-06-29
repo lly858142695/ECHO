@@ -23,8 +23,6 @@ export type AudioTransportFadeCurve = 'linear' | 'smooth' | 'equalPower';
 export type NetworkProxyMode = 'off' | 'system' | 'manual' | 'pac';
 export type DataBackupIntervalDays = 3 | 7 | 30;
 export type ArtistMergeStrategy = 'conservative' | 'standard';
-export const autoUpdateSources = ['official', 'ghfast', 'ghproxyVip', 'ghproxyCxkpro', 'custom'] as const;
-export type AutoUpdateSource = typeof autoUpdateSources[number];
 export const artistOnlineInfoSources = ['baidu-baike', 'moegirl', 'wikipedia'] as const;
 export type ArtistOnlineInfoSource = typeof artistOnlineInfoSources[number];
 export const defaultArtistOnlineInfoSources: ArtistOnlineInfoSource[] = ['wikipedia'];
@@ -238,9 +236,6 @@ export type AppSettings = {
   fastStartupEnabled?: boolean;
   sqliteBalancedDurabilityEnabled?: boolean;
   dataProtectionDisabled?: boolean;
-  autoUpdateEnabled?: boolean;
-  autoUpdateSource?: AutoUpdateSource;
-  autoUpdateCustomUrl?: string | null;
   autoAccountCheckOnStartup?: boolean;
   suppressAccountExpiryNotices?: boolean;
   notificationsDisabled?: boolean;
@@ -397,8 +392,6 @@ export type AppSettings = {
   mvAllow60fps: boolean;
   channelBalance: ChannelBalanceState;
   playerVolume: number;
-  homeWaveformVisualizerEnabled?: boolean;
-  audioVisualSpectrumEnabled?: boolean;
   lowLoadPlaybackModeEnabled?: boolean;
   lowLoadPlaybackEnhancementsEnabled?: boolean;
   homeRandomHeroTitleEnabled?: boolean;

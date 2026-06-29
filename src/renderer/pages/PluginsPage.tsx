@@ -557,7 +557,7 @@ export const PluginsPage = (): JSX.Element => {
   const [message, setMessage] = useState<string | null>(null);
   const [isPackageDragging, setIsPackageDragging] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<PluginSettingsPatch>({});
-  const [pluginsProUnlocked, setPluginsProUnlocked] = useState<boolean | null>(null);
+  const [pluginsProUnlocked, setPluginsProUnlocked] = useState<boolean | null>(true);
 
   const selectedPlugin = useMemo(
     () => plugins.find((plugin) => plugin.id === selectedPluginId) ?? plugins[0] ?? null,
@@ -569,23 +569,9 @@ export const PluginsPage = (): JSX.Element => {
   }, []);
 
   const refreshPluginsProUnlock = useCallback(async (): Promise<void> => {
-    if (!appApi?.getEchoProAccountStatus) {
-      setPluginsProUnlocked(false);
-      return;
-    }
-    try {
-      const status = await appApi.getEchoProAccountStatus();
-      setPluginsProUnlocked(status.pro === true);
-      if (status.pro !== true) {
-        setMessage('插件功能需要 ECHO Pro 账号完成云端验证。');
-      } else {
-        setMessage(null);
-      }
-    } catch {
-      setPluginsProUnlocked(false);
-      setMessage('插件功能需要 ECHO Pro 账号完成云端验证。');
-    }
-  }, [appApi]);
+    setPluginsProUnlocked(true);
+    setMessage(null);
+  }, []);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!pluginsApi || pluginsProUnlocked !== true) {

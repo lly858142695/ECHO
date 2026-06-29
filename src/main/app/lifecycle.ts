@@ -12,7 +12,6 @@ import { disposeLastFmIntegration, initializeLastFmIntegration } from '../integr
 import { disposeWallpaperEngineBridgeIntegration, initializeWallpaperEngineBridgeIntegration } from '../integrations/wallpaperEngine/getWallpaperEngineBridgeService';
 import { savePlaybackMemoryNow } from '../ipc/playbackIpc';
 import { dispatchLocalAudioFilesOpened, parseLocalAudioFileArguments } from './localFileOpen';
-import { initializeAutoUpdater } from './autoUpdater';
 import { getAppSettings } from './appSettings';
 import { disposeDataBackupScheduler, initializeDataBackupScheduler } from './dataBackup';
 import {
@@ -325,8 +324,6 @@ export const registerAppLifecycle = (): void => {
     } else {
       markStartupStage('accounts:startup-check:skipped');
     }
-    initializeAutoUpdater(appSettings.autoUpdateEnabled !== false);
-    markStartupStage('auto-updater:initialized', { enabled: appSettings.autoUpdateEnabled !== false });
     initializeDataBackupScheduler();
     markStartupStage('data-backup:scheduler-initialized');
     dispatchLocalAudioFilesOpened(parseLocalAudioFileArguments(process.argv));

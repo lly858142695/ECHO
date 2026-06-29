@@ -14,7 +14,6 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { AppRouteId } from '../../app/routes';
 import { useI18n } from '../../i18n/I18nProvider';
-import type { UpdateStatus } from '../../../shared/types/updates';
 
 type AppTitleBarProps = {
   activeRouteId: AppRouteId;
@@ -22,9 +21,7 @@ type AppTitleBarProps = {
   isLyricsSettingsOpen?: boolean;
   isMvSettingsOpen?: boolean;
   isProUnlocked?: boolean;
-  updateStatus?: UpdateStatus | null;
   onRouteChange: (routeId: AppRouteId) => void;
-  onOpenUpdateSettings?: () => void;
   onOpenAudioSettings: () => void;
   onOpenLyricsSettings?: () => void;
   onOpenMvSettings?: () => void;
@@ -50,9 +47,7 @@ export const AppTitleBar = ({
   isLyricsSettingsOpen = false,
   isMvSettingsOpen = false,
   isProUnlocked = false,
-  updateStatus = null,
   onRouteChange,
-  onOpenUpdateSettings = () => undefined,
   onOpenAudioSettings,
   onOpenLyricsSettings = () => undefined,
   onOpenMvSettings = () => undefined,
@@ -68,10 +63,6 @@ export const AppTitleBar = ({
   const MaximizeIcon = isWindowMaximized ? Copy : Square;
   const fullscreenLabel = t(isWindowFullscreen ? 'app.window.exitFullscreen' : 'app.window.fullscreen');
   const FullscreenIcon = isWindowFullscreen ? Minimize2 : Maximize2;
-  const updateVersion = updateStatus?.latestVersion ?? updateStatus?.releaseName ?? null;
-  const updateNoticeLabel = updateStatus?.state === 'downloaded'
-    ? (updateVersion ? t('notice.updateDownloadedVersion', { version: updateVersion }) : t('notice.updateDownloaded'))
-    : (updateVersion ? t('notice.updateAvailableVersion', { version: updateVersion }) : t('notice.updateAvailable'));
   const actions: TitleBarAction[] = [
     {
       id: 'audio-settings',
@@ -112,18 +103,6 @@ export const AppTitleBar = ({
           <span className="app-titlebar-pro-badge" aria-label="ECHO Pro unlocked">
             Pro
           </span>
-        ) : null}
-        {updateStatus ? (
-          <button
-            className="app-titlebar-update"
-            type="button"
-            aria-label={updateNoticeLabel}
-            title={updateNoticeLabel}
-            onClick={onOpenUpdateSettings}
-          >
-            <Download size={13} />
-            <span>{updateVersion ?? 'Update'}</span>
-          </button>
         ) : null}
       </div>
 
