@@ -60,7 +60,7 @@ import type {
   PluginSourceTrack,
   PluginSummary,
 } from '../../shared/types/plugins';
-import { getAppSettings, setAppSettings } from '../app/appSettings';
+import { getAppDataPath, getAppSettings, setAppSettings } from '../app/appSettings';
 import { AudioAuthenticityAnalyzer } from '../audio/AudioAuthenticityAnalyzer';
 import { getAudioSession } from '../audio/AudioSession';
 import { getLibraryService } from '../library/LibraryService';
@@ -1028,7 +1028,7 @@ export class PluginService {
   private audioStatusSubscribed = false;
   private readonly audioAnalyzer = new AudioAuthenticityAnalyzer();
 
-  constructor(private readonly pluginDirectory = join(app.getPath('userData'), 'plugins')) {}
+  constructor(private readonly pluginDirectory = join(getAppDataPath(), 'plugins')) {}
 
   list(): PluginListResult {
     this.scan();
