@@ -6,6 +6,7 @@ import { getAppSettings, setAppSettings } from './appSettings';
 import { createMainWindow, createMainWindowWebPreferences } from './createMainWindow';
 import { ensureTray } from './tray';
 import { getMainWindow } from './windowManager';
+import { refreshTaskbarPlaybackIntegration } from './taskbarPlaybackIntegration';
 import { recordMainRuntimeIssue, recordRendererConsoleMessage } from '../diagnostics/DevConsoleService';
 
 const mainOutputDir = import.meta.dirname;
@@ -194,6 +195,7 @@ const restoreMainWindowAfterMiniPlayerHide = (): void => {
   mainWindow.show();
   mainWindow.moveTop();
   mainWindow.focus();
+  refreshTaskbarPlaybackIntegration();
 };
 
 const rememberMiniPlayerBounds = (window: BrowserWindow): void => {
