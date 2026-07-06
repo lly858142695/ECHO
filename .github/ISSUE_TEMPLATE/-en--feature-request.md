@@ -1,5 +1,5 @@
 ---
-name: "[EN]Feature request"
+name: "[EN] Feature request"
 about: "[using English] Suggest an idea for this project"
 title: "[FeatureRequest] I suggest:"
 labels: enhancement
