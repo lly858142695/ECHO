@@ -18,6 +18,16 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Moekotori/ECHO/releases">
+    <img alt="Downloads" src="https://img.shields.io/github/downloads/Moekotori/ECHO/total?style=flat-square&logo=github&label=downloads&color=22c55e" />
+  </a>
+  <a href="https://github.com/Moekotori/ECHO">
+    <img alt="GitHub Stars" src="https://img.shields.io/github/stars/Moekotori/ECHO?style=flat-square&logo=github&label=stars&color=fbbf24" />
+  </a>
+  <img alt="Repository Views" src="https://komarev.com/ghpvc/?username=Moekotori-ECHO&label=views&color=7c5cff&style=flat-square" />
+</p>
+
+<p align="center">
   <a href="https://echonext.moe/zh/">官方网站</a>
   ·
   <a href="https://echonext.moe/zh/download/">下载 ECHO NEXT</a>
