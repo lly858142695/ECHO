@@ -24,7 +24,6 @@
   <a href="https://github.com/Moekotori/ECHO">
     <img alt="GitHub Stars" src="https://img.shields.io/github/stars/Moekotori/ECHO?style=flat-square&logo=github&label=stars&color=fbbf24" />
   </a>
-  <img alt="Repository Views" src="https://komarev.com/ghpvc/?username=Moekotori-ECHO&label=views&color=7c5cff&style=flat-square" />
 </p>
 
 <p align="center">
