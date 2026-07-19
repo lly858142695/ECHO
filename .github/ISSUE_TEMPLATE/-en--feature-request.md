@@ -4,29 +4,53 @@ about: "[using English] Suggest an idea for this project"
 title: "[FeatureRequest] I suggest:"
 labels: enhancement
 assignees: ''
-
 ---
 
-✔I have confirmed the following before submitting this issue
-#After confirmation, please fill in "[ ]" with "x"
-- [ ] 1. I confirm this feature aligns with ECHO’s main development line
-- [ ] 2. I confirm this feature will not affect the existing architecture
-- [ ] 3. I confirm this feature is useful and not unnecessary
-- [ ] 4. I confirm that I have read the ECHO documentation
-- [ ] 5. I confirm that I have read the above and will carefully fill out the feature request template
+## Pre-flight Checklist
 
-⭕**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+- [ ] 1. I confirm this feature aligns with ECHO's main product direction
+- [ ] 2. I have read the [ECHO documentation](https://echonext.moe/zh/docs/)
+- [ ] 3. I have searched existing issues and did not find the same or highly similar request
+- [ ] 4. I will explain the real usage scenario instead of only saying "please support this"
+- [ ] 5. I understand that implementation depends on maintenance plans, technical cost, and product boundaries
 
-⭕**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+## Feature Area
 
-⭕**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+Please select the closest area:
 
-⭕**Additional context**
-Add any other context or screenshots about the feature request here.
+- [ ] Library / scanning / metadata
+- [ ] Playback queue / lyrics / MV
+- [ ] Audio output / WASAPI / ASIO / HQPlayer
+- [ ] DSP / EQ / SRC / SDM
+- [ ] Plugins / remote sources / WebDAV / SMB / Jellyfin / Subsonic
+- [ ] UI / interaction / desktop experience
+- [ ] Other:
 
-⭕**Leave me your contact info**
-Email:
-Social Link:
+## Problem or Scenario
+
+What scenario makes you need this feature? What is inconvenient in the current workflow?
+
+## Desired Solution
+
+Describe how you want ECHO to behave, including entry point, interaction, or key status feedback.
+
+## Alternatives Considered
+
+How do you work around this today? Have you tried another player, plugin, script, or manual workflow?
+
+## Impact on Audio Path or Data
+
+If relevant, explain whether the request affects:
+
+- Output mode or bit-perfect judgment
+- DSP / EQ / SRC / SDM state
+- Library scanning, tags, covers, or cache
+- Plugin permissions, remote sources, or account configuration
+
+## References
+
+Attach screenshots, recordings, examples from other software, documentation links, or a simple sketch if helpful.
+
+## Contact Information (optional)
+
+- Email / QQ / social account:
