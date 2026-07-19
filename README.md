@@ -27,6 +27,8 @@
 </p>
 
 <p align="center">
+  <a href="./README_EN.md">English</a>
+  ·
   <a href="https://echonext.moe/zh/">官方网站</a>
   ·
   <a href="https://echonext.moe/zh/download/">下载 ECHO NEXT</a>
