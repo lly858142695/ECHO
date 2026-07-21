@@ -5,12 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0056af65-64ef-4705-a525-970aa610832d" name="更改" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/data/echo-settings.json" beforeDir="false" afterPath="$PROJECT_DIR$/data/echo-settings.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/ipc/registerIpc.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/ipc/registerIpc.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main/library/LibraryService.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/library/LibraryService.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/renderer/components/lyrics/LyricsSettingsDrawer.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/renderer/components/lyrics/LyricsSettingsDrawer.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/renderer/pages/FoldersPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/renderer/pages/FoldersPage.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/renderer/pages/SettingsPage.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/renderer/pages/SettingsPage.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/test/tt/majiko - 狂おしいほど僕には美しい.mp3" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/test/tt/三省 - 毕竟我是一条鱼.mp3" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/test/tt/森羅万象,あよ - Toge.mp3" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/test/tt/邱有句 - 夏の喚く.mp3" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -106,12 +106,10 @@
       </map>
     </option>
   </component>
-  <component name="JsFlowSettings">
-    <service-enabled>true</service-enabled>
-    <exe-path />
-    <other-services-enabled>true</other-services-enabled>
-    <auto-save>true</auto-save>
-  </component>
+  <component name="KubernetesApiPersistence">{}</component>
+  <component name="KubernetesApiProvider">{
+  &quot;isMigrated&quot;: true
+}</component>
   <component name="MavenImportPreferences">
     <option name="generalSettings">
       <MavenGeneralSettings>
@@ -145,7 +143,7 @@
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;git-widget-placeholder&quot;: &quot;lly&quot;,
     &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;F:/7、学习项目/ECHO-main&quot;,
+    &quot;last_opened_file_path&quot;: &quot;F:/8、工作文档/CivEvolution&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -208,7 +206,12 @@
       <workItem from="1782452475059" duration="13063000" />
       <workItem from="1782476199862" duration="12535000" />
       <workItem from="1782557327736" duration="16825000" />
-      <workItem from="1782616536420" duration="16854000" />
+      <workItem from="1782616536420" duration="32725000" />
+      <workItem from="1782695244597" duration="10953000" />
+      <workItem from="1782711324613" duration="12610000" />
+      <workItem from="1782893851584" duration="5068000" />
+      <workItem from="1782955349648" duration="9485000" />
+      <workItem from="1783063778146" duration="1609000" />
     </task>
     <servers />
   </component>
